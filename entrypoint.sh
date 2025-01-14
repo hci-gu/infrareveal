@@ -8,8 +8,6 @@ MAC="${MAC:-random}"
 
 # SIGTERM-handler
 term_handler() {
-
-  # remove iptable entries
   iptables -t nat -D POSTROUTING -o "$INTERNET_IFACE" -j MASQUERADE
   iptables -D FORWARD -i "$INTERNET_IFACE" -o "$AP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT
   iptables -D FORWARD -i "$AP_IFACE" -o "$INTERNET_IFACE" -j ACCEPT
@@ -24,37 +22,36 @@ term_handler() {
   echo "received shutdown signal, exiting."
 }
 
-# spoof MAC address
-if [ "$MAC" != "unchanged" ] ; then
+# Spoof MAC address
+if [ "$MAC" != "unchanged" ]; then
   ifconfig "$AP_IFACE" down
-  if [ "$MAC" == "random" ] ; then
+  if [ "$MAC" == "random" ]; then
     echo "using random MAC address"
     macchanger -A "$AP_IFACE"
   else
     echo "setting MAC address to $MAC"
     macchanger --mac "$MAC" "$AP_IFACE"
   fi
-  if [ ! $? ] ; then
+  if [ $? -ne 0 ]; then
     echo "Failed to change MAC address, aborting."
     exit 1
   fi
   ifconfig "$AP_IFACE" up
 fi
 
-ifconfig "$AP_IFACE" 10.0.0.1/24
+ifconfig "$AP_IFACE" 10.0.0.1/24 || {
+  echo "Failed to configure $AP_IFACE with IP 10.0.0.1/24"
+  exit 1
+}
 
-# configure WPA password if provided
+# Configure WPA password if provided
 if [ ! -z "$PASSWORD" ]; then
-
-  # password length check
-  if [ ! ${#PASSWORD} -ge 8 ] && [ ${#PASSWORD} -le 63 ]; then
+  if [ ${#PASSWORD} -lt 8 ] || [ ${#PASSWORD} -gt 63 ]; then
     echo "PASSWORD must be between 8 and 63 characters"
     echo "password '$PASSWORD' has length: ${#PASSWORD}, exiting."
     exit 1
   fi
 
-  # uncomment WPA2 auth stuff in hostapd.conf
-  # replace the password with $PASSWORD
   sed -i 's/#//' /etc/hostapd/hostapd.conf
   sed -i "s/wpa_passphrase=.*/wpa_passphrase=$PASSWORD/g" /etc/hostapd/hostapd.conf
 fi
@@ -63,47 +60,43 @@ sed -i "s/^ssid=.*/ssid=$SSID/g" /etc/hostapd/hostapd.conf
 sed -i "s/interface=.*/interface=$AP_IFACE/g" /etc/hostapd/hostapd.conf
 sed -i "s/interface=.*/interface=$AP_IFACE/g" /etc/dnsmasq.conf
 
-/etc/init.d/dbus start
-/etc/init.d/dnsmasq start
-/etc/init.d/hostapd start
+/etc/init.d/dbus status || /etc/init.d/dbus start
+/etc/init.d/dnsmasq status || /etc/init.d/dnsmasq start
+/etc/init.d/hostapd status || /etc/init.d/hostapd start
 
 echo 1 > /proc/sys/net/ipv4/ip_forward
 
-# iptables entries to setup AP network
-# -C checks if rule exists, -A adds, and -D deletes
-iptables -t nat -C POSTROUTING -o "$INTERNET_IFACE" -j MASQUERADE
-if [ ! $? -eq 0 ] ; then
-    iptables -t nat -A POSTROUTING -o "$INTERNET_IFACE" -j MASQUERADE
-fi
-iptables -C FORWARD -i "$INTERNET_IFACE" -o "$AP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT
-if [ ! $? -eq 0 ] ; then
-    iptables -A FORWARD -i "$INTERNET_IFACE" -o "$AP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT
-fi
-iptables -C FORWARD -i "$AP_IFACE" -o "$INTERNET_IFACE" -j ACCEPT
-if [ ! $? -eq 0 ] ; then
-    iptables -A FORWARD -i "$AP_IFACE" -o "$INTERNET_IFACE" -j ACCEPT
-fi
+# Set up iptables rules
+iptables -t nat -C POSTROUTING -o "$INTERNET_IFACE" -j MASQUERADE 2>/dev/null || \
+iptables -t nat -A POSTROUTING -o "$INTERNET_IFACE" -j MASQUERADE
 
-# iptables rule to forward all traffic on router port 80 to 8888
-# where mitmproxy will be listening for it
-iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337
-iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337
-if [ ! $? -eq 0 ] ; then
-  iptables -t nat -A PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337
-  iptables -t nat -A PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337
-fi
+iptables -C FORWARD -i "$INTERNET_IFACE" -o "$AP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
+iptables -A FORWARD -i "$INTERNET_IFACE" -o "$AP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT
 
-# setup handlers
+iptables -C FORWARD -i "$AP_IFACE" -o "$INTERNET_IFACE" -j ACCEPT 2>/dev/null || \
+iptables -A FORWARD -i "$AP_IFACE" -o "$INTERNET_IFACE" -j ACCEPT
+
+iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337 2>/dev/null || \
+iptables -t nat -A PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337
+
+iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337 2>/dev/null || \
+iptables -t nat -A PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337
+
+# Signal handling
 trap term_handler SIGTERM
-trap term_handler SIGKILL
 
-# start mitmproxy in the background, but keep its output in this session
-# mitmdump --quiet --mode transparent --set confdir=/certs --set keep_host_header=true -s /scripts/proxy.py --listen-host 0.0.0.0 -p 1337 &
-# MITMDUMP_PID=$!
-# start pocketbase instead here
-/root/pb/infra-reveal serve --http="0.0.0.0:8090"
+# Start infra-reveal
+if [ -x /root/pb/infra-reveal ]; then
+  /root/pb/infra-reveal serve --http="0.0.0.0:8090" || {
+    echo "infra-reveal failed to start"
+    exit 1
+  }
+else
+  echo "infra-reveal binary not found or not executable"
+  exit 1
+fi
 
-# wait forever
-sleep infinity &
+# Keep container running
+tail -f /dev/null &
 CHILD=$!
 wait "$CHILD"
