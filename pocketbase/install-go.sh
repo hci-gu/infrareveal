@@ -1,16 +1,23 @@
 #!/bin/bash
 
-VERSION=1.23.0 # pick the latest version from https://golang.org/dl/
-ARCH=armv6l # arm64 for 64-bit OS
+VERSION=1.23.0 # Specify the desired Go version
+ARCH=aarch64 # arm64 for 64-bit OS
 
 ## Download the latest version of Golang
 echo "Downloading Go $VERSION"
-wget https://dl.google.com/go/go$VERSION.linux-$ARCH.tar.gz
+wget https://dl.google.com/go/go$VERSION.linux-$ARCH.tar.gz -O /tmp/go$VERSION.linux-$ARCH.tar.gz
 echo "Downloading Go $VERSION completed"
 
+## Create the target directory if it doesn't exist
+TARGET_DIR="$HOME/.local/share"
+if [ ! -d "$TARGET_DIR" ]; then
+    echo "Creating directory $TARGET_DIR"
+    mkdir -p "$TARGET_DIR"
+fi
+
 ## Extract the archive
-echo "Extracting..."
-tar -C ~/.local/share -xzf go$VERSION.linux-$ARCH.tar.gz
+echo "Extracting Go $VERSION..."
+tar -C "$TARGET_DIR" -xzf /tmp/go$VERSION.linux-$ARCH.tar.gz
 echo "Extraction complete"
 
 ## Detect the user's shell and add the appropriate path variables
@@ -33,6 +40,13 @@ fi
 echo 'export GOPATH=$HOME/.local/share/go' >> "$SHELL_RC"
 echo 'export PATH=$HOME/.local/share/go/bin:$PATH' >> "$SHELL_RC"
 
+## Reload the shell configuration
+if [ "$SHELL_TYPE" = "fish" ]; then
+    source "$SHELL_RC" 2>/dev/null || echo "Restart your shell or run: source $SHELL_RC"
+else
+    source "$SHELL_RC" 2>/dev/null || echo "Restart your shell or run: source $SHELL_RC"
+fi
+
 ## Verify the installation
 if [ -x "$(command -v go)" ]; then
     INSTALLED_VERSION=$(go version | awk '{print $3}')
@@ -46,4 +60,6 @@ else
 fi
 
 ## Clean up
-rm go$VERSION.linux-$ARCH.tar.gz
+echo "Cleaning up..."
+rm /tmp/go$VERSION.linux-$ARCH.tar.gz
+echo "Cleanup complete."
