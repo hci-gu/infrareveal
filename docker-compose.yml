@@ -15,3 +15,5 @@ services:
     volumes:
       - ./pocketbase/infra-reveal:/root/infra-reveal/pb
     entrypoint: ["/root/entrypoint.sh"]
+    ports:
+      - "8090:8090"
