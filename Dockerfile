@@ -16,7 +16,7 @@ ADD hostapd /etc/default/hostapd
 ADD dnsmasq.conf /etc/dnsmasq.conf
 
 ADD entrypoint.sh /root/entrypoint.sh
-# ADD ./pocketbase/infra-reveal /root/infra-reveal/pb
+ADD ./pocketbase/infra-reveal /root/infra-reveal/pb
 WORKDIR /root
 ENTRYPOINT ["/root/entrypoint.sh"]
 

@@ -1,6 +1,6 @@
 #!/bin/bash
 
-VERSION=1.22.0 # pick the latest version from https://golang.org/dl/
+VERSION=1.23.0 # pick the latest version from https://golang.org/dl/
 ARCH=armv6l # arm64 for 64-bit OS
 
 ## Download the latest version of Golang
