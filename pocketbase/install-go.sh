@@ -1,7 +1,7 @@
 #!/bin/bash
 
 VERSION=1.23.0 # Specify the desired Go version
-ARCH=aarch64 # arm64 for 64-bit OS
+ARCH=arm64 # arm64 for 64-bit OS
 
 ## Download the latest version of Golang
 echo "Downloading Go $VERSION"
