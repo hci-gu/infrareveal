@@ -1,16 +1,46 @@
+# Base image with Go installed
+FROM golang:1.23-bullseye AS builder
+
+# Set up the working directory
+WORKDIR /app
+
+# Copy the entire pocketbase folder into the image
+COPY ./pocketbase /app
+
+# Build the infra-reveal binary
+RUN go build -o /root/pb/infra-reveal .
+
+# Use a minimal runtime image for the final container
 FROM balenalib/rpi-raspbian:bullseye
 
-RUN apt-get update --fix-missing && apt-get install -y hostapd dbus net-tools iptables dnsmasq net-tools macchanger libc6 iproute2
+# Install required dependencies
+RUN apt-get update --fix-missing && apt-get install -y \
+    hostapd \
+    dbus \
+    net-tools \
+    iptables \
+    dnsmasq \
+    macchanger \
+    iproute2 \
+    && apt-get clean
 
-ADD hostapd.conf /etc/hostapd/hostapd.conf
-ADD hostapd /etc/default/hostapd
-ADD dnsmasq.conf /etc/dnsmasq.conf
+# Copy the built binary from the builder stage
+COPY --from=builder /root/pb/infra-reveal /root/pb/infra-reveal
 
-ADD entrypoint.sh /root/entrypoint.sh
-ADD ./pocketbase/infra-reveal /root/pb/infra-reveal
+# Set permissions for the binary
 RUN chmod +x /root/pb/infra-reveal
+
+# Copy the entrypoint script and other configuration files
+COPY entrypoint.sh /root/entrypoint.sh
+COPY hostapd.conf /etc/hostapd/hostapd.conf
+COPY hostapd /etc/default/hostapd
+COPY dnsmasq.conf /etc/dnsmasq.conf
+
+# Set the working directory
 WORKDIR /root
+
+# Make entrypoint script executable
+RUN chmod +x /root/entrypoint.sh
+
+# Define the entrypoint
 ENTRYPOINT ["/root/entrypoint.sh"]
-
-
-# sudo docker run -it --net host --privileged --restart always -e AP_IFACE="wlan0" -e INTERNET_IFACE="eth0" -e SSID="Infrareveal old" pi-local/proxy:latest -d
