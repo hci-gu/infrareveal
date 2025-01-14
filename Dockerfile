@@ -7,8 +7,9 @@ WORKDIR /app
 # Copy the entire pocketbase folder into the image
 COPY ./pocketbase /app
 
-# Build the infra-reveal binary
-RUN go build -o /root/pb/infra-reveal .
+# Build the infra-reveal binary with CGO disabled
+ENV CGO_ENABLED=0
+RUN GOARCH=arm64 GOOS=linux go build -o /root/pb/infra-reveal .
 
 # Use a minimal runtime image for the final container
 FROM balenalib/rpi-raspbian:bullseye
