@@ -1,0 +1,17 @@
+version: '3.9'
+
+services:
+  proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    network_mode: "host"  # Equivalent to --net host
+    privileged: true       # Equivalent to --privileged
+    restart: always        # Equivalent to --restart always
+    environment:
+      - AP_IFACE=wlan0     # Replace with your Wi-Fi interface
+      - INTERNET_IFACE=eth0 # Replace with your internet interface
+      - SSID=Infrareveal old
+    volumes:
+      - ./pocketbase/infra-reveal:/root/infra-reveal/pb
+    entrypoint: ["/root/entrypoint.sh"]
