@@ -1,0 +1,5 @@
+
+RPI setup
+
+hostname
+infrareveal-testing
