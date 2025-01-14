@@ -51,19 +51,19 @@ ip link set "$AP_IFACE" up || {
 }
 
 # Stop conflicting services that may use port 53
-if netstat -tuln | grep -q ":53"; then
-  echo "Port 53 is already in use, killing the process..."
-  PID=$(netstat -tuln | grep ":53" | awk '{print $7}' | cut -d/ -f1)
-  if [ -n "$PID" ]; then
-    kill -9 "$PID" || {
-      echo "Failed to kill process on port 53"
-      exit 1
-    }
-  else
-    echo "Could not determine the process using port 53"
-    exit 1
-  fi
-fi
+# if netstat -tuln | grep -q ":53"; then
+#   echo "Port 53 is already in use, killing the process..."
+#   PID=$(netstat -tuln | grep ":53" | awk '{print $7}' | cut -d/ -f1)
+#   if [ -n "$PID" ]; then
+#     kill -9 "$PID" || {
+#       echo "Failed to kill process on port 53"
+#       exit 1
+#     }
+#   else
+#     echo "Could not determine the process using port 53"
+#     exit 1
+#   fi
+# fi
 
 # Update dnsmasq and hostapd configurations
 sed -i "s/^ssid=.*/ssid=$SSID/g" /etc/hostapd/hostapd.conf
