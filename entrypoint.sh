@@ -16,8 +16,7 @@ term_handler() {
   /etc/init.d/hostapd stop
   /etc/init.d/dbus stop
 
-  kill $MITMDUMP_PID
-  kill -TERM "$CHILD" 2> /dev/null
+  kill -TERM "$CHILD" 2>/dev/null
 
   echo "received shutdown signal, exiting."
 }
@@ -39,34 +38,46 @@ if [ "$MAC" != "unchanged" ]; then
   ifconfig "$AP_IFACE" up
 fi
 
-ifconfig "$AP_IFACE" 10.0.0.1/24 || {
-  echo "Failed to configure $AP_IFACE with IP 10.0.0.1/24"
+# Assign IP to the AP interface
+echo "Configuring $AP_IFACE with IP 10.0.0.1..."
+ip addr add 10.0.0.1/24 dev "$AP_IFACE" || {
+  echo "Failed to assign IP 10.0.0.1 to $AP_IFACE"
+  exit 1
+}
+ip link set "$AP_IFACE" up || {
+  echo "Failed to bring up $AP_IFACE"
   exit 1
 }
 
-# Configure WPA password if provided
-if [ ! -z "$PASSWORD" ]; then
-  if [ ${#PASSWORD} -lt 8 ] || [ ${#PASSWORD} -gt 63 ]; then
-    echo "PASSWORD must be between 8 and 63 characters"
-    echo "password '$PASSWORD' has length: ${#PASSWORD}, exiting."
+# Stop conflicting services that may use port 53
+if netstat -tuln | grep -q ":53"; then
+  echo "Port 53 is already in use, stopping conflicting service..."
+  systemctl stop systemd-resolved || {
+    echo "Failed to stop conflicting service on port 53"
     exit 1
-  fi
-
-  sed -i 's/#//' /etc/hostapd/hostapd.conf
-  sed -i "s/wpa_passphrase=.*/wpa_passphrase=$PASSWORD/g" /etc/hostapd/hostapd.conf
+  }
 fi
 
+# Update dnsmasq and hostapd configurations
 sed -i "s/^ssid=.*/ssid=$SSID/g" /etc/hostapd/hostapd.conf
 sed -i "s/interface=.*/interface=$AP_IFACE/g" /etc/hostapd/hostapd.conf
 sed -i "s/interface=.*/interface=$AP_IFACE/g" /etc/dnsmasq.conf
 
+# Start services
 /etc/init.d/dbus status || /etc/init.d/dbus start
-/etc/init.d/dnsmasq status || /etc/init.d/dnsmasq start
-/etc/init.d/hostapd status || /etc/init.d/hostapd start
+/etc/init.d/dnsmasq start || {
+  echo "dnsmasq failed to start"
+  exit 1
+}
+/etc/init.d/hostapd start || {
+  echo "hostapd failed to start"
+  exit 1
+}
 
+# Enable IP forwarding
 echo 1 > /proc/sys/net/ipv4/ip_forward
 
-# Set up iptables rules
+# Configure iptables rules for NAT and traffic forwarding
 iptables -t nat -C POSTROUTING -o "$INTERNET_IFACE" -j MASQUERADE 2>/dev/null || \
 iptables -t nat -A POSTROUTING -o "$INTERNET_IFACE" -j MASQUERADE
 
@@ -96,7 +107,7 @@ else
   exit 1
 fi
 
-# Keep container running
+# Keep the container running
 tail -f /dev/null &
 CHILD=$!
 wait "$CHILD"
