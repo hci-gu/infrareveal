@@ -1,6 +1,6 @@
 FROM balenalib/rpi-raspbian:bullseye
 
-RUN apt-get update --fix-missing && apt-get install -y hostapd dbus net-tools iptables dnsmasq net-tools macchanger libc6
+RUN apt-get update --fix-missing && apt-get install -y hostapd dbus net-tools iptables dnsmasq net-tools macchanger libc6 iproute2
 
 ADD hostapd.conf /etc/hostapd/hostapd.conf
 ADD hostapd /etc/default/hostapd
