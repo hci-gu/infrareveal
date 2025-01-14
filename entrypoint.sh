@@ -38,8 +38,9 @@ if [ "$MAC" != "unchanged" ]; then
   ifconfig "$AP_IFACE" up
 fi
 
-# Assign IP to the AP interface
+# Remove any existing IPs and assign static IP
 echo "Configuring $AP_IFACE with IP 10.0.0.1..."
+ip addr flush dev "$AP_IFACE"
 ip addr add 10.0.0.1/24 dev "$AP_IFACE" || {
   echo "Failed to assign IP 10.0.0.1 to $AP_IFACE"
   exit 1
@@ -51,11 +52,17 @@ ip link set "$AP_IFACE" up || {
 
 # Stop conflicting services that may use port 53
 if netstat -tuln | grep -q ":53"; then
-  echo "Port 53 is already in use, stopping conflicting service..."
-  systemctl stop systemd-resolved || {
-    echo "Failed to stop conflicting service on port 53"
+  echo "Port 53 is already in use, killing the process..."
+  PID=$(netstat -tuln | grep ":53" | awk '{print $7}' | cut -d/ -f1)
+  if [ -n "$PID" ]; then
+    kill -9 "$PID" || {
+      echo "Failed to kill process on port 53"
+      exit 1
+    }
+  else
+    echo "Could not determine the process using port 53"
     exit 1
-  }
+  fi
 fi
 
 # Update dnsmasq and hostapd configurations
