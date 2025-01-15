@@ -49,6 +49,8 @@ ip link set "$AP_IFACE" up || {
   echo "Failed to bring up $AP_IFACE"
   exit 1
 }
+# set static MAC address
+ip link set wlan0 address 02:00:00:00:01:00
 
 # Stop conflicting services that may use port 53
 # if netstat -tuln | grep -q ":53"; then
