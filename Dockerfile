@@ -28,6 +28,13 @@ RUN apt-get update --fix-missing && apt-get install -y \
 # Copy the built binary from the builder stage
 COPY --from=builder /root/pb/infra-reveal /root/pb/infra-reveal
 
+# Copy the geoip database to the container
+COPY ./pocketbase/geoip /root/geoip
+
+# Set permissions for the geoip folder and binary
+RUN chmod -R +x /root/pb
+RUN chmod -R +r /root/geoip
+
 # Set permissions for the binary
 RUN chmod +x /root/pb/infra-reveal
 
