@@ -39,7 +39,12 @@ if [ "$MAC" != "unchanged" ]; then
 fi
 
 # Remove any existing IPs and assign static IP
-echo "Configuring $AP_IFACE with IP 10.0.0.1..."
+# Set a static MAC address for wlan0
+ip link set "$AP_IFACE" down
+ip link set "$AP_IFACE" address 02:00:00:00:01:00
+ip link set "$AP_IFACE" up
+
+# Remove old IPs and configure the interface
 ip addr flush dev "$AP_IFACE"
 ip addr add 10.0.0.1/24 dev "$AP_IFACE" || {
   echo "Failed to assign IP 10.0.0.1 to $AP_IFACE"
@@ -49,8 +54,6 @@ ip link set "$AP_IFACE" up || {
   echo "Failed to bring up $AP_IFACE"
   exit 1
 }
-# set static MAC address
-ip link set wlan0 address 02:00:00:00:01:00
 
 # Stop conflicting services that may use port 53
 # if netstat -tuln | grep -q ":53"; then
