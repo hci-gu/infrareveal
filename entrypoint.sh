@@ -29,13 +29,13 @@ ip link set "$AP_IFACE" up
 # Assign static IP and flush existing IPs
 if ! ip addr add 10.0.0.1/24 dev "$AP_IFACE"; then
   echo "Failed to assign IP 10.0.0.1 to $AP_IFACE"
-  exit 1
+  # exit 1
 fi
 
 # Verify interface state
 if ! ip link set "$AP_IFACE" up; then
   echo "Failed to bring up $AP_IFACE"
-  exit 1
+  # exit 1
 fi
 
 # Ensure no lingering processes
