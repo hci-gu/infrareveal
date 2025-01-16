@@ -189,30 +189,75 @@ func parseHTTPHost(r *bufio.Reader) string {
 func parseTLSClientHello(r *bufio.Reader) string {
 	header := make([]byte, 5)
 	if _, err := io.ReadFull(r, header); err != nil {
+		log.Printf("Failed to read TLS header: %v", err)
 		return ""
 	}
 	recLen := int(binary.BigEndian.Uint16(header[3:5]))
 	if recLen < 42 {
+		log.Printf("Invalid ClientHello length: %d", recLen)
 		return ""
 	}
 
 	data := make([]byte, recLen)
 	if _, err := io.ReadFull(r, data); err != nil {
+		log.Printf("Failed to read ClientHello data: %v", err)
 		return ""
 	}
+
+	// Skip to extensions
 	idx := 4 + 2 + 32
-	idx += int(data[idx]) + 1
-	csLen := int(binary.BigEndian.Uint16(data[idx : idx+2]))
-	idx += 2 + csLen + int(data[idx])
-	idx += 2
-	for idx+4 < len(data) {
-		extType := binary.BigEndian.Uint16(data[idx : idx+2])
-		extLen := int(binary.BigEndian.Uint16(data[idx+2 : idx+4]))
-		if extType == 0x00 && extLen >= 5 {
-			nameLen := int(binary.BigEndian.Uint16(data[idx+7 : idx+9]))
-			return string(data[idx+9 : idx+9+nameLen])
-		}
-		idx += 4 + extLen
+	if idx >= len(data) {
+		log.Printf("ClientHello too short for session ID")
+		return ""
 	}
+	idx += int(data[idx]) + 1
+	if idx+2 > len(data) {
+		log.Printf("ClientHello too short for cipher suites")
+		return ""
+	}
+	csLen := int(binary.BigEndian.Uint16(data[idx : idx+2]))
+	idx += 2 + csLen
+	if idx >= len(data) {
+		log.Printf("ClientHello too short for compression methods")
+		return ""
+	}
+	idx += int(data[idx]) + 1
+	if idx+2 > len(data) {
+		log.Printf("ClientHello too short for extensions length")
+		return ""
+	}
+	extLen := int(binary.BigEndian.Uint16(data[idx : idx+2]))
+	idx += 2
+	if idx+extLen > len(data) {
+		log.Printf("ClientHello extensions truncated")
+		return ""
+	}
+
+	// Parse extensions
+	for idx+4 <= len(data) {
+		extType := binary.BigEndian.Uint16(data[idx : idx+2])
+		extDataLen := int(binary.BigEndian.Uint16(data[idx+2 : idx+4]))
+		idx += 4
+		if idx+extDataLen > len(data) {
+			log.Printf("Extension truncated: type=%x len=%d", extType, extDataLen)
+			return ""
+		}
+		if extType == 0x00 { // SNI
+			sniData := data[idx : idx+extDataLen]
+			if len(sniData) < 5 {
+				log.Printf("SNI extension too short")
+				return ""
+			}
+			if sniData[2] == 0 { // Name type = host_name
+				nameLen := int(binary.BigEndian.Uint16(sniData[3:5]))
+				if 5+nameLen <= len(sniData) {
+					return string(sniData[5 : 5+nameLen])
+				}
+				log.Printf("SNI host_name truncated")
+			}
+		}
+		idx += extDataLen
+	}
+	log.Printf("No SNI found in ClientHello")
 	return ""
 }
