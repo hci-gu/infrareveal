@@ -9,62 +9,85 @@ import (
 	"log"
 	"net"
 	"strings"
+	"syscall"
 	"unsafe"
-
-	"golang.org/x/sys/unix"
 )
 
-// soOriginalDst is the sockopt to get the original destination (SO_ORIGINAL_DST).
-// Defined in <linux/netfilter_ipv4.h> as 80 (0x50).
+// soOriginalDst is the option code for SO_ORIGINAL_DST on Linux (0x50 = 80).
+// This is defined in <linux/netfilter_ipv4.h>.
 const soOriginalDst = 80
+
+// solIP is the SOL_IP constant in Linux, which is 0 for IPv4.
+const solIP = 0
+
+// RawSockaddrInet4 here is our own copy, matching the Linux struct:
+//
+//	struct sockaddr_in {
+//	    __u16  sin_family;
+//	    __be16 sin_port;
+//	    struct in_addr sin_addr;
+//	    ...
+//	}
+type RawSockaddrInet4 struct {
+	Family uint16
+	Port   uint16
+	Addr   [4]byte
+	Zero   [8]byte
+}
+
+// ntohs swaps a 16-bit integer from network byte order to host byte order.
+func ntohs(n uint16) uint16 {
+	return (n<<8)&0xff00 | n>>8
+}
 
 func main() {
 	ln, err := net.Listen("tcp", ":1337")
 	if err != nil {
-		log.Fatalf("Failed to listen on :1337: %v", err)
+		log.Fatalf("Cannot listen on :1337: %v", err)
 	}
 	defer ln.Close()
 
-	log.Println("Transparent proxy listening on :1337...")
+	log.Println("Transparent proxy listening on :1337 ... (run as root, iptables redirect in place)")
 
 	for {
-		clientConn, err := ln.Accept()
+		conn, err := ln.Accept()
 		if err != nil {
 			log.Printf("Accept error: %v", err)
 			continue
 		}
-		go handleClient(clientConn)
+		go handleConn(conn)
 	}
 }
 
-func handleClient(clientConn net.Conn) {
+func handleConn(clientConn net.Conn) {
 	defer clientConn.Close()
 
-	// 1) Retrieve the original destination IP:port
+	// 1) Get original destination
 	origAddr, err := getOriginalDst(clientConn)
 	if err != nil {
 		log.Printf("getOriginalDst error: %v", err)
 		return
 	}
 
-	// 2) Peek first 5 bytes to see if TLS handshake (0x16) or HTTP
+	// 2) Peek first 5 bytes: check if TLS (0x16) or HTTP
 	peek := make([]byte, 5)
 	n, err := io.ReadFull(clientConn, peek)
 	if err != nil {
-		log.Printf("Read initial bytes error: %v", err)
+		log.Printf("Error reading initial bytes: %v", err)
 		return
 	}
 	if n < 5 {
+		// not enough data
 		return
 	}
 
-	// Re-inject those bytes via MultiReader so we don't lose them
+	// Re-inject these bytes so the connection can proceed
 	combined := io.MultiReader(bytes.NewReader(peek), clientConn)
 	buf := bufio.NewReader(combined)
 
+	// TLS handshake record type = 0x16
 	isTLS := (peek[0] == 0x16)
 
-	// 3) Log either SNI (if TLS) or Host (if HTTP)
 	var hostname string
 	if isTLS {
 		hostname = parseTLSClientHello(buf)
@@ -80,15 +103,15 @@ func handleClient(clientConn net.Conn) {
 		log.Printf("[HTTP] Host: %s => %s", hostname, origAddr)
 	}
 
-	// 4) Dial the real/original destination
+	// 3) Dial the original destination
 	serverConn, err := net.Dial("tcp", origAddr.String())
 	if err != nil {
-		log.Printf("Dial %s failed: %v", origAddr, err)
+		log.Printf("Dial %s failed: %v", origAddr.String(), err)
 		return
 	}
 	defer serverConn.Close()
 
-	// 5) Forward data in both directions
+	// 4) Proxy data in both directions
 	go func() {
 		_, _ = io.Copy(serverConn, buf) // client -> server
 		serverConn.Close()
@@ -96,56 +119,71 @@ func handleClient(clientConn net.Conn) {
 	_, _ = io.Copy(clientConn, serverConn) // server -> client
 }
 
-// getOriginalDst manually calls getsockopt(fd, IPPROTO_IP, SO_ORIGINAL_DST)
-// and decodes the returned RawSockaddrInet4 to get the IP+port.
+// getOriginalDst uses a raw getsockopt(SO_ORIGINAL_DST) syscall
+// to retrieve the real (pre-REDIRECT) IPv4 address + port.
 func getOriginalDst(conn net.Conn) (*net.TCPAddr, error) {
 	tcpConn, ok := conn.(*net.TCPConn)
 	if !ok {
 		return nil, fmt.Errorf("not a TCPConn")
 	}
+
+	// Get the file descriptor
 	f, err := tcpConn.File()
 	if err != nil {
-		return nil, fmt.Errorf("tcpConn.File(): %w", err)
+		return nil, fmt.Errorf("tcpConn.File: %w", err)
 	}
 	defer f.Close()
 
-	fd := int(f.Fd())
+	fd := f.Fd()
 
-	var addr unix.RawSockaddrInet4
+	// Prepare a buffer for RawSockaddrInet4
+	var addr RawSockaddrInet4
 	size := uint32(unsafe.Sizeof(addr))
 
-	// Use IPPROTO_IP (== 0) for the "level" argument.
-	// soOriginalDst (80) is the "optname".
-	err = unix.Getsockopt(fd, unix.IPPROTO_IP, soOriginalDst, (*byte)(unsafe.Pointer(&addr)), &size)
-	if err != nil {
-		return nil, fmt.Errorf("getsockopt SO_ORIGINAL_DST: %v", err)
+	// Use the lower-level Syscall6 for getsockopt,
+	// since some platforms don't have syscall.Getsockopt defined.
+	r0, _, e1 := syscall.Syscall6(
+		syscall.SYS_GETSOCKOPT,
+		uintptr(fd),
+		uintptr(solIP),         // IPPROTO_IP = 0
+		uintptr(soOriginalDst), // 80
+		uintptr(unsafe.Pointer(&addr)),
+		uintptr(unsafe.Pointer(&size)),
+		0,
+	)
+	if int(r0) != 0 {
+		// If r0 != 0, this indicates an error code.
+		if e1 != 0 {
+			return nil, fmt.Errorf("getsockopt(SO_ORIGINAL_DST) syscall error: %v", e1)
+		}
+		return nil, fmt.Errorf("getsockopt(SO_ORIGINAL_DST) failed (unknown error)")
 	}
 
-	// Port is in network byte order in addr.Port[0..1]
-	port := (uint16(addr.Port[0]) << 8) + uint16(addr.Port[1])
+	// Now parse the RawSockaddrInet4
+	port := ntohs(addr.Port)
 	ip := net.IPv4(addr.Addr[0], addr.Addr[1], addr.Addr[2], addr.Addr[3])
 	return &net.TCPAddr{IP: ip, Port: int(port)}, nil
 }
 
-// parseHTTPHost reads the first HTTP request line + headers to find the Host header.
+// parseHTTPHost tries to read the first line + headers from an HTTP request.
+// Looks for a "Host:" header. Returns "" if not found or if there's an error.
 func parseHTTPHost(r *bufio.Reader) string {
-	// For example, "GET / HTTP/1.1\r\n"
-	line, err := r.ReadString('\n')
+	// For example: "GET / HTTP/1.1\r\n"
+	_, err := r.ReadString('\n')
 	if err != nil {
 		return ""
 	}
-	line = strings.TrimSpace(line)
-
-	// Keep reading headers until blank line
+	// Then read headers until blank line
 	var host string
 	for {
 		hdrLine, err := r.ReadString('\n')
 		if err != nil {
+			// possible EOF
 			break
 		}
 		hdrLine = strings.TrimSpace(hdrLine)
 		if hdrLine == "" {
-			// blank line => end of headers
+			// end of headers
 			break
 		}
 		if strings.HasPrefix(strings.ToLower(hdrLine), "host:") {
@@ -155,95 +193,99 @@ func parseHTTPHost(r *bufio.Reader) string {
 			}
 		}
 	}
-	// Remove any :port if present
+	// Remove any :port part
 	host = strings.Split(host, ":")[0]
 	return host
 }
 
-// parseTLSClientHello does a minimal parse of the TLS ClientHello handshake
-// to extract the SNI (server_name) if present. This won't handle all edge cases.
+// parseTLSClientHello does a minimal parse of a TLS ClientHello
+// to extract the SNI (server_name). If it doesn't find any SNI, returns "".
 func parseTLSClientHello(r *bufio.Reader) string {
-	// We already read 5 bytes (record header), read them again for the handshake portion:
+	// We already read 5 bytes of the TLS record header (type, version, length).
 	header := make([]byte, 5)
 	if _, err := io.ReadFull(r, header); err != nil {
 		return ""
 	}
 	recLen := int(binary.BigEndian.Uint16(header[3:5]))
-	if recLen < 42 {
+	if recLen < 42 { // too short to be a valid ClientHello
 		return ""
 	}
 
-	payload := make([]byte, recLen)
-	if _, err := io.ReadFull(r, payload); err != nil {
+	data := make([]byte, recLen)
+	if _, err := io.ReadFull(r, data); err != nil {
 		return ""
 	}
 
-	// payload[0] => handshake type (0x01 = ClientHello)
-	if payload[0] != 0x01 {
+	// data[0] => handshake type (0x01 = ClientHello)
+	if data[0] != 0x01 {
+		// not a ClientHello
 		return ""
 	}
-	idx := 4 // skip handshake type(1)+length(3)
+	idx := 4 // skip handshakeType(1) + length(3)
 
-	// skip client version(2) + random(32)
+	// skip client_version(2) + random(32)
 	idx += 2 + 32
-	if idx >= len(payload) {
+	if idx >= len(data) {
 		return ""
 	}
-	// sessionID
-	sessionLen := int(payload[idx])
+
+	// session_id
+	sessLen := int(data[idx])
 	idx++
-	idx += sessionLen
-	if idx >= len(payload) {
+	idx += sessLen
+	if idx >= len(data) {
 		return ""
 	}
 
-	// cipher suites
-	if idx+2 > len(payload) {
+	// cipher_suites
+	if idx+2 > len(data) {
 		return ""
 	}
-	csLen := int(binary.BigEndian.Uint16(payload[idx : idx+2]))
+	csLen := int(binary.BigEndian.Uint16(data[idx : idx+2]))
 	idx += 2 + csLen
-	if idx >= len(payload) {
+	if idx >= len(data) {
 		return ""
 	}
 
-	// compression methods
-	if idx >= len(payload) {
+	// compression_methods
+	if idx >= len(data) {
 		return ""
 	}
-	compLen := int(payload[idx])
+	compLen := int(data[idx])
 	idx++
 	idx += compLen
-	if idx >= len(payload) {
+	if idx >= len(data) {
 		return ""
 	}
 
 	// extensions
-	if idx+2 > len(payload) {
+	if idx+2 > len(data) {
 		return ""
 	}
-	extLen := int(binary.BigEndian.Uint16(payload[idx : idx+2]))
+	extLen := int(binary.BigEndian.Uint16(data[idx : idx+2]))
 	idx += 2
-	if idx+extLen > len(payload) {
+	if idx+extLen > len(data) {
 		return ""
 	}
 
 	end := idx + extLen
 	for idx+4 <= end {
-		extType := binary.BigEndian.Uint16(payload[idx : idx+2])
-		length := int(binary.BigEndian.Uint16(payload[idx+2 : idx+4]))
+		extType := binary.BigEndian.Uint16(data[idx : idx+2])
+		length := int(binary.BigEndian.Uint16(data[idx+2 : idx+4]))
 		idx += 4
 		if idx+length > end {
 			return ""
 		}
-		// SNI extension => extType == 0
-		if extType == 0x00 {
-			// Format: 2 bytes SNI list length, 1 byte name_type, 2 bytes name_len, name...
-			sniData := payload[idx : idx+length]
+
+		// SNI extension => 0x00
+		if extType == 0x0000 {
+			// SNI format: 2 bytes for list length, 1 byte name_type, 2 bytes name_len, name
+			sniData := data[idx : idx+length]
 			if len(sniData) < 5 {
 				return ""
 			}
-			if sniData[2] == 0 { // host_name
+			// sniData[2] == 0 => host_name
+			if sniData[2] == 0 {
 				nameLen := int(binary.BigEndian.Uint16(sniData[3:5]))
 				if 5+nameLen <= len(sniData) {
 					return string(sniData[5 : 5+nameLen])
