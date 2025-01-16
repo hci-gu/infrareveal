@@ -192,34 +192,115 @@ func parseHTTPHost(r *bufio.Reader) string {
 }
 
 func parseTLSClientHello(r *bufio.Reader) string {
+	// Read the TLS record header (5 bytes)
 	header := make([]byte, 5)
 	if _, err := io.ReadFull(r, header); err != nil {
 		log.Printf("Failed to read TLS header: %v", err)
 		return ""
 	}
+
+	// Extract the record length
 	recLen := int(binary.BigEndian.Uint16(header[3:5]))
-	if recLen < 42 {
+	if recLen < 42 || recLen > 16384 { // Validate reasonable ClientHello lengths
 		log.Printf("Invalid ClientHello length: %d", recLen)
 		return ""
 	}
 
+	// Read the full ClientHello message
 	data := make([]byte, recLen)
 	if _, err := io.ReadFull(r, data); err != nil {
 		log.Printf("Failed to read ClientHello data: %v", err)
 		return ""
 	}
 
-	// Extract SNI from extensions
-	idx := 4 + 2 + 32 + int(data[4+2+32]) + 1
-	idx += int(binary.BigEndian.Uint16(data[idx:idx+2])) + 2
-	idx += int(data[idx]) + 1 + 2
-	for idx+4 <= len(data) {
-		if binary.BigEndian.Uint16(data[idx:idx+2]) == 0x00 { // SNI
-			nameLen := int(binary.BigEndian.Uint16(data[idx+9 : idx+11]))
-			return string(data[idx+11 : idx+11+nameLen])
-		}
-		idx += 4 + int(binary.BigEndian.Uint16(data[idx+2:idx+4]))
+	// Parse ClientHello fields
+	idx := 4 // Skip handshake type (1 byte) and length (3 bytes)
+	if idx+2+32 > len(data) {
+		log.Printf("ClientHello too short for session ID and random")
+		return ""
 	}
-	log.Printf("No SNI found")
+
+	// Skip session ID
+	idx += 2 + 32
+	sessLen := int(data[idx])
+	idx++
+	if idx+sessLen > len(data) {
+		log.Printf("Session ID length exceeds message bounds")
+		return ""
+	}
+	idx += sessLen
+
+	// Skip cipher suites
+	if idx+2 > len(data) {
+		log.Printf("ClientHello too short for cipher suites length")
+		return ""
+	}
+	csLen := int(binary.BigEndian.Uint16(data[idx : idx+2]))
+	idx += 2
+	if idx+csLen > len(data) {
+		log.Printf("Cipher suites length exceeds message bounds")
+		return ""
+	}
+	idx += csLen
+
+	// Skip compression methods
+	if idx+1 > len(data) {
+		log.Printf("ClientHello too short for compression methods")
+		return ""
+	}
+	compLen := int(data[idx])
+	idx++
+	if idx+compLen > len(data) {
+		log.Printf("Compression methods length exceeds message bounds")
+		return ""
+	}
+	idx += compLen
+
+	// Read extensions
+	if idx+2 > len(data) {
+		log.Printf("ClientHello too short for extensions length")
+		return ""
+	}
+	extLen := int(binary.BigEndian.Uint16(data[idx : idx+2]))
+	idx += 2
+	if idx+extLen > len(data) {
+		log.Printf("Extensions length exceeds message bounds")
+		return ""
+	}
+
+	// Parse extensions
+	end := idx + extLen
+	for idx+4 <= end {
+		// Read extension type and length
+		extType := binary.BigEndian.Uint16(data[idx : idx+2])
+		extDataLen := int(binary.BigEndian.Uint16(data[idx+2 : idx+4]))
+		idx += 4
+
+		if idx+extDataLen > end {
+			log.Printf("Extension length exceeds message bounds: type=%x len=%d", extType, extDataLen)
+			return ""
+		}
+
+		// SNI extension (type 0x00)
+		if extType == 0x00 {
+			sniData := data[idx : idx+extDataLen]
+			if len(sniData) < 5 {
+				log.Printf("SNI extension too short")
+				return ""
+			}
+			if sniData[2] == 0 { // Name type = host_name
+				nameLen := int(binary.BigEndian.Uint16(sniData[3:5]))
+				if 5+nameLen <= len(sniData) {
+					return string(sniData[5 : 5+nameLen])
+				}
+				log.Printf("SNI host_name length exceeds bounds")
+				return ""
+			}
+		}
+
+		idx += extDataLen
+	}
+
+	log.Printf("No SNI found in ClientHello")
 	return ""
 }
