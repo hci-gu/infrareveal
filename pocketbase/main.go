@@ -62,14 +62,14 @@ func main() {
 func handleConn(clientConn net.Conn) {
 	defer clientConn.Close()
 
-	// 1) Get original destination
+	// Get the original destination
 	origAddr, err := getOriginalDst(clientConn)
 	if err != nil {
 		log.Printf("getOriginalDst error: %v", err)
 		return
 	}
 
-	// 2) Peek first 5 bytes: check if TLS (0x16) or HTTP
+	// Peek the first few bytes for protocol identification
 	peek := make([]byte, 5)
 	n, err := io.ReadFull(clientConn, peek)
 	if err != nil {
@@ -77,33 +77,31 @@ func handleConn(clientConn net.Conn) {
 		return
 	}
 	if n < 5 {
-		// not enough data
+		// Not enough data to determine protocol
 		return
 	}
 
-	// Re-inject these bytes so the connection can proceed
-	combined := io.MultiReader(bytes.NewReader(peek), clientConn)
-	buf := bufio.NewReader(combined)
+	// Reassemble the connection stream
+	clientReader := io.MultiReader(bytes.NewReader(peek), clientConn)
 
-	// TLS handshake record type = 0x16
+	// Check for TLS or HTTP
 	isTLS := (peek[0] == 0x16)
-
 	var hostname string
 	if isTLS {
-		hostname = parseTLSClientHello(buf)
+		hostname = parseTLSClientHello(bufio.NewReader(clientReader))
 		if hostname == "" {
 			hostname = "UNKNOWN_SNI"
 		}
 		log.Printf("[TLS] SNI: %s => %s", hostname, origAddr)
 	} else {
-		hostname = parseHTTPHost(buf)
+		hostname = parseHTTPHost(bufio.NewReader(clientReader))
 		if hostname == "" {
 			hostname = "UNKNOWN_HOST"
 		}
 		log.Printf("[HTTP] Host: %s => %s", hostname, origAddr)
 	}
 
-	// 3) Dial the original destination
+	// Connect to the original destination
 	serverConn, err := net.Dial("tcp", origAddr.String())
 	if err != nil {
 		log.Printf("Dial %s failed: %v", origAddr.String(), err)
@@ -111,15 +109,27 @@ func handleConn(clientConn net.Conn) {
 	}
 	defer serverConn.Close()
 
-	// 4) Proxy data in both directions
+	// Proxy data between client and server
+	done := make(chan struct{})
 	go func() {
-		count, err := io.Copy(serverConn, buf) // client -> server
-		log.Printf("Copied %d bytes from client to server, err=%v", count, err)
+		_, err := io.Copy(serverConn, clientReader) // client -> server
+		if err != nil {
+			log.Printf("Error copying from client to server: %v", err)
+		}
 		serverConn.Close()
+		done <- struct{}{}
 	}()
-	log.Printf("Proxying %s <=> %s", clientConn.RemoteAddr(), serverConn.RemoteAddr())
-	res, err := io.Copy(clientConn, serverConn) // server -> client
-	log.Printf("Copied %d bytes from server to client, err=%v", res, err)
+
+	go func() {
+		_, err := io.Copy(clientConn, serverConn) // server -> client
+		if err != nil {
+			log.Printf("Error copying from server to client: %v", err)
+		}
+		clientConn.Close()
+		done <- struct{}{}
+	}()
+
+	<-done
 }
 
 // getOriginalDst uses a raw getsockopt(SO_ORIGINAL_DST) syscall
