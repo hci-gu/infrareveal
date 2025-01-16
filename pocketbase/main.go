@@ -113,7 +113,8 @@ func handleConn(clientConn net.Conn) {
 
 	// 4) Proxy data in both directions
 	go func() {
-		_, _ = io.Copy(serverConn, buf) // client -> server
+		count, err := io.Copy(serverConn, buf) // client -> server
+		log.Printf("Copied %d bytes from client to server, err=%v", count, err)
 		serverConn.Close()
 	}()
 	log.Printf("Proxying %s <=> %s", clientConn.RemoteAddr(), serverConn.RemoteAddr())
