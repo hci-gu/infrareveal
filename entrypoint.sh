@@ -47,6 +47,12 @@ sed -i "s/^ssid=.*/ssid=$SSID/g" /etc/hostapd/hostapd.conf
 sed -i "s/^interface=.*/interface=$AP_IFACE/g" /etc/hostapd/hostapd.conf
 sed -i "s/^interface=.*/interface=$AP_IFACE/g" /etc/dnsmasq.conf
 
+# wait 2 seconds
+echo "Letting the system settle for 2 seconds"
+sleep 2
+# log that we are continuing
+echo "Continuing with the script"
+
 # Start dbus if not running
 if ! /etc/init.d/dbus status > /dev/null 2>&1; then
   /etc/init.d/dbus start || {
