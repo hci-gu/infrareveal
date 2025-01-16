@@ -116,7 +116,9 @@ func handleConn(clientConn net.Conn) {
 		_, _ = io.Copy(serverConn, buf) // client -> server
 		serverConn.Close()
 	}()
+	log.Printf("Proxying %s <=> %s", clientConn.RemoteAddr(), serverConn.RemoteAddr())
 	_, _ = io.Copy(clientConn, serverConn) // server -> client
+	log.Printf("Connection closed: %s <=> %s", clientConn.RemoteAddr(), serverConn.RemoteAddr())
 }
 
 // getOriginalDst uses a raw getsockopt(SO_ORIGINAL_DST) syscall
