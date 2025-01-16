@@ -21,70 +21,52 @@ term_handler() {
   echo "received shutdown signal, exiting."
 }
 
-# Spoof MAC address
-if [ "$MAC" != "unchanged" ]; then
-  ifconfig "$AP_IFACE" down
-  if [ "$MAC" == "random" ]; then
-    echo "using random MAC address"
-    macchanger -A "$AP_IFACE"
-  else
-    echo "setting MAC address to $MAC"
-    macchanger --mac "$MAC" "$AP_IFACE"
-  fi
-  if [ $? -ne 0 ]; then
-    echo "Failed to change MAC address, aborting."
-    exit 1
-  fi
-  ifconfig "$AP_IFACE" up
-fi
-
-# Remove any existing IPs and assign static IP
-# Set a static MAC address for wlan0
+# Set AP interface
 ip link set "$AP_IFACE" down
 ip link set "$AP_IFACE" address 02:00:00:00:01:00
 ip link set "$AP_IFACE" up
 
-# Remove old IPs and configure the interface
-ip addr flush dev "$AP_IFACE"
-ip addr add 10.0.0.1/24 dev "$AP_IFACE" || {
+# Assign static IP and flush existing IPs
+if ! ip addr add 10.0.0.1/24 dev "$AP_IFACE"; then
   echo "Failed to assign IP 10.0.0.1 to $AP_IFACE"
   exit 1
-}
-ip link set "$AP_IFACE" up || {
+fi
+
+# Verify interface state
+if ! ip link set "$AP_IFACE" up; then
   echo "Failed to bring up $AP_IFACE"
   exit 1
-}
+fi
 
-# Stop conflicting services that may use port 53
-# if netstat -tuln | grep -q ":53"; then
-#   echo "Port 53 is already in use, killing the process..."
-#   PID=$(netstat -tuln | grep ":53" | awk '{print $7}' | cut -d/ -f1)
-#   if [ -n "$PID" ]; then
-#     kill -9 "$PID" || {
-#       echo "Failed to kill process on port 53"
-#       exit 1
-#     }
-#   else
-#     echo "Could not determine the process using port 53"
-#     exit 1
-#   fi
-# fi
+# Ensure no lingering processes
+pkill -f dnsmasq
+pkill -f hostapd
 
-# Update dnsmasq and hostapd configurations
+# Update configurations
 sed -i "s/^ssid=.*/ssid=$SSID/g" /etc/hostapd/hostapd.conf
-sed -i "s/interface=.*/interface=$AP_IFACE/g" /etc/hostapd/hostapd.conf
-sed -i "s/interface=.*/interface=$AP_IFACE/g" /etc/dnsmasq.conf
+sed -i "s/^interface=.*/interface=$AP_IFACE/g" /etc/hostapd/hostapd.conf
+sed -i "s/^interface=.*/interface=$AP_IFACE/g" /etc/dnsmasq.conf
 
-# Start services
-/etc/init.d/dbus status || /etc/init.d/dbus start
-/etc/init.d/dnsmasq start || {
+# Start dbus if not running
+if ! /etc/init.d/dbus status > /dev/null 2>&1; then
+  /etc/init.d/dbus start || {
+    echo "Failed to start dbus"
+    exit 1
+  }
+fi
+
+# Start dnsmasq
+if ! /etc/init.d/dnsmasq start; then
   echo "dnsmasq failed to start"
+  ip addr show dev "$AP_IFACE"  # Debug interface state
   exit 1
-}
-/etc/init.d/hostapd start || {
+fi
+
+# Start hostapd
+if ! /etc/init.d/hostapd start; then
   echo "hostapd failed to start"
   exit 1
-}
+fi
 
 # Enable IP forwarding
 echo 1 > /proc/sys/net/ipv4/ip_forward
