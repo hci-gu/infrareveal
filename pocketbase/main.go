@@ -138,6 +138,12 @@ func savePacket(hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Rea
 	record.Set("city", geoRecord.City.Names["en"])
 	record.Set("country", geoRecord.Country.Names["en"])
 
+	err = app.Save(record)
+	if err != nil {
+		log.Printf("save error: %s", err)
+		return err
+	}
+
 	return nil
 }
 
