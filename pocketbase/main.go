@@ -98,14 +98,18 @@ func readClientHello(reader io.Reader) (*tls.ClientHelloInfo, error) {
 }
 
 func savePacket(hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, trafficDirection string) error {
-
 	hostIP, lookupErr := net.LookupIP(hostname)
 	if lookupErr != nil {
 		log.Printf("lookup error: %s", lookupErr)
 		return nil
 	}
+	log.Print("savePacket %s, hostIP: %s", hostname, hostIP)
 
-	geoRecord, _ := geoipDB.City(hostIP[len(hostIP)-1])
+	geoRecord, geoErr := geoipDB.City(hostIP[len(hostIP)-1])
+	if geoErr != nil {
+		log.Printf("geoip error: %s", geoErr)
+		return nil
+	}
 
 	collection, err := app.FindCollectionByNameOrId("packets")
 	if err != nil {
