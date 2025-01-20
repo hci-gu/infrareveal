@@ -7,7 +7,9 @@ import (
 	"log"
 	"net"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/oschwald/geoip2-golang"
@@ -29,22 +31,30 @@ func main() {
 	geoipDB, _ := geoip2.Open("./geoip/city.mmdb")
 	defer geoipDB.Close()
 
-	if err := app.Start(); err != nil {
-		log.Fatal(err)
-	}
-
-	l, err := net.Listen("tcp", ":1337")
-	if err != nil {
-		log.Fatal(err)
-	}
-	for {
-		conn, err := l.Accept()
-		if err != nil {
-			log.Print(err)
-			continue
+	go func() {
+		if err := app.Start(); err != nil {
+			log.Fatal(err)
 		}
-		go handleConnection(conn, app, geoipDB)
-	}
+	}()
+
+	go func() {
+		l, err := net.Listen("tcp", ":1337")
+		if err != nil {
+			log.Fatal(err)
+		}
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				log.Print(err)
+				continue
+			}
+			go handleConnection(conn, app, geoipDB)
+		}
+	}()
+
+	signalChannel := make(chan os.Signal, 1)
+	signal.Notify(signalChannel, syscall.SIGINT, syscall.SIGTERM)
+	<-signalChannel
 }
 
 func peekClientHello(reader io.Reader) (*tls.ClientHelloInfo, io.Reader, error) {
