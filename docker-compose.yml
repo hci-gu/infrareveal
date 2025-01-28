@@ -15,8 +15,8 @@ services:
     volumes:
       - ./pocketbase/infra-reveal:/root/infra-reveal/pb
       - ./data:/pb/pb_data
-    # entrypoint: ["/root/entrypoint.sh"]
-    entrypoint: /bin/bash
+    entrypoint: ["/root/entrypoint.sh"]
+    # entrypoint: /bin/bash
     tty: true
     ports:
       - "8090:8090"
