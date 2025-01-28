@@ -114,7 +114,7 @@ func readClientHello(reader io.Reader) (*tls.ClientHelloInfo, error) {
 	return hello, nil
 }
 
-func savePacket(hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, incomingBytes int, outgoingBytes int) error {
+func savePacket(hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, incomingBytes int64, outgoingBytes int64) error {
 	// ignore if there is no active session
 	if active_session_id == nil {
 		return nil
