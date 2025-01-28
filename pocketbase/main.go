@@ -18,6 +18,8 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
+var active_session_id *string
+
 func main() {
 	app := pocketbase.New()
 
@@ -32,6 +34,21 @@ func main() {
 	defer geoipDB.Close()
 
 	go func() {
+		app.OnRecordAfterCreateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
+			id := e.Record.Get("id").(string)
+			active_session_id = &id
+			return e.Next()
+		})
+
+		app.OnRecordAfterUpdateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
+			// if record.ended is set, then we need to update the session_id
+			if e.Record.Get("ended") != nil {
+				active_session_id = nil
+			}
+
+			return e.Next()
+		})
+
 		if err := app.Start(); err != nil {
 			log.Fatal(err)
 		}
@@ -97,7 +114,19 @@ func readClientHello(reader io.Reader) (*tls.ClientHelloInfo, error) {
 	return hello, nil
 }
 
-func savePacket(hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, trafficDirection string) error {
+func savePacket(hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, incomingBytes int, outgoingBytes int) error {
+	// ignore if there is no active session
+	if active_session_id == nil {
+		return nil
+	}
+
+	trafficDirection := ""
+	if outgoingBytes > incomingBytes {
+		trafficDirection = "outgoing"
+	} else {
+		trafficDirection = "incoming"
+	}
+
 	hostIPs, lookupErr := net.LookupIP(hostname)
 	if lookupErr != nil {
 		log.Printf("lookup error: %s", lookupErr)
@@ -131,8 +160,11 @@ func savePacket(hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Rea
 		return err
 	}
 	record := core.NewRecord(collection)
+	record.Set("session", active_session_id)
 	record.Set("host", hostname)
 	record.Set("direction", trafficDirection)
+	record.Set("incoming_bytes", incomingBytes)
+	record.Set("outgoing_bytes", outgoingBytes)
 	record.Set("lat", geoRecord.Location.Latitude)
 	record.Set("lon", geoRecord.Location.Longitude)
 	record.Set("city", geoRecord.City.Names["en"])
@@ -215,13 +247,13 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	wg.Add(2)
 
 	// Track data flow
-	clientToServerBytes := int64(0)
-	serverToClientBytes := int64(0)
+	outgoingBytes := int64(0)
+	incomingBytes := int64(0)
 
 	// Copy client -> backend (incoming data)
 	go func() {
 		n, _ := io.Copy(backendConn, clientReader)
-		clientToServerBytes += n
+		outgoingBytes += n
 		log.Printf("Client -> Server: %d bytes", n)
 		backendConn.(*net.TCPConn).CloseWrite()
 		wg.Done()
@@ -230,7 +262,7 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	// Copy backend -> client (outgoing data)
 	go func() {
 		n, _ := io.Copy(clientConn, backendConn)
-		serverToClientBytes += n
+		incomingBytes += n
 		log.Printf("Server -> Client: %d bytes", n)
 		clientConn.(*net.TCPConn).CloseWrite()
 		wg.Done()
@@ -238,14 +270,7 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 
 	wg.Wait()
 
-	trafficDirection := ""
-	if clientToServerBytes > serverToClientBytes {
-		trafficDirection = "outgoing"
-	} else {
-		trafficDirection = "incoming"
-	}
+	savePacket(hostname, app, geoipDB, incomingBytes, outgoingBytes)
 
-	savePacket(hostname, app, geoipDB, trafficDirection)
-
-	log.Printf("Total data: Client -> Server: %d bytes, Server -> Client: %d bytes", clientToServerBytes, serverToClientBytes)
+	// log.Printf("Total data: Client -> Server: %d bytes, Server -> Client: %d bytes", clientToServerBytes, serverToClientBytes)
 }
