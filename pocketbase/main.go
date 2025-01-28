@@ -262,6 +262,10 @@ func isTLSHandshake(data []byte) bool {
 
 func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Reader, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, hostname string) {
 	clientIP, _, err := net.SplitHostPort(clientConn.RemoteAddr().String())
+	if err != nil {
+		log.Print(err)
+		return
+	}
 	var wg sync.WaitGroup
 	wg.Add(2)
 
