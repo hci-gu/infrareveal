@@ -116,25 +116,20 @@ func readClientHello(reader io.Reader) (*tls.ClientHelloInfo, error) {
 	return hello, nil
 }
 
-func savePacket(clientIP string, hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, incomingBytes int64, outgoingBytes int64) error {
-	// ignore if there is no active session
+func createPacketRecord(clientIP string, hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Reader) (string, error) {
+	// 1. If there's no active session, we can skip creating a packet record
 	if active_session_id == nil {
-		return nil
+		return "", nil
 	}
 
-	trafficDirection := ""
-	if outgoingBytes > incomingBytes {
-		trafficDirection = "outgoing"
-	} else {
-		trafficDirection = "incoming"
-	}
-
+	// 2. Look up IP address from hostname
 	hostIPs, lookupErr := net.LookupIP(hostname)
 	if lookupErr != nil {
 		log.Printf("lookup error: %s", lookupErr)
-		return nil
+		return "", lookupErr
 	}
 
+	// 3. Pick the first IPv4 address if available
 	var hostIP net.IP
 	for _, ip := range hostIPs {
 		if ip.To4() != nil {
@@ -145,37 +140,69 @@ func savePacket(clientIP string, hostname string, app *pocketbase.PocketBase, ge
 
 	if hostIP == nil {
 		log.Printf("no IPv4 address found for host: %s", hostname)
-		return nil
+		return "", nil
 	}
 
-	log.Printf("savePacket %s, hostIP: %s", hostname, hostIP)
-
+	// 4. GeoIP lookup
 	geoRecord, geoErr := geoipDB.City(hostIP)
 	if geoErr != nil {
 		log.Printf("geoip error: %s", geoErr)
-		return nil
+		return "", geoErr
 	}
 
+	// 5. Create a new packet record
 	collection, err := app.FindCollectionByNameOrId("packets")
 	if err != nil {
 		log.Printf("collection error: %s", err)
-		return err
+		return "", err
 	}
 	record := core.NewRecord(collection)
-	record.Set("session", active_session_id)
+
+	// 6. Populate fields (but do NOT include bytes or direction yet)
+	record.Set("session", *active_session_id)
 	record.Set("client_ip", clientIP)
 	record.Set("host", hostname)
-	record.Set("direction", trafficDirection)
-	record.Set("incoming_bytes", incomingBytes)
-	record.Set("outgoing_bytes", outgoingBytes)
 	record.Set("lat", geoRecord.Location.Latitude)
 	record.Set("lon", geoRecord.Location.Longitude)
 	record.Set("city", geoRecord.City.Names["en"])
 	record.Set("country", geoRecord.Country.Names["en"])
 
+	// 7. Save the record
 	err = app.Save(record)
 	if err != nil {
 		log.Printf("save error: %s", err)
+		return "", err
+	}
+
+	// 8. Return the newly created record's ID
+	return record.Id, nil
+}
+
+func updatePacketRecordBytes(recordID string, incomingBytes, outgoingBytes int64, app *pocketbase.PocketBase) error {
+	// 1. Find the record to update
+	record, err := app.FindRecordById("packets", recordID)
+	if err != nil {
+		log.Printf("updatePacketRecordBytes: could not find record %s: %s", recordID, err)
+		return err
+	}
+
+	// 2. Determine direction based on final byte counts
+	trafficDirection := ""
+	if outgoingBytes > incomingBytes {
+		trafficDirection = "outgoing"
+	} else {
+		trafficDirection = "incoming"
+	}
+
+	// 3. Update the byte fields and direction
+	record.Set("direction", trafficDirection)
+	record.Set("incoming_bytes", incomingBytes)
+	record.Set("outgoing_bytes", outgoingBytes)
+
+	// 4. Save
+	err = app.Save(record)
+	if err != nil {
+		log.Printf("updatePacketRecordBytes: save error: %s", err)
 		return err
 	}
 
@@ -266,34 +293,54 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		log.Print(err)
 		return
 	}
+
+	// --- 1. Create the packet record first (without byte counts) ---
+	recordID, err := createPacketRecord(clientIP, hostname, app, geoipDB)
+	if err != nil {
+		log.Printf("Failed to create packet record: %s", err)
+	}
+
+	// If recordID is empty (meaning no active session), we won't update anything later
+	// but we still continue piping the traffic for normal proxy behavior.
+
+	// --- 2. Pipe data, capturing byte counts ---
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Track data flow
-	outgoingBytes := int64(0)
-	incomingBytes := int64(0)
+	var outgoingBytes int64
+	var incomingBytes int64
 
-	// Copy client -> backend (incoming data)
+	// Copy client -> backend
 	go func() {
 		n, _ := io.Copy(backendConn, clientReader)
 		outgoingBytes += n
 		log.Printf("Client -> Server: %d bytes", n)
-		backendConn.(*net.TCPConn).CloseWrite()
+		// half-close the connection
+		if tcpConn, ok := backendConn.(*net.TCPConn); ok {
+			tcpConn.CloseWrite()
+		}
 		wg.Done()
 	}()
 
-	// Copy backend -> client (outgoing data)
+	// Copy backend -> client
 	go func() {
 		n, _ := io.Copy(clientConn, backendConn)
 		incomingBytes += n
 		log.Printf("Server -> Client: %d bytes", n)
-		clientConn.(*net.TCPConn).CloseWrite()
+		// half-close the connection
+		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
+			tcpConn.CloseWrite()
+		}
 		wg.Done()
 	}()
 
 	wg.Wait()
 
-	savePacket(clientIP, hostname, app, geoipDB, incomingBytes, outgoingBytes)
-
-	// log.Printf("Total data: Client -> Server: %d bytes, Server -> Client: %d bytes", clientToServerBytes, serverToClientBytes)
+	// --- 3. Update the packet record with final byte counts (if we have a record ID) ---
+	if recordID != "" {
+		err = updatePacketRecordBytes(recordID, incomingBytes, outgoingBytes, app)
+		if err != nil {
+			log.Printf("Failed to update packet record: %s", err)
+		}
+	}
 }
