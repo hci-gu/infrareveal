@@ -14,6 +14,9 @@ services:
       - SSID=Infrareveal
     volumes:
       - ./pocketbase/infra-reveal:/root/infra-reveal/pb
-    entrypoint: ["/root/entrypoint.sh"]
+      - ./data:/pb/pb_data
+    # entrypoint: ["/root/entrypoint.sh"]
+    entrypoint: /bin/bash
+    tty: true
     ports:
       - "8090:8090"
