@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"crypto/tls"
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -114,7 +116,7 @@ func readClientHello(reader io.Reader) (*tls.ClientHelloInfo, error) {
 	return hello, nil
 }
 
-func savePacket(hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, incomingBytes int64, outgoingBytes int64) error {
+func savePacket(clientIP string, hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, incomingBytes int64, outgoingBytes int64) error {
 	// ignore if there is no active session
 	if active_session_id == nil {
 		return nil
@@ -161,6 +163,7 @@ func savePacket(hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Rea
 	}
 	record := core.NewRecord(collection)
 	record.Set("session", active_session_id)
+	record.Set("client_ip", clientIP)
 	record.Set("host", hostname)
 	record.Set("direction", trafficDirection)
 	record.Set("incoming_bytes", incomingBytes)
@@ -224,11 +227,26 @@ func handleConnection(clientConn net.Conn, app *pocketbase.PocketBase, geoipDB *
 	} else {
 		// Handle plaintext (non-TLS) traffic, e.g., HTTP
 		log.Print("Non-TLS traffic detected")
-		// get hostname for packet
-		hostname, _, err := net.SplitHostPort(clientConn.RemoteAddr().String())
-		backendConn, err := net.DialTimeout("tcp", net.JoinHostPort(hostname, "80"), 5*time.Second)
+		buf := new(bytes.Buffer)
+		teeReader := io.TeeReader(peekedReader, buf)
+
+		// Read the HTTP request to extract the Host header
+		req, err := http.ReadRequest(bufio.NewReader(teeReader))
 		if err != nil {
-			log.Print(err)
+			log.Printf("Failed to parse HTTP request: %s", err)
+			return
+		}
+
+		// Extract the hostname from the Host header
+		hostname := req.Host
+		if _, _, err := net.SplitHostPort(hostname); err != nil {
+			hostname = net.JoinHostPort(hostname, "80")
+		}
+
+		// Connect to the backend server
+		backendConn, err := net.DialTimeout("tcp", hostname, 5*time.Second)
+		if err != nil {
+			log.Printf("Failed to connect to backend: %s", err)
 			return
 		}
 		defer backendConn.Close()
@@ -243,6 +261,7 @@ func isTLSHandshake(data []byte) bool {
 }
 
 func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Reader, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, hostname string) {
+	clientIP, _, err := net.SplitHostPort(clientConn.RemoteAddr().String())
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -270,7 +289,7 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 
 	wg.Wait()
 
-	savePacket(hostname, app, geoipDB, incomingBytes, outgoingBytes)
+	savePacket(clientIP, hostname, app, geoipDB, incomingBytes, outgoingBytes)
 
 	// log.Printf("Total data: Client -> Server: %d bytes, Server -> Client: %d bytes", clientToServerBytes, serverToClientBytes)
 }
