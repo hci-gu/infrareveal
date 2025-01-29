@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -160,10 +161,13 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 
 	// 6. Populate fields (but do NOT include bytes or direction yet)
 	record.Set("session", *active_session_id)
+	record.Set("active", true)
 	record.Set("client_ip", clientIP)
 	record.Set("host", hostname)
 	record.Set("lat", geoRecord.Location.Latitude)
 	record.Set("lon", geoRecord.Location.Longitude)
+	record.Set("incoming_bytes", 0)
+	record.Set("outgoing_bytes", 0)
 	record.Set("city", geoRecord.City.Names["en"])
 	record.Set("country", geoRecord.Country.Names["en"])
 
@@ -186,20 +190,28 @@ func updatePacketRecordBytes(recordID string, incomingBytes, outgoingBytes int64
 		return err
 	}
 
-	// 2. Determine direction based on final byte counts
-	trafficDirection := ""
-	if outgoingBytes > incomingBytes {
-		trafficDirection = "outgoing"
-	} else {
-		trafficDirection = "incoming"
-	}
-
-	// 3. Update the byte fields and direction
-	record.Set("direction", trafficDirection)
-	record.Set("incoming_bytes", incomingBytes)
-	record.Set("outgoing_bytes", outgoingBytes)
+	record.Set("incoming_bytes", record.Get("incoming_bytes").(int64)+incomingBytes)
+	record.Set("outgoing_bytes", record.Get("outgoing_bytes").(int64)+outgoingBytes)
 
 	// 4. Save
+	err = app.Save(record)
+	if err != nil {
+		log.Printf("updatePacketRecordBytes: save error: %s", err)
+		return err
+	}
+
+	return nil
+}
+
+func closePacketRecord(recordID string, app *pocketbase.PocketBase) error {
+	record, err := app.FindRecordById("packets", recordID)
+	if err != nil {
+		log.Printf("updatePacketRecordBytes: could not find record %s: %s", recordID, err)
+		return err
+	}
+
+	record.Set("active", false)
+
 	err = app.Save(record)
 	if err != nil {
 		log.Printf("updatePacketRecordBytes: save error: %s", err)
@@ -310,37 +322,68 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	var outgoingBytes int64
 	var incomingBytes int64
 
-	// Copy client -> backend
+	// Copy client -> backend with byte tracking
 	go func() {
-		n, _ := io.Copy(backendConn, clientReader)
-		outgoingBytes += n
-		log.Printf("Client -> Server: %d bytes", n)
-		// half-close the connection
-		if tcpConn, ok := backendConn.(*net.TCPConn); ok {
-			tcpConn.CloseWrite()
-		}
-		wg.Done()
+		defer wg.Done()
+		outgoingBytes = copyAndCount(backendConn, clientConn, "Client -> Server")
+		updatePacketRecordBytes(recordID, 0, outgoingBytes, app)
 	}()
 
-	// Copy backend -> client
+	// Copy backend -> client with byte tracking
 	go func() {
-		n, _ := io.Copy(clientConn, backendConn)
-		incomingBytes += n
-		log.Printf("Server -> Client: %d bytes", n)
-		// half-close the connection
-		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
-			tcpConn.CloseWrite()
-		}
-		wg.Done()
+		defer wg.Done()
+		incomingBytes = copyAndCount(clientConn, backendConn, "Server -> Client")
+		updatePacketRecordBytes(recordID, incomingBytes, 0, app)
 	}()
 
 	wg.Wait()
 
-	// --- 3. Update the packet record with final byte counts (if we have a record ID) ---
+	// --- 3. Close the packet record ---
 	if recordID != "" {
-		err = updatePacketRecordBytes(recordID, incomingBytes, outgoingBytes, app)
+		err = closePacketRecord(recordID, app)
 		if err != nil {
 			log.Printf("Failed to update packet record: %s", err)
 		}
 	}
+}
+
+func copyAndCount(dst io.Writer, src io.Reader, direction string) int64 {
+	var counter int64
+	reader := io.TeeReader(src, &countingWriter{count: &counter})
+
+	// Copy data and count bytes in real time
+	buf := make([]byte, 4096) // Adjust buffer size as needed
+	for {
+		n, err := reader.Read(buf)
+		if n > 0 {
+			_, writeErr := dst.Write(buf[:n])
+			atomic.AddInt64(&counter, int64(n))
+
+			// Log data size periodically
+			log.Printf("%s: %d bytes transferred (total: %d)", direction, n, atomic.LoadInt64(&counter))
+
+			if writeErr != nil {
+				log.Printf("Error writing: %v", writeErr)
+				break
+			}
+		}
+		if err != nil {
+			if err != io.EOF {
+				log.Printf("%s: Read error: %v", direction, err)
+			}
+			break
+		}
+	}
+	return atomic.LoadInt64(&counter)
+}
+
+// countingWriter tracks the number of bytes written
+type countingWriter struct {
+	count *int64
+}
+
+func (w *countingWriter) Write(p []byte) (int, error) {
+	n := len(p)
+	atomic.AddInt64(w.count, int64(n))
+	return n, nil
 }
