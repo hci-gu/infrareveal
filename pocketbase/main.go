@@ -11,7 +11,6 @@ import (
 	"os"
 	"os/signal"
 	"sync"
-	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -190,8 +189,8 @@ func updatePacketRecordBytes(recordID string, incomingBytes, outgoingBytes int64
 		return err
 	}
 
-	record.Set("incoming_bytes", int64(record.Get("incoming_bytes").(float64))+incomingBytes)
-	record.Set("outgoing_bytes", int64(record.Get("outgoing_bytes").(float64))+outgoingBytes)
+	record.Set("incoming_bytes", record.Get("incoming_bytes").(int64)+incomingBytes)
+	record.Set("outgoing_bytes", record.Get("outgoing_bytes").(int64)+outgoingBytes)
 
 	// 4. Save
 	err = app.Save(record)
@@ -319,21 +318,28 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	var outgoingBytes int64
-	var incomingBytes int64
-
-	// Copy client -> backend with byte tracking
+	// Copy client -> backend
 	go func() {
-		defer wg.Done()
-		outgoingBytes = copyAndCount(backendConn, clientConn, "Client -> Server")
-		updatePacketRecordBytes(recordID, 0, outgoingBytes, app)
+		n, _ := io.Copy(backendConn, clientReader)
+		updatePacketRecordBytes(recordID, n, 0, app)
+		log.Printf("Client -> Server: %d bytes", n)
+		// half-close the connection
+		if tcpConn, ok := backendConn.(*net.TCPConn); ok {
+			tcpConn.CloseWrite()
+		}
+		wg.Done()
 	}()
 
-	// Copy backend -> client with byte tracking
+	// Copy backend -> client
 	go func() {
-		defer wg.Done()
-		incomingBytes = copyAndCount(clientConn, backendConn, "Server -> Client")
-		updatePacketRecordBytes(recordID, incomingBytes, 0, app)
+		n, _ := io.Copy(clientConn, backendConn)
+		updatePacketRecordBytes(recordID, 0, n, app)
+		log.Printf("Server -> Client: %d bytes", n)
+		// half-close the connection
+		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
+			tcpConn.CloseWrite()
+		}
+		wg.Done()
 	}()
 
 	wg.Wait()
@@ -345,45 +351,4 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 			log.Printf("Failed to update packet record: %s", err)
 		}
 	}
-}
-
-func copyAndCount(dst io.Writer, src io.Reader, direction string) int64 {
-	var counter int64
-	reader := io.TeeReader(src, &countingWriter{count: &counter})
-
-	// Copy data and count bytes in real time
-	buf := make([]byte, 4096) // Adjust buffer size as needed
-	for {
-		n, err := reader.Read(buf)
-		if n > 0 {
-			_, writeErr := dst.Write(buf[:n])
-			atomic.AddInt64(&counter, int64(n))
-
-			// Log data size periodically
-			log.Printf("%s: %d bytes transferred (total: %d)", direction, n, atomic.LoadInt64(&counter))
-
-			if writeErr != nil {
-				log.Printf("Error writing: %v", writeErr)
-				break
-			}
-		}
-		if err != nil {
-			if err != io.EOF {
-				log.Printf("%s: Read error: %v", direction, err)
-			}
-			break
-		}
-	}
-	return atomic.LoadInt64(&counter)
-}
-
-// countingWriter tracks the number of bytes written
-type countingWriter struct {
-	count *int64
-}
-
-func (w *countingWriter) Write(p []byte) (int, error) {
-	n := len(p)
-	atomic.AddInt64(w.count, int64(n))
-	return n, nil
 }
