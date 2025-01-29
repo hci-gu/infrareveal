@@ -190,8 +190,8 @@ func updatePacketRecordBytes(recordID string, incomingBytes, outgoingBytes int64
 		return err
 	}
 
-	record.Set("incoming_bytes", record.Get("incoming_bytes").(int64)+incomingBytes)
-	record.Set("outgoing_bytes", record.Get("outgoing_bytes").(int64)+outgoingBytes)
+	record.Set("incoming_bytes", int64(record.Get("incoming_bytes").(float64))+incomingBytes)
+	record.Set("outgoing_bytes", int64(record.Get("outgoing_bytes").(float64))+outgoingBytes)
 
 	// 4. Save
 	err = app.Save(record)
