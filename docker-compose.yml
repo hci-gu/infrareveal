@@ -13,8 +13,7 @@ services:
       - INTERNET_IFACE=eth0 # Replace with your internet interface
       - SSID=Infrareveal
     volumes:
-       - ./pocketbase/infra-reveal:/root/infra-reveal/pb
-       - ./data:/root/infra-reveal/pb/pb_data
+       - ./data:/root/pb_data
     entrypoint: ["/root/entrypoint.sh"]
     # entrypoint: /bin/bash
     tty: true
