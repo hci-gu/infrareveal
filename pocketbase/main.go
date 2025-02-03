@@ -318,24 +318,26 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Copy client -> backend
+	// Copy client -> backend with realtime update of incoming_bytes
 	go func() {
-		n, _ := io.Copy(backendConn, clientReader)
-		updatePacketRecordBytes(recordID, n, 0, app)
-		log.Printf("Client -> Server: %d bytes", n)
-		// half-close the connection
+		err := copyAndUpdate(backendConn, clientReader, recordID, app, true)
+		if err != nil {
+			log.Printf("Error in client->backend: %s", err)
+		}
+		// half-close the connection: no more writes to backend
 		if tcpConn, ok := backendConn.(*net.TCPConn); ok {
 			tcpConn.CloseWrite()
 		}
 		wg.Done()
 	}()
 
-	// Copy backend -> client
+	// Copy backend -> client with realtime update of outgoing_bytes
 	go func() {
-		n, _ := io.Copy(clientConn, backendConn)
-		updatePacketRecordBytes(recordID, 0, n, app)
-		log.Printf("Server -> Client: %d bytes", n)
-		// half-close the connection
+		err := copyAndUpdate(clientConn, backendConn, recordID, app, false)
+		if err != nil {
+			log.Printf("Error in backend->client: %s", err)
+		}
+		// half-close the connection: no more writes to client
 		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
 			tcpConn.CloseWrite()
 		}
@@ -349,6 +351,41 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		err = closePacketRecord(recordID, app)
 		if err != nil {
 			log.Printf("Failed to update packet record: %s", err)
+		}
+	}
+}
+
+// copyAndUpdate reads from src and writes to dst in chunks.
+// For each chunk it calls updatePacketRecordBytes to update the byte count.
+// If incoming is true, then the bytes count will be added as incoming_bytes;
+// otherwise, as outgoing_bytes.
+func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbase.PocketBase, incoming bool) error {
+	buf := make([]byte, 4096)
+	for {
+		n, err := src.Read(buf)
+		if n > 0 {
+			written, werr := dst.Write(buf[:n])
+			if written > 0 && recordID != "" {
+				// update the record for this chunk
+				if incoming {
+					if updateErr := updatePacketRecordBytes(recordID, int64(written), 0, app); updateErr != nil {
+						log.Printf("Failed to update incoming bytes: %s", updateErr)
+					}
+				} else {
+					if updateErr := updatePacketRecordBytes(recordID, 0, int64(written), app); updateErr != nil {
+						log.Printf("Failed to update outgoing bytes: %s", updateErr)
+					}
+				}
+			}
+			if werr != nil {
+				return werr
+			}
+		}
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			}
+			return err
 		}
 	}
 }
