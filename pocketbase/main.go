@@ -372,29 +372,73 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	}
 }
 
-// copyAndUpdate reads from src and writes to dst in chunks.
-// For each chunk it calls updatePacketRecordData to append a new entry
-// with the timestamp, direction ("in" or "out"), and number of bytes.
+// copyAndUpdate reads from src and writes to dst.
+// It accumulates the number of bytes transferred in a local counter and,
+// every flushInterval, it calls updatePacketRecordData to append a new entry.
 func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbase.PocketBase, direction string) error {
+	const flushInterval = 1 * time.Second
+
+	// totalBytes accumulates the bytes read since the last flush.
+	var totalBytes int64 = 0
+	var mu sync.Mutex
+	done := make(chan struct{})
+
+	// ticker goroutine to flush updates periodically.
+	go func() {
+		ticker := time.NewTicker(flushInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				mu.Lock()
+				if totalBytes > 0 && recordID != "" {
+					// flush the accumulated bytes as an update
+					if err := updatePacketRecordData(recordID, direction, totalBytes, app); err != nil {
+						log.Printf("Failed to update %s bytes: %s", direction, err)
+					}
+					// reset the counter after flushing
+					totalBytes = 0
+				}
+				mu.Unlock()
+			case <-done:
+				return
+			}
+		}
+	}()
+
 	buf := make([]byte, 4096)
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
 			written, werr := dst.Write(buf[:n])
 			if written > 0 && recordID != "" {
-				if updateErr := updatePacketRecordData(recordID, direction, int64(written), app); updateErr != nil {
-					log.Printf("Failed to update %s bytes: %s", direction, updateErr)
-				}
+				// accumulate the number of bytes written
+				mu.Lock()
+				totalBytes += int64(written)
+				mu.Unlock()
 			}
 			if werr != nil {
+				close(done)
 				return werr
 			}
 		}
 		if err != nil {
 			if err == io.EOF {
-				return nil
+				break
 			}
+			close(done)
 			return err
 		}
 	}
+
+	// Final flush in case any bytes remain.
+	mu.Lock()
+	if totalBytes > 0 && recordID != "" {
+		if err := updatePacketRecordData(recordID, direction, totalBytes, app); err != nil {
+			log.Printf("Final update failed for %s: %s", direction, err)
+		}
+	}
+	mu.Unlock()
+	close(done)
+	return nil
 }
