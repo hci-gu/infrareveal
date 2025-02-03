@@ -28,7 +28,6 @@ func main() {
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		// serves static files from the provided public dir (if exists)
 		se.Router.GET("/{path...}", apis.Static(os.DirFS("./pb_public"), false))
-
 		return se.Next()
 	})
 
@@ -47,7 +46,6 @@ func main() {
 			if e.Record.Get("ended") != nil {
 				active_session_id = nil
 			}
-
 			return e.Next()
 		})
 
@@ -100,7 +98,6 @@ func (conn readOnlyConn) SetWriteDeadline(t time.Time) error { return nil }
 
 func readClientHello(reader io.Reader) (*tls.ClientHelloInfo, error) {
 	var hello *tls.ClientHelloInfo
-
 	err := tls.Server(readOnlyConn{reader: reader}, &tls.Config{
 		GetConfigForClient: func(argHello *tls.ClientHelloInfo) (*tls.Config, error) {
 			hello = new(tls.ClientHelloInfo)
@@ -108,11 +105,9 @@ func readClientHello(reader io.Reader) (*tls.ClientHelloInfo, error) {
 			return nil, nil
 		},
 	}).Handshake()
-
 	if hello == nil {
 		return nil, err
 	}
-
 	return hello, nil
 }
 
@@ -158,15 +153,15 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 	}
 	record := core.NewRecord(collection)
 
-	// 6. Populate fields (but do NOT include bytes or direction yet)
+	// 6. Populate fields
 	record.Set("session", *active_session_id)
 	record.Set("active", true)
 	record.Set("client_ip", clientIP)
 	record.Set("host", hostname)
 	record.Set("lat", geoRecord.Location.Latitude)
 	record.Set("lon", geoRecord.Location.Longitude)
-	record.Set("incoming_bytes", 0)
-	record.Set("outgoing_bytes", 0)
+	// Remove the old numeric fields and initialize "data" as an empty array.
+	record.Set("data", []interface{}{})
 	record.Set("city", geoRecord.City.Names["en"])
 	record.Set("country", geoRecord.Country.Names["en"])
 
@@ -181,38 +176,43 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 	return record.Id, nil
 }
 
-func toInt64(val interface{}) int64 {
-	switch v := val.(type) {
-	case int:
-		return int64(v)
-	case int64:
-		return v
-	case float64:
-		return int64(v)
-	default:
-		return 0
-	}
-}
-
-func updatePacketRecordBytes(recordID string, incomingBytes, outgoingBytes int64, app *pocketbase.PocketBase) error {
+// updatePacketRecordData appends a new entry to the "data" field array.
+// Each entry is an object with a timestamp, direction ("in" or "out"), and number of bytes.
+func updatePacketRecordData(recordID string, direction string, n int64, app *pocketbase.PocketBase) error {
 	// 1. Find the record to update
 	record, err := app.FindRecordById("packets", recordID)
 	if err != nil {
-		log.Printf("updatePacketRecordBytes: could not find record %s: %s", recordID, err)
+		log.Printf("updatePacketRecordData: could not find record %s: %s", recordID, err)
 		return err
 	}
 
-	// 2. Retrieve current counts safely and update them
-	currentIncoming := toInt64(record.Get("incoming_bytes"))
-	currentOutgoing := toInt64(record.Get("outgoing_bytes"))
+	// 2. Retrieve current data array, if any.
+	var data []interface{}
+	if raw := record.Get("data"); raw != nil {
+		if arr, ok := raw.([]interface{}); ok {
+			data = arr
+		} else {
+			data = []interface{}{}
+		}
+	} else {
+		data = []interface{}{}
+	}
 
-	record.Set("incoming_bytes", currentIncoming+incomingBytes)
-	record.Set("outgoing_bytes", currentOutgoing+outgoingBytes)
+	// 3. Create a new data entry.
+	newEntry := map[string]interface{}{
+		"ts":    time.Now().Format(time.RFC3339),
+		"dir":   direction, // "in" for incoming, "out" for outgoing
+		"bytes": n,
+	}
 
-	// 3. Save the record
+	// 4. Append the new entry.
+	data = append(data, newEntry)
+	record.Set("data", data)
+
+	// 5. Save the record.
 	err = app.Save(record)
 	if err != nil {
-		log.Printf("updatePacketRecordBytes: save error: %s", err)
+		log.Printf("updatePacketRecordData: save error: %s", err)
 		return err
 	}
 
@@ -222,18 +222,15 @@ func updatePacketRecordBytes(recordID string, incomingBytes, outgoingBytes int64
 func closePacketRecord(recordID string, app *pocketbase.PocketBase) error {
 	record, err := app.FindRecordById("packets", recordID)
 	if err != nil {
-		log.Printf("updatePacketRecordBytes: could not find record %s: %s", recordID, err)
+		log.Printf("closePacketRecord: could not find record %s: %s", recordID, err)
 		return err
 	}
-
 	record.Set("active", false)
-
 	err = app.Save(record)
 	if err != nil {
-		log.Printf("updatePacketRecordBytes: save error: %s", err)
+		log.Printf("closePacketRecord: save error: %s", err)
 		return err
 	}
-
 	return nil
 }
 
@@ -306,7 +303,10 @@ func handleConnection(clientConn net.Conn, app *pocketbase.PocketBase, geoipDB *
 		}
 		defer backendConn.Close()
 
-		pipeTraffic(clientConn, backendConn, peekedReader, app, geoipDB, hostname)
+		// Reassemble the full client data stream:
+		// first, the bytes already read into the buffer, then the rest of the connection.
+		fullRequestReader := io.MultiReader(bytes.NewReader(buf.Bytes()), clientConn)
+		pipeTraffic(clientConn, backendConn, fullRequestReader, app, geoipDB, hostname)
 	}
 }
 
@@ -322,7 +322,7 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		return
 	}
 
-	// --- 1. Create the packet record first (without byte counts) ---
+	// --- 1. Create the packet record first (without byte data) ---
 	recordID, err := createPacketRecord(clientIP, hostname, app, geoipDB)
 	if err != nil {
 		log.Printf("Failed to create packet record: %s", err)
@@ -331,13 +331,13 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	// If recordID is empty (meaning no active session), we won't update anything later
 	// but we still continue piping the traffic for normal proxy behavior.
 
-	// --- 2. Pipe data, capturing byte counts ---
+	// --- 2. Pipe data, capturing per‑chunk data entries ---
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Copy client -> backend with realtime update of incoming_bytes
+	// Copy client -> backend with realtime update (direction "in")
 	go func() {
-		err := copyAndUpdate(backendConn, clientReader, recordID, app, true)
+		err := copyAndUpdate(backendConn, clientReader, recordID, app, "in")
 		if err != nil {
 			log.Printf("Error in client->backend: %s", err)
 		}
@@ -348,9 +348,9 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		wg.Done()
 	}()
 
-	// Copy backend -> client with realtime update of outgoing_bytes
+	// Copy backend -> client with realtime update (direction "out")
 	go func() {
-		err := copyAndUpdate(clientConn, backendConn, recordID, app, false)
+		err := copyAndUpdate(clientConn, backendConn, recordID, app, "out")
 		if err != nil {
 			log.Printf("Error in backend->client: %s", err)
 		}
@@ -373,25 +373,17 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 }
 
 // copyAndUpdate reads from src and writes to dst in chunks.
-// For each chunk it calls updatePacketRecordBytes to update the byte count.
-// If incoming is true, then the bytes count will be added as incoming_bytes;
-// otherwise, as outgoing_bytes.
-func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbase.PocketBase, incoming bool) error {
+// For each chunk it calls updatePacketRecordData to append a new entry
+// with the timestamp, direction ("in" or "out"), and number of bytes.
+func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbase.PocketBase, direction string) error {
 	buf := make([]byte, 4096)
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
 			written, werr := dst.Write(buf[:n])
 			if written > 0 && recordID != "" {
-				// update the record for this chunk
-				if incoming {
-					if updateErr := updatePacketRecordBytes(recordID, int64(written), 0, app); updateErr != nil {
-						log.Printf("Failed to update incoming bytes: %s", updateErr)
-					}
-				} else {
-					if updateErr := updatePacketRecordBytes(recordID, 0, int64(written), app); updateErr != nil {
-						log.Printf("Failed to update outgoing bytes: %s", updateErr)
-					}
+				if updateErr := updatePacketRecordData(recordID, direction, int64(written), app); updateErr != nil {
+					log.Printf("Failed to update %s bytes: %s", direction, updateErr)
 				}
 			}
 			if werr != nil {
