@@ -181,6 +181,19 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 	return record.Id, nil
 }
 
+func toInt64(val interface{}) int64 {
+	switch v := val.(type) {
+	case int:
+		return int64(v)
+	case int64:
+		return v
+	case float64:
+		return int64(v)
+	default:
+		return 0
+	}
+}
+
 func updatePacketRecordBytes(recordID string, incomingBytes, outgoingBytes int64, app *pocketbase.PocketBase) error {
 	// 1. Find the record to update
 	record, err := app.FindRecordById("packets", recordID)
@@ -189,10 +202,14 @@ func updatePacketRecordBytes(recordID string, incomingBytes, outgoingBytes int64
 		return err
 	}
 
-	record.Set("incoming_bytes", record.Get("incoming_bytes").(int64)+incomingBytes)
-	record.Set("outgoing_bytes", record.Get("outgoing_bytes").(int64)+outgoingBytes)
+	// 2. Retrieve current counts safely and update them
+	currentIncoming := toInt64(record.Get("incoming_bytes"))
+	currentOutgoing := toInt64(record.Get("outgoing_bytes"))
 
-	// 4. Save
+	record.Set("incoming_bytes", currentIncoming+incomingBytes)
+	record.Set("outgoing_bytes", currentOutgoing+outgoingBytes)
+
+	// 3. Save the record
 	err = app.Save(record)
 	if err != nil {
 		log.Printf("updatePacketRecordBytes: save error: %s", err)
