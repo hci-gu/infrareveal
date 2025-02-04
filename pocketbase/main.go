@@ -176,22 +176,24 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 	return record.Id, nil
 }
 
-var updateMutex sync.Mutex
+// SharedAccumulator holds the combined update entries for a single record.
+type SharedAccumulator struct {
+	mu      sync.Mutex
+	entries []interface{}
+}
 
-// updatePacketRecordDataWithAccumulator updates the "data" field of the record
-// with the full accumulatedData array.
-func updatePacketRecordDataWithAccumulator(recordID string, accumulatedData []interface{}, app *pocketbase.PocketBase) error {
+// updatePacketRecordDataWithAccumulator writes the entire shared accumulator to the record.
+func updatePacketRecordDataWithAccumulator(recordID string, entries []interface{}, app *pocketbase.PocketBase) error {
 	// Fetch the record.
 	record, err := app.FindRecordById("packets", recordID)
 	if err != nil {
 		log.Printf("updatePacketRecordDataWithAccumulator: could not find record %s: %s", recordID, err)
 		return err
 	}
-	// Replace the "data" field with the accumulated data.
-	record.Set("data", accumulatedData)
+	// Replace the "data" field with the full entries array.
+	record.Set("data", entries)
 	// Save the record.
-	err = app.Save(record)
-	if err != nil {
+	if err := app.Save(record); err != nil {
 		log.Printf("updatePacketRecordDataWithAccumulator: save error: %s", err)
 		return err
 	}
@@ -301,39 +303,41 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		return
 	}
 
-	// --- 1. Create the packet record first (without byte data) ---
+	// 1. Create the packet record first (without byte data).
 	recordID, err := createPacketRecord(clientIP, hostname, app, geoipDB)
 	if err != nil {
 		log.Printf("Failed to create packet record: %s", err)
 	}
 
-	// If recordID is empty (meaning no active session), we won't update anything later
-	// but we still continue piping the traffic for normal proxy behavior.
+	// Create a shared accumulator for both flows.
+	sharedAcc := &SharedAccumulator{
+		entries: make([]interface{}, 0),
+	}
 
-	// --- 2. Pipe data, capturing per‑chunk data entries ---
+	// If recordID is empty (i.e. no active session), we won't update, but we still proxy traffic.
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Copy client -> backend with realtime update (direction "in")
+	// Copy client -> backend ("in" direction).
 	go func() {
-		err := copyAndUpdate(backendConn, clientReader, recordID, app, "in")
+		err := copyAndUpdate(backendConn, clientReader, recordID, app, "in", sharedAcc)
 		if err != nil {
 			log.Printf("Error in client->backend: %s", err)
 		}
-		// half-close the connection: no more writes to backend
+		// Half-close the connection.
 		if tcpConn, ok := backendConn.(*net.TCPConn); ok {
 			tcpConn.CloseWrite()
 		}
 		wg.Done()
 	}()
 
-	// Copy backend -> client with realtime update (direction "out")
+	// Copy backend -> client ("out" direction).
 	go func() {
-		err := copyAndUpdate(clientConn, backendConn, recordID, app, "out")
+		err := copyAndUpdate(clientConn, backendConn, recordID, app, "out", sharedAcc)
 		if err != nil {
 			log.Printf("Error in backend->client: %s", err)
 		}
-		// half-close the connection: no more writes to client
+		// Half-close the connection.
 		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
 			tcpConn.CloseWrite()
 		}
@@ -342,26 +346,24 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 
 	wg.Wait()
 
-	// --- 3. Close the packet record ---
+	// 3. Close the packet record.
 	if recordID != "" {
-		err = closePacketRecord(recordID, app)
-		if err != nil {
+		if err := closePacketRecord(recordID, app); err != nil {
 			log.Printf("Failed to update packet record: %s", err)
 		}
 	}
 }
 
-// copyAndUpdate reads from src and writes to dst in chunks.
-// It accumulates bytes transferred in memory and flushes updates every flushInterval.
-func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbase.PocketBase, direction string) error {
+func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbase.PocketBase, direction string, sharedAcc *SharedAccumulator) error {
+	// Desired flush interval.
 	const flushInterval = 1 * time.Second
 
-	// totalBytes accumulates the bytes read since the last flush.
-	var totalBytes int64 = 0
-	// accumulatedData will hold all flush entries for this connection.
-	var accumulatedData []interface{}
-	var mu sync.Mutex
+	// localTotal accumulates the bytes read (for this flow) since the last flush.
+	var localTotal int64 = 0
+	var localMu sync.Mutex // Protects localTotal.
 	done := make(chan struct{})
+	// lastFlush is local to this flow.
+	lastFlush := time.Now()
 
 	// ticker goroutine to flush updates periodically.
 	go func() {
@@ -370,24 +372,40 @@ func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbas
 		for {
 			select {
 			case <-ticker.C:
-				mu.Lock()
-				if totalBytes > 0 && recordID != "" {
-					// Create a new entry.
-					newEntry := map[string]interface{}{
-						"ts":    time.Now().Format(time.RFC3339),
-						"dir":   direction, // "in" or "out"
-						"bytes": totalBytes,
+				localMu.Lock()
+				// Only flush if we have accumulated some bytes.
+				if localTotal > 0 && recordID != "" {
+					now := time.Now()
+					if now.Sub(lastFlush) >= flushInterval {
+						// Create a new entry for this flow.
+						newEntry := map[string]interface{}{
+							"ts":    now.Format(time.RFC3339),
+							"dir":   direction, // "in" or "out"
+							"bytes": localTotal,
+						}
+						// Reset local counter and update lastFlush.
+						localTotal = 0
+						lastFlush = now
+						localMu.Unlock()
+
+						// Append the new entry to the shared accumulator.
+						sharedAcc.mu.Lock()
+						sharedAcc.entries = append(sharedAcc.entries, newEntry)
+						// Make a copy of the current accumulator.
+						currentEntries := make([]interface{}, len(sharedAcc.entries))
+						copy(currentEntries, sharedAcc.entries)
+						sharedAcc.mu.Unlock()
+
+						// Update the record with the merged accumulator.
+						if err := updatePacketRecordDataWithAccumulator(recordID, currentEntries, app); err != nil {
+							log.Printf("Failed to update %s bytes: %s", direction, err)
+						}
+					} else {
+						localMu.Unlock()
 					}
-					// Append to our in-memory accumulator.
-					accumulatedData = append(accumulatedData, newEntry)
-					// Reset the counter.
-					totalBytes = 0
-					// Flush the entire accumulatedData to the DB.
-					if err := updatePacketRecordDataWithAccumulator(recordID, accumulatedData, app); err != nil {
-						log.Printf("Failed to update %s bytes: %s", direction, err)
-					}
+				} else {
+					localMu.Unlock()
 				}
-				mu.Unlock()
 			case <-done:
 				return
 			}
@@ -400,11 +418,11 @@ func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbas
 		if n > 0 {
 			written, werr := dst.Write(buf[:n])
 			if written > 0 && recordID != "" {
-				mu.Lock()
-				totalBytes += int64(written)
-				// Log current counter.
-				log.Printf("recordID: %s, totalBytes: %d", recordID, totalBytes)
-				mu.Unlock()
+				localMu.Lock()
+				localTotal += int64(written)
+				// For debugging: log the local counter for this flow.
+				log.Printf("recordID: %s, direction: %s, localTotal: %d", recordID, direction, localTotal)
+				localMu.Unlock()
 			}
 			if werr != nil {
 				close(done)
@@ -421,19 +439,28 @@ func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbas
 	}
 
 	// Final flush in case any bytes remain.
-	mu.Lock()
-	if totalBytes > 0 && recordID != "" {
+	localMu.Lock()
+	if localTotal > 0 && recordID != "" {
 		newEntry := map[string]interface{}{
 			"ts":    time.Now().Format(time.RFC3339),
 			"dir":   direction,
-			"bytes": totalBytes,
+			"bytes": localTotal,
 		}
-		accumulatedData = append(accumulatedData, newEntry)
-		if err := updatePacketRecordDataWithAccumulator(recordID, accumulatedData, app); err != nil {
+		localTotal = 0
+		localMu.Unlock()
+
+		sharedAcc.mu.Lock()
+		sharedAcc.entries = append(sharedAcc.entries, newEntry)
+		currentEntries := make([]interface{}, len(sharedAcc.entries))
+		copy(currentEntries, sharedAcc.entries)
+		sharedAcc.mu.Unlock()
+
+		if err := updatePacketRecordDataWithAccumulator(recordID, currentEntries, app); err != nil {
 			log.Printf("Final update failed for %s: %s", direction, err)
 		}
+	} else {
+		localMu.Unlock()
 	}
-	mu.Unlock()
 	close(done)
 	return nil
 }
