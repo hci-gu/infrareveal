@@ -176,10 +176,58 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 	return record.Id, nil
 }
 
-// SharedAccumulator holds the combined update entries for a single record.
+// SharedAccumulator holds the combined update entries for a single record
+// and schedules flushes at most once per flushInterval.
 type SharedAccumulator struct {
-	mu      sync.Mutex
-	entries []interface{}
+	mu            sync.Mutex
+	entries       []interface{}
+	flushTimer    *time.Timer
+	flushInterval time.Duration
+	recordID      string
+	app           *pocketbase.PocketBase
+}
+
+// NewSharedAccumulator creates a new SharedAccumulator.
+func NewSharedAccumulator(recordID string, app *pocketbase.PocketBase, flushInterval time.Duration) *SharedAccumulator {
+	return &SharedAccumulator{
+		entries:       make([]interface{}, 0),
+		flushInterval: flushInterval,
+		recordID:      recordID,
+		app:           app,
+	}
+}
+
+// Append adds a new entry to the accumulator and starts the flush timer if needed.
+func (sa *SharedAccumulator) Append(newEntry map[string]interface{}) {
+	sa.mu.Lock()
+	defer sa.mu.Unlock()
+
+	// Append the new entry.
+	sa.entries = append(sa.entries, newEntry)
+
+	// If no flush timer is currently scheduled, start one.
+	if sa.flushTimer == nil {
+		sa.flushTimer = time.AfterFunc(sa.flushInterval, func() {
+			sa.flush()
+		})
+	}
+}
+
+// flush sends the current accumulated entries to the database.
+func (sa *SharedAccumulator) flush() {
+	sa.mu.Lock()
+	// Make a copy of the accumulated entries.
+	currentEntries := make([]interface{}, len(sa.entries))
+	copy(currentEntries, sa.entries)
+	// Clear the accumulator and reset the timer.
+	sa.entries = sa.entries[:0]
+	sa.flushTimer = nil
+	sa.mu.Unlock()
+
+	// Now update the record in PocketBase with the full array.
+	if err := updatePacketRecordDataWithAccumulator(sa.recordID, currentEntries, sa.app); err != nil {
+		log.Printf("Failed to flush accumulator for record %s: %s", sa.recordID, err)
+	}
 }
 
 // updatePacketRecordDataWithAccumulator writes the entire shared accumulator to the record.
@@ -303,18 +351,15 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		return
 	}
 
-	// 1. Create the packet record first (without byte data).
+	// 1. Create the packet record.
 	recordID, err := createPacketRecord(clientIP, hostname, app, geoipDB)
 	if err != nil {
 		log.Printf("Failed to create packet record: %s", err)
 	}
 
-	// Create a shared accumulator for both flows.
-	sharedAcc := &SharedAccumulator{
-		entries: make([]interface{}, 0),
-	}
+	// Create a shared accumulator with a 1-second flush interval.
+	sharedAcc := NewSharedAccumulator(recordID, app, 1*time.Second)
 
-	// If recordID is empty (i.e. no active session), we won't update, but we still proxy traffic.
 	var wg sync.WaitGroup
 	wg.Add(2)
 
@@ -324,7 +369,6 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		if err != nil {
 			log.Printf("Error in client->backend: %s", err)
 		}
-		// Half-close the connection.
 		if tcpConn, ok := backendConn.(*net.TCPConn); ok {
 			tcpConn.CloseWrite()
 		}
@@ -337,7 +381,6 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		if err != nil {
 			log.Printf("Error in backend->client: %s", err)
 		}
-		// Half-close the connection.
 		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
 			tcpConn.CloseWrite()
 		}
@@ -346,7 +389,7 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 
 	wg.Wait()
 
-	// 3. Close the packet record.
+	// Close the packet record.
 	if recordID != "" {
 		if err := closePacketRecord(recordID, app); err != nil {
 			log.Printf("Failed to update packet record: %s", err)
@@ -355,54 +398,36 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 }
 
 func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbase.PocketBase, direction string, sharedAcc *SharedAccumulator) error {
-	// Desired flush interval.
-	const flushInterval = 1 * time.Second
+	// Desired flush interval (we let the shared accumulator control flushing).
+	const localFlushInterval = 1 * time.Second
 
-	// localTotal accumulates the bytes read (for this flow) since the last flush.
+	// localTotal accumulates the bytes read for this flow since the last local flush.
 	var localTotal int64 = 0
 	var localMu sync.Mutex // Protects localTotal.
 	done := make(chan struct{})
-	// lastFlush is local to this flow.
-	lastFlush := time.Now()
 
-	// ticker goroutine to flush updates periodically.
+	// Local ticker that triggers flushes for this flow.
+	ticker := time.NewTicker(localFlushInterval)
+	defer ticker.Stop()
+
 	go func() {
-		ticker := time.NewTicker(flushInterval)
-		defer ticker.Stop()
 		for {
 			select {
 			case <-ticker.C:
 				localMu.Lock()
-				// Only flush if we have accumulated some bytes.
 				if localTotal > 0 && recordID != "" {
-					now := time.Now()
-					if now.Sub(lastFlush) >= flushInterval {
-						// Create a new entry for this flow.
-						newEntry := map[string]interface{}{
-							"ts":    now.Format(time.RFC3339),
-							"dir":   direction, // "in" or "out"
-							"bytes": localTotal,
-						}
-						// Reset local counter and update lastFlush.
-						localTotal = 0
-						lastFlush = now
-						localMu.Unlock()
-
-						// Append the new entry to the shared accumulator.
-						sharedAcc.mu.Lock()
-						sharedAcc.entries = append(sharedAcc.entries, newEntry)
-						// Make a copy of the current accumulator.
-						currentEntries := make([]interface{}, len(sharedAcc.entries))
-						copy(currentEntries, sharedAcc.entries)
-						sharedAcc.mu.Unlock()
-
-						// Update the record with the merged accumulator.
-						if err := updatePacketRecordDataWithAccumulator(recordID, currentEntries, app); err != nil {
-							log.Printf("Failed to update %s bytes: %s", direction, err)
-						}
-					} else {
-						localMu.Unlock()
+					// Create a new entry for this flush.
+					newEntry := map[string]interface{}{
+						"ts":    time.Now().Format(time.RFC3339),
+						"dir":   direction, // "in" or "out"
+						"bytes": localTotal,
 					}
+					// Reset the local counter.
+					localTotal = 0
+					localMu.Unlock()
+
+					// Append the new entry to the shared accumulator.
+					sharedAcc.Append(newEntry)
 				} else {
 					localMu.Unlock()
 				}
@@ -420,7 +445,7 @@ func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbas
 			if written > 0 && recordID != "" {
 				localMu.Lock()
 				localTotal += int64(written)
-				// For debugging: log the local counter for this flow.
+				// (Optional) Log for debugging.
 				log.Printf("recordID: %s, direction: %s, localTotal: %d", recordID, direction, localTotal)
 				localMu.Unlock()
 			}
@@ -438,7 +463,7 @@ func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbas
 		}
 	}
 
-	// Final flush in case any bytes remain.
+	// Final flush for any remaining bytes.
 	localMu.Lock()
 	if localTotal > 0 && recordID != "" {
 		newEntry := map[string]interface{}{
@@ -448,16 +473,7 @@ func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbas
 		}
 		localTotal = 0
 		localMu.Unlock()
-
-		sharedAcc.mu.Lock()
-		sharedAcc.entries = append(sharedAcc.entries, newEntry)
-		currentEntries := make([]interface{}, len(sharedAcc.entries))
-		copy(currentEntries, sharedAcc.entries)
-		sharedAcc.mu.Unlock()
-
-		if err := updatePacketRecordDataWithAccumulator(recordID, currentEntries, app); err != nil {
-			log.Printf("Final update failed for %s: %s", direction, err)
-		}
+		sharedAcc.Append(newEntry)
 	} else {
 		localMu.Unlock()
 	}
