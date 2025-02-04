@@ -176,9 +176,14 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 	return record.Id, nil
 }
 
+var updateMutex sync.Mutex
+
 // updatePacketRecordData appends a new entry to the "data" field array.
 // Each entry is an object with a timestamp, direction ("in" or "out"), and number of bytes.
 func updatePacketRecordData(recordID string, direction string, n int64, app *pocketbase.PocketBase) error {
+	updateMutex.Lock()
+	defer updateMutex.Unlock()
+
 	// 1. Find the record to update
 	record, err := app.FindRecordById("packets", recordID)
 	if err != nil {
