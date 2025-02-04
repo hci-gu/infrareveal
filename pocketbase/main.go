@@ -176,57 +176,74 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 	return record.Id, nil
 }
 
-// SharedAccumulator holds the combined update entries for a single record
-// and schedules flushes at most once per flushInterval.
-type SharedAccumulator struct {
-	mu            sync.Mutex
-	entries       []interface{}
-	flushTimer    *time.Timer
-	flushInterval time.Duration
-	recordID      string
-	app           *pocketbase.PocketBase
+// Aggregator collects byte counts for both directions and flushes once per second.
+type Aggregator struct {
+	mu       sync.Mutex
+	inCount  int64
+	outCount int64
+	// entries holds the complete list of finalized entries.
+	entries []interface{}
+	// recordID and app are needed to update the PocketBase record.
+	recordID string
+	app      *pocketbase.PocketBase
 }
 
-// NewSharedAccumulator creates a new SharedAccumulator.
-func NewSharedAccumulator(recordID string, app *pocketbase.PocketBase, flushInterval time.Duration) *SharedAccumulator {
-	return &SharedAccumulator{
-		entries:       make([]interface{}, 0),
-		flushInterval: flushInterval,
-		recordID:      recordID,
-		app:           app,
+// NewAggregator creates a new aggregator.
+func NewAggregator(recordID string, app *pocketbase.PocketBase) *Aggregator {
+	return &Aggregator{
+		inCount:  0,
+		outCount: 0,
+		entries:  make([]interface{}, 0),
+		recordID: recordID,
+		app:      app,
 	}
 }
 
-// Append adds a new entry to the accumulator and starts the flush timer if needed.
-func (sa *SharedAccumulator) Append(newEntry map[string]interface{}) {
-	sa.mu.Lock()
-	defer sa.mu.Unlock()
-
-	// Append the new entry.
-	sa.entries = append(sa.entries, newEntry)
-
-	// If no flush timer is currently scheduled, start one.
-	if sa.flushTimer == nil {
-		sa.flushTimer = time.AfterFunc(sa.flushInterval, func() {
-			sa.flush()
-		})
+// Add increments the count for the given direction ("in" or "out").
+func (a *Aggregator) Add(direction string, n int64) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if direction == "in" {
+		a.inCount += n
+	} else if direction == "out" {
+		a.outCount += n
 	}
 }
 
-// flush sends the current accumulated entries to the database.
-func (sa *SharedAccumulator) flush() {
-	sa.mu.Lock()
-	// Make a copy of the accumulated entries.
-	currentEntries := make([]interface{}, len(sa.entries))
-	copy(currentEntries, sa.entries)
-	// Clear the accumulator and reset the timer.
-	sa.entries = sa.entries[:0]
-	sa.flushTimer = nil
-	sa.mu.Unlock()
+// Flush is called once per second to finalize the current bucket.
+// It creates one entry per direction (if there is any data), appends those entries
+// to the aggregator’s entries slice, resets the counters, and then updates PocketBase.
+func (a *Aggregator) Flush() {
+	now := time.Now().Format(time.RFC3339)
+	a.mu.Lock()
+	// If we have any inbound bytes, create an "in" entry.
+	if a.inCount > 0 {
+		entry := map[string]interface{}{
+			"ts":    now,
+			"dir":   "in",
+			"bytes": a.inCount,
+		}
+		a.entries = append(a.entries, entry)
+		a.inCount = 0
+	}
+	// Similarly for outbound.
+	if a.outCount > 0 {
+		entry := map[string]interface{}{
+			"ts":    now,
+			"dir":   "out",
+			"bytes": a.outCount,
+		}
+		a.entries = append(a.entries, entry)
+		a.outCount = 0
+	}
+	// Make a copy of the entries to use for updating the record.
+	currentEntries := make([]interface{}, len(a.entries))
+	copy(currentEntries, a.entries)
+	a.mu.Unlock()
 
-	// Now update the record in PocketBase with the full array.
-	if err := updatePacketRecordDataWithAccumulator(sa.recordID, currentEntries, sa.app); err != nil {
-		log.Printf("Failed to flush accumulator for record %s: %s", sa.recordID, err)
+	// Update the PocketBase record with the full accumulator.
+	if err := updatePacketRecordDataWithAccumulator(a.recordID, currentEntries, a.app); err != nil {
+		log.Printf("Failed to update aggregator for record %s: %s", a.recordID, err)
 	}
 }
 
@@ -351,21 +368,35 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		return
 	}
 
-	// 1. Create the packet record.
+	// Create the packet record.
 	recordID, err := createPacketRecord(clientIP, hostname, app, geoipDB)
 	if err != nil {
 		log.Printf("Failed to create packet record: %s", err)
 	}
 
-	// Create a shared accumulator with a 1-second flush interval.
-	sharedAcc := NewSharedAccumulator(recordID, app, 1*time.Second)
+	// Create a shared aggregator.
+	aggregator := NewAggregator(recordID, app)
+
+	// Start a ticker that flushes the aggregator once per second.
+	flushTicker := time.NewTicker(1 * time.Second)
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-flushTicker.C:
+				aggregator.Flush()
+			case <-done:
+				return
+			}
+		}
+	}()
 
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Copy client -> backend ("in" direction).
+	// Flow: client -> backend ("in" direction).
 	go func() {
-		err := copyAndUpdate(backendConn, clientReader, recordID, app, "in", sharedAcc)
+		err := copyAndUpdate(backendConn, clientReader, "in", aggregator)
 		if err != nil {
 			log.Printf("Error in client->backend: %s", err)
 		}
@@ -375,9 +406,9 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		wg.Done()
 	}()
 
-	// Copy backend -> client ("out" direction).
+	// Flow: backend -> client ("out" direction).
 	go func() {
-		err := copyAndUpdate(clientConn, backendConn, recordID, app, "out", sharedAcc)
+		err := copyAndUpdate(clientConn, backendConn, "out", aggregator)
 		if err != nil {
 			log.Printf("Error in backend->client: %s", err)
 		}
@@ -388,6 +419,11 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	}()
 
 	wg.Wait()
+	close(done)
+	flushTicker.Stop()
+
+	// Final flush to capture any remaining bytes.
+	aggregator.Flush()
 
 	// Close the packet record.
 	if recordID != "" {
@@ -397,86 +433,28 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	}
 }
 
-func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbase.PocketBase, direction string, sharedAcc *SharedAccumulator) error {
-	// Desired flush interval (we let the shared accumulator control flushing).
-	const localFlushInterval = 1 * time.Second
-
-	// localTotal accumulates the bytes read for this flow since the last local flush.
-	var localTotal int64 = 0
-	var localMu sync.Mutex // Protects localTotal.
-	done := make(chan struct{})
-
-	// Local ticker that triggers flushes for this flow.
-	ticker := time.NewTicker(localFlushInterval)
-	defer ticker.Stop()
-
-	go func() {
-		for {
-			select {
-			case <-ticker.C:
-				localMu.Lock()
-				if localTotal > 0 && recordID != "" {
-					// Create a new entry for this flush.
-					newEntry := map[string]interface{}{
-						"ts":    time.Now().Format(time.RFC3339),
-						"dir":   direction, // "in" or "out"
-						"bytes": localTotal,
-					}
-					// Reset the local counter.
-					localTotal = 0
-					localMu.Unlock()
-
-					// Append the new entry to the shared accumulator.
-					sharedAcc.Append(newEntry)
-				} else {
-					localMu.Unlock()
-				}
-			case <-done:
-				return
-			}
-		}
-	}()
-
+// copyAndUpdate now simply transfers data and adds to the aggregator.
+func copyAndUpdate(dst io.Writer, src io.Reader, direction string, aggregator *Aggregator) error {
 	buf := make([]byte, 4096)
 	for {
 		n, err := src.Read(buf)
 		if n > 0 {
 			written, werr := dst.Write(buf[:n])
-			if written > 0 && recordID != "" {
-				localMu.Lock()
-				localTotal += int64(written)
+			if written > 0 {
+				// Add the written bytes to the aggregator.
+				aggregator.Add(direction, int64(written))
 				// (Optional) Log for debugging.
-				log.Printf("recordID: %s, direction: %s, localTotal: %d", recordID, direction, localTotal)
-				localMu.Unlock()
+				log.Printf("recordID: %s, direction: %s, added: %d bytes", aggregator.recordID, direction, written)
 			}
 			if werr != nil {
-				close(done)
 				return werr
 			}
 		}
 		if err != nil {
 			if err == io.EOF {
-				break
+				return nil
 			}
-			close(done)
 			return err
 		}
 	}
-
-	// Final flush for any remaining bytes.
-	localMu.Lock()
-	if localTotal > 0 && recordID != "" {
-		newEntry := map[string]interface{}{
-			"ts":    time.Now().Format(time.RFC3339),
-			"dir":   direction,
-			"bytes": localTotal,
-		}
-		localTotal = 0
-		localMu.Unlock()
-		sharedAcc.Append(newEntry)
-	} else {
-		localMu.Unlock()
-	}
-	close(done)
-	return nil
 }
