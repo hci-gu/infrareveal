@@ -415,6 +415,8 @@ func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbas
 				// accumulate the number of bytes written
 				mu.Lock()
 				totalBytes += int64(written)
+				// log recordID and totalBytes
+				log.Printf("recordID: %s, totalBytes: %d", recordID, totalBytes)
 				mu.Unlock()
 			}
 			if werr != nil {
