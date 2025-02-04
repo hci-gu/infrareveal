@@ -178,49 +178,23 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 
 var updateMutex sync.Mutex
 
-// updatePacketRecordData appends a new entry to the "data" field array.
-// Each entry is an object with a timestamp, direction ("in" or "out"), and number of bytes.
-func updatePacketRecordData(recordID string, direction string, n int64, app *pocketbase.PocketBase) error {
-	updateMutex.Lock()
-	defer updateMutex.Unlock()
-
-	// 1. Find the record to update
+// updatePacketRecordDataWithAccumulator updates the "data" field of the record
+// with the full accumulatedData array.
+func updatePacketRecordDataWithAccumulator(recordID string, accumulatedData []interface{}, app *pocketbase.PocketBase) error {
+	// Fetch the record.
 	record, err := app.FindRecordById("packets", recordID)
 	if err != nil {
-		log.Printf("updatePacketRecordData: could not find record %s: %s", recordID, err)
+		log.Printf("updatePacketRecordDataWithAccumulator: could not find record %s: %s", recordID, err)
 		return err
 	}
-
-	// 2. Retrieve current data array, if any.
-	var data []interface{}
-	if raw := record.Get("data"); raw != nil {
-		if arr, ok := raw.([]interface{}); ok {
-			data = arr
-		} else {
-			data = []interface{}{}
-		}
-	} else {
-		data = []interface{}{}
-	}
-
-	// 3. Create a new data entry.
-	newEntry := map[string]interface{}{
-		"ts":    time.Now().Format(time.RFC3339),
-		"dir":   direction, // "in" for incoming, "out" for outgoing
-		"bytes": n,
-	}
-
-	// 4. Append the new entry.
-	data = append(data, newEntry)
-	record.Set("data", data)
-
-	// 5. Save the record.
+	// Replace the "data" field with the accumulated data.
+	record.Set("data", accumulatedData)
+	// Save the record.
 	err = app.Save(record)
 	if err != nil {
-		log.Printf("updatePacketRecordData: save error: %s", err)
+		log.Printf("updatePacketRecordDataWithAccumulator: save error: %s", err)
 		return err
 	}
-
 	return nil
 }
 
@@ -377,14 +351,15 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	}
 }
 
-// copyAndUpdate reads from src and writes to dst.
-// It accumulates the number of bytes transferred in a local counter and,
-// every flushInterval, it calls updatePacketRecordData to append a new entry.
+// copyAndUpdate reads from src and writes to dst in chunks.
+// It accumulates bytes transferred in memory and flushes updates every flushInterval.
 func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbase.PocketBase, direction string) error {
 	const flushInterval = 1 * time.Second
 
 	// totalBytes accumulates the bytes read since the last flush.
 	var totalBytes int64 = 0
+	// accumulatedData will hold all flush entries for this connection.
+	var accumulatedData []interface{}
 	var mu sync.Mutex
 	done := make(chan struct{})
 
@@ -397,12 +372,20 @@ func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbas
 			case <-ticker.C:
 				mu.Lock()
 				if totalBytes > 0 && recordID != "" {
-					// flush the accumulated bytes as an update
-					if err := updatePacketRecordData(recordID, direction, totalBytes, app); err != nil {
+					// Create a new entry.
+					newEntry := map[string]interface{}{
+						"ts":    time.Now().Format(time.RFC3339),
+						"dir":   direction, // "in" or "out"
+						"bytes": totalBytes,
+					}
+					// Append to our in-memory accumulator.
+					accumulatedData = append(accumulatedData, newEntry)
+					// Reset the counter.
+					totalBytes = 0
+					// Flush the entire accumulatedData to the DB.
+					if err := updatePacketRecordDataWithAccumulator(recordID, accumulatedData, app); err != nil {
 						log.Printf("Failed to update %s bytes: %s", direction, err)
 					}
-					// reset the counter after flushing
-					totalBytes = 0
 				}
 				mu.Unlock()
 			case <-done:
@@ -417,10 +400,9 @@ func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbas
 		if n > 0 {
 			written, werr := dst.Write(buf[:n])
 			if written > 0 && recordID != "" {
-				// accumulate the number of bytes written
 				mu.Lock()
 				totalBytes += int64(written)
-				// log recordID and totalBytes
+				// Log current counter.
 				log.Printf("recordID: %s, totalBytes: %d", recordID, totalBytes)
 				mu.Unlock()
 			}
@@ -441,7 +423,13 @@ func copyAndUpdate(dst io.Writer, src io.Reader, recordID string, app *pocketbas
 	// Final flush in case any bytes remain.
 	mu.Lock()
 	if totalBytes > 0 && recordID != "" {
-		if err := updatePacketRecordData(recordID, direction, totalBytes, app); err != nil {
+		newEntry := map[string]interface{}{
+			"ts":    time.Now().Format(time.RFC3339),
+			"dir":   direction,
+			"bytes": totalBytes,
+		}
+		accumulatedData = append(accumulatedData, newEntry)
+		if err := updatePacketRecordDataWithAccumulator(recordID, accumulatedData, app); err != nil {
 			log.Printf("Final update failed for %s: %s", direction, err)
 		}
 	}
