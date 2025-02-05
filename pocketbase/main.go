@@ -112,19 +112,16 @@ func readClientHello(reader io.Reader) (*tls.ClientHelloInfo, error) {
 }
 
 func createPacketRecord(clientIP string, hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Reader) (string, error) {
-	// 1. If there's no active session, we can skip creating a packet record
 	if active_session_id == nil {
 		return "", nil
 	}
 
-	// 2. Look up IP address from hostname
 	hostIPs, lookupErr := net.LookupIP(hostname)
 	if lookupErr != nil {
 		log.Printf("lookup error: %s", lookupErr)
 		return "", lookupErr
 	}
 
-	// 3. Pick the first IPv4 address if available
 	var hostIP net.IP
 	for _, ip := range hostIPs {
 		if ip.To4() != nil {
@@ -138,14 +135,12 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 		return "", nil
 	}
 
-	// 4. GeoIP lookup
 	geoRecord, geoErr := geoipDB.City(hostIP)
 	if geoErr != nil {
 		log.Printf("geoip error: %s", geoErr)
 		return "", geoErr
 	}
 
-	// 5. Create a new packet record
 	collection, err := app.FindCollectionByNameOrId("packets")
 	if err != nil {
 		log.Printf("collection error: %s", err)
@@ -153,42 +148,34 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 	}
 	record := core.NewRecord(collection)
 
-	// 6. Populate fields
 	record.Set("session", *active_session_id)
 	record.Set("active", true)
 	record.Set("client_ip", clientIP)
 	record.Set("host", hostname)
 	record.Set("lat", geoRecord.Location.Latitude)
 	record.Set("lon", geoRecord.Location.Longitude)
-	// Remove the old numeric fields and initialize "data" as an empty array.
 	record.Set("data", []interface{}{})
 	record.Set("city", geoRecord.City.Names["en"])
 	record.Set("country", geoRecord.Country.Names["en"])
 
-	// 7. Save the record
 	err = app.Save(record)
 	if err != nil {
 		log.Printf("save error: %s", err)
 		return "", err
 	}
 
-	// 8. Return the newly created record's ID
 	return record.Id, nil
 }
 
-// Aggregator collects byte counts for both directions and flushes once per second.
 type Aggregator struct {
 	mu       sync.Mutex
 	inCount  int64
 	outCount int64
-	// entries holds the complete list of finalized entries.
-	entries []interface{}
-	// recordID and app are needed to update the PocketBase record.
+	entries  []interface{}
 	recordID string
 	app      *pocketbase.PocketBase
 }
 
-// NewAggregator creates a new aggregator.
 func NewAggregator(recordID string, app *pocketbase.PocketBase) *Aggregator {
 	return &Aggregator{
 		inCount:  0,
@@ -199,7 +186,6 @@ func NewAggregator(recordID string, app *pocketbase.PocketBase) *Aggregator {
 	}
 }
 
-// Add increments the count for the given direction ("in" or "out").
 func (a *Aggregator) Add(direction string, n int64) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -394,9 +380,9 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	// Flow: client -> backend ("in" direction).
+	// Flow: client -> backend ("out" direction).
 	go func() {
-		err := copyAndUpdate(backendConn, clientReader, "in", aggregator)
+		err := copyAndUpdate(backendConn, clientReader, "out", aggregator)
 		if err != nil {
 			log.Printf("Error in client->backend: %s", err)
 		}
@@ -406,9 +392,9 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		wg.Done()
 	}()
 
-	// Flow: backend -> client ("out" direction).
+	// Flow: backend -> client ("in" direction).
 	go func() {
-		err := copyAndUpdate(clientConn, backendConn, "out", aggregator)
+		err := copyAndUpdate(clientConn, backendConn, "in", aggregator)
 		if err != nil {
 			log.Printf("Error in backend->client: %s", err)
 		}
@@ -443,8 +429,6 @@ func copyAndUpdate(dst io.Writer, src io.Reader, direction string, aggregator *A
 			if written > 0 {
 				// Add the written bytes to the aggregator.
 				aggregator.Add(direction, int64(written))
-				// (Optional) Log for debugging.
-				log.Printf("recordID: %s, direction: %s, added: %d bytes", aggregator.recordID, direction, written)
 			}
 			if werr != nil {
 				return werr
