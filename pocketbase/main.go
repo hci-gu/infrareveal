@@ -37,14 +37,20 @@ func main() {
 	go func() {
 		app.OnRecordAfterCreateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
 			id := e.Record.Get("id").(string)
-			active_session_id = &id
+			if e.Record.Get("active") == true {
+				active_session_id = &id
+			}
 			return e.Next()
 		})
 
 		app.OnRecordAfterUpdateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
 			// if record.ended is set, then we need to update the session_id
-			if e.Record.Get("ended") != nil {
+			if e.Record.Get("active") == false {
 				active_session_id = nil
+			}
+			if e.Record.Get("active") == true {
+				id := e.Record.Get("id").(string)
+				active_session_id = &id
 			}
 			return e.Next()
 		})
