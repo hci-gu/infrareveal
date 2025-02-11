@@ -150,7 +150,7 @@ func geolocateHops(hops []Hop, geoipDB *geoip2.Reader) {
 }
 
 // createTracerouteRecord is a helper to store traceroute results in PocketBase.
-func createTracerouteRecord(sessionID, hostname string, hops []Hop, app *pocketbase.PocketBase) error {
+func createTracerouteRecord(sessionID, domain string, hops []Hop, app *pocketbase.PocketBase) error {
 	// If you have a "traceroutes" collection, do something like this:
 	collection, err := app.FindCollectionByNameOrId("traceroutes")
 	if err != nil {
@@ -160,7 +160,7 @@ func createTracerouteRecord(sessionID, hostname string, hops []Hop, app *pocketb
 
 	record := core.NewRecord(collection)
 	record.Set("session", sessionID)
-	record.Set("hostname", hostname)
+	record.Set("domain", domain)
 
 	// Convert each Hop struct to a map so we can store it in PB. For example:
 	var hopData []map[string]interface{}
