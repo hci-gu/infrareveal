@@ -4,12 +4,18 @@ import (
 	"bufio"
 	"bytes"
 	"crypto/tls"
+	"fmt"
 	"io"
 	"log"
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
+	"regexp"
+	"runtime"
+	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -20,9 +26,99 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
+// Hop represents a single hop in the traceroute output
+type Hop struct {
+	TTL     int       // Hop number
+	Address string    // IP or Hostname
+	Timings []float64 // Latency timings in milliseconds
+}
+
+// RunTraceroute executes the traceroute command and returns parsed hops
+func RunTraceroute(hostname string) ([]Hop, error) {
+	var cmd *exec.Cmd
+
+	// Select command based on OS
+	if runtime.GOOS == "windows" {
+		cmd = exec.Command("tracert", hostname) // Windows
+	} else {
+		cmd = exec.Command("traceroute", hostname) // macOS/Linux
+	}
+
+	// Execute the command
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return nil, fmt.Errorf("failed to run traceroute: %v", err)
+	}
+
+	// Parse the output and extract hops
+	hops := parseTracerouteOutput(string(output))
+	return hops, nil
+}
+
+// parseTracerouteOutput extracts hop details and converts timings to floats
+func parseTracerouteOutput(output string) []Hop {
+	lines := strings.Split(output, "\n")
+	hops := []Hop{}
+
+	// Regex pattern to match: "1  192.168.1.1  1.2 ms  2.3 ms  3.1 ms"
+	re := regexp.MustCompile(`^\s*(\d+)\s+([\d\.a-zA-Z-]+)\s+(.*)$`)
+
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		matches := re.FindStringSubmatch(line)
+		if len(matches) == 4 {
+			ttl := parseInt(matches[1])         // Hop number
+			address := matches[2]               // IP or Hostname
+			timings := parseTimings(matches[3]) // Convert timings to float slice
+
+			hops = append(hops, Hop{
+				TTL:     ttl,
+				Address: address,
+				Timings: timings,
+			})
+		}
+	}
+
+	return hops
+}
+
+// parseInt converts a string to an integer
+func parseInt(str string) int {
+	num, _ := strconv.Atoi(str)
+	return num
+}
+
+// parseTimings extracts multiple timings from a string and converts them to float64
+func parseTimings(timingStr string) []float64 {
+	timingStr = strings.ReplaceAll(timingStr, " ms", "") // Remove "ms" suffix
+	parts := strings.Fields(timingStr)                   // Split by whitespace
+	var timings []float64
+
+	for _, part := range parts {
+		if num, err := strconv.ParseFloat(part, 64); err == nil {
+			timings = append(timings, num)
+		}
+	}
+
+	return timings
+}
+
 var active_session_id *string
 
 func main() {
+	host := "google.com" // Change this to your target
+
+	hops, err := RunTraceroute(host)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Print the traceroute result
+	fmt.Printf("Traceroute to %s:\n", host)
+	for _, hop := range hops {
+		fmt.Printf("%d: %s - %v ms\n", hop.TTL, hop.Address, hop.Timings)
+	}
+
 	app := pocketbase.New()
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
