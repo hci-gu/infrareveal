@@ -149,6 +149,27 @@ func geolocateHops(hops []Hop, geoipDB *geoip2.Reader) {
 	}
 }
 
+func cleanHops(hops []Hop) []Hop {
+	cleaned := make([]Hop, 0, len(hops))
+	var lastAddr string
+
+	for _, hop := range hops {
+		// Skip any hop whose address is "*"
+		if hop.Address == "*" {
+			continue
+		}
+		// If this address is the same as the previous one, skip it
+		if hop.Address == lastAddr {
+			continue
+		}
+		// Otherwise, keep this hop
+		cleaned = append(cleaned, hop)
+		lastAddr = hop.Address
+	}
+
+	return cleaned
+}
+
 // createTracerouteRecord is a helper to store traceroute results in PocketBase.
 func createTracerouteRecord(sessionID, domain string, hops []Hop, app *pocketbase.PocketBase) error {
 	// If you have a "traceroutes" collection, do something like this:
@@ -400,9 +421,11 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 				}
 				// Geolocate each hop
 				geolocateHops(hops, geoipDB)
+				// Clean up hops
+				cleanedHops := cleanHops(hops)
 
 				// Store results in PB
-				if err := createTracerouteRecord(sid, h, hops, app); err != nil {
+				if err := createTracerouteRecord(sid, h, cleanedHops, app); err != nil {
 					log.Printf("Failed to store traceroute for %s: %v", h, err)
 				}
 			}(*active_session_id, hn)
