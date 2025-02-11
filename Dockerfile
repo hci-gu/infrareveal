@@ -23,6 +23,7 @@ RUN apt-get update --fix-missing && apt-get install -y \
     dnsmasq \
     macchanger \
     iproute2 \
+    traceroute \
     && apt-get clean
 
 # Copy the built binary from the builder stage

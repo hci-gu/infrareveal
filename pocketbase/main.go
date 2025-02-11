@@ -31,6 +31,12 @@ type Hop struct {
 	TTL     int       // Hop number
 	Address string    // IP or Hostname
 	Timings []float64 // Latency timings in milliseconds
+
+	// NEW: Add fields to store geolocation data
+	Latitude  float64
+	Longitude float64
+	City      string
+	Country   string
 }
 
 // RunTraceroute executes the traceroute command and returns parsed hops
@@ -60,8 +66,9 @@ func parseTracerouteOutput(output string) []Hop {
 	lines := strings.Split(output, "\n")
 	hops := []Hop{}
 
-	// Regex pattern to match: "1  192.168.1.1  1.2 ms  2.3 ms  3.1 ms"
-	re := regexp.MustCompile(`^\s*(\d+)\s+([\d\.a-zA-Z-]+)\s+(.*)$`)
+	// Regex pattern to match typical lines, e.g.:
+	//   "1  192.168.1.1  1.2 ms  2.3 ms  3.1 ms"
+	re := regexp.MustCompile(`^\s*(\d+)\s+([\d\.a-zA-Z\-\*]+)\s+(.*)$`)
 
 	for _, line := range lines {
 		line = strings.TrimSpace(line)
@@ -103,22 +110,89 @@ func parseTimings(timingStr string) []float64 {
 	return timings
 }
 
+// NEW: geolocateHops populates the latitude/longitude/city/country for each hop.
+// It tries to parse the hop's Address as an IP; if that fails, it attempts a DNS lookup.
+// You can refine the logic to skip lines like "* * *" if that is typical in your traceroute output.
+func geolocateHops(hops []Hop, geoipDB *geoip2.Reader) {
+	for i := range hops {
+		rawAddr := hops[i].Address
+		// traceroute might sometimes produce lines like "* * *", or domain names, or IP addresses.
+
+		// Skip placeholders like "* * *"
+		if strings.Contains(rawAddr, "*") {
+			continue
+		}
+
+		ip := net.ParseIP(rawAddr)
+		// If not a direct IP, attempt a DNS lookup
+		if ip == nil {
+			addrs, err := net.LookupIP(rawAddr)
+			if err != nil || len(addrs) == 0 {
+				continue
+			}
+			ip = addrs[0]
+		}
+		// Now attempt the geolocation
+		if ip == nil {
+			continue
+		}
+
+		cityRecord, err := geoipDB.City(ip)
+		if err != nil {
+			continue
+		}
+
+		hops[i].Latitude = cityRecord.Location.Latitude
+		hops[i].Longitude = cityRecord.Location.Longitude
+		hops[i].City = cityRecord.City.Names["en"]
+		hops[i].Country = cityRecord.Country.Names["en"]
+	}
+}
+
+// createTracerouteRecord is a helper to store traceroute results in PocketBase.
+func createTracerouteRecord(sessionID, hostname string, hops []Hop, app *pocketbase.PocketBase) error {
+	// If you have a "traceroutes" collection, do something like this:
+	collection, err := app.FindCollectionByNameOrId("traceroutes")
+	if err != nil {
+		log.Printf("createTracerouteRecord: collection error: %s", err)
+		return err
+	}
+
+	record := core.NewRecord(collection)
+	record.Set("session", sessionID)
+	record.Set("hostname", hostname)
+
+	// Convert each Hop struct to a map so we can store it in PB. For example:
+	var hopData []map[string]interface{}
+	for _, h := range hops {
+		hopData = append(hopData, map[string]interface{}{
+			"ttl":       h.TTL,
+			"address":   h.Address,
+			"timings":   h.Timings,
+			"latitude":  h.Latitude,
+			"longitude": h.Longitude,
+			"city":      h.City,
+			"country":   h.Country,
+		})
+	}
+	record.Set("hops", hopData)
+
+	err = app.Save(record)
+	if err != nil {
+		log.Printf("createTracerouteRecord: save error: %s", err)
+		return err
+	}
+
+	return nil
+}
+
+// Global pointer tracking active session
 var active_session_id *string
 
+// We'll keep a global map to track which hostnames we've seen for the current session
+var sessionHostnames sync.Map // key=string (hostname), value=bool
+
 func main() {
-	host := "google.com" // Change this to your target
-
-	hops, err := RunTraceroute(host)
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	// Print the traceroute result
-	fmt.Printf("Traceroute to %s:\n", host)
-	for _, hop := range hops {
-		fmt.Printf("%d: %s - %v ms\n", hop.TTL, hop.Address, hop.Timings)
-	}
-
 	app := pocketbase.New()
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
@@ -130,23 +204,25 @@ func main() {
 	geoipDB, _ := geoip2.Open("./geoip/city.mmdb")
 	defer geoipDB.Close()
 
+	// Watch session creation/updates
 	go func() {
 		app.OnRecordAfterCreateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
-			id := e.Record.Get("id").(string)
-			if e.Record.Get("active") == true {
+			id := e.Record.GetString("id")
+			if e.Record.GetBool("active") {
 				active_session_id = &id
+				// Clear map of seen hostnames on new session
+				clearSessionHostnames()
 			}
 			return e.Next()
 		})
 
 		app.OnRecordAfterUpdateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
-			// if record.ended is set, then we need to update the session_id
-			if e.Record.Get("active") == false {
+			if !e.Record.GetBool("active") {
 				active_session_id = nil
-			}
-			if e.Record.Get("active") == true {
-				id := e.Record.Get("id").(string)
+			} else {
+				id := e.Record.GetString("id")
 				active_session_id = &id
+				clearSessionHostnames()
 			}
 			return e.Next()
 		})
@@ -156,6 +232,7 @@ func main() {
 		}
 	}()
 
+	// Start listening for traffic on :1337
 	go func() {
 		l, err := net.Listen("tcp", ":1337")
 		if err != nil {
@@ -171,9 +248,18 @@ func main() {
 		}
 	}()
 
+	// Wait for SIGINT or SIGTERM
 	signalChannel := make(chan os.Signal, 1)
 	signal.Notify(signalChannel, syscall.SIGINT, syscall.SIGTERM)
 	<-signalChannel
+}
+
+// clearSessionHostnames empties the global map when a new session starts
+func clearSessionHostnames() {
+	sessionHostnames.Range(func(key, value any) bool {
+		sessionHostnames.Delete(key)
+		return true
+	})
 }
 
 func peekClientHello(reader io.Reader) (*tls.ClientHelloInfo, io.Reader, error) {
@@ -213,6 +299,176 @@ func readClientHello(reader io.Reader) (*tls.ClientHelloInfo, error) {
 	return hello, nil
 }
 
+func handleConnection(clientConn net.Conn, app *pocketbase.PocketBase, geoipDB *geoip2.Reader) {
+	defer clientConn.Close()
+
+	if err := clientConn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
+		log.Print(err)
+		return
+	}
+
+	// Peek first bytes to decide if connection is TLS
+	peekBuf := make([]byte, 5)
+	n, err := clientConn.Read(peekBuf)
+	if err != nil {
+		log.Print(err)
+		return
+	}
+	// Reset deadline
+	if err := clientConn.SetReadDeadline(time.Time{}); err != nil {
+		log.Print(err)
+		return
+	}
+
+	peekedReader := io.MultiReader(bytes.NewReader(peekBuf[:n]), clientConn)
+
+	// Check for TLS
+	if isTLSHandshake(peekBuf) {
+		clientHello, clientReader, err := peekClientHello(peekedReader)
+		if err != nil {
+			log.Print(err)
+			return
+		}
+
+		log.Printf("TLS traffic for ServerName: %s", clientHello.ServerName)
+
+		backendConn, err := net.DialTimeout("tcp", net.JoinHostPort(clientHello.ServerName, "443"), 5*time.Second)
+		if err != nil {
+			log.Print(err)
+			return
+		}
+		defer backendConn.Close()
+
+		pipeTraffic(clientConn, backendConn, clientReader, app, geoipDB, clientHello.ServerName)
+	} else {
+		// Handle plaintext (e.g., HTTP)
+		log.Print("Non-TLS traffic detected")
+		buf := new(bytes.Buffer)
+		teeReader := io.TeeReader(peekedReader, buf)
+
+		req, err := http.ReadRequest(bufio.NewReader(teeReader))
+		if err != nil {
+			log.Printf("Failed to parse HTTP request: %s", err)
+			return
+		}
+
+		hostname := req.Host
+		if _, _, err := net.SplitHostPort(hostname); err != nil {
+			hostname = net.JoinHostPort(hostname, "80")
+		}
+
+		backendConn, err := net.DialTimeout("tcp", hostname, 5*time.Second)
+		if err != nil {
+			log.Printf("Failed to connect to backend: %s", err)
+			return
+		}
+		defer backendConn.Close()
+
+		fullRequestReader := io.MultiReader(bytes.NewReader(buf.Bytes()), clientConn)
+		pipeTraffic(clientConn, backendConn, fullRequestReader, app, geoipDB, hostname)
+	}
+}
+
+func isTLSHandshake(data []byte) bool {
+	// TLS handshake typically starts with 0x16
+	return len(data) > 0 && data[0] == 0x16
+}
+
+func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Reader, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, hostname string) {
+	clientIP, _, err := net.SplitHostPort(clientConn.RemoteAddr().String())
+	if err != nil {
+		log.Print(err)
+		return
+	}
+
+	// Create the packet record for this flow
+	recordID, err := createPacketRecord(clientIP, stripPort(hostname), app, geoipDB)
+	if err != nil {
+		log.Printf("Failed to create packet record: %s", err)
+	}
+
+	// If this is a new hostname in the current session, run traceroute & geolocate in background.
+	if active_session_id != nil && recordID != "" {
+		hn := stripPort(hostname)
+		if _, loaded := sessionHostnames.LoadOrStore(hn, true); !loaded {
+			go func(sid, h string) {
+				// Perform traceroute
+				hops, err := RunTraceroute(h)
+				if err != nil {
+					log.Printf("Traceroute error for host %s: %v", h, err)
+					return
+				}
+				// Geolocate each hop
+				geolocateHops(hops, geoipDB)
+
+				// Store results in PB
+				if err := createTracerouteRecord(sid, h, hops, app); err != nil {
+					log.Printf("Failed to store traceroute for %s: %v", h, err)
+				}
+			}(*active_session_id, hn)
+		}
+	}
+
+	// Create an aggregator for recording in/out bytes
+	aggregator := NewAggregator(recordID, app)
+
+	// Flush aggregator once per second
+	flushTicker := time.NewTicker(1 * time.Second)
+	done := make(chan struct{})
+	go func() {
+		for {
+			select {
+			case <-flushTicker.C:
+				aggregator.Flush()
+			case <-done:
+				return
+			}
+		}
+	}()
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+
+	// Flow: client -> backend
+	go func() {
+		err := copyAndUpdate(backendConn, clientReader, "out", aggregator)
+		if err != nil {
+			log.Printf("Error in client->backend: %s", err)
+		}
+		if tcpConn, ok := backendConn.(*net.TCPConn); ok {
+			_ = tcpConn.CloseWrite()
+		}
+		wg.Done()
+	}()
+
+	// Flow: backend -> client
+	go func() {
+		err := copyAndUpdate(clientConn, backendConn, "in", aggregator)
+		if err != nil {
+			log.Printf("Error in backend->client: %s", err)
+		}
+		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
+			_ = tcpConn.CloseWrite()
+		}
+		wg.Done()
+	}()
+
+	wg.Wait()
+	close(done)
+	flushTicker.Stop()
+
+	// Final flush
+	aggregator.Flush()
+
+	// Mark the packet record as inactive
+	if recordID != "" {
+		if err := closePacketRecord(recordID, app); err != nil {
+			log.Printf("Failed to update packet record: %s", err)
+		}
+	}
+}
+
+// createPacketRecord is your existing function that logs a new 'packets' record
 func createPacketRecord(clientIP string, hostname string, app *pocketbase.PocketBase, geoipDB *geoip2.Reader) (string, error) {
 	if active_session_id == nil {
 		return "", nil
@@ -248,8 +504,8 @@ func createPacketRecord(clientIP string, hostname string, app *pocketbase.Pocket
 		log.Printf("collection error: %s", err)
 		return "", err
 	}
-	record := core.NewRecord(collection)
 
+	record := core.NewRecord(collection)
 	record.Set("session", *active_session_id)
 	record.Set("active", true)
 	record.Set("client_ip", clientIP)
@@ -298,13 +554,9 @@ func (a *Aggregator) Add(direction string, n int64) {
 	}
 }
 
-// Flush is called once per second to finalize the current bucket.
-// It creates one entry per direction (if there is any data), appends those entries
-// to the aggregator’s entries slice, resets the counters, and then updates PocketBase.
 func (a *Aggregator) Flush() {
 	now := time.Now().Format(time.RFC3339)
 	a.mu.Lock()
-	// If we have any inbound bytes, create an "in" entry.
 	if a.inCount > 0 {
 		entry := map[string]interface{}{
 			"ts":    now,
@@ -314,7 +566,6 @@ func (a *Aggregator) Flush() {
 		a.entries = append(a.entries, entry)
 		a.inCount = 0
 	}
-	// Similarly for outbound.
 	if a.outCount > 0 {
 		entry := map[string]interface{}{
 			"ts":    now,
@@ -324,28 +575,23 @@ func (a *Aggregator) Flush() {
 		a.entries = append(a.entries, entry)
 		a.outCount = 0
 	}
-	// Make a copy of the entries to use for updating the record.
 	currentEntries := make([]interface{}, len(a.entries))
 	copy(currentEntries, a.entries)
 	a.mu.Unlock()
 
-	// Update the PocketBase record with the full accumulator.
+	// Update the record with the aggregator data
 	if err := updatePacketRecordDataWithAccumulator(a.recordID, currentEntries, a.app); err != nil {
 		log.Printf("Failed to update aggregator for record %s: %s", a.recordID, err)
 	}
 }
 
-// updatePacketRecordDataWithAccumulator writes the entire shared accumulator to the record.
 func updatePacketRecordDataWithAccumulator(recordID string, entries []interface{}, app *pocketbase.PocketBase) error {
-	// Fetch the record.
 	record, err := app.FindRecordById("packets", recordID)
 	if err != nil {
 		log.Printf("updatePacketRecordDataWithAccumulator: could not find record %s: %s", recordID, err)
 		return err
 	}
-	// Replace the "data" field with the full entries array.
 	record.Set("data", entries)
-	// Save the record.
 	if err := app.Save(record); err != nil {
 		log.Printf("updatePacketRecordDataWithAccumulator: save error: %s", err)
 		return err
@@ -368,160 +614,7 @@ func closePacketRecord(recordID string, app *pocketbase.PocketBase) error {
 	return nil
 }
 
-func handleConnection(clientConn net.Conn, app *pocketbase.PocketBase, geoipDB *geoip2.Reader) {
-	defer clientConn.Close()
-
-	if err := clientConn.SetReadDeadline(time.Now().Add(5 * time.Second)); err != nil {
-		log.Print(err)
-		return
-	}
-
-	// Peek the first bytes to decide whether the connection is TLS
-	peekBuf := make([]byte, 5)
-	n, err := clientConn.Read(peekBuf)
-	if err != nil {
-		log.Print(err)
-		return
-	}
-
-	// Reset the deadline after peeking
-	if err := clientConn.SetReadDeadline(time.Time{}); err != nil {
-		log.Print(err)
-		return
-	}
-
-	peekedReader := io.MultiReader(bytes.NewReader(peekBuf[:n]), clientConn)
-
-	// Check if the traffic looks like TLS
-	if isTLSHandshake(peekBuf) {
-		clientHello, clientReader, err := peekClientHello(peekedReader)
-		if err != nil {
-			log.Print(err)
-			return
-		}
-
-		log.Printf("TLS traffic for ServerName: %s", clientHello.ServerName)
-
-		backendConn, err := net.DialTimeout("tcp", net.JoinHostPort(clientHello.ServerName, "443"), 5*time.Second)
-		if err != nil {
-			log.Print(err)
-			return
-		}
-		defer backendConn.Close()
-
-		pipeTraffic(clientConn, backendConn, clientReader, app, geoipDB, clientHello.ServerName)
-	} else {
-		// Handle plaintext (non-TLS) traffic, e.g., HTTP
-		log.Print("Non-TLS traffic detected")
-		buf := new(bytes.Buffer)
-		teeReader := io.TeeReader(peekedReader, buf)
-
-		// Read the HTTP request to extract the Host header
-		req, err := http.ReadRequest(bufio.NewReader(teeReader))
-		if err != nil {
-			log.Printf("Failed to parse HTTP request: %s", err)
-			return
-		}
-
-		// Extract the hostname from the Host header
-		hostname := req.Host
-		if _, _, err := net.SplitHostPort(hostname); err != nil {
-			hostname = net.JoinHostPort(hostname, "80")
-		}
-
-		// Connect to the backend server
-		backendConn, err := net.DialTimeout("tcp", hostname, 5*time.Second)
-		if err != nil {
-			log.Printf("Failed to connect to backend: %s", err)
-			return
-		}
-		defer backendConn.Close()
-
-		// Reassemble the full client data stream:
-		// first, the bytes already read into the buffer, then the rest of the connection.
-		fullRequestReader := io.MultiReader(bytes.NewReader(buf.Bytes()), clientConn)
-		pipeTraffic(clientConn, backendConn, fullRequestReader, app, geoipDB, hostname)
-	}
-}
-
-func isTLSHandshake(data []byte) bool {
-	// Check for TLS handshake (starts with 0x16 for ClientHello)
-	return len(data) > 0 && data[0] == 0x16
-}
-
-func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Reader, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, hostname string) {
-	clientIP, _, err := net.SplitHostPort(clientConn.RemoteAddr().String())
-	if err != nil {
-		log.Print(err)
-		return
-	}
-
-	// Create the packet record.
-	recordID, err := createPacketRecord(clientIP, hostname, app, geoipDB)
-	if err != nil {
-		log.Printf("Failed to create packet record: %s", err)
-	}
-
-	// Create a shared aggregator.
-	aggregator := NewAggregator(recordID, app)
-
-	// Start a ticker that flushes the aggregator once per second.
-	flushTicker := time.NewTicker(1 * time.Second)
-	done := make(chan struct{})
-	go func() {
-		for {
-			select {
-			case <-flushTicker.C:
-				aggregator.Flush()
-			case <-done:
-				return
-			}
-		}
-	}()
-
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	// Flow: client -> backend ("out" direction).
-	go func() {
-		err := copyAndUpdate(backendConn, clientReader, "out", aggregator)
-		if err != nil {
-			log.Printf("Error in client->backend: %s", err)
-		}
-		if tcpConn, ok := backendConn.(*net.TCPConn); ok {
-			tcpConn.CloseWrite()
-		}
-		wg.Done()
-	}()
-
-	// Flow: backend -> client ("in" direction).
-	go func() {
-		err := copyAndUpdate(clientConn, backendConn, "in", aggregator)
-		if err != nil {
-			log.Printf("Error in backend->client: %s", err)
-		}
-		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
-			tcpConn.CloseWrite()
-		}
-		wg.Done()
-	}()
-
-	wg.Wait()
-	close(done)
-	flushTicker.Stop()
-
-	// Final flush to capture any remaining bytes.
-	aggregator.Flush()
-
-	// Close the packet record.
-	if recordID != "" {
-		if err := closePacketRecord(recordID, app); err != nil {
-			log.Printf("Failed to update packet record: %s", err)
-		}
-	}
-}
-
-// copyAndUpdate now simply transfers data and adds to the aggregator.
+// copyAndUpdate transfers data and updates the aggregator in/out counters.
 func copyAndUpdate(dst io.Writer, src io.Reader, direction string, aggregator *Aggregator) error {
 	buf := make([]byte, 4096)
 	for {
@@ -529,7 +622,6 @@ func copyAndUpdate(dst io.Writer, src io.Reader, direction string, aggregator *A
 		if n > 0 {
 			written, werr := dst.Write(buf[:n])
 			if written > 0 {
-				// Add the written bytes to the aggregator.
 				aggregator.Add(direction, int64(written))
 			}
 			if werr != nil {
@@ -543,4 +635,14 @@ func copyAndUpdate(dst io.Writer, src io.Reader, direction string, aggregator *A
 			return err
 		}
 	}
+}
+
+// stripPort strips a port if present (e.g. "example.com:443" -> "example.com")
+func stripPort(hostPort string) string {
+	host, _, err := net.SplitHostPort(hostPort)
+	if err != nil {
+		// no port part
+		return hostPort
+	}
+	return host
 }
