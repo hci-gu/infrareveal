@@ -47,7 +47,7 @@ func CreatePacketRecord(sessionID string, clientIP string, hostname string, app 
 
 	record := core.NewRecord(collection)
 	record.Set("session", sessionID)
-	record.Set("active", true)
+	record.Set("ip", hostIP.String())
 	record.Set("client_ip", clientIP)
 	record.Set("host", hostname)
 	record.Set("lat", geoRecord.Location.Latitude)
@@ -145,7 +145,7 @@ func ClosePacketRecord(recordID string, app *pocketbase.PocketBase) error {
 		log.Printf("closePacketRecord: could not find record %s: %s", recordID, err)
 		return err
 	}
-	record.Set("active", false)
+	record.Set("closed", time.Now().Format(time.RFC3339))
 	err = app.Save(record)
 	if err != nil {
 		log.Printf("closePacketRecord: save error: %s", err)
