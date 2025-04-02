@@ -19,3 +19,9 @@ services:
     tty: true
     ports:
       - "8090:8090"
+  dashboard:
+    image: appademin/infrareveal-dashboard:0.0.1
+    restart: always
+    ports:
+      - "3000:3000"
+
