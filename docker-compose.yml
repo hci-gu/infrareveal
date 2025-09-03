@@ -5,12 +5,12 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    network_mode: "host"  # Equivalent to --net host
-    privileged: true       # Equivalent to --privileged
-    restart: always        # Equivalent to --restart always
+    network_mode: "host"
+    privileged: true
+    restart: always
     environment:
-      - AP_IFACE=wlan0     # Replace with your Wi-Fi interface
-      - INTERNET_IFACE=eth0 # Replace with your internet interface
+      - AP_IFACE=wlan0
+      - INTERNET_IFACE=eth0
       - SSID=Infrareveal
     volumes:
        - ./data:/root/pb/pb_data
