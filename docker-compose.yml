@@ -20,7 +20,7 @@ services:
     ports:
       - "8090:8090"
   dashboard:
-    image: appademin/infrareveal-dashboard:0.0.1
+    image: appademin/infrareveal-dashboard:0.0.2
     restart: always
     ports:
       - "8080:80"
