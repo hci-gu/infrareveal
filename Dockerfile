@@ -9,7 +9,9 @@ COPY ./pocketbase /app
 
 # Build the infra-reveal binary with CGO disabled
 ENV CGO_ENABLED=0
-RUN GOARCH=arm64 GOOS=linux go build -o /root/pb/infra-reveal .
+ARG GOARCH=arm64
+ARG GOARM=7
+RUN GOOS=linux GOARCH=${GOARCH} GOARM=${GOARM} go build -o /root/pb/infra-reveal .
 
 # Use a minimal runtime image for the final container
 FROM balenalib/rpi-raspbian:bullseye
