@@ -84,6 +84,12 @@ func NewPacketAggregator(recordID string, app *pocketbase.PocketBase) *PacketAgg
 	}
 }
 
+func (a *PacketAggregator) SetRecordID(recordID string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.recordID = recordID
+}
+
 func (a *PacketAggregator) Add(direction string, n int64) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -117,11 +123,16 @@ func (a *PacketAggregator) Flush() {
 	}
 	currentEntries := make([]interface{}, len(a.entries))
 	copy(currentEntries, a.entries)
+	recordID := a.recordID
 	a.mu.Unlock()
 
+	if recordID == "" {
+		return
+	}
+
 	// Update the record with the aggregator data
-	if err := updatePacketRecordDataWithAccumulator(a.recordID, currentEntries, a.app); err != nil {
-		log.Printf("Failed to update aggregator for record %s: %s", a.recordID, err)
+	if err := updatePacketRecordDataWithAccumulator(recordID, currentEntries, a.app); err != nil {
+		log.Printf("Failed to update aggregator for record %s: %s", recordID, err)
 	}
 }
 

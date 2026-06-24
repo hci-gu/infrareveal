@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"io"
 	"log"
+	"math/rand"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -34,6 +36,74 @@ func stripPort(hostPort string) string {
 		return hostPort
 	}
 	return host
+}
+
+// generateDebugData creates synthetic network traffic data for testing
+func generateDebugData(app *pocketbase.PocketBase, geoipDB *geoip2.Reader) {
+	// Common domains to simulate traffic to
+	domains := []string{
+		"google.com",
+		"facebook.com",
+		"amazon.com",
+		"netflix.com",
+		"github.com",
+	}
+
+	// Create a new debug session
+	collection, err := app.FindCollectionByNameOrId("sessions")
+	if err != nil {
+		log.Printf("Failed to find sessions collection: %v", err)
+		return
+	}
+
+	sessionRecord := core.NewRecord(collection)
+	sessionRecord.Set("active", true)
+	sessionRecord.Set("name", "Debug Session")
+
+	if err := app.Save(sessionRecord); err != nil {
+		log.Printf("Failed to create debug session: %v", err)
+		return
+	}
+
+	// Simulate traffic for each domain
+	for _, domain := range domains {
+		// Create packet record
+		recordID, err := lib.CreatePacketRecord(sessionRecord.Id, "192.168.1.100", domain, app, geoipDB)
+		if err != nil {
+			log.Printf("Failed to create packet record for %s: %v", domain, err)
+			continue
+		}
+
+		// Run traceroute
+		if err := lib.RunTraceroute(sessionRecord.Id, app, geoipDB, domain); err != nil {
+			log.Printf("Traceroute error for %s: %v", domain, err)
+		}
+
+		// Simulate packet data
+		aggregator := lib.NewPacketAggregator(recordID, app)
+
+		// Simulate some traffic over time
+		for i := 0; i < 5; i++ {
+			aggregator.Add("in", int64(1000+rand.Intn(5000)))
+			aggregator.Add("out", int64(500+rand.Intn(2000)))
+			aggregator.Flush()
+			time.Sleep(time.Second)
+		}
+
+		// Close the packet record
+		if err := lib.ClosePacketRecord(recordID, app); err != nil {
+			log.Printf("Failed to close packet record: %v", err)
+		}
+
+		// Add some delay between domains
+		time.Sleep(time.Second * 2)
+	}
+
+	// Deactivate the debug session
+	sessionRecord.Set("active", false)
+	if err := app.Save(sessionRecord); err != nil {
+		log.Printf("Failed to deactivate debug session: %v", err)
+	}
 }
 
 func main() {
@@ -71,6 +141,13 @@ func main() {
 			return e.Next()
 		})
 
+		// app.OnServe().BindFunc(func(se *core.ServeEvent) error {
+		// 	// Generate debug data after the app is started
+		// 	// generateDebugData(app, geoipDB)
+		// 	return se.Next()
+		// })
+
+		// Start the app first
 		if err := app.Start(); err != nil {
 			log.Fatal(err)
 		}
@@ -104,6 +181,22 @@ func clearSessionHostnames() {
 		sessionHostnames.Delete(key)
 		return true
 	})
+}
+
+func isExpectedProxyClose(err error) bool {
+	if err == nil || err == io.EOF {
+		return true
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "connection reset by peer") ||
+		strings.Contains(msg, "broken pipe") ||
+		strings.Contains(msg, "use of closed network connection")
+}
+
+func logUnexpectedCopyError(direction string, err error) {
+	if !isExpectedProxyClose(err) {
+		log.Printf("Error in %s: %s", direction, err)
+	}
 }
 
 func handleConnection(clientConn net.Conn, app *pocketbase.PocketBase, geoipDB *geoip2.Reader) {
@@ -183,34 +276,47 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 		return
 	}
 
-	// Create the packet record for this flow
+	var aggregator *lib.PacketAggregator
+	recordIDCh := make(chan string, 1)
+
 	if active_session_id != nil {
-		recordID, err := lib.CreatePacketRecord(*active_session_id, clientIP, stripPort(hostname), app, geoipDB)
-		if err != nil {
-			log.Printf("Failed to create packet record: %s", err)
-		}
+		sessionID := *active_session_id
+		hn := stripPort(hostname)
+		aggregator = lib.NewPacketAggregator("", app)
 
-		// If this is a new hostname in the current session, run traceroute & geolocate in background.
-		if active_session_id != nil && recordID != "" {
-			hn := stripPort(hostname)
-			if _, loaded := sessionHostnames.LoadOrStore(hn, true); !loaded {
-				go func(sid, h string) {
-					// Perform traceroute
-					err := lib.RunTraceroute(*active_session_id, app, geoipDB, h)
-					if err != nil {
-						log.Printf("Traceroute error for host %s: %v", h, err)
-						return
-					}
-				}(*active_session_id, hn)
+		go func() {
+			recordID, err := lib.CreatePacketRecord(sessionID, clientIP, hn, app, geoipDB)
+			if err != nil {
+				log.Printf("Failed to create packet record: %s", err)
+				recordIDCh <- ""
+				return
 			}
-		}
+			if recordID == "" {
+				recordIDCh <- ""
+				return
+			}
 
-		// Create an aggregator for recording in/out bytes
-		aggregator := lib.NewPacketAggregator(recordID, app)
+			aggregator.SetRecordID(recordID)
+			aggregator.Flush()
+			recordIDCh <- recordID
 
-		// Flush aggregator once per second
-		flushTicker := time.NewTicker(1 * time.Second)
-		done := make(chan struct{})
+			// If this is a new hostname in the current session, run traceroute & geolocate in background.
+			if _, loaded := sessionHostnames.LoadOrStore(hn, true); !loaded {
+				go func() {
+					if err := lib.RunTraceroute(sessionID, app, geoipDB, hn); err != nil {
+						log.Printf("Traceroute error for host %s: %v", hn, err)
+					}
+				}()
+			}
+		}()
+	} else {
+		recordIDCh <- ""
+	}
+
+	var flushTicker *time.Ticker
+	done := make(chan struct{})
+	if aggregator != nil {
+		flushTicker = time.NewTicker(1 * time.Second)
 		go func() {
 			for {
 				select {
@@ -221,46 +327,61 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 				}
 			}
 		}()
+	}
 
-		var wg sync.WaitGroup
-		wg.Add(2)
+	copyTraffic := func(dst io.Writer, src io.Reader, direction string) error {
+		if aggregator != nil {
+			return lib.CopyAndUpdatePacket(dst, src, direction, aggregator)
+		}
+		_, err := io.Copy(dst, src)
+		return err
+	}
 
-		// Flow: client -> backend
-		go func() {
-			err := lib.CopyAndUpdatePacket(backendConn, clientReader, "out", aggregator)
-			if err != nil {
-				log.Printf("Error in client->backend: %s", err)
-			}
-			if tcpConn, ok := backendConn.(*net.TCPConn); ok {
-				_ = tcpConn.CloseWrite()
-			}
-			wg.Done()
-		}()
+	var wg sync.WaitGroup
+	wg.Add(2)
 
-		// Flow: backend -> client
-		go func() {
-			err := lib.CopyAndUpdatePacket(clientConn, backendConn, "in", aggregator)
-			if err != nil {
-				log.Printf("Error in backend->client: %s", err)
-			}
-			if tcpConn, ok := clientConn.(*net.TCPConn); ok {
-				_ = tcpConn.CloseWrite()
-			}
-			wg.Done()
-		}()
+	// Flow: client -> backend
+	go func() {
+		defer wg.Done()
+		if err := copyTraffic(backendConn, clientReader, "out"); err != nil {
+			logUnexpectedCopyError("client->backend", err)
+		}
+		if tcpConn, ok := backendConn.(*net.TCPConn); ok {
+			_ = tcpConn.CloseWrite()
+		}
+	}()
 
-		wg.Wait()
+	// Flow: backend -> client
+	go func() {
+		defer wg.Done()
+		if err := copyTraffic(clientConn, backendConn, "in"); err != nil {
+			logUnexpectedCopyError("backend->client", err)
+		}
+		if tcpConn, ok := clientConn.(*net.TCPConn); ok {
+			_ = tcpConn.CloseWrite()
+		}
+	}()
+
+	wg.Wait()
+
+	if aggregator != nil {
 		close(done)
 		flushTicker.Stop()
 
 		// Final flush
 		aggregator.Flush()
 
-		// Mark the packet record as inactive
-		if recordID != "" {
+		select {
+		case recordID := <-recordIDCh:
+			aggregator.Flush()
+			if recordID == "" {
+				return
+			}
 			if err := lib.ClosePacketRecord(recordID, app); err != nil {
 				log.Printf("Failed to update packet record: %s", err)
 			}
+		case <-time.After(2 * time.Second):
+			log.Printf("Packet record creation still pending for host %s", stripPort(hostname))
 		}
 	}
 }
