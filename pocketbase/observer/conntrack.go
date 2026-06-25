@@ -38,6 +38,15 @@ func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path
 	if clientPrefix == "" {
 		clientPrefix = "10.0.0."
 	}
+	accountingPath := os.Getenv("CONNTRACK_ACCOUNTING_PATH")
+	if accountingPath == "" {
+		accountingPath = "/proc/sys/net/netfilter/nf_conntrack_acct"
+	}
+	if enabled, err := ensureConntrackAccounting(accountingPath); err != nil {
+		log.Printf("conntrack accounting unavailable at %s: %v; byte and packet counters may remain zero", accountingPath, err)
+	} else if enabled {
+		log.Printf("conntrack accounting enabled at %s; new flows will include byte and packet counters", accountingPath)
+	}
 
 	go func() {
 		ticker := time.NewTicker(2 * time.Second)
@@ -70,6 +79,25 @@ func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path
 			}
 		}
 	}()
+}
+
+func ensureConntrackAccounting(path string) (bool, error) {
+	if path == "" {
+		return false, nil
+	}
+
+	value, err := os.ReadFile(path)
+	if err != nil {
+		return false, err
+	}
+	if strings.TrimSpace(string(value)) == "1" {
+		return false, nil
+	}
+
+	if err := os.WriteFile(path, []byte("1\n"), 0o644); err != nil {
+		return false, err
+	}
+	return true, nil
 }
 
 func ReadConntrackSamples(path string, clientPrefix string) ([]FlowSample, error) {

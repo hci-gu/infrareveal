@@ -122,6 +122,11 @@ Destination context is enriched from reverse DNS and the bundled GeoIP database.
 	- Check that `/var/log/dnsmasq.log` and `/proc/net/nf_conntrack` are visible inside the container
 	- The dashboard container image must support your Pi’s architecture; if it doesn’t, you can run the dashboard on another machine and point it to the Pi’s PocketBase URL
 
+- Dashboard shows `Counters unavailable`
+	- Conntrack byte accounting is disabled or not writable from the observer container
+	- The observer tries to enable `/proc/sys/net/netfilter/nf_conntrack_acct` on startup; restart the proxy after updating
+	- Existing conntrack entries created before accounting was enabled may stay at zero, so generate fresh client traffic after restart
+
 ## Ports and data
 
 - Dashboard: http://<pi-ip>:8080

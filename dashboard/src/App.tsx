@@ -1,123 +1,396 @@
-import { Activity, Database, Globe2, Search } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import type { CallbackListener, PlayerRef } from '@remotion/player'
+import { Player } from '@remotion/player'
+import {
+  Activity,
+  Database,
+  FastForward,
+  Grid2X2,
+  Pause,
+  Play,
+  Radio,
+  Rewind,
+  Rows3,
+  SkipBack,
+  SkipForward,
+  Wifi,
+  WifiOff,
+} from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { getGatewayData } from './pocketbase'
-import type { Destination, DNSQuery, Flow, FlowAttribution, GatewayData, Route } from './pocketbase'
+import { useGatewayData } from './data/useGatewayData'
+import {
+  COMPOSITION_HEIGHT,
+  COMPOSITION_WIDTH,
+  FPS,
+  buildSessionComposition,
+} from './model/sessionModel'
+import type { ServiceGroup, TimelineClip } from './model/sessionModel'
+import { SessionComposition } from './remotion/SessionComposition'
+import type { DashboardViewMode, SessionCompositionProps } from './remotion/SessionComposition'
+import { formatBytes, formatClock, formatDateTime, formatDuration } from './views/formatters'
 
-type LoadState =
-  | { status: 'loading'; data: GatewayData | null; error: null }
-  | { status: 'ready'; data: GatewayData; error: null }
-  | { status: 'error'; data: GatewayData | null; error: string }
-
-const emptyData: GatewayData = {
-  flows: [],
-  dnsQueries: [],
-  attributions: [],
-  destinations: [],
-  routes: [],
+type ZoomPreset = {
+  label: string
+  frames: number | 'all'
 }
 
+type SelectionEvent = CustomEvent<{
+  kind: 'clip' | 'service'
+  id: string
+}>
+
+const zoomPresets: ZoomPreset[] = [
+  { label: '1m', frames: FPS * 60 },
+  { label: '5m', frames: FPS * 300 },
+  { label: 'All', frames: 'all' },
+]
+
 function App() {
-  const [state, setState] = useState<LoadState>({
-    status: 'loading',
-    data: null,
-    error: null,
-  })
+  const playerRef = useRef<PlayerRef>(null)
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
+  const { data, connectionState, error } = useGatewayData(selectedSessionId)
+  const composition = useMemo(() => buildSessionComposition(data), [data])
+  const [viewMode, setViewMode] = useState<DashboardViewMode>('timeline')
+  const [currentFrame, setCurrentFrame] = useState(0)
+  const [isPlaying, setIsPlaying] = useState(true)
+  const [followLive, setFollowLive] = useState(true)
+  const [playbackRate, setPlaybackRate] = useState(1)
+  const [zoomFrames, setZoomFrames] = useState<number | 'all'>('all')
+  const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
+  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
+  const selectedSessionKey = data.selectedSession?.id ?? 'no-session'
+
+  const selectedClip = useMemo(
+    () => composition.clips.find((clip) => clip.id === selectedClipId) ?? null,
+    [composition.clips, selectedClipId],
+  )
+  const activeServiceId = selectedServiceId ?? selectedClip?.serviceGroupId ?? null
+  const selectedService = useMemo(
+    () => composition.serviceGroups.find((group) => group.id === activeServiceId) ?? null,
+    [activeServiceId, composition.serviceGroups],
+  )
+
+  const inputProps = useMemo<SessionCompositionProps>(
+    () => ({
+      composition,
+      viewMode,
+      zoomFrames,
+      selectedClipId,
+      selectedServiceId: activeServiceId,
+      followLive,
+    }),
+    [activeServiceId, composition, followLive, selectedClipId, viewMode, zoomFrames],
+  )
 
   useEffect(() => {
-    let cancelled = false
+    const player = playerRef.current
+    if (!player) {
+      return
+    }
 
-    async function load() {
-      try {
-        const data = await getGatewayData()
-        if (!cancelled) {
-          setState({ status: 'ready', data, error: null })
-        }
-      } catch (error) {
-        if (!cancelled) {
-          setState((previous) => ({
-            status: 'error',
-            data: previous.data,
-            error: error instanceof Error ? error.message : 'Failed to load gateway data',
-          }))
-        }
+    const handleFrameUpdate: CallbackListener<'frameupdate'> = (event) => {
+      setCurrentFrame(event.detail.frame)
+    }
+    const handlePlay = () => setIsPlaying(true)
+    const handlePause = () => setIsPlaying(false)
+    const handleEnded = () => setIsPlaying(false)
+
+    player.addEventListener('frameupdate', handleFrameUpdate)
+    player.addEventListener('play', handlePlay)
+    player.addEventListener('pause', handlePause)
+    player.addEventListener('ended', handleEnded)
+    setCurrentFrame(player.getCurrentFrame())
+    setIsPlaying(player.isPlaying())
+
+    return () => {
+      player.removeEventListener('frameupdate', handleFrameUpdate)
+      player.removeEventListener('play', handlePlay)
+      player.removeEventListener('pause', handlePause)
+      player.removeEventListener('ended', handleEnded)
+    }
+  }, [composition.durationInFrames])
+
+  useEffect(() => {
+    const handleSelection = (event: Event) => {
+      const detail = (event as SelectionEvent).detail
+      if (!detail) {
+        return
+      }
+      if (detail.kind === 'clip') {
+        const clip = composition.clips.find((item) => item.id === detail.id)
+        setSelectedClipId(detail.id)
+        setSelectedServiceId(clip?.serviceGroupId ?? null)
+      } else {
+        setSelectedClipId(null)
+        setSelectedServiceId(detail.id)
       }
     }
 
-    load()
-    const timer = window.setInterval(load, 2500)
+    window.addEventListener('infrareveal:select', handleSelection)
+    return () => window.removeEventListener('infrareveal:select', handleSelection)
+  }, [composition.clips])
 
-    return () => {
-      cancelled = true
-      window.clearInterval(timer)
-    }
-  }, [])
+  useEffect(() => {
+    setSelectedClipId(null)
+    setSelectedServiceId(null)
 
-  const data = state.data ?? emptyData
-  const totals = useMemo(() => summarize(data), [data])
-  const attributionsByFlow = useMemo(() => {
-    return new Map(data.attributions.map((attribution) => [attribution.flow, attribution]))
-  }, [data.attributions])
-  const destinationsByIP = useMemo(() => {
-    return new Map(data.destinations.map((destination) => [destination.ip, destination]))
-  }, [data.destinations])
-  const routesByDestination = useMemo(() => {
-    const routes = new Map<string, Route>()
-    for (const route of data.routes) {
-      routes.set(routeKey(route.destination_ip, route.destination_port), route)
+    const player = playerRef.current
+    if (data.selectedSession?.active) {
+      setFollowLive(true)
+      return
     }
-    return routes
-  }, [data.routes])
+
+    setFollowLive(false)
+    player?.seekTo(0)
+    setCurrentFrame(0)
+  }, [data.selectedSession?.active, selectedSessionKey])
+
+  useEffect(() => {
+    const player = playerRef.current
+    if (!player || !followLive) {
+      return
+    }
+
+    const latestFrame = Math.max(0, composition.durationInFrames - 1)
+    player.seekTo(latestFrame)
+    setCurrentFrame(latestFrame)
+    player.play()
+  }, [composition.durationInFrames, followLive])
+
+  function togglePlay() {
+    const player = playerRef.current
+    if (!player) {
+      return
+    }
+    if (player.isPlaying()) {
+      player.pause()
+      setFollowLive(false)
+    } else {
+      player.play()
+    }
+  }
+
+  function seekTo(frame: number) {
+    const player = playerRef.current
+    if (!player) {
+      return
+    }
+    const nextFrame = Math.max(0, Math.min(composition.durationInFrames - 1, Math.round(frame)))
+    player.seekTo(nextFrame)
+    setCurrentFrame(nextFrame)
+    setFollowLive(false)
+  }
+
+  function jumpBy(frames: number) {
+    seekTo(currentFrame + frames)
+  }
+
+  function jumpLive() {
+    const player = playerRef.current
+    const latestFrame = Math.max(0, composition.durationInFrames - 1)
+    setFollowLive(true)
+    setCurrentFrame(latestFrame)
+    player?.seekTo(latestFrame)
+    player?.play()
+  }
+
+  function changePlaybackRate(rate: number) {
+    setPlaybackRate(rate)
+    setFollowLive(false)
+  }
+
+  function changeSession(value: string) {
+    const nextSessionId = value === 'active' ? null : value
+    setSelectedSessionId(nextSessionId)
+    setPlaybackRate(1)
+  }
 
   return (
-    <main className="min-h-screen bg-slate-50 text-slate-950">
-      <section className="border-b border-slate-200 bg-white">
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-5 px-5 py-6 md:flex-row md:items-end md:justify-between">
+    <main className="min-h-screen bg-slate-100 text-slate-950">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex w-full max-w-[1680px] flex-col gap-5 px-5 py-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase text-teal-700">InfraReveal Gateway</p>
+            <p className="text-sm font-semibold uppercase tracking-wide text-sky-700">InfraReveal Gateway</p>
             <h1 className="mt-1 text-3xl font-semibold tracking-normal text-slate-950">
-              Live network observations
+              Session playback dashboard
             </h1>
           </div>
-          <div className="flex items-center gap-2 text-sm text-slate-600">
-            <span className={state.status === 'error' ? 'text-red-700' : 'text-emerald-700'}>
-              {state.status === 'loading'
-                ? 'Loading'
-                : state.status === 'error'
-                  ? 'Connection issue'
-                  : 'Updating live'}
-            </span>
-            <span className="text-slate-300">/</span>
-            <span>{new Date().toLocaleTimeString()}</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <ConnectionPill state={connectionState} error={error} />
+            <SessionSelect
+              sessions={data.sessions}
+              selectedSessionId={selectedSessionId}
+              onChange={changeSession}
+            />
+            <SegmentedButton
+              active={viewMode === 'timeline'}
+              icon={<Rows3 size={16} />}
+              label="Timeline"
+              onClick={() => setViewMode('timeline')}
+            />
+            <SegmentedButton
+              active={viewMode === 'treemap'}
+              icon={<Grid2X2 size={16} />}
+              label="Treemap"
+              onClick={() => setViewMode('treemap')}
+            />
           </div>
         </div>
-      </section>
+      </header>
 
-      <section className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-4 px-5 py-5 md:grid-cols-4">
-        <Metric icon={<Activity size={18} />} label="Flows" value={totals.flowCount} />
-        <Metric icon={<Search size={18} />} label="Attributed" value={totals.attributedCount} />
-        <Metric icon={<Globe2 size={18} />} label="Routes" value={totals.routeCount} />
-        <Metric icon={<Database size={18} />} label="Observed Bytes" value={formatBytes(totals.bytes)} />
-      </section>
-
-      {state.status === 'error' && (
-        <section className="mx-auto w-full max-w-7xl px-5">
-          <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">
-            {state.error}
-          </div>
-        </section>
-      )}
-
-      <section className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-5 px-5 pb-8 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,0.9fr)]">
-        <FlowTable
-          flows={data.flows}
-          attributionsByFlow={attributionsByFlow}
-          destinationsByIP={destinationsByIP}
-          routesByDestination={routesByDestination}
+      <section className="mx-auto grid w-full max-w-[1680px] grid-cols-2 gap-3 px-5 py-4 lg:grid-cols-5">
+        <Metric icon={<Activity size={18} />} label="Flows" value={composition.totals.flowCount} />
+        <Metric
+          icon={<Database size={18} />}
+          label="Traffic"
+          value={formatTraffic(composition.totals.byteCount, composition.totals.trafficCountersAvailable)}
         />
-        <DNSTable dnsQueries={data.dnsQueries} />
+        <Metric icon={<Rows3 size={18} />} label="Activities" value={composition.serviceGroups.length} />
+        <Metric icon={<Radio size={18} />} label="Routes" value={composition.totals.routeCount} />
+        <Metric
+          icon={<SkipForward size={18} />}
+          label={data.selectedSession?.name || 'Duration'}
+          value={formatDuration(composition.durationInFrames / composition.fps)}
+        />
+      </section>
+
+      {error ? (
+        <section className="mx-auto w-full max-w-[1680px] px-5">
+          <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+        </section>
+      ) : null}
+
+      <section className="mx-auto grid w-full max-w-[1680px] grid-cols-1 gap-4 px-5 pb-5 xl:grid-cols-[minmax(0,1fr)_390px]">
+        <div className="overflow-hidden border border-slate-200 bg-white">
+          <div className="aspect-video w-full bg-slate-200">
+            <Player
+              ref={playerRef}
+              acknowledgeRemotionLicense
+              component={SessionComposition}
+              compositionHeight={COMPOSITION_HEIGHT}
+              compositionWidth={COMPOSITION_WIDTH}
+              controls={false}
+              durationInFrames={composition.durationInFrames}
+              fps={composition.fps}
+              inputProps={inputProps}
+              loop={false}
+              moveToBeginningWhenEnded={false}
+              numberOfSharedAudioTags={0}
+              playbackRate={playbackRate}
+              style={{ height: '100%', width: '100%' }}
+            />
+          </div>
+
+          <div className="border-t border-slate-200 bg-white px-4 py-3">
+            <div className="flex flex-col gap-3 xl:flex-row xl:items-center">
+              <div className="flex items-center gap-2">
+                <IconButton label="Back 10s" onClick={() => jumpBy(-FPS * 10)}>
+                  <SkipBack size={17} />
+                </IconButton>
+                <IconButton label="Back 2s" onClick={() => jumpBy(-FPS * 2)}>
+                  <Rewind size={17} />
+                </IconButton>
+                <IconButton label={isPlaying ? 'Pause' : 'Play'} onClick={togglePlay} primary>
+                  {isPlaying ? <Pause size={18} /> : <Play size={18} />}
+                </IconButton>
+                <IconButton label="Forward 2s" onClick={() => jumpBy(FPS * 2)}>
+                  <FastForward size={17} />
+                </IconButton>
+                <IconButton label="Forward 10s" onClick={() => jumpBy(FPS * 10)}>
+                  <SkipForward size={17} />
+                </IconButton>
+                <IconButton label="Live edge" onClick={jumpLive} active={followLive}>
+                  <Radio size={17} />
+                </IconButton>
+              </div>
+
+              <div className="flex min-w-0 flex-1 items-center gap-3">
+                <span className="w-20 shrink-0 text-right font-mono text-xs text-slate-500">
+                  {formatClock(composition.sessionStartMs + (currentFrame / composition.fps) * 1000)}
+                </span>
+                <input
+                  aria-label="Session scrubber"
+                  className="h-2 min-w-0 flex-1 accent-sky-700"
+                  max={Math.max(0, composition.durationInFrames - 1)}
+                  min={0}
+                  onChange={(event) => seekTo(Number(event.target.value))}
+                  type="range"
+                  value={Math.min(currentFrame, Math.max(0, composition.durationInFrames - 1))}
+                />
+                <span className="w-20 shrink-0 font-mono text-xs text-slate-500">
+                  {formatDuration(currentFrame / composition.fps)}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {[0.5, 1, 2].map((rate) => (
+                  <button
+                    className={`h-8 min-w-10 border px-2 text-xs font-semibold ${
+                      playbackRate === rate
+                        ? 'border-sky-700 bg-sky-700 text-white'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                    key={rate}
+                    onClick={() => changePlaybackRate(rate)}
+                    type="button"
+                  >
+                    {rate}x
+                  </button>
+                ))}
+                {zoomPresets.map((preset) => (
+                  <button
+                    className={`h-8 min-w-10 border px-2 text-xs font-semibold ${
+                      zoomFrames === preset.frames
+                        ? 'border-slate-900 bg-slate-900 text-white'
+                        : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+                    }`}
+                    key={preset.label}
+                    onClick={() => setZoomFrames(preset.frames)}
+                    type="button"
+                  >
+                    {preset.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <Inspector
+          clip={selectedClip}
+          clips={composition.clips}
+          service={selectedService}
+          services={composition.serviceGroups}
+          trafficCountersAvailable={composition.totals.trafficCountersAvailable}
+          currentFrame={currentFrame}
+          compositionDuration={composition.durationInFrames}
+          onSelectClip={(clip) => {
+            setSelectedClipId(clip.id)
+            setSelectedServiceId(clip.serviceGroupId)
+          }}
+          onSelectService={(service) => {
+            setSelectedClipId(null)
+            setSelectedServiceId(service.id)
+          }}
+        />
       </section>
     </main>
+  )
+}
+
+function ConnectionPill({ state, error }: { state: string; error: string | null }) {
+  const styles =
+    state === 'live'
+      ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+      : state === 'error'
+        ? 'border-red-200 bg-red-50 text-red-800'
+        : 'border-amber-200 bg-amber-50 text-amber-800'
+
+  return (
+    <div className={`inline-flex h-9 items-center gap-2 border px-3 text-sm font-semibold ${styles}`} title={error ?? state}>
+      {state === 'error' ? <WifiOff size={16} /> : <Wifi size={16} />}
+      {state === 'live' ? 'Realtime' : state === 'polling' ? 'Polling' : state}
+    </div>
   )
 }
 
@@ -141,207 +414,256 @@ function Metric({
   )
 }
 
-function FlowTable({
-  flows,
-  attributionsByFlow,
-  destinationsByIP,
-  routesByDestination,
+function SessionSelect({
+  onChange,
+  selectedSessionId,
+  sessions,
 }: {
-  flows: Flow[]
-  attributionsByFlow: Map<string, FlowAttribution>
-  destinationsByIP: Map<string, Destination>
-  routesByDestination: Map<string, Route>
+  onChange: (sessionId: string) => void
+  selectedSessionId: string | null
+  sessions: Array<{ id: string; name: string; active: boolean; created: string }>
 }) {
   return (
-    <div className="border border-slate-200 bg-white">
+    <select
+      aria-label="Session"
+      className="h-9 max-w-[260px] border border-slate-200 bg-white px-3 text-sm font-semibold text-slate-700"
+      onChange={(event) => onChange(event.target.value)}
+      value={selectedSessionId ?? 'active'}
+    >
+      <option value="active">Live session</option>
+      {sessions.map((session) => (
+        <option key={session.id} value={session.id}>
+          {session.active ? 'Live: ' : ''}
+          {session.name || formatDateTime(session.created)}
+        </option>
+      ))}
+    </select>
+  )
+}
+
+function SegmentedButton({
+  active,
+  icon,
+  label,
+  onClick,
+}: {
+  active: boolean
+  icon: ReactNode
+  label: string
+  onClick: () => void
+}) {
+  return (
+    <button
+      className={`inline-flex h-9 items-center gap-2 border px-3 text-sm font-semibold ${
+        active
+          ? 'border-slate-900 bg-slate-900 text-white'
+          : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+      }`}
+      onClick={onClick}
+      type="button"
+    >
+      {icon}
+      {label}
+    </button>
+  )
+}
+
+function IconButton({
+  active = false,
+  children,
+  label,
+  onClick,
+  primary = false,
+}: {
+  active?: boolean
+  children: ReactNode
+  label: string
+  onClick: () => void
+  primary?: boolean
+}) {
+  const className = primary
+    ? 'border-slate-950 bg-slate-950 text-white hover:bg-slate-800'
+    : active
+      ? 'border-sky-700 bg-sky-700 text-white hover:bg-sky-800'
+      : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
+
+  return (
+    <button
+      aria-label={label}
+      className={`inline-flex h-9 w-9 items-center justify-center border ${className}`}
+      onClick={onClick}
+      title={label}
+      type="button"
+    >
+      {children}
+    </button>
+  )
+}
+
+function Inspector({
+  clip,
+  clips,
+  service,
+  services,
+  trafficCountersAvailable,
+  currentFrame,
+  compositionDuration,
+  onSelectClip,
+  onSelectService,
+}: {
+  clip: TimelineClip | null
+  clips: TimelineClip[]
+  service: ServiceGroup | null
+  services: ServiceGroup[]
+  trafficCountersAvailable: boolean
+  currentFrame: number
+  compositionDuration: number
+  onSelectClip: (clip: TimelineClip) => void
+  onSelectService: (service: ServiceGroup) => void
+}) {
+  const recentClips = clips.slice().sort((left, right) => right.startFrame - left.startFrame).slice(0, 5)
+  const topActivityGroups = services.slice(0, 5)
+
+  return (
+    <aside className="border border-slate-200 bg-white">
       <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-lg font-semibold text-slate-950">Flows</h2>
+        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inspector</div>
+        <div className="mt-1 text-lg font-semibold text-slate-950">
+          {clip?.label ?? service?.label ?? 'No selection'}
+        </div>
       </div>
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[1180px] text-left text-sm">
-          <thead className="bg-slate-100 text-xs uppercase text-slate-600">
-            <tr>
-              <th className="px-4 py-3 font-semibold">Client</th>
-              <th className="px-4 py-3 font-semibold">Attribution</th>
-              <th className="px-4 py-3 font-semibold">Destination</th>
-              <th className="px-4 py-3 font-semibold">Context</th>
-              <th className="px-4 py-3 font-semibold">Route</th>
-              <th className="px-4 py-3 font-semibold">Confidence</th>
-              <th className="px-4 py-3 font-semibold">Protocol</th>
-              <th className="px-4 py-3 text-right font-semibold">Bytes</th>
-              <th className="px-4 py-3 font-semibold">Last Seen</th>
-            </tr>
-          </thead>
-          <tbody>
-            {flows.length === 0 ? (
-              <tr>
-                <td className="px-4 py-8 text-center text-slate-500" colSpan={9}>
-                  No flow observations yet.
-                </td>
-              </tr>
-            ) : (
-              flows.map((flow) => {
-                const attribution = attributionsByFlow.get(flow.id)
-                const destination = destinationsByIP.get(flow.destination_ip)
-                const route = routesByDestination.get(routeKey(flow.destination_ip, flow.destination_port))
 
-                return (
-                  <tr className="border-t border-slate-100" key={flow.id}>
-                    <td className="px-4 py-3 font-mono text-xs">{flow.client_ip}</td>
-                    <td className="max-w-[260px] px-4 py-3">
-                      <p className="truncate font-medium text-slate-950">
-                        {attribution?.candidate_hostname || flow.destination_ip}
-                      </p>
-                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">
-                        {attribution?.explanation || 'Attribution pending.'}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs">
-                      {flow.destination_ip}:{flow.destination_port}
-                    </td>
-                    <td className="max-w-[220px] px-4 py-3">
-                      <p className="truncate text-sm text-slate-800">
-                        {destination?.provider_label || destination?.reverse_dns || 'Pending'}
-                      </p>
-                      <p className="mt-1 truncate text-xs text-slate-500">
-                        {formatLocation(destination)}
-                      </p>
-                    </td>
-                    <td className="px-4 py-3">
-                      <RouteSummary route={route} />
-                    </td>
-                    <td className="px-4 py-3">
-                      <ConfidenceBadge confidence={attribution?.confidence ?? 'pending'} />
-                    </td>
-                    <td className="px-4 py-3 uppercase">
-                      {flow.protocol}
-                      {flow.state ? <span className="ml-2 text-xs normal-case text-slate-500">{flow.state}</span> : null}
-                    </td>
-                    <td className="px-4 py-3 text-right">{formatBytes(flow.bytes_in + flow.bytes_out)}</td>
-                    <td className="px-4 py-3">{formatTime(flow.last_seen)}</td>
-                  </tr>
-                )
-              })
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}
+      <div className="space-y-5 px-4 py-4">
+        <div>
+          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Playback</div>
+          <InfoRow label="Frame" value={`${currentFrame} / ${Math.max(0, compositionDuration - 1)}`} />
+          <InfoRow label="Mode" value="Remotion player session" />
+        </div>
 
-function RouteSummary({ route }: { route?: Route }) {
-  if (!route) {
-    return <span className="text-xs text-slate-500">Pending</span>
-  }
+        {clip ? (
+          <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Selected request clip</div>
+            <InfoRow label="Activity" value={clip.serviceGroupLabel} />
+            <InfoRow label="Request" value={clip.label} />
+            <InfoRow label="Destination socket" value={`${clip.destinationIP}:${clip.destinationPort}`} mono />
+            <InfoRow label="Protocol" value={clip.protocol.toUpperCase()} />
+            <InfoRow
+              label="Traffic"
+              value={formatTraffic(clip.bytes, trafficCountersAvailable)}
+            />
+            <InfoRow
+              label="Packets"
+              value={trafficCountersAvailable ? clip.packets.toLocaleString() : 'Unavailable'}
+            />
+            <InfoRow label="Start" value={formatDateTime(clip.startMs)} />
+            <InfoRow label="End" value={formatDateTime(clip.endMs)} />
+            <InfoRow label="Confidence" value={clip.confidence} />
+            <p className="mt-3 text-sm leading-6 text-slate-600">{clip.explanation}</p>
+          </div>
+        ) : null}
 
-  const hopCount = route.hops?.filter((hop) => !hop.missing).length ?? 0
-  return (
-    <div>
-      <p className={route.complete ? 'text-sm font-medium text-emerald-800' : 'text-sm font-medium text-amber-800'}>
-        {route.complete ? 'Complete' : 'Approximate'}
-      </p>
-      <p className="mt-1 text-xs text-slate-500">
-        {route.method}, {hopCount} hops
-      </p>
-    </div>
-  )
-}
-
-function ConfidenceBadge({ confidence }: { confidence: FlowAttribution['confidence'] | 'pending' }) {
-  const styles: Record<typeof confidence, string> = {
-    high: 'bg-emerald-100 text-emerald-800',
-    medium: 'bg-amber-100 text-amber-800',
-    low: 'bg-slate-200 text-slate-700',
-    hidden: 'bg-red-100 text-red-800',
-    pending: 'bg-slate-100 text-slate-500',
-  }
-
-  return (
-    <span className={`inline-flex min-w-20 justify-center px-2 py-1 text-xs font-semibold uppercase ${styles[confidence]}`}>
-      {confidence}
-    </span>
-  )
-}
-
-function DNSTable({ dnsQueries }: { dnsQueries: DNSQuery[] }) {
-  return (
-    <div className="border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <h2 className="text-lg font-semibold text-slate-950">DNS</h2>
-      </div>
-      <div className="divide-y divide-slate-100">
-        {dnsQueries.length === 0 ? (
-          <div className="px-4 py-8 text-center text-sm text-slate-500">No DNS observations yet.</div>
-        ) : (
-          dnsQueries.map((query) => (
-            <div className="px-4 py-3" key={query.id}>
-              <div className="flex items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <p className="truncate font-medium text-slate-950">{query.query_name}</p>
-                  <p className="mt-1 font-mono text-xs text-slate-500">{query.client_ip}</p>
-                </div>
-                <span className="shrink-0 text-xs uppercase text-slate-500">{query.query_type}</span>
-              </div>
-              <p className="mt-2 truncate font-mono text-xs text-slate-600">
-                {query.answers?.length ? query.answers.join(', ') : 'No answer recorded yet'}
-              </p>
-              <p className="mt-1 text-xs text-slate-500">{formatTime(query.timestamp)}</p>
+        {service ? (
+          <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Activity section
             </div>
-          ))
-        )}
+            <InfoRow label="Site / app" value={service.label} />
+            <InfoRow label="Source" value={service.sourceSignal} />
+            <InfoRow label="Provider" value={service.providerLabel || 'Unknown'} />
+            <InfoRow label="Flows" value={service.flowCount.toLocaleString()} />
+            <InfoRow
+              label="Traffic"
+              value={formatTraffic(service.totalBytes, trafficCountersAvailable)}
+            />
+            <InfoRow
+              label="Packets"
+              value={trafficCountersAvailable ? service.packetCount.toLocaleString() : 'Unavailable'}
+            />
+            <InfoRow label="Observed hostnames" value={service.hostnames.length.toLocaleString()} />
+            <InfoRow label="Destinations" value={service.destinationIPs.length.toLocaleString()} />
+            <InfoRow label="Devices" value={service.clientIPs.length.toLocaleString()} />
+            <InfoRow
+              label="Routes"
+              value={`${service.routeCompleteCount}/${service.routeCount} complete`}
+            />
+            <InfoRow label="First seen" value={formatDateTime(service.firstSeenMs)} />
+            <InfoRow label="Last seen" value={formatDateTime(service.lastSeenMs)} />
+          </div>
+        ) : null}
+
+        {!clip && !service ? (
+          <div className="border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
+            Select a timeline clip or activity section to inspect how it was inferred.
+          </div>
+        ) : null}
+
+        {topActivityGroups.length ? (
+          <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Top activities</div>
+            <div className="space-y-2">
+              {topActivityGroups.map((item) => (
+                <button
+                  className={`w-full border px-3 py-2 text-left text-sm ${
+                    service?.id === item.id
+                      ? 'border-slate-950 bg-slate-950 text-white'
+                      : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
+                  }`}
+                  key={item.id}
+                  onClick={() => onSelectService(item)}
+                  type="button"
+                >
+                  <span className="block truncate font-semibold">{item.label}</span>
+                  <span className="mt-1 block text-xs opacity-75">
+                    {formatTraffic(item.totalBytes, trafficCountersAvailable)} / {item.flowCount} flows
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
+
+        {recentClips.length ? (
+          <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Recent clips</div>
+            <div className="space-y-2">
+              {recentClips.map((item) => (
+                <button
+                  className={`w-full border px-3 py-2 text-left text-sm ${
+                    clip?.id === item.id
+                      ? 'border-sky-700 bg-sky-700 text-white'
+                      : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
+                  }`}
+                  key={item.id}
+                  onClick={() => onSelectClip(item)}
+                  type="button"
+                >
+                  <span className="block truncate font-semibold">{item.label}</span>
+                  <span className="mt-1 block text-xs opacity-75">
+                    {item.destinationPort}/{item.protocol.toUpperCase()} · {formatTraffic(item.bytes, trafficCountersAvailable)}
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        ) : null}
       </div>
+    </aside>
+  )
+}
+
+function InfoRow({ label, mono = false, value }: { label: string; mono?: boolean; value: string }) {
+  return (
+    <div className="flex items-start justify-between gap-3 border-b border-slate-100 py-2 text-sm">
+      <span className="shrink-0 text-slate-500">{label}</span>
+      <span className={`min-w-0 text-right font-medium text-slate-900 ${mono ? 'font-mono text-xs' : ''}`}>
+        {value}
+      </span>
     </div>
   )
 }
 
-function summarize(data: GatewayData) {
-  const attributionByFlow = new Map(data.attributions.map((attribution) => [attribution.flow, attribution]))
-
-  return {
-    flowCount: data.flows.length,
-    dnsCount: data.dnsQueries.length,
-    attributedCount: attributionByFlow.size,
-    routeCount: data.routes.length,
-    bytes: data.flows.reduce((total, flow) => total + flow.bytes_in + flow.bytes_out, 0),
-  }
-}
-
-function formatLocation(destination?: Destination) {
-  if (!destination) {
-    return 'Destination context pending'
-  }
-  const parts = [destination.city, destination.country].filter(Boolean)
-  return parts.length ? parts.join(', ') : 'No GeoIP location'
-}
-
-function routeKey(destinationIP: string, destinationPort: number) {
-  return `${destinationIP}:${destinationPort}`
-}
-
-function formatBytes(bytes: number) {
-  if (!Number.isFinite(bytes) || bytes <= 0) {
-    return '0 B'
-  }
-  const units = ['B', 'KB', 'MB', 'GB']
-  let value = bytes
-  let unit = 0
-  while (value >= 1024 && unit < units.length - 1) {
-    value /= 1024
-    unit += 1
-  }
-  return `${value.toFixed(value >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`
-}
-
-function formatTime(value: string) {
-  if (!value) {
-    return 'n/a'
-  }
-  const date = new Date(value)
-  if (Number.isNaN(date.getTime())) {
-    return 'n/a'
-  }
-  return date.toLocaleTimeString()
+function formatTraffic(bytes: number, countersAvailable: boolean) {
+  return countersAvailable ? formatBytes(bytes) : 'Counters unavailable'
 }
 
 export default App
