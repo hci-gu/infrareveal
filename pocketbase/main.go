@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
+	"fmt"
 	"io"
 	"log"
 	"math/rand"
@@ -30,6 +31,7 @@ var active_session_id *string
 
 // We'll keep a global map to track which hostnames we've seen for the current session
 var sessionHostnames sync.Map // key=string (hostname), value=bool
+var observationClearMu sync.Mutex
 
 func stripPort(hostPort string) string {
 	host, _, err := net.SplitHostPort(hostPort)
@@ -233,10 +235,20 @@ type clearObservationsResult struct {
 }
 
 func clearObservationCollections(app *pocketbase.PocketBase) (clearObservationsResult, error) {
+	observationClearMu.Lock()
+	defer observationClearMu.Unlock()
+
+	previousActiveSessionID := active_session_id
+	active_session_id = nil
+	defer func() {
+		active_session_id = previousActiveSessionID
+	}()
+
 	result := clearObservationsResult{
 		Deleted: map[string]int{},
 		Skipped: []string{},
 	}
+	skipped := map[string]bool{}
 	collections := []string{
 		"flow_attributions",
 		"routes",
@@ -248,26 +260,48 @@ func clearObservationCollections(app *pocketbase.PocketBase) (clearObservationsR
 		"clients",
 	}
 
-	for _, name := range collections {
-		if _, err := app.FindCollectionByNameOrId(name); err != nil {
-			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
-				result.Skipped = append(result.Skipped, name)
-				continue
-			}
-			return result, err
-		}
+	var lastErr error
+	for pass := 0; pass < 8; pass++ {
+		deletedThisPass := 0
+		lastErr = nil
 
-		records, err := app.FindAllRecords(name)
-		if err != nil {
-			return result, err
-		}
-
-		for _, record := range records {
-			if err := app.Delete(record); err != nil {
+		for _, name := range collections {
+			if _, err := app.FindCollectionByNameOrId(name); err != nil {
+				if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
+					if !skipped[name] {
+						result.Skipped = append(result.Skipped, name)
+						skipped[name] = true
+					}
+					continue
+				}
 				return result, err
 			}
-			result.Deleted[name]++
+
+			records, err := app.FindAllRecords(name)
+			if err != nil {
+				return result, err
+			}
+
+			for _, record := range records {
+				if err := app.Delete(record); err != nil {
+					lastErr = err
+					continue
+				}
+				result.Deleted[name]++
+				deletedThisPass++
+			}
 		}
+
+		if deletedThisPass == 0 {
+			if lastErr != nil {
+				return result, fmt.Errorf("clear observations stalled because records are still referenced: %w", lastErr)
+			}
+			return result, nil
+		}
+	}
+
+	if lastErr != nil {
+		return result, fmt.Errorf("clear observations did not finish after retries: %w", lastErr)
 	}
 
 	return result, nil
