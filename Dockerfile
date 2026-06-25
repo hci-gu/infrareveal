@@ -1,23 +1,33 @@
+# syntax=docker/dockerfile:1.7
+
 # Base image with Go installed
 FROM golang:1.23-bullseye AS builder
 
-# Set up the working directory
-WORKDIR /app
+WORKDIR /src
 
-# Copy the entire pocketbase folder into the image
-COPY ./pocketbase /app
+# Cache module downloads separately from application source changes.
+COPY pocketbase/go.mod pocketbase/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod go mod download
+
+COPY pocketbase/*.go ./
+COPY pocketbase/lib ./lib
+COPY pocketbase/migrations ./migrations
+COPY pocketbase/observer ./observer
+COPY pocketbase/parser ./parser
 
 # Build the infra-reveal binary with CGO disabled
 ENV CGO_ENABLED=0
 ARG GOARCH=arm64
 ARG GOARM=7
-RUN GOOS=linux GOARCH=${GOARCH} GOARM=${GOARM} go build -o /root/pb/infra-reveal .
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOOS=linux GOARCH=${GOARCH} GOARM=${GOARM} go build -trimpath -o /out/infra-reveal .
 
 # Use a minimal runtime image for the final container
 FROM balenalib/rpi-raspbian:bullseye
 
 # Install required dependencies
-RUN apt-get update --fix-missing && apt-get install -y \
+RUN apt-get update --fix-missing && apt-get install -y --no-install-recommends \
     hostapd \
     dbus \
     net-tools \
@@ -26,32 +36,24 @@ RUN apt-get update --fix-missing && apt-get install -y \
     macchanger \
     iproute2 \
     traceroute \
-    && apt-get clean
-
-# Copy the built binary from the builder stage
-COPY --from=builder /root/pb/infra-reveal /root/pb/infra-reveal
-
-# Copy the geoip database to the container
-COPY ./pocketbase/geoip /root/geoip
-
-# Set permissions for the geoip folder and binary
-RUN chmod -R +x /root/pb
-RUN chmod -R +r /root/geoip
-
-# Set permissions for the binary
-RUN chmod +x /root/pb/infra-reveal
-
-# Copy the entrypoint script and other configuration files
-COPY entrypoint.sh /root/entrypoint.sh
-COPY hostapd.conf /etc/hostapd/hostapd.conf
-COPY hostapd /etc/default/hostapd
-COPY dnsmasq.conf /etc/dnsmasq.conf
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
 
 # Set the working directory
 WORKDIR /root
 
-# Make entrypoint script executable
-RUN chmod +x /root/entrypoint.sh
+# Copy the stable runtime assets before the frequently changing binary.
+COPY pocketbase/geoip /root/geoip
+
+COPY --chmod=0755 entrypoint.sh /root/entrypoint.sh
+
+COPY hostapd.conf /etc/hostapd/hostapd.conf
+COPY hostapd /etc/default/hostapd
+COPY dnsmasq.conf /etc/dnsmasq.conf
+
+# Copy the built binary from the builder stage last, so PocketBase changes only
+# invalidate this small final layer after the builder has reused its caches.
+COPY --chmod=0755 --from=builder /out/infra-reveal /root/pb/infra-reveal
 
 # Define the entrypoint
 ENTRYPOINT ["/root/entrypoint.sh"]
