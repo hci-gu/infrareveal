@@ -23,4 +23,13 @@ The backend stores raw observations separately from future derived conclusions. 
 - `flows`: sampled conntrack flow metadata.
 - `dns_queries`: dnsmasq query and answer metadata.
 
-Future attribution work should consume those observations and write separate derived records instead of overwriting raw observations.
+Milestone 3 derived conclusions are:
+
+- `flow_attributions`: candidate hostname, source signal, confidence, and explanation for a flow.
+
+Milestone 5 destination context is:
+
+- `destinations`: reverse DNS, provider label, and coarse GeoIP context keyed by observed destination IP.
+- `routes`: gateway-to-destination traceroute approximations keyed by observed destination IP and port.
+
+Attribution work consumes observations and writes separate derived records instead of overwriting raw observations.

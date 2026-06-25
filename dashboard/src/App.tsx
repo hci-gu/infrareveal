@@ -2,14 +2,20 @@ import { Activity, Database, Globe2, Search } from 'lucide-react'
 import { useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 import { getGatewayData } from './pocketbase'
-import type { DNSQuery, Flow, GatewayData } from './pocketbase'
+import type { Destination, DNSQuery, Flow, FlowAttribution, GatewayData, Route } from './pocketbase'
 
 type LoadState =
   | { status: 'loading'; data: GatewayData | null; error: null }
   | { status: 'ready'; data: GatewayData; error: null }
   | { status: 'error'; data: GatewayData | null; error: string }
 
-const emptyData: GatewayData = { flows: [], dnsQueries: [] }
+const emptyData: GatewayData = {
+  flows: [],
+  dnsQueries: [],
+  attributions: [],
+  destinations: [],
+  routes: [],
+}
 
 function App() {
   const [state, setState] = useState<LoadState>({
@@ -49,6 +55,19 @@ function App() {
 
   const data = state.data ?? emptyData
   const totals = useMemo(() => summarize(data), [data])
+  const attributionsByFlow = useMemo(() => {
+    return new Map(data.attributions.map((attribution) => [attribution.flow, attribution]))
+  }, [data.attributions])
+  const destinationsByIP = useMemo(() => {
+    return new Map(data.destinations.map((destination) => [destination.ip, destination]))
+  }, [data.destinations])
+  const routesByDestination = useMemo(() => {
+    const routes = new Map<string, Route>()
+    for (const route of data.routes) {
+      routes.set(routeKey(route.destination_ip, route.destination_port), route)
+    }
+    return routes
+  }, [data.routes])
 
   return (
     <main className="min-h-screen bg-slate-50 text-slate-950">
@@ -76,9 +95,9 @@ function App() {
 
       <section className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-4 px-5 py-5 md:grid-cols-4">
         <Metric icon={<Activity size={18} />} label="Flows" value={totals.flowCount} />
-        <Metric icon={<Search size={18} />} label="DNS Queries" value={totals.dnsCount} />
+        <Metric icon={<Search size={18} />} label="Attributed" value={totals.attributedCount} />
+        <Metric icon={<Globe2 size={18} />} label="Routes" value={totals.routeCount} />
         <Metric icon={<Database size={18} />} label="Observed Bytes" value={formatBytes(totals.bytes)} />
-        <Metric icon={<Globe2 size={18} />} label="Destinations" value={totals.destinations} />
       </section>
 
       {state.status === 'error' && (
@@ -90,7 +109,12 @@ function App() {
       )}
 
       <section className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-5 px-5 pb-8 xl:grid-cols-[minmax(0,1.5fr)_minmax(360px,0.9fr)]">
-        <FlowTable flows={data.flows} />
+        <FlowTable
+          flows={data.flows}
+          attributionsByFlow={attributionsByFlow}
+          destinationsByIP={destinationsByIP}
+          routesByDestination={routesByDestination}
+        />
         <DNSTable dnsQueries={data.dnsQueries} />
       </section>
     </main>
@@ -117,20 +141,33 @@ function Metric({
   )
 }
 
-function FlowTable({ flows }: { flows: Flow[] }) {
+function FlowTable({
+  flows,
+  attributionsByFlow,
+  destinationsByIP,
+  routesByDestination,
+}: {
+  flows: Flow[]
+  attributionsByFlow: Map<string, FlowAttribution>
+  destinationsByIP: Map<string, Destination>
+  routesByDestination: Map<string, Route>
+}) {
   return (
     <div className="border border-slate-200 bg-white">
       <div className="border-b border-slate-200 px-4 py-3">
         <h2 className="text-lg font-semibold text-slate-950">Flows</h2>
       </div>
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[820px] text-left text-sm">
+        <table className="w-full min-w-[1180px] text-left text-sm">
           <thead className="bg-slate-100 text-xs uppercase text-slate-600">
             <tr>
               <th className="px-4 py-3 font-semibold">Client</th>
+              <th className="px-4 py-3 font-semibold">Attribution</th>
               <th className="px-4 py-3 font-semibold">Destination</th>
+              <th className="px-4 py-3 font-semibold">Context</th>
+              <th className="px-4 py-3 font-semibold">Route</th>
+              <th className="px-4 py-3 font-semibold">Confidence</th>
               <th className="px-4 py-3 font-semibold">Protocol</th>
-              <th className="px-4 py-3 font-semibold">State</th>
               <th className="px-4 py-3 text-right font-semibold">Bytes</th>
               <th className="px-4 py-3 font-semibold">Last Seen</th>
             </tr>
@@ -138,28 +175,92 @@ function FlowTable({ flows }: { flows: Flow[] }) {
           <tbody>
             {flows.length === 0 ? (
               <tr>
-                <td className="px-4 py-8 text-center text-slate-500" colSpan={6}>
+                <td className="px-4 py-8 text-center text-slate-500" colSpan={9}>
                   No flow observations yet.
                 </td>
               </tr>
             ) : (
-              flows.map((flow) => (
-                <tr className="border-t border-slate-100" key={flow.id}>
-                  <td className="px-4 py-3 font-mono text-xs">{flow.client_ip}</td>
-                  <td className="px-4 py-3 font-mono text-xs">
-                    {flow.destination_ip}:{flow.destination_port}
-                  </td>
-                  <td className="px-4 py-3 uppercase">{flow.protocol}</td>
-                  <td className="px-4 py-3">{flow.state || 'observed'}</td>
-                  <td className="px-4 py-3 text-right">{formatBytes(flow.bytes_in + flow.bytes_out)}</td>
-                  <td className="px-4 py-3">{formatTime(flow.last_seen)}</td>
-                </tr>
-              ))
+              flows.map((flow) => {
+                const attribution = attributionsByFlow.get(flow.id)
+                const destination = destinationsByIP.get(flow.destination_ip)
+                const route = routesByDestination.get(routeKey(flow.destination_ip, flow.destination_port))
+
+                return (
+                  <tr className="border-t border-slate-100" key={flow.id}>
+                    <td className="px-4 py-3 font-mono text-xs">{flow.client_ip}</td>
+                    <td className="max-w-[260px] px-4 py-3">
+                      <p className="truncate font-medium text-slate-950">
+                        {attribution?.candidate_hostname || flow.destination_ip}
+                      </p>
+                      <p className="mt-1 line-clamp-2 text-xs text-slate-500">
+                        {attribution?.explanation || 'Attribution pending.'}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {flow.destination_ip}:{flow.destination_port}
+                    </td>
+                    <td className="max-w-[220px] px-4 py-3">
+                      <p className="truncate text-sm text-slate-800">
+                        {destination?.provider_label || destination?.reverse_dns || 'Pending'}
+                      </p>
+                      <p className="mt-1 truncate text-xs text-slate-500">
+                        {formatLocation(destination)}
+                      </p>
+                    </td>
+                    <td className="px-4 py-3">
+                      <RouteSummary route={route} />
+                    </td>
+                    <td className="px-4 py-3">
+                      <ConfidenceBadge confidence={attribution?.confidence ?? 'pending'} />
+                    </td>
+                    <td className="px-4 py-3 uppercase">
+                      {flow.protocol}
+                      {flow.state ? <span className="ml-2 text-xs normal-case text-slate-500">{flow.state}</span> : null}
+                    </td>
+                    <td className="px-4 py-3 text-right">{formatBytes(flow.bytes_in + flow.bytes_out)}</td>
+                    <td className="px-4 py-3">{formatTime(flow.last_seen)}</td>
+                  </tr>
+                )
+              })
             )}
           </tbody>
         </table>
       </div>
     </div>
+  )
+}
+
+function RouteSummary({ route }: { route?: Route }) {
+  if (!route) {
+    return <span className="text-xs text-slate-500">Pending</span>
+  }
+
+  const hopCount = route.hops?.filter((hop) => !hop.missing).length ?? 0
+  return (
+    <div>
+      <p className={route.complete ? 'text-sm font-medium text-emerald-800' : 'text-sm font-medium text-amber-800'}>
+        {route.complete ? 'Complete' : 'Approximate'}
+      </p>
+      <p className="mt-1 text-xs text-slate-500">
+        {route.method}, {hopCount} hops
+      </p>
+    </div>
+  )
+}
+
+function ConfidenceBadge({ confidence }: { confidence: FlowAttribution['confidence'] | 'pending' }) {
+  const styles: Record<typeof confidence, string> = {
+    high: 'bg-emerald-100 text-emerald-800',
+    medium: 'bg-amber-100 text-amber-800',
+    low: 'bg-slate-200 text-slate-700',
+    hidden: 'bg-red-100 text-red-800',
+    pending: 'bg-slate-100 text-slate-500',
+  }
+
+  return (
+    <span className={`inline-flex min-w-20 justify-center px-2 py-1 text-xs font-semibold uppercase ${styles[confidence]}`}>
+      {confidence}
+    </span>
   )
 }
 
@@ -195,13 +296,27 @@ function DNSTable({ dnsQueries }: { dnsQueries: DNSQuery[] }) {
 }
 
 function summarize(data: GatewayData) {
-  const destinations = new Set(data.flows.map((flow) => flow.destination_ip))
+  const attributionByFlow = new Map(data.attributions.map((attribution) => [attribution.flow, attribution]))
+
   return {
     flowCount: data.flows.length,
     dnsCount: data.dnsQueries.length,
+    attributedCount: attributionByFlow.size,
+    routeCount: data.routes.length,
     bytes: data.flows.reduce((total, flow) => total + flow.bytes_in + flow.bytes_out, 0),
-    destinations: destinations.size,
   }
+}
+
+function formatLocation(destination?: Destination) {
+  if (!destination) {
+    return 'Destination context pending'
+  }
+  const parts = [destination.city, destination.country].filter(Boolean)
+  return parts.length ? parts.join(', ') : 'No GeoIP location'
+}
+
+function routeKey(destinationIP: string, destinationPort: number) {
+  return `${destinationIP}:${destinationPort}`
 }
 
 function formatBytes(bytes: number) {

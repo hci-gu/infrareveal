@@ -21,7 +21,9 @@ The first observation sources are:
 - dnsmasq logs for DNS queries and answers.
 - conntrack sampling for flow metadata.
 
-Derived hostname attribution and confidence labels will be added as separate records in later milestones.
+Derived hostname attribution and confidence labels are stored as separate `flow_attributions` records. DNS-to-flow matches are medium confidence; IP-only conclusions are low confidence; known encrypted DNS, tunnel, or QUIC-style reduced visibility ports are marked hidden.
+
+Destination context is stored by observed destination IP. Route records are gateway-to-destination traceroute approximations and must not be described as the exact path a client application flow took.
 
 ## Consequences
 

@@ -8,6 +8,8 @@ What you get
 - NAT to the internet via eth0 by default
 - DNS query observations from dnsmasq
 - Flow observations from conntrack sampling
+- Confidence-labeled flow attribution from recent DNS answers where available
+- Destination context and route approximations for observed destination IPs
 - PocketBase API/Admin on port 8090, dashboard on port 8080
 
 Note: The AP is open (no password) by default. Use only in controlled environments.
@@ -82,7 +84,9 @@ docker compose logs -f dashboard
 2) Visit the dashboard: http://<pi-ip>:8080
 3) PocketBase Admin UI: http://<pi-ip>:8090/_/
 
-The gateway forwards web traffic normally through NAT. Classic DNS traffic from clients is redirected to the local dnsmasq resolver so DNS observations can be correlated with flows later.
+The gateway forwards web traffic normally through NAT. Classic DNS traffic from clients is redirected to the local dnsmasq resolver so DNS observations can be correlated with flows. The dashboard keeps raw destination IPs visible and labels inferred hostnames with confidence.
+
+Destination context is enriched from reverse DNS and the bundled GeoIP database. Routes are traceroute approximations from the gateway to the observed destination IP and port; they are not exact proof of the client application path.
 
 ## Customizations
 

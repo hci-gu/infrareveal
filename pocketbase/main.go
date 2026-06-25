@@ -113,6 +113,11 @@ func main() {
 	ctx, cancelObservers := context.WithCancel(context.Background())
 	defer cancelObservers()
 
+	geoipDB, _ := geoip2.Open("./geoip/city.mmdb")
+	if geoipDB != nil {
+		defer geoipDB.Close()
+	}
+
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		// serves static files from the provided public dir (if exists)
 		se.Router.GET("/{path...}", apis.Static(os.DirFS("./pb_public"), false))
@@ -127,6 +132,8 @@ func main() {
 
 		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, currentSessionID)
 		observer.StartConntrackSampler(ctx, app, conntrackPath, clientPrefix, currentSessionID)
+		observer.StartFlowCorrelator(ctx, app, currentSessionID)
+		observer.StartDestinationEnricher(ctx, app, geoipDB, currentSessionID)
 
 		return se.Next()
 	})
@@ -135,11 +142,6 @@ func main() {
 		cancelObservers()
 		return e.Next()
 	})
-
-	geoipDB, _ := geoip2.Open("./geoip/city.mmdb")
-	if geoipDB != nil {
-		defer geoipDB.Close()
-	}
 
 	// Watch session creation/updates
 	app.OnRecordAfterCreateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
