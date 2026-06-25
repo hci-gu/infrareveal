@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { emptyGatewayData, getGatewayData, pb } from './pocketbaseClient'
 import type { ConnectionState, DNSQuery, Destination, Flow, FlowAttribution, GatewayData, Route, Session } from './types'
 
@@ -59,6 +59,7 @@ export function useGatewayData(requestedSessionId?: string | null) {
   const [maps, setMaps] = useState<StoreMaps>(() => mapsFromData(emptyGatewayData()))
   const [connectionState, setConnectionState] = useState<ConnectionState>('loading')
   const [error, setError] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
   const connectionStateRef = useRef<ConnectionState>('loading')
   const selectedSessionIdRef = useRef<string | null>(null)
   const requestedSessionIdRef = useRef<string | null>(requestedSessionId ?? null)
@@ -185,14 +186,16 @@ export function useGatewayData(requestedSessionId?: string | null) {
         unsubscribe()
       }
     }
-  }, [requestedSessionId])
+  }, [requestedSessionId, refreshKey])
 
   const data = useMemo(() => dataFromMaps(maps), [maps])
+  const refresh = useCallback(() => setRefreshKey((key) => key + 1), [])
 
   return {
     data,
     connectionState,
     error,
+    refresh,
   }
 }
 

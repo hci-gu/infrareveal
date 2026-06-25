@@ -77,8 +77,9 @@ function TimelineScene({
   selectedServiceId: string | null
 }) {
   const frameSpan = Math.max(1, visibleEndFrame - visibleStartFrame)
-  const lanes = composition.lanes.slice(0, 12)
-  const laneHeight = 46
+  const lanes = composition.lanes
+  const availableLaneHeight = composition.height - 118
+  const laneHeight = Math.max(12, Math.min(46, availableLaneHeight / Math.max(1, lanes.length)))
   const leftAxis = 252
   const timelineWidth = composition.width - leftAxis - 34
   const playheadX = leftAxis + ((currentFrame - visibleStartFrame) / frameSpan) * timelineWidth
@@ -136,10 +137,12 @@ function TimelineScene({
                   type="button"
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold text-slate-900">{lane.label}</span>
-                    <span className="block truncate text-xs text-slate-500">
-                      {formatTraffic(lane.totalBytes, composition.totals.trafficCountersAvailable)}
-                    </span>
+                    <span className="block truncate text-sm font-semibold leading-tight text-slate-900">{lane.label}</span>
+                    {laneHeight >= 28 ? (
+                      <span className="block truncate text-xs text-slate-500">
+                        {formatTraffic(lane.totalBytes, composition.totals.trafficCountersAvailable)}
+                      </span>
+                    ) : null}
                   </span>
                 </button>
                 <div className="absolute bottom-0 right-[34px] top-0" style={{ left: leftAxis }}>
@@ -158,18 +161,26 @@ function TimelineScene({
 
                     return (
                       <button
-                        className={`absolute top-[9px] h-7 overflow-hidden rounded-sm border text-left shadow-sm transition ${
+                        className={`absolute overflow-hidden rounded-sm border text-left shadow-sm transition ${
                           selectedClip ? 'border-slate-950 ring-2 ring-slate-950' : 'border-white'
                         } ${active ? 'opacity-100' : 'opacity-75'}`}
                         key={clip.id}
                         onClick={() => dispatchSelection('clip', clip.id)}
-                        style={{ left: x, width, backgroundColor: color }}
+                        style={{
+                          left: x,
+                          top: Math.max(2, (laneHeight - Math.min(28, laneHeight - 4)) / 2),
+                          width,
+                          height: Math.max(6, Math.min(28, laneHeight - 4)),
+                          backgroundColor: color,
+                        }}
                         title={`${clip.label} / ${formatTraffic(clip.bytes, composition.totals.trafficCountersAvailable)}`}
                         type="button"
                       >
-                        <span className="block truncate px-2 text-xs font-semibold text-white">
-                          {clip.label}
-                        </span>
+                        {laneHeight >= 18 ? (
+                          <span className="block truncate px-2 text-xs font-semibold text-white">
+                            {clip.label}
+                          </span>
+                        ) : null}
                       </button>
                     )
                   })}
@@ -210,7 +221,7 @@ function TreemapScene({
     )
     return composition.serviceGroups.filter((group) => active.has(group.id))
   }, [composition, currentFrame])
-  const nodes = buildTreemap(activeGroups.length ? activeGroups : composition.serviceGroups.slice(0, 8), 1320, 610)
+  const nodes = buildTreemap(activeGroups.length ? activeGroups : composition.serviceGroups, 1320, 610)
   const areaMetric = composition.totals.trafficCountersAvailable ? 'observed bytes' : 'flow count'
 
   return (

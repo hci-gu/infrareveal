@@ -10,13 +10,17 @@ import {
   Radio,
   Rewind,
   Rows3,
+  Settings,
   SkipBack,
   SkipForward,
+  Trash2,
   Wifi,
   WifiOff,
+  X,
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { clearGatewayData } from './data/pocketbaseClient'
 import { useGatewayData } from './data/useGatewayData'
 import {
   COMPOSITION_HEIGHT,
@@ -48,7 +52,7 @@ const zoomPresets: ZoomPreset[] = [
 function App() {
   const playerRef = useRef<PlayerRef>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const { data, connectionState, error } = useGatewayData(selectedSessionId)
+  const { data, connectionState, error, refresh } = useGatewayData(selectedSessionId)
   const composition = useMemo(() => buildSessionComposition(data), [data])
   const [viewMode, setViewMode] = useState<DashboardViewMode>('timeline')
   const [currentFrame, setCurrentFrame] = useState(0)
@@ -58,6 +62,12 @@ function App() {
   const [zoomFrames, setZoomFrames] = useState<number | 'all'>('all')
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
+  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [clearState, setClearState] = useState<{
+    status: 'idle' | 'clearing' | 'done' | 'error'
+    message: string
+  }>({ status: 'idle', message: '' })
   const selectedSessionKey = data.selectedSession?.id ?? 'no-session'
 
   const selectedClip = useMemo(
@@ -124,6 +134,7 @@ function App() {
         setSelectedClipId(null)
         setSelectedServiceId(detail.id)
       }
+      setInspectorOpen(true)
     }
 
     window.addEventListener('infrareveal:select', handleSelection)
@@ -133,6 +144,7 @@ function App() {
   useEffect(() => {
     setSelectedClipId(null)
     setSelectedServiceId(null)
+    setInspectorOpen(false)
 
     const player = playerRef.current
     if (data.selectedSession?.active) {
@@ -205,6 +217,37 @@ function App() {
     setPlaybackRate(1)
   }
 
+  function selectClip(clip: TimelineClip) {
+    setSelectedClipId(clip.id)
+    setSelectedServiceId(clip.serviceGroupId)
+    setInspectorOpen(true)
+  }
+
+  async function clearAllObservationData() {
+    if (!window.confirm('Delete all observation data from clients, destinations, DNS, flows, packets, routes, and traceroutes?')) {
+      return
+    }
+
+    setClearState({ status: 'clearing', message: 'Clearing observation data.' })
+    try {
+      const result = await clearGatewayData()
+      const deletedTotal = Object.values(result.deleted).reduce((total, count) => total + count, 0)
+      setSelectedClipId(null)
+      setSelectedServiceId(null)
+      setInspectorOpen(false)
+      setClearState({
+        status: 'done',
+        message: `Deleted ${deletedTotal.toLocaleString()} records.`,
+      })
+      refresh()
+    } catch (clearError) {
+      setClearState({
+        status: 'error',
+        message: clearError instanceof Error ? clearError.message : 'Failed to clear observation data.',
+      })
+    }
+  }
+
   return (
     <main className="min-h-screen bg-slate-100 text-slate-950">
       <header className="border-b border-slate-200 bg-white">
@@ -233,6 +276,12 @@ function App() {
               icon={<Grid2X2 size={16} />}
               label="Treemap"
               onClick={() => setViewMode('treemap')}
+            />
+            <SegmentedButton
+              active={settingsOpen}
+              icon={<Settings size={16} />}
+              label="Settings"
+              onClick={() => setSettingsOpen(true)}
             />
           </div>
         </div>
@@ -356,22 +405,28 @@ function App() {
           </div>
         </div>
 
+        <LiveFlowFeed
+          clips={composition.clips}
+          trafficCountersAvailable={composition.totals.trafficCountersAvailable}
+          selectedClipId={selectedClipId}
+          onSelectClip={selectClip}
+        />
+
         <Inspector
           clip={selectedClip}
-          clips={composition.clips}
           service={selectedService}
-          services={composition.serviceGroups}
           trafficCountersAvailable={composition.totals.trafficCountersAvailable}
           currentFrame={currentFrame}
           compositionDuration={composition.durationInFrames}
-          onSelectClip={(clip) => {
-            setSelectedClipId(clip.id)
-            setSelectedServiceId(clip.serviceGroupId)
-          }}
-          onSelectService={(service) => {
-            setSelectedClipId(null)
-            setSelectedServiceId(service.id)
-          }}
+          open={inspectorOpen}
+          onClose={() => setInspectorOpen(false)}
+        />
+
+        <SettingsModal
+          clearState={clearState}
+          onClear={clearAllObservationData}
+          onClose={() => setSettingsOpen(false)}
+          open={settingsOpen}
         />
       </section>
     </main>
@@ -500,154 +555,264 @@ function IconButton({
   )
 }
 
-function Inspector({
-  clip,
-  clips,
-  service,
-  services,
-  trafficCountersAvailable,
-  currentFrame,
-  compositionDuration,
-  onSelectClip,
-  onSelectService,
+function SettingsModal({
+  clearState,
+  onClear,
+  onClose,
+  open,
 }: {
-  clip: TimelineClip | null
-  clips: TimelineClip[]
-  service: ServiceGroup | null
-  services: ServiceGroup[]
-  trafficCountersAvailable: boolean
-  currentFrame: number
-  compositionDuration: number
-  onSelectClip: (clip: TimelineClip) => void
-  onSelectService: (service: ServiceGroup) => void
+  clearState: {
+    status: 'idle' | 'clearing' | 'done' | 'error'
+    message: string
+  }
+  onClear: () => void
+  onClose: () => void
+  open: boolean
 }) {
-  const recentClips = clips.slice().sort((left, right) => right.startFrame - left.startFrame).slice(0, 5)
-  const topActivityGroups = services.slice(0, 5)
+  if (!open) {
+    return null
+  }
+
+  return (
+    <>
+      <button
+        aria-label="Close settings"
+        className="fixed inset-0 z-40 bg-slate-950/30"
+        onClick={onClose}
+        type="button"
+      />
+      <div className="fixed left-1/2 top-20 z-50 w-[min(560px,calc(100vw-32px))] -translate-x-1/2 border border-slate-200 bg-white shadow-2xl">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-5 py-4">
+          <div>
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Settings</div>
+            <div className="mt-1 text-xl font-semibold text-slate-950">Gateway data</div>
+          </div>
+          <IconButton label="Close settings" onClick={onClose}>
+            <X size={17} />
+          </IconButton>
+        </div>
+
+        <div className="space-y-5 px-5 py-5">
+          <div className="border border-red-200 bg-red-50 px-4 py-4">
+            <div className="flex items-start gap-3">
+              <Trash2 className="mt-0.5 shrink-0 text-red-700" size={18} />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-red-900">Clear observation data</div>
+                <p className="mt-2 text-sm leading-6 text-red-800">
+                  Deletes all records from clients, destinations, dns_queries, flow_attributions, flows, packets, routes, and traceroutes.
+                </p>
+                <button
+                  className="mt-4 inline-flex h-9 items-center gap-2 border border-red-700 bg-red-700 px-3 text-sm font-semibold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={clearState.status === 'clearing'}
+                  onClick={onClear}
+                  type="button"
+                >
+                  <Trash2 size={16} />
+                  {clearState.status === 'clearing' ? 'Clearing data' : 'Delete all observation data'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {clearState.message ? (
+            <div
+              className={`border px-4 py-3 text-sm ${
+                clearState.status === 'error'
+                  ? 'border-red-200 bg-red-50 text-red-800'
+                  : 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              }`}
+            >
+              {clearState.message}
+            </div>
+          ) : null}
+        </div>
+      </div>
+    </>
+  )
+}
+
+function LiveFlowFeed({
+  clips,
+  onSelectClip,
+  selectedClipId,
+  trafficCountersAvailable,
+}: {
+  clips: TimelineClip[]
+  onSelectClip: (clip: TimelineClip) => void
+  selectedClipId: string | null
+  trafficCountersAvailable: boolean
+}) {
+  const orderedClips = useMemo(
+    () => clips.slice().sort((left, right) => right.endMs - left.endMs || right.startMs - left.startMs),
+    [clips],
+  )
 
   return (
     <aside className="border border-slate-200 bg-white">
-      <div className="border-b border-slate-200 px-4 py-3">
-        <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inspector</div>
-        <div className="mt-1 text-lg font-semibold text-slate-950">
-          {clip?.label ?? service?.label ?? 'No selection'}
+      <div className="flex items-center justify-between border-b border-slate-200 px-4 py-3">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Live flow feed</div>
+          <div className="mt-1 text-lg font-semibold text-slate-950">{orderedClips.length.toLocaleString()} flows</div>
+        </div>
+        <div className="text-right text-xs font-medium text-slate-500">
+          {orderedClips.length ? formatDateTime(orderedClips[0].endMs) : 'Waiting'}
         </div>
       </div>
 
-      <div className="space-y-5 px-4 py-4">
-        <div>
-          <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Playback</div>
-          <InfoRow label="Frame" value={`${currentFrame} / ${Math.max(0, compositionDuration - 1)}`} />
-          <InfoRow label="Mode" value="Remotion player session" />
-        </div>
-
-        {clip ? (
-          <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Selected request clip</div>
-            <InfoRow label="Activity" value={clip.serviceGroupLabel} />
-            <InfoRow label="Request" value={clip.label} />
-            <InfoRow label="Destination socket" value={`${clip.destinationIP}:${clip.destinationPort}`} mono />
-            <InfoRow label="Protocol" value={clip.protocol.toUpperCase()} />
-            <InfoRow
-              label="Traffic"
-              value={formatTraffic(clip.bytes, trafficCountersAvailable)}
-            />
-            <InfoRow
-              label="Packets"
-              value={trafficCountersAvailable ? clip.packets.toLocaleString() : 'Unavailable'}
-            />
-            <InfoRow label="Start" value={formatDateTime(clip.startMs)} />
-            <InfoRow label="End" value={formatDateTime(clip.endMs)} />
-            <InfoRow label="Confidence" value={clip.confidence} />
-            <p className="mt-3 text-sm leading-6 text-slate-600">{clip.explanation}</p>
+      <div className="max-h-[calc(100vh-300px)] overflow-y-auto">
+        {orderedClips.length === 0 ? (
+          <div className="px-4 py-8 text-center text-sm text-slate-500">
+            Waiting for flow observations.
           </div>
-        ) : null}
-
-        {service ? (
-          <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-              Activity section
-            </div>
-            <InfoRow label="Site / app" value={service.label} />
-            <InfoRow label="Source" value={service.sourceSignal} />
-            <InfoRow label="Provider" value={service.providerLabel || 'Unknown'} />
-            <InfoRow label="Flows" value={service.flowCount.toLocaleString()} />
-            <InfoRow
-              label="Traffic"
-              value={formatTraffic(service.totalBytes, trafficCountersAvailable)}
-            />
-            <InfoRow
-              label="Packets"
-              value={trafficCountersAvailable ? service.packetCount.toLocaleString() : 'Unavailable'}
-            />
-            <InfoRow label="Observed hostnames" value={service.hostnames.length.toLocaleString()} />
-            <InfoRow label="Destinations" value={service.destinationIPs.length.toLocaleString()} />
-            <InfoRow label="Devices" value={service.clientIPs.length.toLocaleString()} />
-            <InfoRow
-              label="Routes"
-              value={`${service.routeCompleteCount}/${service.routeCount} complete`}
-            />
-            <InfoRow label="First seen" value={formatDateTime(service.firstSeenMs)} />
-            <InfoRow label="Last seen" value={formatDateTime(service.lastSeenMs)} />
-          </div>
-        ) : null}
-
-        {!clip && !service ? (
-          <div className="border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
-            Select a timeline clip or activity section to inspect how it was inferred.
-          </div>
-        ) : null}
-
-        {topActivityGroups.length ? (
-          <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Top activities</div>
-            <div className="space-y-2">
-              {topActivityGroups.map((item) => (
+        ) : (
+          <div className="divide-y divide-slate-100">
+            {orderedClips.map((clip) => {
+              const selected = selectedClipId === clip.id
+              return (
                 <button
-                  className={`w-full border px-3 py-2 text-left text-sm ${
-                    service?.id === item.id
-                      ? 'border-slate-950 bg-slate-950 text-white'
-                      : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
+                  className={`w-full px-4 py-3 text-left transition ${
+                    selected ? 'bg-sky-50' : 'bg-white hover:bg-slate-50'
                   }`}
-                  key={item.id}
-                  onClick={() => onSelectService(item)}
+                  key={clip.id}
+                  onClick={() => onSelectClip(clip)}
                   type="button"
                 >
-                  <span className="block truncate font-semibold">{item.label}</span>
-                  <span className="mt-1 block text-xs opacity-75">
-                    {formatTraffic(item.totalBytes, trafficCountersAvailable)} / {item.flowCount} flows
-                  </span>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="truncate text-sm font-semibold text-slate-950">{clip.label}</div>
+                      <div className="mt-1 truncate text-xs text-slate-500">{clip.serviceGroupLabel}</div>
+                    </div>
+                    <div className="shrink-0 text-right">
+                      <div className="font-mono text-xs text-slate-500">{formatClock(clip.endMs)}</div>
+                      <div className="mt-1 text-xs font-semibold uppercase text-slate-500">
+                        {clip.protocol}/{clip.destinationPort}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="mt-2 flex items-center justify-between gap-3 text-xs text-slate-500">
+                    <span className="truncate font-mono">{clip.destinationIP}</span>
+                    <span className="shrink-0">{formatTraffic(clip.bytes, trafficCountersAvailable)}</span>
+                  </div>
                 </button>
-              ))}
-            </div>
+              )
+            })}
           </div>
-        ) : null}
-
-        {recentClips.length ? (
-          <div>
-            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Recent clips</div>
-            <div className="space-y-2">
-              {recentClips.map((item) => (
-                <button
-                  className={`w-full border px-3 py-2 text-left text-sm ${
-                    clip?.id === item.id
-                      ? 'border-sky-700 bg-sky-700 text-white'
-                      : 'border-slate-200 bg-white text-slate-800 hover:bg-slate-50'
-                  }`}
-                  key={item.id}
-                  onClick={() => onSelectClip(item)}
-                  type="button"
-                >
-                  <span className="block truncate font-semibold">{item.label}</span>
-                  <span className="mt-1 block text-xs opacity-75">
-                    {item.destinationPort}/{item.protocol.toUpperCase()} · {formatTraffic(item.bytes, trafficCountersAvailable)}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </div>
-        ) : null}
+        )}
       </div>
     </aside>
+  )
+}
+
+function Inspector({
+  clip,
+  service,
+  trafficCountersAvailable,
+  currentFrame,
+  compositionDuration,
+  onClose,
+  open,
+}: {
+  clip: TimelineClip | null
+  service: ServiceGroup | null
+  trafficCountersAvailable: boolean
+  currentFrame: number
+  compositionDuration: number
+  onClose: () => void
+  open: boolean
+}) {
+  if (!open) {
+    return null
+  }
+
+  return (
+    <>
+      <button
+        aria-label="Close inspector"
+        className="fixed inset-0 z-40 bg-slate-950/20"
+        onClick={onClose}
+        type="button"
+      />
+      <aside
+        className="fixed bottom-0 right-0 top-0 z-50 w-full max-w-[430px] border-l border-slate-200 bg-white shadow-2xl"
+      >
+        <div className="flex items-start justify-between gap-3 border-b border-slate-200 px-4 py-3">
+          <div className="min-w-0">
+            <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Inspector</div>
+            <div className="mt-1 truncate text-lg font-semibold text-slate-950">
+              {clip?.label ?? service?.label ?? 'No selection'}
+            </div>
+          </div>
+          <IconButton label="Close inspector" onClick={onClose}>
+            <X size={17} />
+          </IconButton>
+        </div>
+
+        <div className="h-[calc(100vh-70px)] space-y-5 overflow-y-auto px-4 py-4">
+          <div>
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Playback</div>
+            <InfoRow label="Frame" value={`${currentFrame} / ${Math.max(0, compositionDuration - 1)}`} />
+            <InfoRow label="Mode" value="Remotion player session" />
+          </div>
+
+          {clip ? (
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Selected request clip</div>
+              <InfoRow label="Activity" value={clip.serviceGroupLabel} />
+              <InfoRow label="Request" value={clip.label} />
+              <InfoRow label="Destination socket" value={`${clip.destinationIP}:${clip.destinationPort}`} mono />
+              <InfoRow label="Protocol" value={clip.protocol.toUpperCase()} />
+              <InfoRow
+                label="Traffic"
+                value={formatTraffic(clip.bytes, trafficCountersAvailable)}
+              />
+              <InfoRow
+                label="Packets"
+                value={trafficCountersAvailable ? clip.packets.toLocaleString() : 'Unavailable'}
+              />
+              <InfoRow label="Start" value={formatDateTime(clip.startMs)} />
+              <InfoRow label="End" value={formatDateTime(clip.endMs)} />
+              <InfoRow label="Confidence" value={clip.confidence} />
+              <p className="mt-3 text-sm leading-6 text-slate-600">{clip.explanation}</p>
+            </div>
+          ) : null}
+
+          {service ? (
+            <div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Activity section
+              </div>
+              <InfoRow label="Site / app" value={service.label} />
+              <InfoRow label="Source" value={service.sourceSignal} />
+              <InfoRow label="Provider" value={service.providerLabel || 'Unknown'} />
+              <InfoRow label="Flows" value={service.flowCount.toLocaleString()} />
+              <InfoRow
+                label="Traffic"
+                value={formatTraffic(service.totalBytes, trafficCountersAvailable)}
+              />
+              <InfoRow
+                label="Packets"
+                value={trafficCountersAvailable ? service.packetCount.toLocaleString() : 'Unavailable'}
+              />
+              <InfoRow label="Observed hostnames" value={service.hostnames.length.toLocaleString()} />
+              <InfoRow label="Destinations" value={service.destinationIPs.length.toLocaleString()} />
+              <InfoRow label="Devices" value={service.clientIPs.length.toLocaleString()} />
+              <InfoRow
+                label="Routes"
+                value={`${service.routeCompleteCount}/${service.routeCount} complete`}
+              />
+              <InfoRow label="First seen" value={formatDateTime(service.firstSeenMs)} />
+              <InfoRow label="Last seen" value={formatDateTime(service.lastSeenMs)} />
+            </div>
+          ) : null}
+
+          {!clip && !service ? (
+            <div className="border border-dashed border-slate-300 px-4 py-8 text-center text-sm text-slate-500">
+              Select a timeline clip or activity section to inspect how it was inferred.
+            </div>
+          ) : null}
+        </div>
+      </aside>
+    </>
   )
 }
 

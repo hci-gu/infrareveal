@@ -27,6 +27,11 @@ export type RealtimeEvent<T> = {
   record: T
 }
 
+export type ClearGatewayDataResult = {
+  deleted: Record<string, number>
+  skipped: string[]
+}
+
 type RealtimeCallback<T> = (event: RealtimeEvent<T>) => void
 
 export const pb = {
@@ -93,6 +98,18 @@ export function emptyGatewayData(): GatewayData {
     destinations: [],
     routes: [],
   }
+}
+
+export async function clearGatewayData(): Promise<ClearGatewayDataResult> {
+  const response = await fetch(`${baseUrl}/api/infrareveal/clear-observations`, {
+    method: 'POST',
+  })
+  if (!response.ok) {
+    const message = await response.text()
+    throw new Error(message || `Clear request failed: ${response.status} ${response.statusText}`)
+  }
+
+  return response.json() as Promise<ClearGatewayDataResult>
 }
 
 async function listRecords<T>(

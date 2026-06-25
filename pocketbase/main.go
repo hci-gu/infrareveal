@@ -120,6 +120,14 @@ func main() {
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		// serves static files from the provided public dir (if exists)
+		se.Router.POST("/api/infrareveal/clear-observations", func(e *core.RequestEvent) error {
+			result, err := clearObservationCollections(app)
+			if err != nil {
+				return e.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+			}
+			clearSessionHostnames()
+			return e.JSON(http.StatusOK, result)
+		})
 		se.Router.GET("/{path...}", apis.Static(os.DirFS("./pb_public"), false))
 
 		if err := ensureDefaultActiveSession(app); err != nil {
@@ -217,6 +225,52 @@ func clearSessionHostnames() {
 		sessionHostnames.Delete(key)
 		return true
 	})
+}
+
+type clearObservationsResult struct {
+	Deleted map[string]int `json:"deleted"`
+	Skipped []string       `json:"skipped"`
+}
+
+func clearObservationCollections(app *pocketbase.PocketBase) (clearObservationsResult, error) {
+	result := clearObservationsResult{
+		Deleted: map[string]int{},
+		Skipped: []string{},
+	}
+	collections := []string{
+		"flow_attributions",
+		"routes",
+		"traceroutes",
+		"packets",
+		"flows",
+		"dns_queries",
+		"destinations",
+		"clients",
+	}
+
+	for _, name := range collections {
+		if _, err := app.FindCollectionByNameOrId(name); err != nil {
+			if strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
+				result.Skipped = append(result.Skipped, name)
+				continue
+			}
+			return result, err
+		}
+
+		records, err := app.FindAllRecords(name)
+		if err != nil {
+			return result, err
+		}
+
+		for _, record := range records {
+			if err := app.Delete(record); err != nil {
+				return result, err
+			}
+			result.Deleted[name]++
+		}
+	}
+
+	return result, nil
 }
 
 func isExpectedProxyClose(err error) bool {
