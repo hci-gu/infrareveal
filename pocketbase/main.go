@@ -3,16 +3,16 @@ package main
 import (
 	"bufio"
 	"bytes"
+	"context"
+	"database/sql"
 	"io"
 	"log"
 	"math/rand"
 	"net"
 	"net/http"
 	"os"
-	"os/signal"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/oschwald/geoip2-golang"
@@ -21,6 +21,8 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 
 	"myapp/lib"
+	_ "myapp/migrations"
+	"myapp/observer"
 )
 
 // Global pointer tracking active session
@@ -108,71 +110,103 @@ func generateDebugData(app *pocketbase.PocketBase, geoipDB *geoip2.Reader) {
 
 func main() {
 	app := pocketbase.New()
+	ctx, cancelObservers := context.WithCancel(context.Background())
+	defer cancelObservers()
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		// serves static files from the provided public dir (if exists)
 		se.Router.GET("/{path...}", apis.Static(os.DirFS("./pb_public"), false))
+
+		if err := ensureDefaultActiveSession(app); err != nil {
+			log.Printf("failed to ensure active gateway session: %v", err)
+		}
+
+		dnsmasqLogPath := envOrDefault("DNSMASQ_LOG_PATH", "/var/log/dnsmasq.log")
+		conntrackPath := envOrDefault("CONNTRACK_PATH", "/proc/net/nf_conntrack")
+		clientPrefix := envOrDefault("CLIENT_IP_PREFIX", "10.0.0.")
+
+		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, currentSessionID)
+		observer.StartConntrackSampler(ctx, app, conntrackPath, clientPrefix, currentSessionID)
+
 		return se.Next()
 	})
 
+	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
+		cancelObservers()
+		return e.Next()
+	})
+
 	geoipDB, _ := geoip2.Open("./geoip/city.mmdb")
-	defer geoipDB.Close()
+	if geoipDB != nil {
+		defer geoipDB.Close()
+	}
 
 	// Watch session creation/updates
-	go func() {
-		app.OnRecordAfterCreateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
+	app.OnRecordAfterCreateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
+		id := e.Record.GetString("id")
+		if e.Record.GetBool("active") {
+			active_session_id = &id
+			// Clear map of seen hostnames on new session
+			clearSessionHostnames()
+		}
+		return e.Next()
+	})
+
+	app.OnRecordAfterUpdateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
+		if !e.Record.GetBool("active") {
+			active_session_id = nil
+		} else {
 			id := e.Record.GetString("id")
-			if e.Record.GetBool("active") {
-				active_session_id = &id
-				// Clear map of seen hostnames on new session
-				clearSessionHostnames()
-			}
-			return e.Next()
-		})
-
-		app.OnRecordAfterUpdateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
-			if !e.Record.GetBool("active") {
-				active_session_id = nil
-			} else {
-				id := e.Record.GetString("id")
-				active_session_id = &id
-				clearSessionHostnames()
-			}
-			return e.Next()
-		})
-
-		// app.OnServe().BindFunc(func(se *core.ServeEvent) error {
-		// 	// Generate debug data after the app is started
-		// 	// generateDebugData(app, geoipDB)
-		// 	return se.Next()
-		// })
-
-		// Start the app first
-		if err := app.Start(); err != nil {
-			log.Fatal(err)
+			active_session_id = &id
+			clearSessionHostnames()
 		}
-	}()
+		return e.Next()
+	})
 
-	// Start listening for traffic on :1337
-	go func() {
-		l, err := net.Listen("tcp", ":1337")
-		if err != nil {
-			log.Fatal(err)
-		}
-		for {
-			conn, err := l.Accept()
-			if err != nil {
-				log.Print(err)
-				continue
-			}
-			go handleConnection(conn, app, geoipDB)
-		}
-	}()
+	if err := app.Start(); err != nil {
+		log.Fatal(err)
+	}
+}
 
-	// Wait for SIGINT or SIGTERM
-	signalChannel := make(chan os.Signal, 1)
-	signal.Notify(signalChannel, syscall.SIGINT, syscall.SIGTERM)
-	<-signalChannel
+func envOrDefault(name string, fallback string) string {
+	value := os.Getenv(name)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
+
+func currentSessionID() string {
+	if active_session_id == nil {
+		return ""
+	}
+	return *active_session_id
+}
+
+func ensureDefaultActiveSession(app *pocketbase.PocketBase) error {
+	record, err := app.FindFirstRecordByFilter("sessions", "active=true")
+	if err == nil {
+		id := record.Id
+		active_session_id = &id
+		return nil
+	}
+	if !strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
+		return err
+	}
+
+	collection, err := app.FindCollectionByNameOrId("sessions")
+	if err != nil {
+		return err
+	}
+	record = core.NewRecord(collection)
+	record.Set("name", "Gateway Session")
+	record.Set("active", true)
+	if err := app.Save(record); err != nil {
+		return err
+	}
+	id := record.Id
+	active_session_id = &id
+	return nil
 }
 
 // clearSessionHostnames empties the global map when a new session starts

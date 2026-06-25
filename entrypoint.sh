@@ -8,6 +8,14 @@ MAC="${MAC:-random}"
 
 # SIGTERM-handler
 term_handler() {
+  while iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337 2>/dev/null; do
+    iptables -t nat -D PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337
+  done
+  while iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337 2>/dev/null; do
+    iptables -t nat -D PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337
+  done
+  iptables -t nat -D PREROUTING -i "$AP_IFACE" -p udp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || true
+  iptables -t nat -D PREROUTING -i "$AP_IFACE" -p tcp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || true
   iptables -t nat -D POSTROUTING -o "$INTERNET_IFACE" -j MASQUERADE
   iptables -D FORWARD -i "$INTERNET_IFACE" -o "$AP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT
   iptables -D FORWARD -i "$AP_IFACE" -o "$INTERNET_IFACE" -j ACCEPT
@@ -87,11 +95,20 @@ iptables -A FORWARD -i "$INTERNET_IFACE" -o "$AP_IFACE" -m state --state RELATED
 iptables -C FORWARD -i "$AP_IFACE" -o "$INTERNET_IFACE" -j ACCEPT 2>/dev/null || \
 iptables -A FORWARD -i "$AP_IFACE" -o "$INTERNET_IFACE" -j ACCEPT
 
-iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337 2>/dev/null || \
-iptables -t nat -A PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337
+# Remove stale transparent proxy rules from older InfraReveal runs.
+while iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337 2>/dev/null; do
+  iptables -t nat -D PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337
+done
+while iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337 2>/dev/null; do
+  iptables -t nat -D PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337
+done
 
-iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337 2>/dev/null || \
-iptables -t nat -A PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337
+# Keep classic DNS observable by routing client DNS to the local dnsmasq resolver.
+iptables -t nat -C PREROUTING -i "$AP_IFACE" -p udp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || \
+iptables -t nat -A PREROUTING -i "$AP_IFACE" -p udp --dport 53 -j REDIRECT --to-ports 53
+
+iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || \
+iptables -t nat -A PREROUTING -i "$AP_IFACE" -p tcp --dport 53 -j REDIRECT --to-ports 53
 
 # Signal handling
 trap term_handler SIGTERM

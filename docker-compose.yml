@@ -1,5 +1,3 @@
-version: '3.9'
-
 services:
   proxy:
     build:
@@ -20,8 +18,9 @@ services:
     ports:
       - "8090:8090"
   dashboard:
-    image: appademin/infrareveal-dashboard:0.0.3
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile
     restart: always
     ports:
       - "8080:80"
-
