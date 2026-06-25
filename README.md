@@ -1,12 +1,13 @@
 # InfraReveal on Raspberry Pi
 
-This guide shows how to run InfraReveal on a Raspberry Pi as a Wi‑Fi access point that transparently proxies HTTP/HTTPS traffic, stores metadata in PocketBase, and serves a dashboard.
+This guide shows how to run InfraReveal on a Raspberry Pi as a Wi‑Fi access point that records gateway metadata, stores observations in PocketBase, and serves a dashboard. It does not decrypt HTTPS traffic or require client trust certificates.
 
 What you get
 - A Wi‑Fi AP on wlan0 (default SSID: Infrareveal)
 - DHCP on 10.0.0.0/24 (dnsmasq), gateway at 10.0.0.1
 - NAT to the internet via eth0 by default
-- Transparent TCP proxy on port 1337 capturing hostnames and flow sizes
+- DNS query observations from dnsmasq
+- Flow observations from conntrack sampling
 - PocketBase API/Admin on port 8090, dashboard on port 8080
 
 Note: The AP is open (no password) by default. Use only in controlled environments.
@@ -46,15 +47,11 @@ Otherwise, keep the default and use a 64‑bit Raspberry Pi OS.
 
 ## Configure the project
 
-Clone the repo on the Pi and optionally seed PocketBase data so collections exist on first run.
+Clone the repo on the Pi. PocketBase migrations create the required collections on first run.
 
 ```bash
 git clone https://github.com/hci-gu/infrareveal.git
 cd infrareveal
-
-# Seed PB data (recommended on first run)
-mkdir -p data
-cp -R pocketbase/pb_data/* data/ 2>/dev/null || true
 ```
 
 Configuration knobs (via env in `docker-compose.yml`):
@@ -68,7 +65,7 @@ You can also tweak:
 
 ## Run
 
-Build and start with Compose (the proxy service is built locally; dashboard is pulled as an image):
+Build and start with Compose:
 ```bash
 docker compose up -d --build
 ```
@@ -84,9 +81,8 @@ docker compose logs -f dashboard
 1) On a client device, connect to the AP SSID (default: Infrareveal). It should receive an IP in 10.0.0.50–150 and have internet via the Pi.
 2) Visit the dashboard: http://<pi-ip>:8080
 3) PocketBase Admin UI: http://<pi-ip>:8090/_/
-	 - If this is the first run and you didn’t seed `data/`, create an admin user here and set up collections as needed.
 
-Tip: The proxy redirects TCP port 80/443 from wlan0 into its transparent proxy (port 1337) to observe hostnames and byte counts, then forwards traffic.
+The gateway forwards web traffic normally through NAT. Classic DNS traffic from clients is redirected to the local dnsmasq resolver so DNS observations can be correlated with flows later.
 
 ## Customizations
 
@@ -118,7 +114,8 @@ Tip: The proxy redirects TCP port 80/443 from wlan0 into its transparent proxy (
 
 - Dashboard loads but shows no data
 	- Verify PocketBase is reachable at http://<pi-ip>:8090
-	- First run: ensure collections exist (seeded `data/` or create via Admin UI)
+	- Confirm a client has generated DNS or network traffic after joining the AP
+	- Check that `/var/log/dnsmasq.log` and `/proc/net/nf_conntrack` are visible inside the container
 	- The dashboard container image must support your Pi’s architecture; if it doesn’t, you can run the dashboard on another machine and point it to the Pi’s PocketBase URL
 
 ## Ports and data
@@ -130,4 +127,3 @@ Tip: The proxy redirects TCP port 80/443 from wlan0 into its transparent proxy (
 ## Security and ethics
 
 This setup inspects traffic metadata on an open Wi‑Fi network. Use only with consent, in lab/education contexts, and comply with local laws and policies.
-

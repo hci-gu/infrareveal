@@ -1,16 +1,20 @@
 import { createActions, relation, trait, World } from 'koota'
 import { createWorld } from 'koota'
 
+type LegacyPacketRecord = {
+  created: string
+}
+
 export const world = createWorld()
 
 export const Packet = trait({})
 
 export const Start = trait({
-  value: new Date(),
+  value: () => new Date(),
 })
 
 export const End = trait({
-  value: new Date(),
+  value: () => new Date(),
 })
 
 export const isActive = trait()
@@ -18,7 +22,7 @@ export const isActive = trait()
 export const DataFor = relation({ autoRemoveTarget: true })
 
 export const actions = createActions((world: World) => ({
-  spawnPacket: (packet: any) => {
+  spawnPacket: (packet: LegacyPacketRecord) => {
     const entity = world.spawn(Packet)
 
     const start = new Date(packet.created)
