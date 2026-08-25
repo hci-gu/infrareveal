@@ -39,7 +39,7 @@ type ZoomPreset = {
 }
 
 type SelectionEvent = CustomEvent<{
-  kind: 'clip' | 'service'
+  kind: 'clip' | 'service' | 'toggle-service'
   id: string
 }>
 
@@ -62,13 +62,13 @@ function App() {
   const [zoomFrames, setZoomFrames] = useState<number | 'all'>('all')
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
+  const [collapsedServiceIds, setCollapsedServiceIds] = useState<string[]>([])
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [clearState, setClearState] = useState<{
     status: 'idle' | 'clearing' | 'done' | 'error'
     message: string
   }>({ status: 'idle', message: '' })
-  const selectedSessionKey = data.selectedSession?.id ?? 'no-session'
 
   const selectedClip = useMemo(
     () => composition.clips.find((clip) => clip.id === selectedClipId) ?? null,
@@ -87,9 +87,10 @@ function App() {
       zoomFrames,
       selectedClipId,
       selectedServiceId: activeServiceId,
+      collapsedServiceIds,
       followLive,
     }),
-    [activeServiceId, composition, followLive, selectedClipId, viewMode, zoomFrames],
+    [activeServiceId, collapsedServiceIds, composition, followLive, selectedClipId, viewMode, zoomFrames],
   )
 
   useEffect(() => {
@@ -126,6 +127,14 @@ function App() {
       if (!detail) {
         return
       }
+      if (detail.kind === 'toggle-service') {
+        setCollapsedServiceIds((current) =>
+          current.includes(detail.id)
+            ? current.filter((id) => id !== detail.id)
+            : [...current, detail.id],
+        )
+        return
+      }
       if (detail.kind === 'clip') {
         const clip = composition.clips.find((item) => item.id === detail.id)
         setSelectedClipId(detail.id)
@@ -140,22 +149,6 @@ function App() {
     window.addEventListener('infrareveal:select', handleSelection)
     return () => window.removeEventListener('infrareveal:select', handleSelection)
   }, [composition.clips])
-
-  useEffect(() => {
-    setSelectedClipId(null)
-    setSelectedServiceId(null)
-    setInspectorOpen(false)
-
-    const player = playerRef.current
-    if (data.selectedSession?.active) {
-      setFollowLive(true)
-      return
-    }
-
-    setFollowLive(false)
-    player?.seekTo(0)
-    setCurrentFrame(0)
-  }, [data.selectedSession?.active, selectedSessionKey])
 
   useEffect(() => {
     const player = playerRef.current
@@ -215,6 +208,15 @@ function App() {
     const nextSessionId = value === 'active' ? null : value
     setSelectedSessionId(nextSessionId)
     setPlaybackRate(1)
+    setCollapsedServiceIds([])
+    setSelectedClipId(null)
+    setSelectedServiceId(null)
+    setInspectorOpen(false)
+    setFollowLive(nextSessionId === null)
+    if (nextSessionId !== null) {
+      playerRef.current?.seekTo(0)
+      setCurrentFrame(0)
+    }
   }
 
   function selectClip(clip: TimelineClip) {
@@ -224,7 +226,7 @@ function App() {
   }
 
   async function clearAllObservationData() {
-    if (!window.confirm('Delete all observation data from clients, destinations, DNS, flows, packets, routes, and traceroutes?')) {
+    if (!window.confirm('Delete all observation and derived activity data from clients, destinations, DNS, flows, associations, packets, routes, and traceroutes?')) {
       return
     }
 
@@ -599,7 +601,7 @@ function SettingsModal({
               <div className="min-w-0">
                 <div className="text-sm font-semibold text-red-900">Clear observation data</div>
                 <p className="mt-2 text-sm leading-6 text-red-800">
-                  Deletes all records from clients, destinations, dns_queries, flow_attributions, flows, packets, routes, and traceroutes.
+                  Deletes all records from clients, destinations, dns_queries, flow_attributions, activity episodes, flow associations, flows, packets, routes, and traceroutes.
                 </p>
                 <button
                   className="mt-4 inline-flex h-9 items-center gap-2 border border-red-700 bg-red-700 px-3 text-sm font-semibold text-white hover:bg-red-800 disabled:cursor-not-allowed disabled:opacity-60"
@@ -773,6 +775,15 @@ function Inspector({
               <InfoRow label="End" value={formatDateTime(clip.endMs)} />
               <InfoRow label="Confidence" value={clip.confidence} />
               <p className="mt-3 text-sm leading-6 text-slate-600">{clip.explanation}</p>
+              {clip.associationRelationship ? (
+                <div className="mt-4 border border-amber-200 bg-amber-50 px-3 py-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Website association</div>
+                  <InfoRow label="Relationship" value={formatAssociationRelationship(clip.associationRelationship)} />
+                  <InfoRow label="Association confidence" value={clip.associationConfidence ?? 'Unknown'} />
+                  <InfoRow label="Evidence score" value={clip.associationScore?.toString() ?? 'Unavailable'} />
+                  <p className="mt-2 text-sm leading-6 text-amber-900">{clip.associationExplanation}</p>
+                </div>
+              ) : null}
             </div>
           ) : null}
 
@@ -785,6 +796,7 @@ function Inspector({
               <InfoRow label="Source" value={service.sourceSignal} />
               <InfoRow label="Provider" value={service.providerLabel || 'Unknown'} />
               <InfoRow label="Flows" value={service.flowCount.toLocaleString()} />
+              <InfoRow label="Associated flows" value={service.associatedFlowCount.toLocaleString()} />
               <InfoRow
                 label="Traffic"
                 value={formatTraffic(service.totalBytes, trafficCountersAvailable)}
@@ -829,6 +841,19 @@ function InfoRow({ label, mono = false, value }: { label: string; mono?: boolean
 
 function formatTraffic(bytes: number, countersAvailable: boolean) {
   return countersAvailable ? formatBytes(bytes) : 'Counters unavailable'
+}
+
+function formatAssociationRelationship(relationship: TimelineClip['associationRelationship']) {
+  switch (relationship) {
+    case 'first_party':
+      return 'Confirmed first-party'
+    case 'cname_related':
+      return 'CNAME-linked infrastructure'
+    case 'temporally_associated':
+      return 'Temporally associated'
+    default:
+      return 'None'
+  }
 }
 
 export default App

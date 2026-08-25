@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { emptyGatewayData, getGatewayData, pb } from './pocketbaseClient'
-import type { ConnectionState, DNSQuery, Destination, Flow, FlowAttribution, GatewayData, Route, Session } from './types'
+import type { ActivityEpisode, ConnectionState, DNSQuery, Destination, Flow, FlowAssociation, FlowAttribution, GatewayData, Route, Session } from './types'
 
 type StoreMaps = {
   sessions: Map<string, Session>
@@ -8,6 +8,8 @@ type StoreMaps = {
   flows: Map<string, Flow>
   dnsQueries: Map<string, DNSQuery>
   attributions: Map<string, FlowAttribution>
+  activityEpisodes: Map<string, ActivityEpisode>
+  flowAssociations: Map<string, FlowAssociation>
   destinations: Map<string, Destination>
   routes: Map<string, Route>
 }
@@ -24,6 +26,8 @@ function mapsFromData(data: GatewayData): StoreMaps {
     flows: new Map(data.flows.map((item) => [item.id, item])),
     dnsQueries: new Map(data.dnsQueries.map((item) => [item.id, item])),
     attributions: new Map(data.attributions.map((item) => [item.id, item])),
+    activityEpisodes: new Map(data.activityEpisodes.map((item) => [item.id, item])),
+    flowAssociations: new Map(data.flowAssociations.map((item) => [item.id, item])),
     destinations: new Map(data.destinations.map((item) => [item.id, item])),
     routes: new Map(data.routes.map((item) => [item.id, item])),
   }
@@ -37,6 +41,8 @@ function dataFromMaps(maps: StoreMaps): GatewayData {
     flows: Array.from(maps.flows.values()),
     dnsQueries: Array.from(maps.dnsQueries.values()),
     attributions: Array.from(maps.attributions.values()),
+    activityEpisodes: Array.from(maps.activityEpisodes.values()),
+    flowAssociations: Array.from(maps.flowAssociations.values()),
     destinations: Array.from(maps.destinations.values()),
     routes: Array.from(maps.routes.values()),
   }
@@ -99,6 +105,8 @@ export function useGatewayData(requestedSessionId?: string | null) {
           unsubscribeFlows,
           unsubscribeDNS,
           unsubscribeAttributions,
+          unsubscribeActivityEpisodes,
+          unsubscribeFlowAssociations,
           unsubscribeDestinations,
           unsubscribeRoutes,
         ] = await Promise.all([
@@ -139,6 +147,24 @@ export function useGatewayData(requestedSessionId?: string | null) {
               attributions: applyRealtimeRecord(current.attributions, event),
             }))
           }),
+          pb.collection('activity_episodes').subscribe('*', (event: RealtimeEvent<ActivityEpisode>) => {
+            if (!belongsToSelectedSession(event.record, selectedSessionIdRef.current)) {
+              return
+            }
+            setMaps((current) => ({
+              ...current,
+              activityEpisodes: applyRealtimeRecord(current.activityEpisodes, event),
+            }))
+          }),
+          pb.collection('flow_associations').subscribe('*', (event: RealtimeEvent<FlowAssociation>) => {
+            if (!belongsToSelectedSession(event.record, selectedSessionIdRef.current)) {
+              return
+            }
+            setMaps((current) => ({
+              ...current,
+              flowAssociations: applyRealtimeRecord(current.flowAssociations, event),
+            }))
+          }),
           pb.collection('destinations').subscribe('*', (event: RealtimeEvent<Destination>) => {
             setMaps((current) => ({
               ...current,
@@ -158,6 +184,8 @@ export function useGatewayData(requestedSessionId?: string | null) {
           unsubscribeFlows,
           unsubscribeDNS,
           unsubscribeAttributions,
+          unsubscribeActivityEpisodes,
+          unsubscribeFlowAssociations,
           unsubscribeDestinations,
           unsubscribeRoutes,
         )

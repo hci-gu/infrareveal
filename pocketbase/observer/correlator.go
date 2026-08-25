@@ -63,6 +63,10 @@ func StartFlowCorrelator(ctx context.Context, app *pocketbase.PocketBase, scope 
 				}
 				if err := correlateSession(app, scope, sessionID); err != nil {
 					log.Printf("flow correlator error: %v", err)
+					continue
+				}
+				if err := correlateActivitySession(app, sessionID); err != nil {
+					log.Printf("activity correlator error: %v", err)
 				}
 			}
 		}

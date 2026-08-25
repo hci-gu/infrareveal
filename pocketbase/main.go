@@ -252,6 +252,8 @@ func clearObservationCollections(app *pocketbase.PocketBase) (clearObservationsR
 	}
 	skipped := map[string]bool{}
 	collections := []string{
+		"flow_associations",
+		"activity_episodes",
 		"flow_attributions",
 		"routes",
 		"traceroutes",

@@ -1,7 +1,9 @@
 import type {
   DNSQuery,
   Destination,
+  ActivityEpisode,
   Flow,
+  FlowAssociation,
   FlowAttribution,
   GatewayData,
   Route,
@@ -54,7 +56,7 @@ export async function getGatewayData(
   const sessionFilter = selectedSession
     ? `session="${selectedSession.id}"`
     : undefined
-  const [flows, dnsQueries, attributions, destinations, routes] =
+  const [flows, dnsQueries, attributions, activityEpisodes, flowAssociations, destinations, routes] =
     await Promise.all([
       listRecords<Flow>('flows', {
         sort: '-last_seen',
@@ -66,6 +68,14 @@ export async function getGatewayData(
       }),
       listRecords<FlowAttribution>('flow_attributions', {
         sort: '-observed_at',
+        filter: sessionFilter,
+      }),
+      listRecords<ActivityEpisode>('activity_episodes', {
+        sort: 'start',
+        filter: sessionFilter,
+      }),
+      listRecords<FlowAssociation>('flow_associations', {
+        sort: 'observed_at',
         filter: sessionFilter,
       }),
       listRecords<Destination>('destinations', {
@@ -83,6 +93,8 @@ export async function getGatewayData(
     flows,
     dnsQueries,
     attributions,
+    activityEpisodes,
+    flowAssociations,
     destinations,
     routes,
   }
@@ -95,6 +107,8 @@ export function emptyGatewayData(): GatewayData {
     flows: [],
     dnsQueries: [],
     attributions: [],
+    activityEpisodes: [],
+    flowAssociations: [],
     destinations: [],
     routes: [],
   }

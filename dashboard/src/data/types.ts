@@ -41,6 +41,34 @@ export type FlowAttribution = {
   observed_at: string
 }
 
+export type ActivityEpisode = {
+  id: string
+  session: string
+  episode_key: string
+  client_ip: string
+  site_key: string
+  label: string
+  anchor_hostname: string
+  start: string
+  last_seen: string
+  confidence: 'high' | 'medium' | 'low'
+  explanation: string
+}
+
+export type FlowAssociation = {
+  id: string
+  session: string
+  flow: string
+  episode: string
+  parent_site_key: string
+  parent_label: string
+  relationship: 'first_party' | 'cname_related' | 'temporally_associated'
+  confidence: 'high' | 'medium' | 'low'
+  score: number
+  explanation: string
+  observed_at: string
+}
+
 export type Destination = {
   id: string
   ip: string
@@ -90,6 +118,8 @@ export type GatewayData = {
   flows: Flow[]
   dnsQueries: DNSQuery[]
   attributions: FlowAttribution[]
+  activityEpisodes: ActivityEpisode[]
+  flowAssociations: FlowAssociation[]
   destinations: Destination[]
   routes: Route[]
 }

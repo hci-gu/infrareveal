@@ -1,4 +1,4 @@
-import type { DNSQuery, Destination, Flow, FlowAttribution, GatewayData, Route } from '../data/types'
+import type { DNSQuery, Destination, Flow, FlowAssociation, FlowAttribution, GatewayData, Route } from '../data/types'
 
 export const FPS = 30
 export const COMPOSITION_WIDTH = 1440
@@ -35,6 +35,7 @@ export type ServiceGroup = {
   lastSeenMs: number
   routeCompleteCount: number
   routeCount: number
+  associatedFlowCount: number
 }
 
 export type TimelineClip = {
@@ -57,6 +58,10 @@ export type TimelineClip = {
   confidence: Confidence
   explanation: string
   sourceSignal: string
+  associationRelationship: FlowAssociation['relationship'] | null
+  associationConfidence: FlowAssociation['confidence'] | null
+  associationScore: number | null
+  associationExplanation: string
 }
 
 export type TimelineLane = {
@@ -98,6 +103,11 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
   const attributionsByFlow = new Map(
     data.attributions.filter((item) => flowIDs.has(item.flow)).map((item) => [item.flow, item]),
   )
+  const associationsByFlow = new Map(
+    data.flowAssociations
+      .filter((item) => flowIDs.has(item.flow) && (item.confidence === 'high' || item.confidence === 'medium'))
+      .map((item) => [item.flow, item]),
+  )
   const destinationsByIP = new Map(data.destinations.map((item) => [item.ip, item]))
   const hostnamesByIP = buildHostnameCandidatesByIP(data.dnsQueries)
   const routesByDestination = new Map(
@@ -132,6 +142,7 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
         flow,
         sessionStartMs,
         attributionsByFlow,
+        associationsByFlow,
         destinationsByIP,
         hostnamesByIP,
         routesByDestination,
@@ -153,6 +164,7 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
       existing.lastSeenMs = Math.max(existing.lastSeenMs, clip.endMs)
       existing.routeCount += route ? 1 : 0
       existing.routeCompleteCount += route?.complete ? 1 : 0
+      existing.associatedFlowCount += clip.associationRelationship === 'temporally_associated' ? 1 : 0
       if (!existing.destinationIPs.includes(clip.destinationIP)) {
         existing.destinationIPs.push(clip.destinationIP)
       }
@@ -182,6 +194,7 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
       lastSeenMs: clip.endMs,
       routeCompleteCount: route?.complete ? 1 : 0,
       routeCount: route ? 1 : 0,
+      associatedFlowCount: clip.associationRelationship === 'temporally_associated' ? 1 : 0,
     })
   }
 
@@ -225,21 +238,24 @@ function buildClip({
   flow,
   sessionStartMs,
   attributionsByFlow,
+  associationsByFlow,
   destinationsByIP,
   hostnamesByIP,
 }: {
   flow: Flow
   sessionStartMs: number
   attributionsByFlow: Map<string, FlowAttribution>
+  associationsByFlow: Map<string, FlowAssociation>
   destinationsByIP: Map<string, Destination>
   hostnamesByIP: Map<string, DNSHostnameCandidate[]>
   routesByDestination: Map<string, Route>
 }): TimelineClip {
   const attribution = attributionsByFlow.get(flow.id)
+  const association = associationsByFlow.get(flow.id)
   const destination = destinationsByIP.get(flow.destination_ip)
   const startMs = parseTime(flow.start || flow.created || flow.updated, sessionStartMs)
   const dnsHostname = bestDNSHostnameForFlow(flow, startMs, hostnamesByIP.get(flow.destination_ip))
-  const identity = serviceIdentity(flow, attribution, destination, dnsHostname)
+  const identity = serviceIdentity(flow, attribution, destination, dnsHostname, association)
   const rawEndMs = parseTime(flow.last_seen || flow.updated || flow.created, startMs)
   const endMs = Math.max(rawEndMs, startMs + MIN_CLIP_SECONDS * 1000)
   const startFrame = Math.max(0, msToFrame(startMs - sessionStartMs))
@@ -267,6 +283,10 @@ function buildClip({
     confidence: attribution?.confidence ?? 'pending',
     explanation: identity.explanation,
     sourceSignal: identity.sourceSignal,
+    associationRelationship: association?.relationship ?? null,
+    associationConfidence: association?.confidence ?? null,
+    associationScore: association?.score ?? null,
+    associationExplanation: association?.explanation ?? '',
   }
 }
 
@@ -275,7 +295,20 @@ function serviceIdentity(
   attribution?: FlowAttribution,
   destination?: Destination,
   dnsHostname?: string,
+  association?: FlowAssociation,
 ) {
+  if (association && (association.confidence === 'high' || association.confidence === 'medium')) {
+    const requestLabel = attribution?.candidate_hostname || dnsHostname || destination?.reverse_dns || association.parent_label
+    return {
+      id: normalizeGroupId(`activity:${association.parent_site_key}`),
+      groupLabel: association.parent_label,
+      requestLabel,
+      sourceSignal: `activity-${association.relationship}`,
+      explanation:
+        attribution?.explanation ||
+        `The request retained its endpoint identity and was grouped under ${association.parent_label} by a separate activity association.`,
+    }
+  }
   if (attribution?.candidate_hostname) {
     const activity = activityFromHostname(attribution.candidate_hostname)
     return {
