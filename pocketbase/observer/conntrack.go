@@ -34,10 +34,7 @@ func (f FlowSample) Key() string {
 	return fmt.Sprintf("%s|%s|%d|%s|%d", f.Protocol, f.ClientIP, f.SourcePort, f.DestinationIP, f.DestinationPort)
 }
 
-func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path string, clientPrefix string, sessionID func() string) {
-	if clientPrefix == "" {
-		clientPrefix = "10.0.0."
-	}
+func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path string, scope ObservationScope, sessionID func() string) {
 	accountingPath := os.Getenv("CONNTRACK_ACCOUNTING_PATH")
 	if accountingPath == "" {
 		accountingPath = "/proc/sys/net/netfilter/nf_conntrack_acct"
@@ -62,7 +59,7 @@ func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path
 				if sessionID == "" {
 					continue
 				}
-				samples, err := ReadConntrackSamples(path, clientPrefix)
+				samples, err := ReadConntrackSamples(path, scope)
 				if err != nil {
 					if !loggedMissing {
 						log.Printf("conntrack observer unavailable at %s: %v", path, err)
@@ -100,7 +97,7 @@ func ensureConntrackAccounting(path string) (bool, error) {
 	return true, nil
 }
 
-func ReadConntrackSamples(path string, clientPrefix string) ([]FlowSample, error) {
+func ReadConntrackSamples(path string, scope ObservationScope) ([]FlowSample, error) {
 	file, err := os.Open(path)
 	if err != nil {
 		return nil, err
@@ -110,7 +107,7 @@ func ReadConntrackSamples(path string, clientPrefix string) ([]FlowSample, error
 	var samples []FlowSample
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
-		sample, ok := ParseConntrackLine(scanner.Text(), clientPrefix)
+		sample, ok := parseConntrackLine(scanner.Text(), scope)
 		if ok {
 			samples = append(samples, sample)
 		}
@@ -122,6 +119,10 @@ func ReadConntrackSamples(path string, clientPrefix string) ([]FlowSample, error
 }
 
 func ParseConntrackLine(line string, clientPrefix string) (FlowSample, bool) {
+	return parseConntrackLine(line, NewObservationScope(clientPrefix, ""))
+}
+
+func parseConntrackLine(line string, scope ObservationScope) (FlowSample, bool) {
 	fields := strings.Fields(line)
 	if len(fields) < 5 {
 		return FlowSample{}, false
@@ -163,17 +164,12 @@ func ParseConntrackLine(line string, clientPrefix string) (FlowSample, bool) {
 	}
 
 	clientIP := original["src"]
-	if clientPrefix != "" && !strings.HasPrefix(clientIP, clientPrefix) {
-		return FlowSample{}, false
-	}
-
 	destinationIP := original["dst"]
-	if clientIP == "" || destinationIP == "" {
-		return FlowSample{}, false
-	}
-
 	destinationPort := parseInt(original["dport"])
 	if protocol != "icmp" && destinationPort == 0 {
+		return FlowSample{}, false
+	}
+	if !scope.Includes(protocol, clientIP, destinationIP, destinationPort) {
 		return FlowSample{}, false
 	}
 

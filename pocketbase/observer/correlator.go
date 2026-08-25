@@ -47,7 +47,7 @@ type AttributionConclusion struct {
 	ObservedAt        time.Time
 }
 
-func StartFlowCorrelator(ctx context.Context, app *pocketbase.PocketBase, sessionID func() string) {
+func StartFlowCorrelator(ctx context.Context, app *pocketbase.PocketBase, scope ObservationScope, sessionID func() string) {
 	go func() {
 		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
@@ -61,7 +61,7 @@ func StartFlowCorrelator(ctx context.Context, app *pocketbase.PocketBase, sessio
 				if sessionID == "" {
 					continue
 				}
-				if err := correlateSession(app, sessionID); err != nil {
+				if err := correlateSession(app, scope, sessionID); err != nil {
 					log.Printf("flow correlator error: %v", err)
 				}
 			}
@@ -69,7 +69,7 @@ func StartFlowCorrelator(ctx context.Context, app *pocketbase.PocketBase, sessio
 	}()
 }
 
-func correlateSession(app *pocketbase.PocketBase, sessionID string) error {
+func correlateSession(app *pocketbase.PocketBase, scope ObservationScope, sessionID string) error {
 	flowRecords, err := app.FindAllRecords("flows", dbx.HashExp{"session": sessionID})
 	if err != nil {
 		return err
@@ -87,6 +87,9 @@ func correlateSession(app *pocketbase.PocketBase, sessionID string) error {
 
 	for _, record := range flowRecords {
 		flow := flowObservationFromRecord(record)
+		if !scope.Includes(flow.Protocol, flow.ClientIP, flow.DestinationIP, flow.DestinationPort) {
+			continue
+		}
 		conclusion := AttributeFlow(flow, dnsObservations, dnsAttributionWindow)
 		if err := upsertAttribution(app, flow, conclusion); err != nil {
 			return err

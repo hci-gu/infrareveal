@@ -139,11 +139,13 @@ func main() {
 		dnsmasqLogPath := envOrDefault("DNSMASQ_LOG_PATH", "/var/log/dnsmasq.log")
 		conntrackPath := envOrDefault("CONNTRACK_PATH", "/proc/net/nf_conntrack")
 		clientPrefix := envOrDefault("CLIENT_IP_PREFIX", "10.0.0.")
+		gatewayIP := envOrDefault("GATEWAY_IP", "10.0.0.1")
+		observationScope := observer.NewObservationScope(clientPrefix, gatewayIP)
 
 		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, currentSessionID)
-		observer.StartConntrackSampler(ctx, app, conntrackPath, clientPrefix, currentSessionID)
-		observer.StartFlowCorrelator(ctx, app, currentSessionID)
-		observer.StartDestinationEnricher(ctx, app, geoipDB, currentSessionID)
+		observer.StartConntrackSampler(ctx, app, conntrackPath, observationScope, currentSessionID)
+		observer.StartFlowCorrelator(ctx, app, observationScope, currentSessionID)
+		observer.StartDestinationEnricher(ctx, app, geoipDB, observationScope, currentSessionID)
 
 		return se.Next()
 	})

@@ -6,7 +6,7 @@ InfraReveal is a consent-based network metadata observability gateway.
 
 - Gateway: the Raspberry Pi or small computer running the Wi-Fi access point, DHCP, DNS, NAT, observers, PocketBase, and dashboard.
 - Client: a device connected to the InfraReveal Wi-Fi network.
-- Flow: a sampled network connection from a client to a destination IP and port.
+- Flow: a sampled remote network connection initiated by a client to a public destination IP and port. Gateway-generated probes and local infrastructure protocols are excluded.
 - Observation: raw metadata collected by the gateway, such as a DNS query or conntrack flow sample.
 - Attribution: a derived conclusion that links a flow to a candidate hostname or destination context.
 - Confidence: the strength of an attribution. Initial milestones collect observations only; later milestones add high, medium, low, and hidden confidence labels.

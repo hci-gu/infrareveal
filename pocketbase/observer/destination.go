@@ -55,7 +55,7 @@ type RouteResult struct {
 	Error    string
 }
 
-func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, sessionID func() string) {
+func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID func() string) {
 	go func() {
 		ticker := time.NewTicker(destinationEnrichmentInterval)
 		defer ticker.Stop()
@@ -63,7 +63,7 @@ func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, g
 		for {
 			activeSessionID := sessionID()
 			if activeSessionID != "" {
-				if err := enrichDestinationRecords(app, geoipDB, activeSessionID); err != nil {
+				if err := enrichDestinationRecords(app, geoipDB, scope, activeSessionID); err != nil {
 					log.Printf("destination enricher error: %v", err)
 				}
 			}
@@ -87,7 +87,7 @@ func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, g
 				if activeSessionID == "" {
 					continue
 				}
-				if err := traceNextDestination(ctx, app, geoipDB, activeSessionID); err != nil {
+				if err := traceNextDestination(ctx, app, geoipDB, scope, activeSessionID); err != nil {
 					log.Printf("route discovery error: %v", err)
 				}
 			}
@@ -95,16 +95,16 @@ func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, g
 	}()
 }
 
-func sessionDestinationObservations(app *pocketbase.PocketBase, sessionID string) ([]DestinationObservation, error) {
+func sessionDestinationObservations(app *pocketbase.PocketBase, scope ObservationScope, sessionID string) ([]DestinationObservation, error) {
 	flowRecords, err := app.FindAllRecords("flows", dbx.HashExp{"session": sessionID})
 	if err != nil {
 		return nil, err
 	}
-	return uniqueDestinationObservations(flowRecords), nil
+	return uniqueDestinationObservations(flowRecords, scope), nil
 }
 
-func enrichDestinationRecords(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, sessionID string) error {
-	observations, err := sessionDestinationObservations(app, sessionID)
+func enrichDestinationRecords(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID string) error {
+	observations, err := sessionDestinationObservations(app, scope, sessionID)
 	if err != nil {
 		return err
 	}
@@ -131,8 +131,8 @@ func uniqueDestinationIPs(observations []DestinationObservation) []DestinationOb
 	return result
 }
 
-func traceNextDestination(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, sessionID string) error {
-	observations, err := sessionDestinationObservations(app, sessionID)
+func traceNextDestination(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID string) error {
+	observations, err := sessionDestinationObservations(app, scope, sessionID)
 	if err != nil {
 		return err
 	}
@@ -159,7 +159,7 @@ func traceNextDestination(ctx context.Context, app *pocketbase.PocketBase, geoip
 	return nil
 }
 
-func uniqueDestinationObservations(records []*core.Record) []DestinationObservation {
+func uniqueDestinationObservations(records []*core.Record, scope ObservationScope) []DestinationObservation {
 	seen := map[string]DestinationObservation{}
 	for _, record := range records {
 		observation := DestinationObservation{
@@ -168,6 +168,14 @@ func uniqueDestinationObservations(records []*core.Record) []DestinationObservat
 			DestinationPort: record.GetInt("destination_port"),
 			Protocol:        strings.ToLower(record.GetString("protocol")),
 			LastSeen:        record.GetDateTime("last_seen").Time(),
+		}
+		if !scope.Includes(
+			record.GetString("protocol"),
+			record.GetString("client_ip"),
+			observation.IP,
+			observation.DestinationPort,
+		) {
+			continue
 		}
 		if net.ParseIP(observation.IP) == nil {
 			continue

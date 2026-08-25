@@ -8,6 +8,7 @@ const MIN_SESSION_SECONDS = 60
 const MIN_CLIP_SECONDS = 1.5
 const DNS_ATTRIBUTION_WINDOW_MS = 5 * 60 * 1000
 const DNS_FUTURE_TOLERANCE_MS = 10 * 1000
+const DEFAULT_GATEWAY_IP = '10.0.0.1'
 
 type DNSHostnameCandidate = {
   hostname: string
@@ -90,14 +91,20 @@ export type SessionComposition = {
 }
 
 export function buildSessionComposition(data: GatewayData): SessionComposition {
-  const attributionsByFlow = new Map(data.attributions.map((item) => [item.flow, item]))
+  const flows = data.flows.filter(isDisplayableClientFlow)
+  const flowIDs = new Set(flows.map((flow) => flow.id))
+  const observableRouteKeys = new Set(flows.map((flow) => routeKey(flow.destination_ip, flow.destination_port)))
+  const routes = data.routes.filter((route) => observableRouteKeys.has(routeKey(route.destination_ip, route.destination_port)))
+  const attributionsByFlow = new Map(
+    data.attributions.filter((item) => flowIDs.has(item.flow)).map((item) => [item.flow, item]),
+  )
   const destinationsByIP = new Map(data.destinations.map((item) => [item.ip, item]))
   const hostnamesByIP = buildHostnameCandidatesByIP(data.dnsQueries)
   const routesByDestination = new Map(
-    data.routes.map((route) => [routeKey(route.destination_ip, route.destination_port), route]),
+    routes.map((route) => [routeKey(route.destination_ip, route.destination_port), route]),
   )
 
-  const timeBounds = data.flows.reduce(
+  const timeBounds = flows.reduce(
     (bounds, flow) => {
       const start = parseTime(flow.start || flow.created || flow.updated, Date.now())
       const end = parseTime(flow.last_seen || flow.updated || flow.created, start)
@@ -119,7 +126,7 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
   )
 
   const groups = new Map<string, ServiceGroup>()
-  const clips = data.flows
+  const clips = flows
     .map((flow) =>
       buildClip({
         flow,
@@ -133,7 +140,7 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
     .sort((a, b) => a.startFrame - b.startFrame || b.bytes - a.bytes)
 
   for (const clip of clips) {
-    const flow = data.flows.find((item) => item.id === clip.flowId)
+    const flow = flows.find((item) => item.id === clip.flowId)
     const destination = destinationsByIP.get(clip.destinationIP)
     const route = routesByDestination.get(routeKey(clip.destinationIP, clip.destinationPort))
     const existing = groups.get(clip.serviceGroupId)
@@ -202,12 +209,12 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
     destinationsByIP,
     routesByDestination,
     totals: {
-      flowCount: data.flows.length,
+      flowCount: flows.length,
       attributedCount: attributionsByFlow.size,
-      routeCount: data.routes.length,
-      byteCount: data.flows.reduce((total, flow) => total + flow.bytes_in + flow.bytes_out, 0),
-      packetCount: data.flows.reduce((total, flow) => total + flow.packets_in + flow.packets_out, 0),
-      trafficCountersAvailable: data.flows.some(
+      routeCount: routes.length,
+      byteCount: flows.reduce((total, flow) => total + flow.bytes_in + flow.bytes_out, 0),
+      packetCount: flows.reduce((total, flow) => total + flow.packets_in + flow.packets_out, 0),
+      trafficCountersAvailable: flows.some(
         (flow) => flow.bytes_in > 0 || flow.bytes_out > 0 || flow.packets_in > 0 || flow.packets_out > 0,
       ),
     },
@@ -326,7 +333,7 @@ function serviceIdentity(
     groupLabel: fallback.label,
     requestLabel: fallback.label,
     sourceSignal: 'socket',
-    explanation: 'No hostname was observed for this flow, so it is grouped by protocol instead of using the IP as the visible label.',
+    explanation: fallback.explanation,
   }
 }
 
@@ -339,6 +346,18 @@ function knownSocketService(flow: Flow, destination?: Destination) {
       requestLabel: 'Apple Push Notifications',
       sourceSignal: 'provider-port-hint',
       explanation: 'Identified as likely Apple Push Notification service from the Apple destination network and TCP port 5223.',
+    }
+  }
+  if (flow.protocol.toLowerCase() === 'udp' && flow.destination_port === 443) {
+    const providerLabel = destination?.provider_label || destination?.organization
+    if (providerLabel) {
+      return {
+        id: normalizeGroupId(`activity:${providerLabel}:quic-http3`),
+        groupLabel: `${providerLabel} — encrypted QUIC`,
+        requestLabel: `${providerLabel} — encrypted QUIC / HTTP/3`,
+        sourceSignal: 'provider-port-hint',
+        explanation: `The destination belongs to ${providerLabel}, and UDP/443 is conventionally encrypted QUIC or HTTP/3. No hostname was visible.`,
+      }
     }
   }
   return null
@@ -403,19 +422,78 @@ function unresolvedActivity(flow: Flow) {
   const port = flow.destination_port
 
   if (port === 443) {
-    return { key: 'https', label: 'Unresolved HTTPS' }
+    if (flow.protocol.toLowerCase() === 'udp') {
+      return {
+        key: 'quic-http3',
+        label: 'Encrypted QUIC / HTTP/3',
+        explanation: 'UDP/443 is conventionally encrypted QUIC or HTTP/3. No hostname or provider evidence was available for this flow.',
+      }
+    }
+    return {
+      key: 'https',
+      label: 'Unresolved HTTPS',
+      explanation: 'No hostname was observed for this encrypted HTTPS flow.',
+    }
   }
   if (port === 80) {
-    return { key: 'http', label: 'Unresolved HTTP' }
+    return { key: 'http', label: 'Unresolved HTTP', explanation: 'No hostname was observed for this HTTP flow.' }
   }
   if (port === 53) {
-    return { key: 'dns', label: 'DNS lookups' }
+    return { key: 'dns', label: 'DNS lookups', explanation: 'Classic DNS metadata is recorded separately from site/app flows.' }
   }
   if (port === 123) {
-    return { key: 'ntp', label: 'Time sync' }
+    return { key: 'ntp', label: 'Time sync', explanation: 'This flow uses the standard network time protocol port.' }
   }
 
-  return { key: `${flow.protocol}:${port}`, label: `Unresolved ${protocol}/${port}` }
+  return {
+    key: `${flow.protocol}:${port}`,
+    label: `Unresolved ${protocol}/${port}`,
+    explanation: 'No hostname or provider evidence was available for this remote client flow.',
+  }
+}
+
+function isDisplayableClientFlow(flow: Flow) {
+  if (flow.client_ip === DEFAULT_GATEWAY_IP) {
+    return false
+  }
+  if (!isPublicDestinationIP(flow.destination_ip)) {
+    return false
+  }
+  return !isInfrastructureFlow(flow.protocol, flow.destination_port)
+}
+
+function isInfrastructureFlow(protocol: string, port: number) {
+  const normalizedProtocol = protocol.toLowerCase()
+  if (port === 53 && (normalizedProtocol === 'udp' || normalizedProtocol === 'tcp')) {
+    return true
+  }
+  if (normalizedProtocol !== 'udp') {
+    return false
+  }
+  return [67, 68, 123, 5350, 5351, 5353].includes(port) || (port >= 33434 && port <= 33534)
+}
+
+function isPublicDestinationIP(value: string) {
+  const ipv4 = value.split('.').map(Number)
+  if (ipv4.length === 4 && ipv4.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
+    const [first, second] = ipv4
+    return !(
+      first === 0 || first === 10 || first === 127 || first >= 224 ||
+      (first === 169 && second === 254) ||
+      (first === 172 && second >= 16 && second <= 31) ||
+      (first === 192 && second === 168)
+    )
+  }
+
+  const normalized = value.toLowerCase()
+  if (!normalized.includes(':')) {
+    return false
+  }
+  return normalized !== '::' && normalized !== '::1' &&
+    !normalized.startsWith('fc') && !normalized.startsWith('fd') &&
+    !normalized.startsWith('fe8') && !normalized.startsWith('fe9') &&
+    !normalized.startsWith('fea') && !normalized.startsWith('feb') &&
+    !normalized.startsWith('ff')
 }
 
 function normalizeHostname(hostname: string) {
