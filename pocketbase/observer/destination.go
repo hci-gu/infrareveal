@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"log"
 	"net"
+	"net/netip"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -21,7 +22,11 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-const destinationEnrichmentInterval = 30 * time.Second
+const (
+	destinationEnrichmentInterval = 3 * time.Second
+	routeDiscoveryInterval        = 30 * time.Second
+	destinationRefreshInterval    = 15 * time.Minute
+)
 
 type DestinationObservation struct {
 	IP              string
@@ -56,39 +61,82 @@ func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, g
 		defer ticker.Stop()
 
 		for {
+			activeSessionID := sessionID()
+			if activeSessionID != "" {
+				if err := enrichDestinationRecords(app, geoipDB, activeSessionID); err != nil {
+					log.Printf("destination enricher error: %v", err)
+				}
+			}
 			select {
 			case <-ctx.Done():
 				return
 			case <-ticker.C:
-				sessionID := sessionID()
-				if sessionID == "" {
+			}
+		}
+	}()
+
+	go func() {
+		ticker := time.NewTicker(routeDiscoveryInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				activeSessionID := sessionID()
+				if activeSessionID == "" {
 					continue
 				}
-				if err := enrichObservedDestinations(ctx, app, geoipDB, sessionID); err != nil {
-					log.Printf("destination enricher error: %v", err)
+				if err := traceNextDestination(ctx, app, geoipDB, activeSessionID); err != nil {
+					log.Printf("route discovery error: %v", err)
 				}
 			}
 		}
 	}()
 }
 
-func enrichObservedDestinations(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, sessionID string) error {
+func sessionDestinationObservations(app *pocketbase.PocketBase, sessionID string) ([]DestinationObservation, error) {
 	flowRecords, err := app.FindAllRecords("flows", dbx.HashExp{"session": sessionID})
+	if err != nil {
+		return nil, err
+	}
+	return uniqueDestinationObservations(flowRecords), nil
+}
+
+func enrichDestinationRecords(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, sessionID string) error {
+	observations, err := sessionDestinationObservations(app, sessionID)
 	if err != nil {
 		return err
 	}
-
-	observations := uniqueDestinationObservations(flowRecords)
-	ranRoute := false
-	for _, observation := range observations {
-		destinationRecord, err := upsertDestination(app, geoipDB, observation)
-		if err != nil {
+	for _, observation := range uniqueDestinationIPs(observations) {
+		if _, err := upsertDestination(app, geoipDB, observation); err != nil {
 			return err
 		}
+	}
+	return nil
+}
 
-		if ranRoute {
-			continue
+func uniqueDestinationIPs(observations []DestinationObservation) []DestinationObservation {
+	seen := make(map[string]DestinationObservation)
+	for _, observation := range observations {
+		existing, ok := seen[observation.IP]
+		if !ok || observation.LastSeen.After(existing.LastSeen) {
+			seen[observation.IP] = observation
 		}
+	}
+	result := make([]DestinationObservation, 0, len(seen))
+	for _, observation := range seen {
+		result = append(result, observation)
+	}
+	return result
+}
+
+func traceNextDestination(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, sessionID string) error {
+	observations, err := sessionDestinationObservations(app, sessionID)
+	if err != nil {
+		return err
+	}
+	for _, observation := range observations {
 		exists, err := routeExists(app, observation)
 		if err != nil {
 			return err
@@ -97,14 +145,17 @@ func enrichObservedDestinations(ctx context.Context, app *pocketbase.PocketBase,
 			continue
 		}
 
+		destinationRecord, err := upsertDestination(app, geoipDB, observation)
+		if err != nil {
+			return err
+		}
 		result := TraceDestination(ctx, observation)
 		enrichRouteHops(result.Hops, geoipDB)
 		if err := saveRoute(app, observation, destinationRecord.Id, result); err != nil {
 			return err
 		}
-		ranRoute = true
+		return nil
 	}
-
 	return nil
 }
 
@@ -136,7 +187,8 @@ func uniqueDestinationObservations(records []*core.Record) []DestinationObservat
 }
 
 func upsertDestination(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, observation DestinationObservation) (*core.Record, error) {
-	now := time.Now().UTC().Format(time.RFC3339)
+	nowTime := time.Now().UTC()
+	now := nowTime.Format(time.RFC3339)
 	record, err := app.FindFirstRecordByFilter("destinations", "ip={:ip}", dbx.Params{"ip": observation.IP})
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
@@ -151,13 +203,31 @@ func upsertDestination(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, obser
 		record.Set("first_seen", now)
 	}
 
-	reverseName := lookupReverseDNS(observation.IP)
+	reverseName := record.GetString("reverse_dns")
+	lastEnriched := record.GetDateTime("enriched_at").Time()
+	shouldRefresh := lastEnriched.IsZero() || nowTime.Sub(lastEnriched) >= destinationRefreshInterval
+	if shouldRefresh {
+		if refreshedName := lookupReverseDNS(observation.IP); refreshedName != "" {
+			reverseName = refreshedName
+		}
+		record.Set("enriched_at", now)
+	}
+	organization, knownProvider := knownDestinationProvider(observation)
+	provider := providerLabel(reverseName)
+	source := "geoip_reverse_dns"
+	if knownProvider != "" {
+		provider = knownProvider
+		source = "known_network"
+	}
 	record.Set("reverse_dns", reverseName)
-	record.Set("provider_label", providerLabel(reverseName))
+	record.Set("provider_label", provider)
+	if organization != "" {
+		record.Set("organization", organization)
+	}
 	record.Set("last_seen", now)
-	record.Set("source", "geoip_reverse_dns")
+	record.Set("source", source)
 
-	if geoipDB != nil {
+	if shouldRefresh && geoipDB != nil {
 		if city, err := geoipDB.City(net.ParseIP(observation.IP)); err == nil {
 			record.Set("city", city.City.Names["en"])
 			record.Set("country", city.Country.Names["en"])
@@ -170,6 +240,18 @@ func upsertDestination(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, obser
 		return nil, err
 	}
 	return record, nil
+}
+
+func knownDestinationProvider(observation DestinationObservation) (organization, provider string) {
+	ip, err := netip.ParseAddr(observation.IP)
+	if err != nil {
+		return "", ""
+	}
+	appleNetwork := netip.MustParsePrefix("17.0.0.0/8")
+	if appleNetwork.Contains(ip) {
+		return "Apple Inc.", "Apple"
+	}
+	return "", ""
 }
 
 func routeExists(app *pocketbase.PocketBase, observation DestinationObservation) (bool, error) {

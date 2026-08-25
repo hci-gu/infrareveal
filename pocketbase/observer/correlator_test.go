@@ -102,3 +102,50 @@ func TestAttributeFlowIgnoresExpiredDNSMatch(t *testing.T) {
 		t.Fatalf("expected old DNS answer to be ignored, got %q", conclusion.Confidence)
 	}
 }
+
+func TestAttributeFlowUsesStartForLongLivedConnection(t *testing.T) {
+	start := time.Date(2026, 8, 25, 8, 46, 0, 0, time.UTC)
+	flow := FlowObservation{
+		ClientIP: "10.0.0.96", DestinationIP: "92.122.72.194",
+		DestinationPort: 443, Protocol: "tcp", Start: start, LastSeen: start.Add(20 * time.Minute),
+	}
+	dns := []DNSObservation{
+		{ID: "original", ClientIP: "10.0.0.96", QueryName: "www.svt.se", Answers: []string{"92.122.72.194"}, Timestamp: start.Add(-3 * time.Second)},
+		{ID: "later", ClientIP: "10.0.0.96", QueryName: "unrelated.example", Answers: []string{"92.122.72.194"}, Timestamp: start.Add(10 * time.Minute)},
+	}
+
+	conclusion := AttributeFlow(flow, dns, 5*time.Minute)
+	if conclusion.CandidateHostname != "www.svt.se" {
+		t.Fatalf("expected start-time attribution to remain www.svt.se, got %q", conclusion.CandidateHostname)
+	}
+}
+
+func TestShouldReplaceAttributionOnlyUpgradesOrFillsEqualEvidence(t *testing.T) {
+	mediumSVT := AttributionConclusion{Confidence: "medium", CandidateHostname: "www.svt.se"}
+	mediumOther := AttributionConclusion{Confidence: "medium", CandidateHostname: "other.example"}
+	low := AttributionConclusion{Confidence: "low"}
+
+	if !shouldReplaceAttribution("low", "", mediumSVT) {
+		t.Fatal("expected medium evidence to replace low evidence")
+	}
+	if shouldReplaceAttribution("medium", "www.svt.se", low) {
+		t.Fatal("expected low evidence not to replace medium evidence")
+	}
+	if shouldReplaceAttribution("medium", "www.svt.se", mediumOther) {
+		t.Fatal("expected an equal-confidence hostname not to replace the original hostname")
+	}
+}
+
+func TestAttributeFlowPrefersOriginalCNAMEQueryWhenTimingTies(t *testing.T) {
+	now := time.Date(2026, 8, 25, 8, 46, 0, 0, time.UTC)
+	flow := FlowObservation{ClientIP: "10.0.0.96", DestinationIP: "92.122.72.194", Start: now}
+	dns := []DNSObservation{
+		{ID: "alias", ClientIP: "10.0.0.96", QueryName: "e6703.dscb.akamaiedge.net", Answers: []string{"92.122.72.194"}, Timestamp: now.Add(-3 * time.Second)},
+		{ID: "original", ClientIP: "10.0.0.96", QueryName: "www.svt.se", Answers: []string{"92.122.72.194"}, Aliases: []string{"e6703.dscb.akamaiedge.net"}, Timestamp: now.Add(-3 * time.Second)},
+	}
+
+	conclusion := AttributeFlow(flow, dns, 5*time.Minute)
+	if conclusion.CandidateHostname != "www.svt.se" {
+		t.Fatalf("expected original CNAME query, got %q", conclusion.CandidateHostname)
+	}
+}

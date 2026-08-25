@@ -25,6 +25,7 @@ export type DNSQuery = {
   query_name: string
   query_type: string
   answers: string[] | null
+  aliases: string[] | null
   timestamp: string
 }
 

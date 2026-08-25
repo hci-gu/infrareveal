@@ -34,6 +34,7 @@ type DNSObservation struct {
 	ClientIP  string
 	QueryName string
 	Answers   []string
+	Aliases   []string
 	Timestamp time.Time
 }
 
@@ -97,7 +98,7 @@ func correlateSession(app *pocketbase.PocketBase, sessionID string) error {
 
 func AttributeFlow(flow FlowObservation, dnsObservations []DNSObservation, window time.Duration) AttributionConclusion {
 	best, ok := bestDNSMatch(flow, dnsObservations, window)
-	observedAt := flow.LastSeen
+	observedAt := flowReferenceTime(flow)
 	if observedAt.IsZero() {
 		observedAt = time.Now().UTC()
 	}
@@ -154,10 +155,7 @@ func bestDNSMatch(flow FlowObservation, dnsObservations []DNSObservation, window
 	var bestDistance time.Duration
 	var found bool
 
-	flowTime := flow.LastSeen
-	if flowTime.IsZero() {
-		flowTime = flow.Start
-	}
+	flowTime := flowReferenceTime(flow)
 
 	for _, dns := range dnsObservations {
 		if dns.ClientIP != flow.ClientIP {
@@ -177,7 +175,7 @@ func bestDNSMatch(flow FlowObservation, dnsObservations []DNSObservation, window
 		if distance > window {
 			continue
 		}
-		if !found || distance < bestDistance {
+		if !found || distance < bestDistance || (distance == bestDistance && len(dns.Aliases) > len(best.Aliases)) {
 			best = dns
 			bestDistance = distance
 			found = true
@@ -185,6 +183,13 @@ func bestDNSMatch(flow FlowObservation, dnsObservations []DNSObservation, window
 	}
 
 	return best, found
+}
+
+func flowReferenceTime(flow FlowObservation) time.Time {
+	if !flow.Start.IsZero() {
+		return flow.Start
+	}
+	return flow.LastSeen
 }
 
 func answersContainIP(answers []string, destinationIP string) bool {
@@ -236,6 +241,8 @@ func upsertAttribution(app *pocketbase.PocketBase, flow FlowObservation, conclus
 		record = core.NewRecord(collection)
 		record.Set("session", flow.SessionID)
 		record.Set("flow", flow.ID)
+	} else if !shouldReplaceAttribution(record.GetString("confidence"), record.GetString("candidate_hostname"), conclusion) {
+		return nil
 	}
 
 	record.Set("candidate_hostname", conclusion.CandidateHostname)
@@ -245,6 +252,31 @@ func upsertAttribution(app *pocketbase.PocketBase, flow FlowObservation, conclus
 	record.Set("dns_query", conclusion.DNSQueryID)
 	record.Set("observed_at", conclusion.ObservedAt.UTC().Format(time.RFC3339))
 	return app.Save(record)
+}
+
+func shouldReplaceAttribution(existingConfidence, existingHostname string, next AttributionConclusion) bool {
+	if confidenceRank(next.Confidence) > confidenceRank(existingConfidence) {
+		return true
+	}
+	if confidenceRank(next.Confidence) < confidenceRank(existingConfidence) {
+		return false
+	}
+	return existingHostname == "" || existingHostname == next.CandidateHostname
+}
+
+func confidenceRank(confidence string) int {
+	switch confidence {
+	case "high":
+		return 4
+	case "medium":
+		return 3
+	case "low":
+		return 2
+	case "hidden":
+		return 1
+	default:
+		return 0
+	}
 }
 
 func flowObservationFromRecord(record *core.Record) FlowObservation {
@@ -267,6 +299,7 @@ func dnsObservationFromRecord(record *core.Record) DNSObservation {
 		ClientIP:  record.GetString("client_ip"),
 		QueryName: record.GetString("query_name"),
 		Answers:   record.GetStringSlice("answers"),
+		Aliases:   record.GetStringSlice("aliases"),
 		Timestamp: record.GetDateTime("timestamp").Time(),
 	}
 }

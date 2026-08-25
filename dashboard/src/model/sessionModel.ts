@@ -6,6 +6,15 @@ export const COMPOSITION_HEIGHT = 810
 
 const MIN_SESSION_SECONDS = 60
 const MIN_CLIP_SECONDS = 1.5
+const DNS_ATTRIBUTION_WINDOW_MS = 5 * 60 * 1000
+const DNS_FUTURE_TOLERANCE_MS = 10 * 1000
+
+type DNSHostnameCandidate = {
+  hostname: string
+  clientIP: string
+  timestampMs: number
+  aliasCount: number
+}
 
 export type Confidence = FlowAttribution['confidence'] | 'pending'
 
@@ -83,7 +92,7 @@ export type SessionComposition = {
 export function buildSessionComposition(data: GatewayData): SessionComposition {
   const attributionsByFlow = new Map(data.attributions.map((item) => [item.flow, item]))
   const destinationsByIP = new Map(data.destinations.map((item) => [item.ip, item]))
-  const hostnamesByIP = buildHostnamesByIP(data.dnsQueries)
+  const hostnamesByIP = buildHostnameCandidatesByIP(data.dnsQueries)
   const routesByDestination = new Map(
     data.routes.map((route) => [routeKey(route.destination_ip, route.destination_port), route]),
   )
@@ -216,13 +225,14 @@ function buildClip({
   sessionStartMs: number
   attributionsByFlow: Map<string, FlowAttribution>
   destinationsByIP: Map<string, Destination>
-  hostnamesByIP: Map<string, string>
+  hostnamesByIP: Map<string, DNSHostnameCandidate[]>
   routesByDestination: Map<string, Route>
 }): TimelineClip {
   const attribution = attributionsByFlow.get(flow.id)
   const destination = destinationsByIP.get(flow.destination_ip)
-  const identity = serviceIdentity(flow, attribution, destination, hostnamesByIP.get(flow.destination_ip))
   const startMs = parseTime(flow.start || flow.created || flow.updated, sessionStartMs)
+  const dnsHostname = bestDNSHostnameForFlow(flow, startMs, hostnamesByIP.get(flow.destination_ip))
+  const identity = serviceIdentity(flow, attribution, destination, dnsHostname)
   const rawEndMs = parseTime(flow.last_seen || flow.updated || flow.created, startMs)
   const endMs = Math.max(rawEndMs, startMs + MIN_CLIP_SECONDS * 1000)
   const startFrame = Math.max(0, msToFrame(startMs - sessionStartMs))
@@ -248,7 +258,7 @@ function buildClip({
     bytes,
     packets,
     confidence: attribution?.confidence ?? 'pending',
-    explanation: attribution?.explanation || identity.explanation,
+    explanation: identity.explanation,
     sourceSignal: identity.sourceSignal,
   }
 }
@@ -283,6 +293,11 @@ function serviceIdentity(
     }
   }
 
+  const socketService = knownSocketService(flow, destination)
+  if (socketService) {
+    return socketService
+  }
+
   if (destination?.reverse_dns) {
     const activity = activityFromHostname(destination.reverse_dns)
     return {
@@ -313,6 +328,20 @@ function serviceIdentity(
     sourceSignal: 'socket',
     explanation: 'No hostname was observed for this flow, so it is grouped by protocol instead of using the IP as the visible label.',
   }
+}
+
+function knownSocketService(flow: Flow, destination?: Destination) {
+  const provider = `${destination?.provider_label ?? ''} ${destination?.organization ?? ''}`.toLowerCase()
+  if (flow.protocol.toLowerCase() === 'tcp' && flow.destination_port === 5223 && provider.includes('apple')) {
+    return {
+      id: normalizeGroupId('activity:apple-push-notifications'),
+      groupLabel: 'Apple Push Notifications',
+      requestLabel: 'Apple Push Notifications',
+      sourceSignal: 'provider-port-hint',
+      explanation: 'Identified as likely Apple Push Notification service from the Apple destination network and TCP port 5223.',
+    }
+  }
+  return null
 }
 
 function activityFromHostname(hostname: string) {
@@ -412,21 +441,45 @@ function isHostnameLabel(label: string) {
   return /[a-z]/i.test(label) && label.includes('.') && !isLikelyIPAddress(label)
 }
 
-function buildHostnamesByIP(dnsQueries: DNSQuery[]) {
-  const hostnames = new Map<string, string>()
-  const sortedQueries = dnsQueries
-    .filter((query) => query.query_name && query.answers?.length)
-    .sort((left, right) => new Date(left.timestamp).getTime() - new Date(right.timestamp).getTime())
-
-  for (const query of sortedQueries) {
+function buildHostnameCandidatesByIP(dnsQueries: DNSQuery[]) {
+  const hostnames = new Map<string, DNSHostnameCandidate[]>()
+  for (const query of dnsQueries) {
+    if (!query.query_name || !query.answers?.length) {
+      continue
+    }
     for (const answer of query.answers ?? []) {
       if (isLikelyIPAddress(answer)) {
-        hostnames.set(answer, query.query_name)
+        const candidates = hostnames.get(answer) ?? []
+        candidates.push({
+          hostname: query.query_name,
+          clientIP: query.client_ip,
+          timestampMs: parseTime(query.timestamp, 0),
+          aliasCount: query.aliases?.length ?? 0,
+        })
+        hostnames.set(answer, candidates)
       }
     }
   }
-
   return hostnames
+}
+
+function bestDNSHostnameForFlow(
+  flow: Flow,
+  flowStartMs: number,
+  candidates: DNSHostnameCandidate[] | undefined,
+) {
+  return (candidates ?? [])
+    .filter((candidate) => {
+      const distance = flowStartMs - candidate.timestampMs
+      return candidate.clientIP === flow.client_ip &&
+        distance >= -DNS_FUTURE_TOLERANCE_MS &&
+        distance <= DNS_ATTRIBUTION_WINDOW_MS
+    })
+    .sort((left, right) => {
+      const leftDistance = Math.abs(flowStartMs - left.timestampMs)
+      const rightDistance = Math.abs(flowStartMs - right.timestampMs)
+      return leftDistance - rightDistance || right.aliasCount - left.aliasCount
+    })[0]?.hostname
 }
 
 function isLikelyIPAddress(value: string) {

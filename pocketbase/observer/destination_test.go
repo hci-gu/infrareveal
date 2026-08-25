@@ -36,6 +36,34 @@ func TestProviderLabel(t *testing.T) {
 	}
 }
 
+func TestKnownDestinationProviderRecognizesAppleNetwork(t *testing.T) {
+	organization, provider := knownDestinationProvider(DestinationObservation{
+		IP: "17.57.146.24", Protocol: "tcp", DestinationPort: 5223,
+	})
+	if organization != "Apple Inc." || provider != "Apple" {
+		t.Fatalf("expected Apple provider labels, got %q / %q", organization, provider)
+	}
+}
+
+func TestKnownDestinationProviderDoesNotGuessUnknownNetwork(t *testing.T) {
+	organization, provider := knownDestinationProvider(DestinationObservation{IP: "92.122.72.194"})
+	if organization != "" || provider != "" {
+		t.Fatalf("expected no static provider guess, got %q / %q", organization, provider)
+	}
+}
+
+func TestUniqueDestinationIPsKeepsNewestObservationPerIP(t *testing.T) {
+	now := time.Now().UTC()
+	observations := []DestinationObservation{
+		{IP: "17.57.146.24", Protocol: "tcp", DestinationPort: 443, LastSeen: now.Add(-time.Minute)},
+		{IP: "17.57.146.24", Protocol: "tcp", DestinationPort: 5223, LastSeen: now},
+	}
+	unique := uniqueDestinationIPs(observations)
+	if len(unique) != 1 || unique[0].DestinationPort != 5223 {
+		t.Fatalf("expected newest observation only, got %#v", unique)
+	}
+}
+
 func TestUniqueDestinationObservationsKeepsNewestPerRouteKey(t *testing.T) {
 	now := time.Now().UTC()
 	records := []*mockFlowRecord{
