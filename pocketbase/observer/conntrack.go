@@ -5,7 +5,6 @@ import (
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -31,7 +30,7 @@ type FlowSample struct {
 }
 
 func (f FlowSample) Key() string {
-	return fmt.Sprintf("%s|%s|%d|%s|%d", f.Protocol, f.ClientIP, f.SourcePort, f.DestinationIP, f.DestinationPort)
+	return flowKey(f.Protocol, f.ClientIP, f.SourcePort, f.DestinationIP, f.DestinationPort)
 }
 
 func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path string, scope ObservationScope, sessionID func() string) {

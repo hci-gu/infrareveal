@@ -21,7 +21,7 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { clearGatewayData } from './data/pocketbaseClient'
-import { useGatewayData } from './data/useGatewayData'
+import { useFlowActivityRange, useGatewayData } from './data/useGatewayData'
 import {
   COMPOSITION_HEIGHT,
   COMPOSITION_WIDTH,
@@ -53,7 +53,7 @@ function App() {
   const playerRef = useRef<PlayerRef>(null)
   const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
   const { data, connectionState, error, refresh } = useGatewayData(selectedSessionId)
-  const composition = useMemo(() => buildSessionComposition(data), [data])
+  const baseComposition = useMemo(() => buildSessionComposition(data), [data])
   const [viewMode, setViewMode] = useState<DashboardViewMode>('timeline')
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isPlaying, setIsPlaying] = useState(true)
@@ -69,6 +69,41 @@ function App() {
     status: 'idle' | 'clearing' | 'done' | 'error'
     message: string
   }>({ status: 'idle', message: '' })
+
+  const activityRange = useMemo(() => {
+    const maximumSpan = 15 * 60 * 1000
+    const sessionStart = baseComposition.sessionStartMs
+    const sessionEnd = baseComposition.sessionEndMs
+    const requestedSpan = zoomFrames === 'all'
+      ? sessionEnd - sessionStart
+      : (zoomFrames / FPS) * 1000
+    const span = Math.min(maximumSpan, Math.max(60_000, requestedSpan))
+    const selectedBaseClip = baseComposition.clips.find((clip) => clip.id === selectedClipId)
+    const anchor = selectedBaseClip
+      ? selectedBaseClip.startMs + (selectedBaseClip.endMs - selectedBaseClip.startMs) / 2
+      : followLive
+        ? sessionEnd
+        : sessionStart + (currentFrame / FPS) * 1000
+    const start = Math.max(sessionStart, anchor - span * 0.82)
+    const boundedStart = Math.min(start, Math.max(sessionStart, sessionEnd - span))
+    return {
+      start: Math.floor(boundedStart / 5000) * 5000,
+      end: Math.ceil(Math.min(sessionEnd + 5000, boundedStart + span) / 5000) * 5000,
+    }
+  }, [baseComposition.clips, baseComposition.sessionEndMs, baseComposition.sessionStartMs, currentFrame, followLive, selectedClipId, zoomFrames])
+  const activity = useFlowActivityRange(
+    data.selectedSession?.id ?? null,
+    activityRange.start,
+    activityRange.end,
+  )
+  const composition = useMemo(
+    () => buildSessionComposition({
+      ...data,
+      flowActivityChunks: activity.chunks,
+      flowActivityWindows: activity.windows,
+    }),
+    [activity.chunks, activity.windows, data],
+  )
 
   const selectedClip = useMemo(
     () => composition.clips.find((clip) => clip.id === selectedClipId) ?? null,
@@ -308,6 +343,17 @@ function App() {
       {error ? (
         <section className="mx-auto w-full max-w-[1680px] px-5">
           <div className="border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-800">{error}</div>
+        </section>
+      ) : null}
+
+      {activity.error || (composition.captureStatus && (!composition.captureStatus.running || composition.captureStatus.dropped_events > 0)) ? (
+        <section className="mx-auto w-full max-w-[1680px] px-5 pb-4">
+          <div className="border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            {activity.error
+              ? `Detailed packet activity is unavailable: ${activity.error}`
+              : composition.captureStatus?.last_error ||
+                `Packet activity capture ${composition.captureStatus?.running ? 'has dropped events' : 'is not running'}; hatched ranges are unknown rather than idle.`}
+          </div>
         </section>
       ) : null}
 
@@ -758,9 +804,9 @@ function Inspector({
 
           {clip ? (
             <div>
-              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Selected request clip</div>
+              <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">Selected connection</div>
               <InfoRow label="Activity" value={clip.serviceGroupLabel} />
-              <InfoRow label="Request" value={clip.label} />
+              <InfoRow label="Endpoint" value={clip.label} />
               <InfoRow label="Destination socket" value={`${clip.destinationIP}:${clip.destinationPort}`} mono />
               <InfoRow label="Protocol" value={clip.protocol.toUpperCase()} />
               <InfoRow
@@ -773,8 +819,30 @@ function Inspector({
               />
               <InfoRow label="Start" value={formatDateTime(clip.startMs)} />
               <InfoRow label="End" value={formatDateTime(clip.endMs)} />
+              <InfoRow label="Connection lifetime" value={formatDuration((clip.endMs - clip.startMs) / 1000)} />
+              <InfoRow label="Observed active time" value={formatActivityDuration(clip.activity.activeMs)} />
+              <InfoRow label="Observed idle time" value={formatActivityDuration(clip.activity.idleMs)} />
+              <InfoRow label="Complete capture coverage" value={formatDuration(clip.activity.coveredMs / 1000)} />
+              <InfoRow label="Payload sent" value={formatBytes(clip.activity.payloadBytesOut)} />
+              <InfoRow label="Payload received" value={formatBytes(clip.activity.payloadBytesIn)} />
+              <InfoRow label="Wire bytes sent" value={formatBytes(clip.activity.wireBytesOut)} />
+              <InfoRow label="Wire bytes received" value={formatBytes(clip.activity.wireBytesIn)} />
+              <InfoRow label="Activity packets" value={`${clip.activity.packetsOut.toLocaleString()} out / ${clip.activity.packetsIn.toLocaleString()} in`} />
+              <InfoRow label="Activity resolution" value={clip.activity.bucketMs ? `${clip.activity.bucketMs} ms` : 'Unavailable'} />
               <InfoRow label="Confidence" value={clip.confidence} />
+              {!clip.activity.captureAvailable ? (
+                <p className="mt-3 border border-slate-300 bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  Detailed packet activity was not loaded or captured for this part of the connection. Blank space is not treated as idle time.
+                </p>
+              ) : !clip.activity.captureComplete ? (
+                <p className="mt-3 border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                  Packet activity is incomplete for this connection ({clip.activity.droppedEvents.toLocaleString()} dropped capture events). Hatched ranges are unknown, not idle.
+                </p>
+              ) : null}
               <p className="mt-3 text-sm leading-6 text-slate-600">{clip.explanation}</p>
+              <p className="mt-3 text-sm leading-6 text-slate-600">
+                Activity marks show encrypted transport movement. A stream may contain several simultaneous application operations, so marks are not individual HTTP requests or response times.
+              </p>
               {clip.associationRelationship ? (
                 <div className="mt-4 border border-amber-200 bg-amber-50 px-3 py-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-amber-800">Website association</div>
@@ -841,6 +909,11 @@ function InfoRow({ label, mono = false, value }: { label: string; mono?: boolean
 
 function formatTraffic(bytes: number, countersAvailable: boolean) {
   return countersAvailable ? formatBytes(bytes) : 'Counters unavailable'
+}
+
+function formatActivityDuration(milliseconds: number) {
+  if (milliseconds > 0 && milliseconds < 1000) return `${Math.round(milliseconds)} ms`
+  return formatDuration(milliseconds / 1000)
 }
 
 function formatAssociationRelationship(relationship: TimelineClip['associationRelationship']) {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { emptyGatewayData, getGatewayData, pb } from './pocketbaseClient'
-import type { ActivityEpisode, ConnectionState, DNSQuery, Destination, Flow, FlowAssociation, FlowAttribution, GatewayData, Route, Session } from './types'
+import { emptyGatewayData, getFlowActivityRange, getGatewayData, pb } from './pocketbaseClient'
+import type { ActivityEpisode, ConnectionState, DNSQuery, Destination, Flow, FlowActivityChunk, FlowActivityStatus, FlowActivityWindow, FlowAssociation, FlowAttribution, GatewayData, Route, Session } from './types'
 
 type StoreMaps = {
   sessions: Map<string, Session>
@@ -10,6 +10,7 @@ type StoreMaps = {
   attributions: Map<string, FlowAttribution>
   activityEpisodes: Map<string, ActivityEpisode>
   flowAssociations: Map<string, FlowAssociation>
+  flowActivityStatuses: Map<string, FlowActivityStatus>
   destinations: Map<string, Destination>
   routes: Map<string, Route>
 }
@@ -28,6 +29,7 @@ function mapsFromData(data: GatewayData): StoreMaps {
     attributions: new Map(data.attributions.map((item) => [item.id, item])),
     activityEpisodes: new Map(data.activityEpisodes.map((item) => [item.id, item])),
     flowAssociations: new Map(data.flowAssociations.map((item) => [item.id, item])),
+    flowActivityStatuses: new Map(data.flowActivityStatuses.map((item) => [item.id, item])),
     destinations: new Map(data.destinations.map((item) => [item.id, item])),
     routes: new Map(data.routes.map((item) => [item.id, item])),
   }
@@ -43,6 +45,9 @@ function dataFromMaps(maps: StoreMaps): GatewayData {
     attributions: Array.from(maps.attributions.values()),
     activityEpisodes: Array.from(maps.activityEpisodes.values()),
     flowAssociations: Array.from(maps.flowAssociations.values()),
+    flowActivityChunks: [],
+    flowActivityWindows: [],
+    flowActivityStatuses: Array.from(maps.flowActivityStatuses.values()),
     destinations: Array.from(maps.destinations.values()),
     routes: Array.from(maps.routes.values()),
   }
@@ -107,6 +112,7 @@ export function useGatewayData(requestedSessionId?: string | null) {
           unsubscribeAttributions,
           unsubscribeActivityEpisodes,
           unsubscribeFlowAssociations,
+          unsubscribeFlowActivityStatuses,
           unsubscribeDestinations,
           unsubscribeRoutes,
         ] = await Promise.all([
@@ -165,6 +171,15 @@ export function useGatewayData(requestedSessionId?: string | null) {
               flowAssociations: applyRealtimeRecord(current.flowAssociations, event),
             }))
           }),
+          pb.collection('flow_activity_status').subscribe('*', (event: RealtimeEvent<FlowActivityStatus>) => {
+            if (!belongsToSelectedSession(event.record, selectedSessionIdRef.current)) {
+              return
+            }
+            setMaps((current) => ({
+              ...current,
+              flowActivityStatuses: applyRealtimeRecord(current.flowActivityStatuses, event),
+            }))
+          }),
           pb.collection('destinations').subscribe('*', (event: RealtimeEvent<Destination>) => {
             setMaps((current) => ({
               ...current,
@@ -186,6 +201,7 @@ export function useGatewayData(requestedSessionId?: string | null) {
           unsubscribeAttributions,
           unsubscribeActivityEpisodes,
           unsubscribeFlowAssociations,
+          unsubscribeFlowActivityStatuses,
           unsubscribeDestinations,
           unsubscribeRoutes,
         )
@@ -224,6 +240,81 @@ export function useGatewayData(requestedSessionId?: string | null) {
     connectionState,
     error,
     refresh,
+  }
+}
+
+export function useFlowActivityRange(
+  sessionId: string | null,
+  startMs: number,
+  endMs: number,
+) {
+  const [chunks, setChunks] = useState<Map<string, FlowActivityChunk>>(new Map())
+  const [windows, setWindows] = useState<Map<string, FlowActivityWindow>>(new Map())
+  const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    let cancelled = false
+    let pollTimer = 0
+    const unsubscribers: Array<() => void> = []
+
+    const inRange = (timestamp: string) => {
+      const value = Date.parse(timestamp)
+      return Number.isFinite(value) && value >= startMs - 60_000 && value < endMs
+    }
+    const belongs = (record: { session: string }) => record.session === sessionId
+
+    async function load() {
+      if (!sessionId || endMs <= startMs) {
+        setChunks(new Map())
+        setWindows(new Map())
+        setError(null)
+        return
+      }
+      try {
+        const result = await getFlowActivityRange(sessionId, startMs, endMs)
+        if (!cancelled) {
+          setChunks(new Map(result.chunks.map((item) => [item.id, item])))
+          setWindows(new Map(result.windows.map((item) => [item.id, item])))
+          setError(null)
+        }
+      } catch (loadError) {
+        if (!cancelled) setError(normalizeLoadError(loadError))
+      }
+    }
+
+    async function subscribe() {
+      if (!sessionId) return
+      try {
+        const [unsubscribeChunks, unsubscribeWindows] = await Promise.all([
+          pb.collection('flow_activity_chunks').subscribe('*', (event: RealtimeEvent<FlowActivityChunk>) => {
+            if (!belongs(event.record) || !inRange(event.record.chunk_start)) return
+            setChunks((current) => applyRealtimeRecord(current, event))
+          }),
+          pb.collection('flow_activity_windows').subscribe('*', (event: RealtimeEvent<FlowActivityWindow>) => {
+            if (!belongs(event.record) || !inRange(event.record.window_start)) return
+            setWindows((current) => applyRealtimeRecord(current, event))
+          }),
+        ])
+        unsubscribers.push(unsubscribeChunks, unsubscribeWindows)
+      } catch {
+        // The polling fallback below keeps this bounded range fresh.
+      }
+    }
+
+    load()
+    subscribe()
+    pollTimer = window.setInterval(load, 10000)
+    return () => {
+      cancelled = true
+      window.clearInterval(pollTimer)
+      for (const unsubscribe of unsubscribers) unsubscribe()
+    }
+  }, [endMs, sessionId, startMs])
+
+  return {
+    chunks: useMemo(() => Array.from(chunks.values()), [chunks]),
+    windows: useMemo(() => Array.from(windows.values()), [windows]),
+    error,
   }
 }
 

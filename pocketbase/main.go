@@ -140,10 +140,18 @@ func main() {
 		conntrackPath := envOrDefault("CONNTRACK_PATH", "/proc/net/nf_conntrack")
 		clientPrefix := envOrDefault("CLIENT_IP_PREFIX", "10.0.0.")
 		gatewayIP := envOrDefault("GATEWAY_IP", "10.0.0.1")
+		apInterface := envOrDefault("AP_IFACE", "wlan0")
 		observationScope := observer.NewObservationScope(clientPrefix, gatewayIP)
 
 		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, currentSessionID)
 		observer.StartConntrackSampler(ctx, app, conntrackPath, observationScope, currentSessionID)
+		observer.StartPacketActivityObserver(
+			ctx,
+			app,
+			observationScope,
+			currentSessionID,
+			observer.PacketActivityConfigFromEnv(apInterface),
+		)
 		observer.StartFlowCorrelator(ctx, app, observationScope, currentSessionID)
 		observer.StartDestinationEnricher(ctx, app, geoipDB, observationScope, currentSessionID)
 
@@ -252,6 +260,9 @@ func clearObservationCollections(app *pocketbase.PocketBase) (clearObservationsR
 	}
 	skipped := map[string]bool{}
 	collections := []string{
+		"flow_activity_chunks",
+		"flow_activity_windows",
+		"flow_activity_status",
 		"flow_associations",
 		"activity_episodes",
 		"flow_attributions",

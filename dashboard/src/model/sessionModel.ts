@@ -1,4 +1,4 @@
-import type { DNSQuery, Destination, Flow, FlowAssociation, FlowAttribution, GatewayData, Route } from '../data/types'
+import type { DNSQuery, Destination, Flow, FlowActivityChunk, FlowAssociation, FlowAttribution, GatewayData, Route } from '../data/types'
 
 export const FPS = 30
 export const COMPOSITION_WIDTH = 1440
@@ -18,6 +18,34 @@ type DNSHostnameCandidate = {
 }
 
 export type Confidence = FlowAttribution['confidence'] | 'pending'
+
+export type FlowActivitySample = {
+  startMs: number
+  durationMs: number
+  payloadBytesOut: number
+  payloadBytesIn: number
+  packetsOut: number
+  packetsIn: number
+  complete: boolean
+}
+
+export type FlowActivitySummary = {
+  samples: FlowActivitySample[]
+  completeRanges: Array<{ startMs: number; endMs: number }>
+  activeMs: number
+  coveredMs: number
+  idleMs: number
+  payloadBytesOut: number
+  payloadBytesIn: number
+  wireBytesOut: number
+  wireBytesIn: number
+  packetsOut: number
+  packetsIn: number
+  bucketMs: number | null
+  droppedEvents: number
+  captureComplete: boolean
+  captureAvailable: boolean
+}
 
 export type ServiceGroup = {
   id: string
@@ -62,6 +90,7 @@ export type TimelineClip = {
   associationConfidence: FlowAssociation['confidence'] | null
   associationScore: number | null
   associationExplanation: string
+  activity: FlowActivitySummary
 }
 
 export type TimelineLane = {
@@ -85,6 +114,7 @@ export type SessionComposition = {
   attributionsByFlow: Map<string, FlowAttribution>
   destinationsByIP: Map<string, Destination>
   routesByDestination: Map<string, Route>
+  captureStatus: GatewayData['flowActivityStatuses'][number] | null
   totals: {
     flowCount: number
     attributedCount: number
@@ -113,6 +143,13 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
   const routesByDestination = new Map(
     routes.map((route) => [routeKey(route.destination_ip, route.destination_port), route]),
   )
+  const chunksByFlow = new Map<string, FlowActivityChunk[]>()
+  for (const chunk of data.flowActivityChunks) {
+    if (!flowIDs.has(chunk.flow)) continue
+    const current = chunksByFlow.get(chunk.flow) ?? []
+    current.push(chunk)
+    chunksByFlow.set(chunk.flow, current)
+  }
 
   const timeBounds = flows.reduce(
     (bounds, flow) => {
@@ -146,6 +183,8 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
         destinationsByIP,
         hostnamesByIP,
         routesByDestination,
+        activityChunks: chunksByFlow.get(flow.id) ?? [],
+        activityWindows: data.flowActivityWindows,
       }),
     )
     .sort((a, b) => a.startFrame - b.startFrame || b.bytes - a.bytes)
@@ -221,6 +260,7 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
     attributionsByFlow,
     destinationsByIP,
     routesByDestination,
+    captureStatus: data.flowActivityStatuses[0] ?? null,
     totals: {
       flowCount: flows.length,
       attributedCount: attributionsByFlow.size,
@@ -241,6 +281,8 @@ function buildClip({
   associationsByFlow,
   destinationsByIP,
   hostnamesByIP,
+  activityChunks,
+  activityWindows,
 }: {
   flow: Flow
   sessionStartMs: number
@@ -248,6 +290,8 @@ function buildClip({
   associationsByFlow: Map<string, FlowAssociation>
   destinationsByIP: Map<string, Destination>
   hostnamesByIP: Map<string, DNSHostnameCandidate[]>
+  activityChunks: FlowActivityChunk[]
+  activityWindows: GatewayData['flowActivityWindows']
   routesByDestination: Map<string, Route>
 }): TimelineClip {
   const attribution = attributionsByFlow.get(flow.id)
@@ -256,12 +300,12 @@ function buildClip({
   const startMs = parseTime(flow.start || flow.created || flow.updated, sessionStartMs)
   const dnsHostname = bestDNSHostnameForFlow(flow, startMs, hostnamesByIP.get(flow.destination_ip))
   const identity = serviceIdentity(flow, attribution, destination, dnsHostname, association)
-  const rawEndMs = parseTime(flow.last_seen || flow.updated || flow.created, startMs)
-  const endMs = Math.max(rawEndMs, startMs + MIN_CLIP_SECONDS * 1000)
+  const endMs = Math.max(startMs, parseTime(flow.last_seen || flow.updated || flow.created, startMs))
   const startFrame = Math.max(0, msToFrame(startMs - sessionStartMs))
   const durationFrames = Math.max(1, msToFrame(endMs - startMs))
   const bytes = Math.max(0, flow.bytes_in + flow.bytes_out)
   const packets = Math.max(0, flow.packets_in + flow.packets_out)
+  const activity = buildFlowActivitySummary(startMs, endMs, activityChunks, activityWindows)
 
   return {
     id: `clip:${flow.id}`,
@@ -287,7 +331,134 @@ function buildClip({
     associationConfidence: association?.confidence ?? null,
     associationScore: association?.score ?? null,
     associationExplanation: association?.explanation ?? '',
+    activity,
   }
+}
+
+export function decodeActivityChunk(chunk: FlowActivityChunk): FlowActivitySample[] {
+  const value = chunk.samples
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return []
+  const payload = value as Record<string, unknown>
+  if (payload.version !== 1 || !Array.isArray(payload.samples)) return []
+  const bucketMs = payload.bucket_ms === undefined
+    ? positiveInteger(chunk.bucket_ms)
+    : positiveInteger(payload.bucket_ms)
+  const chunkMs = payload.chunk_ms === undefined
+    ? positiveInteger(chunk.chunk_ms)
+    : positiveInteger(payload.chunk_ms)
+  const chunkStartMs = Date.parse(chunk.chunk_start)
+  if (!bucketMs || !chunkMs || bucketMs < 20 || bucketMs > 1000 || chunkMs > 60_000 || bucketMs > chunkMs || !Number.isFinite(chunkStartMs)) return []
+  const samples: FlowActivitySample[] = []
+  for (const row of payload.samples) {
+    if (!Array.isArray(row) || row.length < 5) continue
+    const numbers = row.slice(0, 5).map(nonNegativeInteger)
+    if (numbers.some((item) => item === null)) continue
+    const [offsetMs, payloadBytesOut, payloadBytesIn, packetsOut, packetsIn] = numbers as number[]
+    if (offsetMs >= chunkMs || offsetMs % bucketMs !== 0) continue
+    samples.push({
+      startMs: chunkStartMs + offsetMs,
+      durationMs: bucketMs,
+      payloadBytesOut,
+      payloadBytesIn,
+      packetsOut,
+      packetsIn,
+      complete: chunk.capture_complete && chunk.dropped_events === 0,
+    })
+  }
+  return samples
+}
+
+function buildFlowActivitySummary(
+  flowStartMs: number,
+  flowEndMs: number,
+  chunks: FlowActivityChunk[],
+  windows: GatewayData['flowActivityWindows'],
+): FlowActivitySummary {
+  const byStart = new Map<number, FlowActivitySample>()
+  let droppedEvents = 0
+  let wireBytesOut = 0
+  let wireBytesIn = 0
+  const bucketSizes = new Set<number>()
+  for (const chunk of chunks) {
+    droppedEvents += Math.max(0, chunk.dropped_events || 0)
+    wireBytesOut += Math.max(0, chunk.wire_bytes_out || 0)
+    wireBytesIn += Math.max(0, chunk.wire_bytes_in || 0)
+    if (positiveInteger(chunk.bucket_ms)) bucketSizes.add(chunk.bucket_ms)
+    for (const sample of decodeActivityChunk(chunk)) {
+      if (sample.startMs >= flowEndMs || sample.startMs + sample.durationMs <= flowStartMs) continue
+      const previous = byStart.get(sample.startMs)
+      if (!previous || sample.payloadBytesOut + sample.payloadBytesIn >= previous.payloadBytesOut + previous.payloadBytesIn) {
+        byStart.set(sample.startMs, sample)
+      }
+    }
+  }
+  const samples = Array.from(byStart.values()).sort((left, right) => left.startMs - right.startMs)
+  const activeMs = samples.reduce(
+    (total, sample) => total + Math.max(0, Math.min(flowEndMs, sample.startMs + sample.durationMs) - Math.max(flowStartMs, sample.startMs)),
+    0,
+  )
+  const relevantWindows = windows.filter((window) => {
+    const start = Date.parse(window.window_start)
+    return Number.isFinite(start) && start < flowEndMs && start + window.window_ms > flowStartMs
+  })
+  const windowDrops = relevantWindows.reduce((total, window) => total + Math.max(0, window.dropped_events || 0), 0)
+  droppedEvents = Math.max(droppedEvents, windowDrops)
+  const completeRanges = mergeIntervals(
+    relevantWindows
+      .filter((window) => window.capture_complete && window.dropped_events === 0)
+      .map((window) => {
+        const start = Date.parse(window.window_start)
+        return [Math.max(flowStartMs, start), Math.min(flowEndMs, start + window.window_ms)] as const
+      })
+      .filter(([start, end]) => Number.isFinite(start) && end > start),
+  ).map(([startMs, endMs]) => ({ startMs, endMs }))
+  const coveredMs = completeRanges.reduce((total, range) => total + range.endMs - range.startMs, 0)
+  return {
+    samples,
+    completeRanges,
+    activeMs,
+    coveredMs,
+    idleMs: Math.max(0, coveredMs - activeMs),
+    payloadBytesOut: samples.reduce((total, sample) => total + sample.payloadBytesOut, 0),
+    payloadBytesIn: samples.reduce((total, sample) => total + sample.payloadBytesIn, 0),
+    wireBytesOut,
+    wireBytesIn,
+    packetsOut: samples.reduce((total, sample) => total + sample.packetsOut, 0),
+    packetsIn: samples.reduce((total, sample) => total + sample.packetsIn, 0),
+    bucketMs: bucketSizes.size === 1 ? Array.from(bucketSizes)[0] : null,
+    droppedEvents,
+    captureComplete: coveredMs >= Math.max(0, flowEndMs - flowStartMs) && droppedEvents === 0,
+    captureAvailable: relevantWindows.length > 0 || chunks.length > 0,
+  }
+}
+
+function mergeIntervals(intervals: ReadonlyArray<readonly [number, number]>) {
+  const ordered = intervals.slice().sort((left, right) => left[0] - right[0])
+  const result: Array<[number, number]> = []
+  let start = Number.NaN
+  let end = Number.NaN
+  for (const interval of ordered) {
+    if (!Number.isFinite(start)) {
+      ;[start, end] = interval
+    } else if (interval[0] <= end) {
+      end = Math.max(end, interval[1])
+    } else {
+      result.push([start, end])
+      ;[start, end] = interval
+    }
+  }
+  if (Number.isFinite(start)) result.push([start, end])
+  return result
+}
+
+function positiveInteger(value: unknown) {
+  const number = typeof value === 'number' ? value : Number.NaN
+  return Number.isInteger(number) && number > 0 ? number : null
+}
+
+function nonNegativeInteger(value: unknown) {
+  const number = typeof value === 'number' ? value : Number.NaN
+  return Number.isSafeInteger(number) && number >= 0 ? number : null
 }
 
 function serviceIdentity(
@@ -306,7 +477,7 @@ function serviceIdentity(
       sourceSignal: `activity-${association.relationship}`,
       explanation:
         attribution?.explanation ||
-        `The request retained its endpoint identity and was grouped under ${association.parent_label} by a separate activity association.`,
+        `The connection retained its endpoint identity and was grouped under ${association.parent_label} by a separate activity association.`,
     }
   }
   if (attribution?.candidate_hostname) {

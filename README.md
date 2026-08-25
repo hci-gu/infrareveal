@@ -8,9 +8,15 @@ What you get
 - NAT to the internet via eth0 by default
 - DNS query observations from dnsmasq
 - Flow observations from conntrack sampling
+- Header-only, directional flow activity at 50 ms resolution (no payload or URL storage)
 - Confidence-labeled flow attribution from recent DNS answers where available
 - Destination context and route approximations for observed destination IPs
 - PocketBase API/Admin on port 8090, dashboard on port 8080
+
+## Development guides
+
+- [Flow activity bursts](docs/implementation-guides/flow-activity-bursts.md): implemented metadata-only capture and visualization of fine-grained traffic inside long-lived connections.
+- [Flow activity validation](docs/validation/flow-activity-raspberry-pi.md): repeatable privacy, load, growth, and browser-comparison checks for the target Pi.
 
 Note: The AP is open (no password) by default. Use only in controlled environments.
 
@@ -60,6 +66,11 @@ Configuration knobs (via env in `docker-compose.yml`):
 - AP_IFACE: AP Wi‑Fi interface (default wlan0)
 - INTERNET_IFACE: uplink interface (default eth0)
 - SSID: Wi‑Fi network name (default Infrareveal)
+- PACKET_ACTIVITY_ENABLED: enable header-only packet activity capture (default true)
+- PACKET_ACTIVITY_IFACE: capture interface (defaults to AP_IFACE)
+- PACKET_ACTIVITY_BUCKET_MS: activity resolution, validated to 20–1000 ms (default 50)
+- PACKET_ACTIVITY_CHUNK_SECONDS: sparse persistence chunk size (default 5)
+- PACKET_ACTIVITY_RETENTION_HOURS: retention for inactive-session detail (default 24)
 
 You can also tweak:
 - `hostapd.conf` for country_code, channel, security (currently open)
@@ -85,6 +96,8 @@ docker compose logs -f dashboard
 3) PocketBase Admin UI: http://<pi-ip>:8090/_/
 
 The gateway forwards web traffic normally through NAT. Classic DNS traffic from clients is redirected to the local dnsmasq resolver so transaction-linked DNS answers, including CNAME chains, can be correlated with flows. Stored flows are limited to remote traffic initiated by connected clients; gateway-generated probes and local infrastructure traffic such as DNS sockets, DHCP, NTP, PCP, mDNS, and traceroute are excluded. The dashboard keeps raw destination IPs visible and labels inferred hostnames with confidence.
+
+The activity overlay passively counts packet headers on the AP interface into sparse directional buckets. Pale bars remain conntrack connection lifetimes; amber and cyan marks show client-to-remote and remote-to-client transfer activity. The gateway immediately discards the bounded packet prefix used for parsing and stores only counts, times, tuple keys, flags, and byte totals. It does not store packet contents or claim that encrypted bursts are HTTP resources or response times. Hatched regions mean capture was missing or lossy and are excluded from idle-time calculations.
 
 For supported site/app families, the backend also derives conservative activity episodes. Confirmed first-party and CNAME-linked flows are grouped directly; a third-party hostname is associated only when the same client freshly resolves and opens it within a short window of confirmed activity. The original endpoint is always preserved, inferred children are visibly marked, and provider-only, unresolved, pre-existing, DNS-less, or ambiguous traffic is left independent.
 
@@ -128,6 +141,12 @@ Destination context is enriched independently from reverse DNS, known provider n
 	- Conntrack byte accounting is disabled or not writable from the observer container
 	- The observer tries to enable `/proc/sys/net/netfilter/nf_conntrack_acct` on startup; restart the proxy after updating
 	- Existing conntrack entries created before accounting was enabled may stay at zero, so generate fresh client traffic after restart
+
+- Dashboard shows hatched activity bars or a packet-capture warning
+	- Check `docker compose logs proxy` for an actionable `packet activity capture unavailable` message
+	- Confirm `PACKET_ACTIVITY_IFACE` names the client-facing AP interface, normally `wlan0`
+	- The proxy needs its existing privileged/host-network configuration to open `AF_PACKET`
+	- Hatching is intentional: unknown capture time is never reported as observed idle time
 
 ## Ports and data
 

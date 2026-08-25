@@ -4,6 +4,9 @@ import type {
   ActivityEpisode,
   Flow,
   FlowAssociation,
+  FlowActivityChunk,
+  FlowActivityStatus,
+  FlowActivityWindow,
   FlowAttribution,
   GatewayData,
   Route,
@@ -22,6 +25,8 @@ const baseUrl = (import.meta.env.VITE_POCKETBASE_URL ?? defaultUrl).replace(
 
 type ListResponse<T> = {
   items: T[]
+  page: number
+  totalPages: number
 }
 
 export type RealtimeEvent<T> = {
@@ -56,7 +61,7 @@ export async function getGatewayData(
   const sessionFilter = selectedSession
     ? `session="${selectedSession.id}"`
     : undefined
-  const [flows, dnsQueries, attributions, activityEpisodes, flowAssociations, destinations, routes] =
+  const [flows, dnsQueries, attributions, activityEpisodes, flowAssociations, flowActivityStatuses, destinations, routes] =
     await Promise.all([
       listRecords<Flow>('flows', {
         sort: '-last_seen',
@@ -78,6 +83,10 @@ export async function getGatewayData(
         sort: 'observed_at',
         filter: sessionFilter,
       }),
+      listRecords<FlowActivityStatus>('flow_activity_status', {
+        sort: '-reported_at',
+        filter: sessionFilter,
+      }),
       listRecords<Destination>('destinations', {
         sort: '-last_seen',
       }),
@@ -95,6 +104,9 @@ export async function getGatewayData(
     attributions,
     activityEpisodes,
     flowAssociations,
+    flowActivityChunks: [],
+    flowActivityWindows: [],
+    flowActivityStatuses,
     destinations,
     routes,
   }
@@ -109,9 +121,33 @@ export function emptyGatewayData(): GatewayData {
     attributions: [],
     activityEpisodes: [],
     flowAssociations: [],
+    flowActivityChunks: [],
+    flowActivityWindows: [],
+    flowActivityStatuses: [],
     destinations: [],
     routes: [],
   }
+}
+
+export async function getFlowActivityRange(sessionId: string, startMs: number, endMs: number) {
+  if (!sessionId || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
+    return { chunks: [] as FlowActivityChunk[], windows: [] as FlowActivityWindow[] }
+  }
+  const start = new Date(startMs).toISOString()
+  const overlapStart = new Date(startMs - 60_000).toISOString()
+  const end = new Date(endMs).toISOString()
+  const sessionFilter = `session="${sessionId}"`
+  const [chunks, windows] = await Promise.all([
+    listAllRecords<FlowActivityChunk>('flow_activity_chunks', {
+      sort: 'chunk_start',
+      filter: `${sessionFilter} && chunk_start >= "${start}" && chunk_start < "${end}"`,
+    }),
+    listAllRecords<FlowActivityWindow>('flow_activity_windows', {
+      sort: 'window_start',
+      filter: `${sessionFilter} && window_start >= "${overlapStart}" && window_start < "${end}"`,
+    }),
+  ])
+  return { chunks, windows }
 }
 
 export async function clearGatewayData(): Promise<ClearGatewayDataResult> {
@@ -157,6 +193,32 @@ async function listRecords<T>(
 
   const payload = (await response.json()) as ListResponse<T>
   return payload.items ?? []
+}
+
+async function listAllRecords<T>(
+  collection: string,
+  options: {
+    filter?: string
+    sort?: string
+  },
+) {
+  const result: T[] = []
+  let page = 1
+  while (true) {
+    const params = new URLSearchParams({ page: String(page), perPage: '500' })
+    if (options.sort) params.set('sort', options.sort)
+    if (options.filter) params.set('filter', options.filter)
+    const response = await fetch(`${baseUrl}/api/collections/${collection}/records?${params.toString()}`)
+    if (!response.ok) {
+      throw new Error(`PocketBase request failed: ${response.status} ${response.statusText}`)
+    }
+    const payload = (await response.json()) as ListResponse<T>
+    result.push(...(payload.items ?? []))
+    const totalPages = Math.max(1, payload.totalPages || 1)
+    if (page >= totalPages) break
+    page += 1
+  }
+  return result
 }
 
 function selectSession(sessions: Session[], sessionId?: string | null) {

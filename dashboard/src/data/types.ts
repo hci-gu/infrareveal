@@ -69,6 +69,52 @@ export type FlowAssociation = {
   observed_at: string
 }
 
+export type FlowActivityChunk = {
+  id: string
+  session: string
+  flow: string
+  flow_key: string
+  chunk_start: string
+  bucket_ms: number
+  chunk_ms: number
+  samples: unknown
+  wire_bytes_out: number
+  wire_bytes_in: number
+  payload_bytes_out: number
+  payload_bytes_in: number
+  packets_out: number
+  packets_in: number
+  tcp_flags_out: number
+  tcp_flags_in: number
+  capture_complete: boolean
+  dropped_events: number
+  updated_at_source: string
+}
+
+export type FlowActivityWindow = {
+  id: string
+  session: string
+  window_key: string
+  window_start: string
+  window_ms: number
+  capture_running: boolean
+  capture_complete: boolean
+  dropped_events: number
+  last_error: string
+}
+
+export type FlowActivityStatus = {
+  id: string
+  session: string
+  interface: string
+  enabled: boolean
+  running: boolean
+  dropped_events: number
+  last_error: string
+  last_event_at: string
+  reported_at: string
+}
+
 export type Destination = {
   id: string
   ip: string
@@ -120,6 +166,9 @@ export type GatewayData = {
   attributions: FlowAttribution[]
   activityEpisodes: ActivityEpisode[]
   flowAssociations: FlowAssociation[]
+  flowActivityChunks: FlowActivityChunk[]
+  flowActivityWindows: FlowActivityWindow[]
+  flowActivityStatuses: FlowActivityStatus[]
   destinations: Destination[]
   routes: Route[]
 }

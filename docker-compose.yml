@@ -10,6 +10,10 @@ services:
       - AP_IFACE=wlan0
       - INTERNET_IFACE=eth0
       - SSID=Infrareveal
+      - PACKET_ACTIVITY_ENABLED=true
+      - PACKET_ACTIVITY_BUCKET_MS=50
+      - PACKET_ACTIVITY_CHUNK_SECONDS=5
+      - PACKET_ACTIVITY_RETENTION_HOURS=24
     volumes:
        - ./data:/root/pb/pb_data
     entrypoint: ["/root/entrypoint.sh"]

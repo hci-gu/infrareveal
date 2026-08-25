@@ -99,6 +99,10 @@ function TimelineScene({
           </div>
         </div>
         <div className="flex items-center gap-5 text-sm text-slate-600">
+          <span className="flex items-center gap-3 text-xs">
+            <span className="inline-flex items-center gap-1"><i className="h-2 w-3 bg-amber-500" /> sent</span>
+            <span className="inline-flex items-center gap-1"><i className="h-2 w-3 bg-cyan-500" /> received</span>
+          </span>
           <span>{composition.totals.flowCount} flows</span>
           <span>{formatTraffic(composition.totals.byteCount, composition.totals.trafficCountersAvailable)}</span>
           <span>{formatDuration((visibleEndFrame - visibleStartFrame) / composition.fps)} window</span>
@@ -107,7 +111,7 @@ function TimelineScene({
 
       <div className="absolute left-0 right-0 top-[70px] h-12 border-b border-slate-200 bg-slate-50">
         <div className="absolute bottom-0 left-0 top-0 w-[344px] border-r border-slate-200 bg-white px-8 py-3 text-xs font-semibold uppercase text-slate-500">
-          Domain / request
+          Domain / connection
         </div>
         {marks.map((mark) => (
           <div
@@ -172,7 +176,7 @@ function TimelineScene({
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold leading-tight text-slate-950">{lane.label}</span>
                       <span className="block truncate text-xs text-slate-500">
-                        {lane.clips.length} {lane.clips.length === 1 ? 'request' : 'requests'}
+                        {lane.clips.length} {lane.clips.length === 1 ? 'connection' : 'connections'}
                         {associatedCount ? ` · ${associatedCount} associated` : ''}
                         {' · '}{formatTraffic(lane.totalBytes, composition.totals.trafficCountersAvailable)}
                       </span>
@@ -202,6 +206,7 @@ function TimelineScene({
                     const x = ((start - visibleStartFrame) / frameSpan) * timelineWidth
                     const width = Math.max(4, ((end - start) / frameSpan) * timelineWidth)
                     const duration = Math.max(0, (clip.endMs - clip.startMs) / 1000)
+                    const activityColumns = buildActivityColumns(clip, composition, start, end, width)
 
                     return (
                       <div
@@ -224,17 +229,36 @@ function TimelineScene({
                         </button>
                         <div className="absolute bottom-0 right-[34px] top-0" style={{ left: leftAxis }}>
                           <button
-                            className={`absolute top-2 h-6 overflow-hidden rounded-sm border text-left shadow-sm transition ${
+                            className={`absolute top-1 h-8 overflow-hidden rounded-sm border text-left transition ${
                               selectedClip ? 'border-slate-950 ring-2 ring-slate-950' : 'border-white'
                             } ${clip.associationRelationship === 'temporally_associated' ? 'border-dashed' : ''} ${active ? 'opacity-100' : 'opacity-75'}`}
                             onClick={() => dispatchSelection('clip', clip.id)}
-                            style={{ left: x, width, backgroundColor: color }}
-                            title={`${clip.label} · ${formatDuration(duration)} · ${formatTraffic(clip.bytes, composition.totals.trafficCountersAvailable)}`}
+                            style={{
+                              left: x,
+                              width,
+                              background: 'repeating-linear-gradient(135deg, #e2e8f0 0, #e2e8f0 3px, #f8fafc 3px, #f8fafc 7px)',
+                            }}
+                            title={`${clip.label} · connection lifetime ${formatDuration(duration)} · observed active ${formatDuration(clip.activity.activeMs / 1000)}`}
                             type="button"
                           >
-                            <span className="block truncate px-2 text-[11px] font-semibold leading-5 text-white">
-                              {formatDuration(duration)}
-                            </span>
+                            {clip.activity.completeRanges.map((range) => {
+                              const rangeStartFrame = ((range.startMs - composition.sessionStartMs) / 1000) * composition.fps
+                              const rangeEndFrame = ((range.endMs - composition.sessionStartMs) / 1000) * composition.fps
+                              const rangeX = ((rangeStartFrame - start) / Math.max(1, end - start)) * width
+                              const rangeWidth = Math.max(1, ((rangeEndFrame - rangeStartFrame) / Math.max(1, end - start)) * width)
+                              return <i className="absolute inset-y-0" key={range.startMs} style={{ backgroundColor: `${color}26`, left: rangeX, width: rangeWidth }} />
+                            })}
+                            <span className="absolute left-0 right-0 top-1/2 h-px bg-slate-500/70" />
+                            {activityColumns.map((sample) => {
+                              const outHeight = activityHeight(sample.payloadBytesOut, sample.packetsOut)
+                              const inHeight = activityHeight(sample.payloadBytesIn, sample.packetsIn)
+                              return (
+                                <span key={sample.x}>
+                                  {outHeight > 0 ? <i className="absolute bottom-1/2 bg-amber-500" style={{ height: outHeight, left: sample.x, width: 1 }} title={activitySampleTitle(sample)} /> : null}
+                                  {inHeight > 0 ? <i className="absolute top-1/2 bg-cyan-500" style={{ height: inHeight, left: sample.x, width: 1 }} title={activitySampleTitle(sample)} /> : null}
+                                </span>
+                              )
+                            })}
                           </button>
                         </div>
                       </div>
@@ -253,7 +277,7 @@ function TimelineScene({
         <div className="-ml-[5px] h-3 w-3 rounded-full bg-red-600" />
       </div>
       <div className="absolute bottom-5 right-7 rounded-sm bg-white/90 px-3 py-2 text-xs font-medium text-slate-600 shadow-sm">
-        Domain headers summarize activity; expand them to inspect individual request lifetimes.
+        Pale bars are connection lifetimes; colored spikes are 50 ms packet activity. Hatching means capture was incomplete.
       </div>
     </div>
   )
@@ -369,6 +393,64 @@ function frameToMs(frame: number, composition: SessionCompositionModel) {
 
 function formatTraffic(bytes: number, countersAvailable: boolean) {
   return countersAvailable ? formatBytes(bytes) : 'Counters unavailable'
+}
+
+function activityHeight(payloadBytes: number, packets: number) {
+  if (payloadBytes <= 0) return packets > 0 ? 1 : 0
+  return Math.min(15, Math.max(2, 2 + Math.log2(1 + payloadBytes / 64) * 2))
+}
+
+type ActivityColumn = {
+  x: number
+  startMs: number
+  endMs: number
+  payloadBytesOut: number
+  payloadBytesIn: number
+  packetsOut: number
+  packetsIn: number
+}
+
+function buildActivityColumns(
+  clip: SessionCompositionModel['clips'][number],
+  composition: SessionCompositionModel,
+  visibleClipStart: number,
+  visibleClipEnd: number,
+  width: number,
+) {
+  const result = new Map<number, ActivityColumn>()
+  const frameSpan = Math.max(1, visibleClipEnd - visibleClipStart)
+  for (const sample of clip.activity.samples) {
+    const sampleFrame = ((sample.startMs - composition.sessionStartMs) / 1000) * composition.fps
+    if (sampleFrame < visibleClipStart || sampleFrame > visibleClipEnd) continue
+    const x = Math.max(0, Math.min(Math.ceil(width) - 1, Math.floor(((sampleFrame - visibleClipStart) / frameSpan) * width)))
+    const current = result.get(x)
+    if (current) {
+      current.endMs = Math.max(current.endMs, sample.startMs + sample.durationMs)
+      current.payloadBytesOut += sample.payloadBytesOut
+      current.payloadBytesIn += sample.payloadBytesIn
+      current.packetsOut += sample.packetsOut
+      current.packetsIn += sample.packetsIn
+    } else {
+      result.set(x, {
+        x,
+        startMs: sample.startMs,
+        endMs: sample.startMs + sample.durationMs,
+        payloadBytesOut: sample.payloadBytesOut,
+        payloadBytesIn: sample.payloadBytesIn,
+        packetsOut: sample.packetsOut,
+        packetsIn: sample.packetsIn,
+      })
+    }
+  }
+  return Array.from(result.values())
+}
+
+function activitySampleTitle(sample: ActivityColumn) {
+  return `${formatActivityTimestamp(sample.startMs)}–${formatActivityTimestamp(sample.endMs)}\nClient → remote: ${formatBytes(sample.payloadBytesOut)} payload / ${sample.packetsOut} packets\nRemote → client: ${formatBytes(sample.payloadBytesIn)} payload / ${sample.packetsIn} packets`
+}
+
+function formatActivityTimestamp(milliseconds: number) {
+  return `${formatClock(milliseconds)}.${String(new Date(milliseconds).getMilliseconds()).padStart(3, '0')}`
 }
 
 function associationLabel(relationship: 'first_party' | 'cname_related' | 'temporally_associated') {
