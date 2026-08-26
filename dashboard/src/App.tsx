@@ -39,11 +39,13 @@ type ZoomPreset = {
 }
 
 type SelectionEvent = CustomEvent<{
-  kind: 'clip' | 'service' | 'toggle-service'
+  kind: 'clip' | 'service' | 'toggle-service' | 'focus-service' | 'clear-focus'
   id: string
 }>
 
 const zoomPresets: ZoomPreset[] = [
+  { label: '10s', frames: FPS * 10 },
+  { label: '30s', frames: FPS * 30 },
   { label: '1m', frames: FPS * 60 },
   { label: '5m', frames: FPS * 300 },
   { label: 'All', frames: 'all' },
@@ -62,6 +64,7 @@ function App() {
   const [zoomFrames, setZoomFrames] = useState<number | 'all'>('all')
   const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
   const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
+  const [focusedServiceId, setFocusedServiceId] = useState<string | null>(null)
   const [collapsedServiceIds, setCollapsedServiceIds] = useState<string[]>([])
   const [inspectorOpen, setInspectorOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -70,10 +73,29 @@ function App() {
     message: string
   }>({ status: 'idle', message: '' })
 
+  const focusedBaseService = useMemo(
+    () => baseComposition.serviceGroups.find((group) => group.id === focusedServiceId) ?? null,
+    [baseComposition.serviceGroups, focusedServiceId],
+  )
+  const focusedFlowIds = useMemo(
+    () => focusedServiceId
+      ? baseComposition.clips
+          .filter((clip) => clip.serviceGroupId === focusedServiceId)
+          .map((clip) => clip.flowId)
+          .sort()
+      : [],
+    [baseComposition.clips, focusedServiceId],
+  )
   const activityRange = useMemo(() => {
     const maximumSpan = 15 * 60 * 1000
     const sessionStart = baseComposition.sessionStartMs
     const sessionEnd = baseComposition.sessionEndMs
+    if (focusedBaseService) {
+      return {
+        start: Math.floor(focusedBaseService.firstSeenMs / 5000) * 5000,
+        end: Math.ceil((focusedBaseService.lastSeenMs + 5000) / 5000) * 5000,
+      }
+    }
     const requestedSpan = zoomFrames === 'all'
       ? sessionEnd - sessionStart
       : (zoomFrames / FPS) * 1000
@@ -90,11 +112,12 @@ function App() {
       start: Math.floor(boundedStart / 5000) * 5000,
       end: Math.ceil(Math.min(sessionEnd + 5000, boundedStart + span) / 5000) * 5000,
     }
-  }, [baseComposition.clips, baseComposition.sessionEndMs, baseComposition.sessionStartMs, currentFrame, followLive, selectedClipId, zoomFrames])
+  }, [baseComposition.clips, baseComposition.sessionEndMs, baseComposition.sessionStartMs, currentFrame, focusedBaseService, followLive, selectedClipId, zoomFrames])
   const activity = useFlowActivityRange(
     data.selectedSession?.id ?? null,
     activityRange.start,
     activityRange.end,
+    focusedServiceId ? focusedFlowIds : undefined,
   )
   const composition = useMemo(
     () => buildSessionComposition({
@@ -122,10 +145,11 @@ function App() {
       zoomFrames,
       selectedClipId,
       selectedServiceId: activeServiceId,
+      focusedServiceId,
       collapsedServiceIds,
       followLive,
     }),
-    [activeServiceId, collapsedServiceIds, composition, followLive, selectedClipId, viewMode, zoomFrames],
+    [activeServiceId, collapsedServiceIds, composition, focusedServiceId, followLive, selectedClipId, viewMode, zoomFrames],
   )
 
   useEffect(() => {
@@ -170,6 +194,29 @@ function App() {
         )
         return
       }
+      if (detail.kind === 'clear-focus') {
+        setFocusedServiceId(null)
+        return
+      }
+      if (detail.kind === 'focus-service') {
+        const lane = composition.lanes.find((item) => item.serviceGroupId === detail.id)
+        const lastFrame = lane
+          ? Math.max(...lane.clips.map((clip) => clip.startFrame + clip.durationFrames))
+          : composition.durationInFrames - 1
+        const focusedFrame = Math.max(0, Math.min(composition.durationInFrames - 1, Math.round(lastFrame)))
+        setFocusedServiceId(detail.id)
+        setSelectedClipId(null)
+        setSelectedServiceId(detail.id)
+        setCollapsedServiceIds((current) => current.filter((id) => id !== detail.id))
+        setZoomFrames('all')
+        setFollowLive(false)
+        playerRef.current?.pause()
+        playerRef.current?.seekTo(focusedFrame)
+        setIsPlaying(false)
+        setCurrentFrame(focusedFrame)
+        setInspectorOpen(true)
+        return
+      }
       if (detail.kind === 'clip') {
         const clip = composition.clips.find((item) => item.id === detail.id)
         setSelectedClipId(detail.id)
@@ -183,7 +230,7 @@ function App() {
 
     window.addEventListener('infrareveal:select', handleSelection)
     return () => window.removeEventListener('infrareveal:select', handleSelection)
-  }, [composition.clips])
+  }, [composition.clips, composition.durationInFrames, composition.lanes])
 
   useEffect(() => {
     const player = playerRef.current
@@ -229,6 +276,7 @@ function App() {
     const player = playerRef.current
     const latestFrame = Math.max(0, composition.durationInFrames - 1)
     setFollowLive(true)
+    setFocusedServiceId(null)
     setCurrentFrame(latestFrame)
     player?.seekTo(latestFrame)
     player?.play()
@@ -246,6 +294,7 @@ function App() {
     setCollapsedServiceIds([])
     setSelectedClipId(null)
     setSelectedServiceId(null)
+    setFocusedServiceId(null)
     setInspectorOpen(false)
     setFollowLive(nextSessionId === null)
     if (nextSessionId !== null) {
@@ -271,6 +320,7 @@ function App() {
       const deletedTotal = Object.values(result.deleted).reduce((total, count) => total + count, 0)
       setSelectedClipId(null)
       setSelectedServiceId(null)
+      setFocusedServiceId(null)
       setInspectorOpen(false)
       setClearState({
         status: 'done',
@@ -445,7 +495,7 @@ function App() {
                     onClick={() => setZoomFrames(preset.frames)}
                     type="button"
                   >
-                    {preset.label}
+                    {preset.frames === 'all' && focusedServiceId ? 'Domain' : preset.label}
                   </button>
                 ))}
               </div>
@@ -454,7 +504,9 @@ function App() {
         </div>
 
         <LiveFlowFeed
-          clips={composition.clips}
+          clips={focusedServiceId
+            ? composition.clips.filter((clip) => clip.serviceGroupId === focusedServiceId)
+            : composition.clips}
           trafficCountersAvailable={composition.totals.trafficCountersAvailable}
           selectedClipId={selectedClipId}
           onSelectClip={selectClip}

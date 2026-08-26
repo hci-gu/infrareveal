@@ -129,25 +129,56 @@ export function emptyGatewayData(): GatewayData {
   }
 }
 
-export async function getFlowActivityRange(sessionId: string, startMs: number, endMs: number) {
+export async function getFlowActivityRange(
+  sessionId: string,
+  startMs: number,
+  endMs: number,
+  flowIds: string[] = [],
+) {
   if (!sessionId || !Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) {
     return { chunks: [] as FlowActivityChunk[], windows: [] as FlowActivityWindow[] }
   }
-  const start = new Date(startMs).toISOString()
-  const overlapStart = new Date(startMs - 60_000).toISOString()
-  const end = new Date(endMs).toISOString()
+  const start = formatPocketBaseDate(startMs)
+  const overlapStart = formatPocketBaseDate(startMs - 60_000)
+  const end = formatPocketBaseDate(endMs)
   const sessionFilter = `session="${sessionId}"`
-  const [chunks, windows] = await Promise.all([
-    listAllRecords<FlowActivityChunk>('flow_activity_chunks', {
-      sort: 'chunk_start',
-      filter: `${sessionFilter} && chunk_start >= "${start}" && chunk_start < "${end}"`,
-    }),
+  const rangeFilter = `${sessionFilter} && chunk_start >= "${start}" && chunk_start < "${end}"`
+  const flowBatches = flowIds.length > 0 ? chunk(flowIds, 40) : [[]]
+  const [chunkPages, windows] = await Promise.all([
+    Promise.all(flowBatches.map((batch) => {
+      const flowFilter = batch.length > 0
+        ? ` && (${batch.map((flowId) => `flow="${escapeFilterValue(flowId)}"`).join(' || ')})`
+        : ''
+      return listAllRecords<FlowActivityChunk>('flow_activity_chunks', {
+        sort: 'chunk_start',
+        filter: `${rangeFilter}${flowFilter}`,
+      })
+    })),
     listAllRecords<FlowActivityWindow>('flow_activity_windows', {
       sort: 'window_start',
       filter: `${sessionFilter} && window_start >= "${overlapStart}" && window_start < "${end}"`,
     }),
   ])
+  const chunks = Array.from(
+    new Map(chunkPages.flat().map((activityChunk) => [activityChunk.id, activityChunk])).values(),
+  ).sort((left, right) => Date.parse(left.chunk_start) - Date.parse(right.chunk_start))
   return { chunks, windows }
+}
+
+function chunk<T>(values: T[], size: number) {
+  const batches: T[][] = []
+  for (let index = 0; index < values.length; index += size) {
+    batches.push(values.slice(index, index + size))
+  }
+  return batches
+}
+
+function escapeFilterValue(value: string) {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
+}
+
+export function formatPocketBaseDate(milliseconds: number) {
+  return new Date(milliseconds).toISOString().replace('T', ' ')
 }
 
 export async function clearGatewayData(): Promise<ClearGatewayDataResult> {

@@ -247,10 +247,12 @@ export function useFlowActivityRange(
   sessionId: string | null,
   startMs: number,
   endMs: number,
+  flowIds?: string[],
 ) {
   const [chunks, setChunks] = useState<Map<string, FlowActivityChunk>>(new Map())
   const [windows, setWindows] = useState<Map<string, FlowActivityWindow>>(new Map())
   const [error, setError] = useState<string | null>(null)
+  const flowIdKey = flowIds?.join(',') ?? ''
 
   useEffect(() => {
     let cancelled = false
@@ -262,6 +264,8 @@ export function useFlowActivityRange(
       return Number.isFinite(value) && value >= startMs - 60_000 && value < endMs
     }
     const belongs = (record: { session: string }) => record.session === sessionId
+    const requestedFlowIds = flowIdKey ? flowIdKey.split(',') : []
+    const requestedFlowIdSet = new Set(requestedFlowIds)
 
     async function load() {
       if (!sessionId || endMs <= startMs) {
@@ -271,7 +275,7 @@ export function useFlowActivityRange(
         return
       }
       try {
-        const result = await getFlowActivityRange(sessionId, startMs, endMs)
+        const result = await getFlowActivityRange(sessionId, startMs, endMs, requestedFlowIds)
         if (!cancelled) {
           setChunks(new Map(result.chunks.map((item) => [item.id, item])))
           setWindows(new Map(result.windows.map((item) => [item.id, item])))
@@ -288,6 +292,7 @@ export function useFlowActivityRange(
         const [unsubscribeChunks, unsubscribeWindows] = await Promise.all([
           pb.collection('flow_activity_chunks').subscribe('*', (event: RealtimeEvent<FlowActivityChunk>) => {
             if (!belongs(event.record) || !inRange(event.record.chunk_start)) return
+            if (requestedFlowIdSet.size > 0 && !requestedFlowIdSet.has(event.record.flow)) return
             setChunks((current) => applyRealtimeRecord(current, event))
           }),
           pb.collection('flow_activity_windows').subscribe('*', (event: RealtimeEvent<FlowActivityWindow>) => {
@@ -309,7 +314,7 @@ export function useFlowActivityRange(
       window.clearInterval(pollTimer)
       for (const unsubscribe of unsubscribers) unsubscribe()
     }
-  }, [endMs, sessionId, startMs])
+  }, [endMs, flowIdKey, sessionId, startMs])
 
   return {
     chunks: useMemo(() => Array.from(chunks.values()), [chunks]),

@@ -2,6 +2,7 @@ import { useMemo } from 'react'
 import { useCurrentFrame } from 'remotion'
 import { buildTreemap } from '../model/treemap'
 import type { SessionComposition as SessionCompositionModel } from '../model/sessionModel'
+import { activityVisualMetrics, resolveTimelineViewport } from '../model/timelineViewport'
 import { formatBytes, formatClock, formatDuration } from '../views/formatters'
 
 export type DashboardViewMode = 'timeline' | 'treemap'
@@ -12,6 +13,7 @@ export type SessionCompositionProps = {
   zoomFrames: number | 'all'
   selectedClipId: string | null
   selectedServiceId: string | null
+  focusedServiceId: string | null
   collapsedServiceIds: string[]
   followLive: boolean
 }
@@ -35,11 +37,25 @@ export function SessionComposition({
   zoomFrames,
   selectedClipId,
   selectedServiceId,
+  focusedServiceId,
   collapsedServiceIds,
   followLive,
 }: SessionCompositionProps) {
   const frame = useCurrentFrame()
-  const visibleRange = getVisibleRange(frame, composition.durationInFrames, zoomFrames, followLive)
+  const focusedLane = composition.lanes.find((lane) => lane.serviceGroupId === focusedServiceId)
+  const focusBounds = focusedLane
+    ? {
+        start: Math.min(...focusedLane.clips.map((clip) => clip.startFrame)),
+        end: Math.max(...focusedLane.clips.map((clip) => clip.startFrame + clip.durationFrames)),
+      }
+    : null
+  const visibleRange = resolveTimelineViewport({
+    currentFrame: frame,
+    durationInFrames: composition.durationInFrames,
+    focusBounds,
+    followLive,
+    zoomFrames,
+  })
 
   return (
     <div className="h-full w-full bg-[#f8fafc] text-slate-950">
@@ -51,6 +67,7 @@ export function SessionComposition({
           visibleEndFrame={visibleRange.end}
           selectedClipId={selectedClipId}
           selectedServiceId={selectedServiceId}
+          focusedServiceId={focusedServiceId}
           collapsedServiceIds={collapsedServiceIds}
         />
       ) : (
@@ -71,6 +88,7 @@ function TimelineScene({
   visibleEndFrame,
   selectedClipId,
   selectedServiceId,
+  focusedServiceId,
   collapsedServiceIds,
 }: {
   composition: SessionCompositionModel
@@ -79,10 +97,15 @@ function TimelineScene({
   visibleEndFrame: number
   selectedClipId: string | null
   selectedServiceId: string | null
+  focusedServiceId: string | null
   collapsedServiceIds: string[]
 }) {
   const frameSpan = Math.max(1, visibleEndFrame - visibleStartFrame)
-  const lanes = composition.lanes
+  const lanes = focusedServiceId
+    ? composition.lanes.filter((lane) => lane.serviceGroupId === focusedServiceId)
+    : composition.lanes
+  const focusedLane = lanes.find((lane) => lane.serviceGroupId === focusedServiceId)
+  const domainFocused = Boolean(focusedLane)
   const collapsed = new Set(collapsedServiceIds)
   const leftAxis = 344
   const timelineWidth = composition.width - leftAxis - 34
@@ -93,9 +116,20 @@ function TimelineScene({
     <div className="relative h-full overflow-hidden">
       <div className="absolute inset-x-0 top-0 flex h-[70px] items-center justify-between border-b border-slate-200 bg-white px-8">
         <div>
-          <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Session timeline</div>
+          <div className="flex items-center gap-3 text-xs font-semibold uppercase tracking-wide text-slate-500">
+            <span>{domainFocused ? 'Domain activity' : 'Session timeline'}</span>
+            {focusedLane ? (
+              <button
+                className="border border-slate-300 bg-white px-2 py-1 normal-case tracking-normal text-slate-700 hover:bg-slate-50"
+                onClick={() => dispatchSelection('clear-focus', focusedLane.serviceGroupId)}
+                type="button"
+              >
+                Show all domains
+              </button>
+            ) : null}
+          </div>
           <div className="mt-1 text-2xl font-semibold text-slate-950">
-            {formatClock(frameToMs(currentFrame, composition))}
+            {focusedLane ? focusedLane.label : formatClock(frameToMs(currentFrame, composition))}
           </div>
         </div>
         <div className="flex items-center gap-5 text-sm text-slate-600">
@@ -170,7 +204,8 @@ function TimelineScene({
                   </button>
                   <button
                     className="absolute bottom-0 left-11 top-0 flex w-[300px] items-center gap-3 border-r border-slate-200 px-3 text-left hover:bg-slate-200/70"
-                    onClick={() => dispatchSelection('service', lane.serviceGroupId)}
+                    onClick={() => dispatchSelection('focus-service', lane.serviceGroupId)}
+                    title={`Focus ${lane.label} and load its full activity history`}
                     type="button"
                   >
                     <span className="min-w-0 flex-1">
@@ -183,9 +218,9 @@ function TimelineScene({
                     </span>
                   </button>
                   <button
-                    aria-label={`Select ${lane.label}`}
+                    aria-label={`Focus ${lane.label}`}
                     className="absolute bottom-0 right-[34px] top-0"
-                    onClick={() => dispatchSelection('service', lane.serviceGroupId)}
+                    onClick={() => dispatchSelection('focus-service', lane.serviceGroupId)}
                     style={{ left: leftAxis }}
                     type="button"
                   >
@@ -207,10 +242,11 @@ function TimelineScene({
                     const width = Math.max(4, ((end - start) / frameSpan) * timelineWidth)
                     const duration = Math.max(0, (clip.endMs - clip.startMs) / 1000)
                     const activityColumns = buildActivityColumns(clip, composition, start, end, width)
+                    const activityMetrics = activityVisualMetrics(domainFocused)
 
                     return (
                       <div
-                        className={`relative h-10 border-b border-slate-100 ${selectedClip ? 'bg-sky-50' : 'bg-white'}`}
+                        className={`relative border-b border-slate-100 ${domainFocused ? 'h-16' : 'h-10'} ${selectedClip ? 'bg-sky-50' : 'bg-white'}`}
                         key={clip.id}
                       >
                         <button
@@ -229,7 +265,7 @@ function TimelineScene({
                         </button>
                         <div className="absolute bottom-0 right-[34px] top-0" style={{ left: leftAxis }}>
                           <button
-                            className={`absolute top-1 h-8 overflow-hidden rounded-sm border text-left transition ${
+                            className={`absolute top-1 overflow-hidden rounded-sm border text-left transition ${domainFocused ? 'h-14' : 'h-8'} ${
                               selectedClip ? 'border-slate-950 ring-2 ring-slate-950' : 'border-white'
                             } ${clip.associationRelationship === 'temporally_associated' ? 'border-dashed' : ''} ${active ? 'opacity-100' : 'opacity-75'}`}
                             onClick={() => dispatchSelection('clip', clip.id)}
@@ -250,12 +286,12 @@ function TimelineScene({
                             })}
                             <span className="absolute left-0 right-0 top-1/2 h-px bg-slate-500/70" />
                             {activityColumns.map((sample) => {
-                              const outHeight = activityHeight(sample.payloadBytesOut, sample.packetsOut)
-                              const inHeight = activityHeight(sample.payloadBytesIn, sample.packetsIn)
+                              const outHeight = activityHeight(sample.payloadBytesOut, sample.packetsOut, activityMetrics)
+                              const inHeight = activityHeight(sample.payloadBytesIn, sample.packetsIn, activityMetrics)
                               return (
                                 <span key={sample.x}>
-                                  {outHeight > 0 ? <i className="absolute bottom-1/2 bg-amber-500" style={{ height: outHeight, left: sample.x, width: 1 }} title={activitySampleTitle(sample)} /> : null}
-                                  {inHeight > 0 ? <i className="absolute top-1/2 bg-cyan-500" style={{ height: inHeight, left: sample.x, width: 1 }} title={activitySampleTitle(sample)} /> : null}
+                                  {outHeight > 0 ? <i className="absolute bottom-1/2 bg-amber-500" style={{ height: outHeight, left: sample.x, width: activityMetrics.columnWidth }} title={activitySampleTitle(sample)} /> : null}
+                                  {inHeight > 0 ? <i className="absolute top-1/2 bg-cyan-500" style={{ height: inHeight, left: sample.x, width: activityMetrics.columnWidth }} title={activitySampleTitle(sample)} /> : null}
                                 </span>
                               )
                             })}
@@ -277,7 +313,9 @@ function TimelineScene({
         <div className="-ml-[5px] h-3 w-3 rounded-full bg-red-600" />
       </div>
       <div className="absolute bottom-5 right-7 rounded-sm bg-white/90 px-3 py-2 text-xs font-medium text-slate-600 shadow-sm">
-        Pale bars are connection lifetimes; colored spikes are 50 ms packet activity. Hatching means capture was incomplete.
+        {domainFocused
+          ? 'Full retained domain history. Use 10s / 30s below for a closer view; hatching means capture was incomplete.'
+          : 'Click a domain to focus it. Pale bars are connection lifetimes; colored spikes are 50 ms packet activity.'}
       </div>
     </div>
   )
@@ -357,24 +395,6 @@ function TreemapScene({
   )
 }
 
-function getVisibleRange(
-  frame: number,
-  durationInFrames: number,
-  zoomFrames: number | 'all',
-  followLive: boolean,
-) {
-  if (zoomFrames === 'all' || zoomFrames >= durationInFrames) {
-    return { start: 0, end: durationInFrames }
-  }
-
-  const anchor = followLive ? durationInFrames : frame
-  const start = Math.max(0, Math.min(anchor - zoomFrames * 0.82, durationInFrames - zoomFrames))
-  return {
-    start,
-    end: Math.min(durationInFrames, start + zoomFrames),
-  }
-}
-
 function buildTimeMarks(startFrame: number, endFrame: number, sessionStartMs: number, fps: number) {
   const span = Math.max(1, endFrame - startFrame)
   return Array.from({ length: 7 }, (_, index) => {
@@ -395,9 +415,16 @@ function formatTraffic(bytes: number, countersAvailable: boolean) {
   return countersAvailable ? formatBytes(bytes) : 'Counters unavailable'
 }
 
-function activityHeight(payloadBytes: number, packets: number) {
-  if (payloadBytes <= 0) return packets > 0 ? 1 : 0
-  return Math.min(15, Math.max(2, 2 + Math.log2(1 + payloadBytes / 64) * 2))
+function activityHeight(
+  payloadBytes: number,
+  packets: number,
+  metrics: ReturnType<typeof activityVisualMetrics>,
+) {
+  if (payloadBytes <= 0) return packets > 0 ? metrics.packetOnlyHeight : 0
+  return Math.min(
+    metrics.maxDirectionalHeight,
+    Math.max(metrics.minimumPayloadHeight, metrics.minimumPayloadHeight + Math.log2(1 + payloadBytes / 64) * 2.5),
+  )
 }
 
 type ActivityColumn = {
@@ -472,7 +499,7 @@ function colorForService(serviceId: string) {
   return palette[hash % palette.length]
 }
 
-function dispatchSelection(kind: 'clip' | 'service' | 'toggle-service', id: string) {
+function dispatchSelection(kind: 'clip' | 'service' | 'toggle-service' | 'focus-service' | 'clear-focus', id: string) {
   if (typeof window === 'undefined') {
     return
   }
