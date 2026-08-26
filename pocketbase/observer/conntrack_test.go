@@ -6,6 +6,45 @@ import (
 	"testing"
 )
 
+func TestConntrackClearBoundarySuppressesExistingFlowsUntilTheyDisappear(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "nf_conntrack")
+	line := "ipv4 2 tcp 6 431999 ESTABLISHED src=10.0.0.100 dst=151.101.3.6 sport=57299 dport=443 packets=5 bytes=360 src=151.101.3.6 dst=10.0.0.100 sport=443 dport=57299 packets=7 bytes=600 [ASSURED] mark=0 zone=0 use=2\n"
+	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sampler := NewConntrackSampler(path, NewObservationScope("10.0.0.", "10.0.0.1"))
+	if err := sampler.SuppressCurrentFlows(); err != nil {
+		t.Fatal(err)
+	}
+
+	samples, err := sampler.ReadUnsuppressedSamples()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 0 {
+		t.Fatalf("expected the pre-clear connection to remain suppressed, got %#v", samples)
+	}
+
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := sampler.ReadUnsuppressedSamples(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	samples, err = sampler.ReadUnsuppressedSamples()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 1 {
+		t.Fatalf("expected a connection that reappears after absence to be treated as new, got %#v", samples)
+	}
+}
+
 func TestParseConntrackLineKeepsByteAndPacketCounters(t *testing.T) {
 	line := "ipv4 2 tcp 6 431999 ESTABLISHED src=10.0.0.100 dst=151.101.3.6 sport=57299 dport=443 packets=5 bytes=360 src=151.101.3.6 dst=10.0.0.100 sport=443 dport=57299 packets=7 bytes=600 [ASSURED] mark=0 zone=0 use=2"
 

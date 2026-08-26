@@ -20,7 +20,7 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
-import { clearGatewayData } from './data/pocketbaseClient'
+import { clearObservationData } from './data/clearObservationData'
 import { useFlowActivityRange, useGatewayData } from './data/useGatewayData'
 import {
   COMPOSITION_HEIGHT,
@@ -316,7 +316,10 @@ function App() {
 
     setClearState({ status: 'clearing', message: 'Clearing observation data.' })
     try {
-      const result = await clearGatewayData()
+      const result = await clearObservationData({
+        clearActivityCache: activity.clear,
+        refreshGatewayData: refresh,
+      })
       const deletedTotal = Object.values(result.deleted).reduce((total, count) => total + count, 0)
       setSelectedClipId(null)
       setSelectedServiceId(null)
@@ -326,7 +329,6 @@ function App() {
         status: 'done',
         message: `Deleted ${deletedTotal.toLocaleString()} records.`,
       })
-      refresh()
     } catch (clearError) {
       setClearState({
         status: 'error',

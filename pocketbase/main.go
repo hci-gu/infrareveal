@@ -32,6 +32,7 @@ var active_session_id *string
 // We'll keep a global map to track which hostnames we've seen for the current session
 var sessionHostnames sync.Map // key=string (hostname), value=bool
 var observationClearMu sync.Mutex
+var conntrackSampler *observer.ConntrackSampler
 
 func stripPort(hostPort string) string {
 	host, _, err := net.SplitHostPort(hostPort)
@@ -144,7 +145,7 @@ func main() {
 		observationScope := observer.NewObservationScope(clientPrefix, gatewayIP)
 
 		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, currentSessionID)
-		observer.StartConntrackSampler(ctx, app, conntrackPath, observationScope, currentSessionID)
+		conntrackSampler = observer.StartConntrackSampler(ctx, app, conntrackPath, observationScope, currentSessionID)
 		observer.StartPacketActivityObserver(
 			ctx,
 			app,
@@ -253,6 +254,11 @@ func clearObservationCollections(app *pocketbase.PocketBase) (clearObservationsR
 	defer func() {
 		active_session_id = previousActiveSessionID
 	}()
+	if conntrackSampler != nil {
+		if err := conntrackSampler.SuppressCurrentFlows(); err != nil {
+			return clearObservationsResult{}, fmt.Errorf("snapshot active conntrack flows before clearing: %w", err)
+		}
+	}
 
 	result := clearObservationsResult{
 		Deleted: map[string]int{},

@@ -252,7 +252,15 @@ export function useFlowActivityRange(
   const [chunks, setChunks] = useState<Map<string, FlowActivityChunk>>(new Map())
   const [windows, setWindows] = useState<Map<string, FlowActivityWindow>>(new Map())
   const [error, setError] = useState<string | null>(null)
+  const [refreshKey, setRefreshKey] = useState(0)
   const flowIdKey = flowIds?.join(',') ?? ''
+
+  const clear = useCallback(() => {
+    setChunks(new Map())
+    setWindows(new Map())
+    setError(null)
+    setRefreshKey((key) => key + 1)
+  }, [])
 
   useEffect(() => {
     let cancelled = false
@@ -291,15 +299,22 @@ export function useFlowActivityRange(
       try {
         const [unsubscribeChunks, unsubscribeWindows] = await Promise.all([
           pb.collection('flow_activity_chunks').subscribe('*', (event: RealtimeEvent<FlowActivityChunk>) => {
+            if (cancelled) return
             if (!belongs(event.record) || !inRange(event.record.chunk_start)) return
             if (requestedFlowIdSet.size > 0 && !requestedFlowIdSet.has(event.record.flow)) return
             setChunks((current) => applyRealtimeRecord(current, event))
           }),
           pb.collection('flow_activity_windows').subscribe('*', (event: RealtimeEvent<FlowActivityWindow>) => {
+            if (cancelled) return
             if (!belongs(event.record) || !inRange(event.record.window_start)) return
             setWindows((current) => applyRealtimeRecord(current, event))
           }),
         ])
+        if (cancelled) {
+          unsubscribeChunks()
+          unsubscribeWindows()
+          return
+        }
         unsubscribers.push(unsubscribeChunks, unsubscribeWindows)
       } catch {
         // The polling fallback below keeps this bounded range fresh.
@@ -314,12 +329,13 @@ export function useFlowActivityRange(
       window.clearInterval(pollTimer)
       for (const unsubscribe of unsubscribers) unsubscribe()
     }
-  }, [endMs, flowIdKey, sessionId, startMs])
+  }, [endMs, flowIdKey, refreshKey, sessionId, startMs])
 
   return {
     chunks: useMemo(() => Array.from(chunks.values()), [chunks]),
     windows: useMemo(() => Array.from(windows.values()), [windows]),
     error,
+    clear,
   }
 }
 

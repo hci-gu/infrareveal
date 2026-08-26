@@ -9,6 +9,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pocketbase/dbx"
@@ -29,11 +30,27 @@ type FlowSample struct {
 	BytesIn         int64
 }
 
+type ConntrackSampler struct {
+	path       string
+	scope      ObservationScope
+	mu         sync.Mutex
+	suppressed map[string]struct{}
+}
+
 func (f FlowSample) Key() string {
 	return flowKey(f.Protocol, f.ClientIP, f.SourcePort, f.DestinationIP, f.DestinationPort)
 }
 
-func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path string, scope ObservationScope, sessionID func() string) {
+func NewConntrackSampler(path string, scope ObservationScope) *ConntrackSampler {
+	return &ConntrackSampler{
+		path:       path,
+		scope:      scope,
+		suppressed: make(map[string]struct{}),
+	}
+}
+
+func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path string, scope ObservationScope, sessionID func() string) *ConntrackSampler {
+	sampler := NewConntrackSampler(path, scope)
 	accountingPath := os.Getenv("CONNTRACK_ACCOUNTING_PATH")
 	if accountingPath == "" {
 		accountingPath = "/proc/sys/net/netfilter/nf_conntrack_acct"
@@ -58,7 +75,7 @@ func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path
 				if sessionID == "" {
 					continue
 				}
-				samples, err := ReadConntrackSamples(path, scope)
+				err := sampler.sampleAndPersist(app, sessionID)
 				if err != nil {
 					if !loggedMissing {
 						log.Printf("conntrack observer unavailable at %s: %v", path, err)
@@ -67,14 +84,72 @@ func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path
 					continue
 				}
 				loggedMissing = false
-				for _, sample := range samples {
-					if err := upsertFlow(app, sessionID, sample); err != nil {
-						log.Printf("conntrack observer save flow error: %v", err)
-					}
-				}
 			}
 		}
 	}()
+
+	return sampler
+}
+
+func (sampler *ConntrackSampler) SuppressCurrentFlows() error {
+	sampler.mu.Lock()
+	defer sampler.mu.Unlock()
+
+	samples, err := ReadConntrackSamples(sampler.path, sampler.scope)
+	if err != nil {
+		return err
+	}
+	for _, sample := range samples {
+		sampler.suppressed[sample.Key()] = struct{}{}
+	}
+	return nil
+}
+
+func (sampler *ConntrackSampler) ReadUnsuppressedSamples() ([]FlowSample, error) {
+	sampler.mu.Lock()
+	defer sampler.mu.Unlock()
+	return sampler.readUnsuppressedSamples()
+}
+
+func (sampler *ConntrackSampler) readUnsuppressedSamples() ([]FlowSample, error) {
+	samples, err := ReadConntrackSamples(sampler.path, sampler.scope)
+	if err != nil {
+		return nil, err
+	}
+
+	present := make(map[string]struct{}, len(samples))
+	for _, sample := range samples {
+		present[sample.Key()] = struct{}{}
+	}
+	for key := range sampler.suppressed {
+		if _, ok := present[key]; !ok {
+			delete(sampler.suppressed, key)
+		}
+	}
+
+	result := make([]FlowSample, 0, len(samples))
+	for _, sample := range samples {
+		if _, suppressed := sampler.suppressed[sample.Key()]; !suppressed {
+			result = append(result, sample)
+		}
+	}
+	return result, nil
+}
+
+func (sampler *ConntrackSampler) sampleAndPersist(app *pocketbase.PocketBase, sessionID string) error {
+	sampler.mu.Lock()
+	defer sampler.mu.Unlock()
+
+	samples, err := sampler.readUnsuppressedSamples()
+	if err != nil {
+		return err
+	}
+	for _, sample := range samples {
+		if err := upsertFlow(app, sessionID, sample); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func ensureConntrackAccounting(path string) (bool, error) {

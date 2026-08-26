@@ -1,11 +1,15 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
+
+	"myapp/observer"
 )
 
 func TestClearObservationsDeletesActivityBeforeFlows(t *testing.T) {
@@ -50,6 +54,17 @@ func TestClearObservationsDeletesActivityBeforeFlows(t *testing.T) {
 	if err := app.Save(chunk); err != nil {
 		t.Fatal(err)
 	}
+	conntrackPath := filepath.Join(t.TempDir(), "nf_conntrack")
+	conntrackLine := "ipv4 2 tcp 6 431999 ESTABLISHED src=10.0.0.50 dst=93.184.216.34 sport=53000 dport=443 packets=5 bytes=360 src=93.184.216.34 dst=10.0.0.50 sport=443 dport=53000 packets=7 bytes=600 [ASSURED] mark=0 zone=0 use=2\n"
+	if err := os.WriteFile(conntrackPath, []byte(conntrackLine), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	previousSampler := conntrackSampler
+	conntrackSampler = observer.NewConntrackSampler(
+		conntrackPath,
+		observer.NewObservationScope("10.0.0.", "10.0.0.1"),
+	)
+	t.Cleanup(func() { conntrackSampler = previousSampler })
 
 	result, err := clearObservationCollections(app)
 	if err != nil {
@@ -57,5 +72,12 @@ func TestClearObservationsDeletesActivityBeforeFlows(t *testing.T) {
 	}
 	if result.Deleted["flow_activity_chunks"] != 1 || result.Deleted["flows"] != 1 {
 		t.Fatalf("expected activity and flow records deleted, got %#v", result.Deleted)
+	}
+	samples, err := conntrackSampler.ReadUnsuppressedSamples()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(samples) != 0 {
+		t.Fatalf("expected the clear boundary to suppress the still-active flow, got %#v", samples)
 	}
 }
