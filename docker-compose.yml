@@ -23,8 +23,8 @@ services:
       - "8090:8090"
   dashboard:
     build:
-      context: ./dashboard
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: dashboard/Dockerfile
     restart: always
     ports:
       - "8080:80"

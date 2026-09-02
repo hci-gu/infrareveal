@@ -1,3 +1,4 @@
+/** PocketBase DTOs shared by every InfraReveal session-state consumer. */
 export type Flow = {
   id: string
   created: string
@@ -20,6 +21,7 @@ export type Flow = {
 export type DNSQuery = {
   id: string
   created: string
+  updated?: string
   session: string
   client_ip: string
   query_name: string
@@ -31,6 +33,8 @@ export type DNSQuery = {
 
 export type FlowAttribution = {
   id: string
+  created?: string
+  updated?: string
   session: string
   flow: string
   candidate_hostname: string
@@ -43,6 +47,8 @@ export type FlowAttribution = {
 
 export type ActivityEpisode = {
   id: string
+  created?: string
+  updated?: string
   session: string
   episode_key: string
   client_ip: string
@@ -57,6 +63,8 @@ export type ActivityEpisode = {
 
 export type FlowAssociation = {
   id: string
+  created?: string
+  updated?: string
   session: string
   flow: string
   episode: string
@@ -71,6 +79,8 @@ export type FlowAssociation = {
 
 export type FlowActivityChunk = {
   id: string
+  created?: string
+  updated?: string
   session: string
   flow: string
   flow_key: string
@@ -93,6 +103,8 @@ export type FlowActivityChunk = {
 
 export type FlowActivityWindow = {
   id: string
+  created?: string
+  updated?: string
   session: string
   window_key: string
   window_start: string
@@ -105,6 +117,8 @@ export type FlowActivityWindow = {
 
 export type FlowActivityStatus = {
   id: string
+  created?: string
+  updated?: string
   session: string
   interface: string
   enabled: boolean
@@ -117,6 +131,8 @@ export type FlowActivityStatus = {
 
 export type Destination = {
   id: string
+  created?: string
+  updated?: string
   ip: string
   reverse_dns: string
   asn: number
@@ -131,6 +147,8 @@ export type Destination = {
 
 export type Route = {
   id: string
+  created?: string
+  updated?: string
   session: string
   destination: string
   destination_ip: string
@@ -144,6 +162,9 @@ export type Route = {
     timings: number[]
     city?: string
     country?: string
+    lat?: number
+    lon?: number
+    hostname?: string
   }> | null
   complete: boolean
   error: string
@@ -156,6 +177,40 @@ export type Session = {
   updated: string
   name: string
   active: boolean
+  started_at?: string
+  ended_at?: string
+}
+
+export type TimelineLOD = '50ms' | '500ms' | '1s' | '5s' | 'overview'
+
+export type SessionManifest = {
+  sessionId: string
+  name: string
+  startedAt: string
+  endedAt: string | null
+  active: boolean
+  serverNow: string
+  watermark: string
+  counts: Record<string, number>
+  coverage: { from: string; to: string }
+  transport?: 'timeline' | 'collections'
+}
+
+export type SessionWindow = {
+  range: { from: string; to: string }
+  lod: TimelineLOD
+  watermark: string
+  flows: Flow[]
+  dnsQueries: DNSQuery[]
+  attributions: FlowAttribution[]
+  activityEpisodes: ActivityEpisode[]
+  flowAssociations: FlowAssociation[]
+  flowActivityChunks: FlowActivityChunk[]
+  flowActivityWindows: FlowActivityWindow[]
+  flowActivityStatuses: FlowActivityStatus[]
+  destinations: Destination[]
+  routes: Route[]
+  nextCursor: string | null
 }
 
 export type GatewayData = {
@@ -173,4 +228,4 @@ export type GatewayData = {
   routes: Route[]
 }
 
-export type ConnectionState = 'loading' | 'live' | 'polling' | 'error'
+export type ConnectionState = 'loading' | 'live' | 'polling' | 'offline' | 'error'

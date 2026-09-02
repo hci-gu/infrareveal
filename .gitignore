@@ -3,3 +3,9 @@
 pocketbase/pb_data
 pocketbase/geoip
 pocketbase/infra-reveal
+
+# Frontend workspace outputs
+node_modules/
+**/node_modules/
+**/dist/
+*.tsbuildinfo

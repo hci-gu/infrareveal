@@ -1,4 +1,4 @@
-import { clearGatewayData, type ClearGatewayDataResult } from './pocketbaseClient'
+import { clearGatewayData, type ClearGatewayDataResult } from '@infrareveal/session-state'
 
 type ClearObservationDataDependencies = {
   clearActivityCache: () => void

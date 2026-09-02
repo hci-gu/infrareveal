@@ -18,6 +18,25 @@ What you get
 - [Flow activity bursts](docs/implementation-guides/flow-activity-bursts.md): implemented metadata-only capture and visualization of fine-grained traffic inside long-lived connections.
 - [Flow activity validation](docs/validation/flow-activity-raspberry-pi.md): repeatable privacy, load, growth, and browser-comparison checks for the target Pi.
 
+## Frontend workspace
+
+The regular dashboard and debug dashboard are pnpm workspace consumers of
+`@infrareveal/session-state`. The shared package owns PocketBase transport,
+normalized session entities, realtime reconciliation, temporal indexes,
+windowed detail caching, and playback state. Each dashboard keeps its own UI
+and Remotion projection.
+
+```bash
+pnpm install
+pnpm build
+pnpm test
+pnpm lint
+```
+
+Run an individual dashboard with `pnpm --filter @infrareveal/dashboard dev` or
+`pnpm --filter @infrareveal/debug-dashboard dev`. Set `VITE_POCKETBASE_URL`
+when PocketBase is not on port 8090 of the dashboard host.
+
 Note: The AP is open (no password) by default. Use only in controlled environments.
 
 ## Prerequisites

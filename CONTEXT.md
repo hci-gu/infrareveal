@@ -5,6 +5,8 @@ InfraReveal is a consent-based network metadata observability gateway.
 ## Domain Terms
 
 - Gateway: the Raspberry Pi or small computer running the Wi-Fi access point, DHCP, DNS, NAT, observers, PocketBase, and dashboard.
+- Session: one bounded observation period. An active session is live and advances from the server clock; a closed session is a recorded timeline with a fixed end.
+- Session runtime: the shared frontend module that loads, reconciles, indexes, caches, and controls playback for either kind of session.
 - Client: a device connected to the InfraReveal Wi-Fi network.
 - Flow: a sampled remote network connection initiated by a client to a public destination IP and port. Gateway-generated probes and local infrastructure protocols are excluded.
 - Observation: raw metadata collected by the gateway, such as a DNS query or conntrack flow sample.
@@ -36,3 +38,5 @@ Milestone 5 destination context is:
 
 Attribution work consumes observations and writes separate derived records instead of overwriting raw observations.
 Website associations follow the same rule: endpoint identity remains intact, and only high- or medium-confidence first-party, CNAME, or fresh temporal evidence may add a parent activity. Provider-only, unresolved, pre-existing, DNS-less, and ambiguous traffic remains independent.
+
+Both dashboard applications consume the same `@infrareveal/session-state` session runtime. Dashboard-specific UI and Remotion projections remain outside that shared module.

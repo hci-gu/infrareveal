@@ -1,4 +1,4 @@
-import type { DNSQuery, Destination, Flow, FlowActivityChunk, FlowAssociation, FlowAttribution, GatewayData, Route } from '../data/types'
+import type { DNSQuery, Destination, Flow, FlowActivityChunk, FlowAssociation, FlowAttribution, GatewayData, Route } from '@infrareveal/session-state'
 
 export const FPS = 30
 export const COMPOSITION_WIDTH = 1440
@@ -113,9 +113,6 @@ export type SessionComposition = {
   clips: TimelineClip[]
   lanes: TimelineLane[]
   serviceGroups: ServiceGroup[]
-  attributionsByFlow: Map<string, FlowAttribution>
-  destinationsByIP: Map<string, Destination>
-  routesByDestination: Map<string, Route>
   captureStatus: GatewayData['flowActivityStatuses'][number] | null
   totals: {
     flowCount: number
@@ -127,9 +124,40 @@ export type SessionComposition = {
   }
 }
 
-export function buildSessionComposition(data: GatewayData): SessionComposition {
+export type SessionCompositionBounds = {
+  sessionStartMs?: number
+  sessionEndMs?: number
+}
+
+type CachedClip = { signature: string; clip: TimelineClip }
+type CachedGroup = { clips: TimelineClip[]; routeSignature: string; group: ServiceGroup; lane: TimelineLane }
+type CompositionProjectionCache = {
+  clips: Map<string, CachedClip>
+  groups: Map<string, CachedGroup>
+}
+
+/** Keeps unaffected flow and service projections stable across realtime revisions. */
+export class SessionCompositionProjector {
+  private readonly cache: CompositionProjectionCache = { clips: new Map(), groups: new Map() }
+
+  project(data: GatewayData, bounds: SessionCompositionBounds = {}) {
+    return buildSessionComposition(data, bounds, this.cache)
+  }
+
+  clear() {
+    this.cache.clips.clear()
+    this.cache.groups.clear()
+  }
+}
+
+export function buildSessionComposition(
+  data: GatewayData,
+  bounds: SessionCompositionBounds = {},
+  projectionCache?: CompositionProjectionCache,
+): SessionComposition {
   const flows = data.flows.filter(isDisplayableClientFlow)
   const flowIDs = new Set(flows.map((flow) => flow.id))
+  const flowsByID = new Map(flows.map((flow) => [flow.id, flow]))
   const observableRouteKeys = new Set(flows.map((flow) => routeKey(flow.destination_ip, flow.destination_port)))
   const routes = data.routes.filter((route) => observableRouteKeys.has(routeKey(route.destination_ip, route.destination_port)))
   const attributionsByFlow = new Map(
@@ -152,6 +180,8 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
     current.push(chunk)
     chunksByFlow.set(chunk.flow, current)
   }
+  const dnsSignaturesByIP = buildDNSSignaturesByIP(data.dnsQueries)
+  const activityWindowSignature = recordsSignature(data.flowActivityWindows)
 
   const timeBounds = flows.reduce(
     (bounds, flow) => {
@@ -165,19 +195,39 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
     { first: Number.POSITIVE_INFINITY, last: Number.NEGATIVE_INFINITY },
   )
 
-  const now = Date.now()
-  const sessionStartMs = Number.isFinite(timeBounds.first) ? timeBounds.first : now
+  const fallbackNow = parseTime(data.selectedSession?.started_at || data.selectedSession?.created || '', Date.now())
+  const sessionStartMs = Number.isFinite(bounds.sessionStartMs)
+    ? bounds.sessionStartMs as number
+    : Number.isFinite(timeBounds.first) ? timeBounds.first : fallbackNow
   const minimumEnd = sessionStartMs + MIN_SESSION_SECONDS * 1000
-  const sessionEndMs = Math.max(Number.isFinite(timeBounds.last) ? timeBounds.last : minimumEnd, minimumEnd)
+  const requestedEnd = Number.isFinite(bounds.sessionEndMs) ? bounds.sessionEndMs as number : Number.NEGATIVE_INFINITY
+  const sessionEndMs = Math.max(
+    requestedEnd,
+    Number.isFinite(timeBounds.last) ? timeBounds.last : minimumEnd,
+    minimumEnd,
+  )
   const durationInFrames = Math.max(
     1,
     Math.ceil(((sessionEndMs - sessionStartMs) / 1000) * FPS),
   )
 
-  const groups = new Map<string, ServiceGroup>()
+  const clipsByGroup = new Map<string, TimelineClip[]>()
   const clips = flows
-    .map((flow) =>
-      buildClip({
+    .map((flow) => {
+      const activityChunks = chunksByFlow.get(flow.id) ?? []
+      const signature = [
+        sessionStartMs,
+        recordSignature(flow),
+        recordSignature(attributionsByFlow.get(flow.id)),
+        recordSignature(associationsByFlow.get(flow.id)),
+        recordSignature(destinationsByIP.get(flow.destination_ip)),
+        dnsSignaturesByIP.get(flow.destination_ip) ?? '',
+        recordsSignature(activityChunks),
+        activityWindowSignature,
+      ].join('|')
+      const cached = projectionCache?.clips.get(flow.id)
+      if (cached?.signature === signature) return cached.clip
+      const clip = buildClip({
         flow,
         sessionStartMs,
         attributionsByFlow,
@@ -185,73 +235,61 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
         destinationsByIP,
         hostnamesByIP,
         routesByDestination,
-        activityChunks: chunksByFlow.get(flow.id) ?? [],
+        activityChunks,
         activityWindows: data.flowActivityWindows,
-      }),
-    )
+      })
+      projectionCache?.clips.set(flow.id, { signature, clip })
+      return clip
+    })
     .sort((a, b) => a.startFrame - b.startFrame || b.bytes - a.bytes)
 
   for (const clip of clips) {
-    const flow = flows.find((item) => item.id === clip.flowId)
-    const destination = destinationsByIP.get(clip.destinationIP)
-    const route = routesByDestination.get(routeKey(clip.destinationIP, clip.destinationPort))
-    const existing = groups.get(clip.serviceGroupId)
-
-    if (existing) {
-      existing.totalBytes += clip.bytes
-      existing.packetCount += clip.packets
-      existing.flowCount += 1
-      existing.firstSeenMs = Math.min(existing.firstSeenMs, clip.startMs)
-      existing.lastSeenMs = Math.max(existing.lastSeenMs, clip.endMs)
-      existing.lastActivityMs = latestTimestamp(existing.lastActivityMs, clip.lastActivityMs)
-      existing.routeCount += route ? 1 : 0
-      existing.routeCompleteCount += route?.complete ? 1 : 0
-      existing.associatedFlowCount += clip.associationRelationship === 'temporally_associated' ? 1 : 0
-      if (!existing.destinationIPs.includes(clip.destinationIP)) {
-        existing.destinationIPs.push(clip.destinationIP)
-      }
-      if (!existing.clientIPs.includes(clip.clientIP)) {
-        existing.clientIPs.push(clip.clientIP)
-      }
-      if (isHostnameLabel(clip.label) && !existing.hostnames.includes(clip.label)) {
-        existing.hostnames.push(clip.label)
-      }
-      existing.confidence = strongerConfidence(existing.confidence, clip.confidence)
-      continue
+    const groupClips = clipsByGroup.get(clip.serviceGroupId) ?? []
+    groupClips.push(clip)
+    clipsByGroup.set(clip.serviceGroupId, groupClips)
+  }
+  if (projectionCache) {
+    const visibleFlowIDs = new Set(flows.map((flow) => flow.id))
+    for (const flowID of projectionCache.clips.keys()) {
+      if (!visibleFlowIDs.has(flowID)) projectionCache.clips.delete(flowID)
     }
-
-    groups.set(clip.serviceGroupId, {
-      id: clip.serviceGroupId,
-      label: clip.serviceGroupLabel,
-      sourceSignal: clip.sourceSignal,
-      confidence: clip.confidence,
-      destinationIPs: [clip.destinationIP],
-      hostnames: isHostnameLabel(clip.label) ? [clip.label] : [],
-      clientIPs: [clip.clientIP],
-      providerLabel: destination?.provider_label || destination?.organization || '',
-      totalBytes: clip.bytes,
-      packetCount: clip.packets,
-      flowCount: flow ? 1 : 0,
-      firstSeenMs: clip.startMs,
-      lastSeenMs: clip.endMs,
-      lastActivityMs: clip.lastActivityMs,
-      routeCompleteCount: route?.complete ? 1 : 0,
-      routeCount: route ? 1 : 0,
-      associatedFlowCount: clip.associationRelationship === 'temporally_associated' ? 1 : 0,
-    })
   }
 
-  const lanes = Array.from(groups.values())
-    .sort(compareGroups)
-    .map((group) => ({
+  const groups: ServiceGroup[] = []
+  const lanesByGroup = new Map<string, TimelineLane>()
+  for (const [groupID, groupClips] of clipsByGroup) {
+    const routeSignature = groupClips
+      .map((clip) => recordSignature(routesByDestination.get(routeKey(clip.destinationIP, clip.destinationPort))))
+      .join('|')
+    const cached = projectionCache?.groups.get(groupID)
+    if (cached && cached.routeSignature === routeSignature && sameReferences(cached.clips, groupClips)) {
+      groups.push(cached.group)
+      lanesByGroup.set(groupID, cached.lane)
+      continue
+    }
+    const group = buildServiceGroup(groupID, groupClips, flowsByID, destinationsByIP, routesByDestination)
+    const lane = {
       id: `lane:${group.id}`,
       label: group.label,
       serviceGroupId: group.id,
       totalBytes: group.totalBytes,
-      clips: clips
-        .filter((clip) => clip.serviceGroupId === group.id)
-        .sort(compareClipsByRecentActivity),
-    }))
+      clips: groupClips.slice().sort(compareClipsByRecentActivity),
+    }
+    projectionCache?.groups.set(groupID, { clips: groupClips.slice(), routeSignature, group, lane })
+    groups.push(group)
+    lanesByGroup.set(groupID, lane)
+  }
+  if (projectionCache) {
+    for (const groupID of projectionCache.groups.keys()) {
+      if (!clipsByGroup.has(groupID)) projectionCache.groups.delete(groupID)
+    }
+  }
+
+  const serviceGroups = groups.sort(compareGroups)
+  const lanes = serviceGroups.flatMap((group) => {
+    const lane = lanesByGroup.get(group.id)
+    return lane ? [lane] : []
+  })
 
   return {
     fps: FPS,
@@ -262,10 +300,7 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
     durationInFrames,
     clips,
     lanes,
-    serviceGroups: Array.from(groups.values()).sort(compareGroups),
-    attributionsByFlow,
-    destinationsByIP,
-    routesByDestination,
+    serviceGroups,
     captureStatus: data.flowActivityStatuses[0] ?? null,
     totals: {
       flowCount: flows.length,
@@ -278,6 +313,81 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
       ),
     },
   }
+}
+
+function buildServiceGroup(
+  groupID: string,
+  clips: TimelineClip[],
+  flowsByID: Map<string, Flow>,
+  destinationsByIP: Map<string, Destination>,
+  routesByDestination: Map<string, Route>,
+) {
+  const first = clips[0]
+  const destination = destinationsByIP.get(first.destinationIP)
+  const group: ServiceGroup = {
+    id: groupID,
+    label: first.serviceGroupLabel,
+    sourceSignal: first.sourceSignal,
+    confidence: first.confidence,
+    destinationIPs: [],
+    hostnames: [],
+    clientIPs: [],
+    providerLabel: destination?.provider_label || destination?.organization || '',
+    totalBytes: 0,
+    packetCount: 0,
+    flowCount: 0,
+    firstSeenMs: Number.POSITIVE_INFINITY,
+    lastSeenMs: Number.NEGATIVE_INFINITY,
+    lastActivityMs: null,
+    routeCompleteCount: 0,
+    routeCount: 0,
+    associatedFlowCount: 0,
+  }
+  for (const clip of clips) {
+    const route = routesByDestination.get(routeKey(clip.destinationIP, clip.destinationPort))
+    group.totalBytes += clip.bytes
+    group.packetCount += clip.packets
+    group.flowCount += flowsByID.has(clip.flowId) ? 1 : 0
+    group.firstSeenMs = Math.min(group.firstSeenMs, clip.startMs)
+    group.lastSeenMs = Math.max(group.lastSeenMs, clip.endMs)
+    group.lastActivityMs = latestTimestamp(group.lastActivityMs, clip.lastActivityMs)
+    group.routeCount += route ? 1 : 0
+    group.routeCompleteCount += route?.complete ? 1 : 0
+    group.associatedFlowCount += clip.associationRelationship === 'temporally_associated' ? 1 : 0
+    if (!group.destinationIPs.includes(clip.destinationIP)) group.destinationIPs.push(clip.destinationIP)
+    if (!group.clientIPs.includes(clip.clientIP)) group.clientIPs.push(clip.clientIP)
+    if (isHostnameLabel(clip.label) && !group.hostnames.includes(clip.label)) group.hostnames.push(clip.label)
+    group.confidence = strongerConfidence(group.confidence, clip.confidence)
+  }
+  return group
+}
+
+function buildDNSSignaturesByIP(records: DNSQuery[]) {
+  const signatures = new Map<string, string[]>()
+  for (const record of records) {
+    const signature = recordSignature(record)
+    for (const answer of record.answers ?? []) {
+      if (!isLikelyIPAddress(answer)) continue
+      const current = signatures.get(answer) ?? []
+      current.push(signature)
+      signatures.set(answer, current)
+    }
+  }
+  return new Map(Array.from(signatures, ([ip, values]) => [ip, values.join(',')]))
+}
+
+function recordsSignature(records: Array<{ id: string; created?: string; updated?: string }>) {
+  return records.map(recordSignature).join(',')
+}
+
+function recordSignature(record?: { id: string; created?: string; updated?: string }) {
+  if (!record) return ''
+  const revision = record.updated || record.created
+  return revision ? `${record.id}@${revision}` : JSON.stringify(record)
+}
+
+function sameReferences<T>(left: T[], right: T[]) {
+  return left.length === right.length && left.every((value, index) => value === right[index])
 }
 
 function buildClip({

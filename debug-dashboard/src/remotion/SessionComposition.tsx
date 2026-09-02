@@ -1,14 +1,16 @@
 import { useMemo } from 'react'
 import { useCurrentFrame } from 'remotion'
 import { buildTreemap } from '../model/treemap'
-import type { SessionComposition as SessionCompositionModel } from '../model/sessionModel'
 import { activityVisualMetrics, resolveTimelineViewport } from '../model/timelineViewport'
+import type { SceneActivityColumn, SceneWindow } from '../timeline/selectors/selectSceneWindow'
 import { formatBytes, formatClock, formatDuration } from '../views/formatters'
 
 export type DashboardViewMode = 'timeline' | 'treemap'
 
+export type { SceneWindow } from '../timeline/selectors/selectSceneWindow'
+
 export type SessionCompositionProps = {
-  composition: SessionCompositionModel
+  sceneWindow: SceneWindow
   viewMode: DashboardViewMode
   zoomFrames: number | 'all'
   selectedClipId: string | null
@@ -30,9 +32,11 @@ const palette = [
   '#65a30d',
   '#9333ea',
 ]
+const MAX_RENDERED_LANES = 160
+const MAX_RENDERED_CLIPS_PER_LANE = 240
 
 export function SessionComposition({
-  composition,
+  sceneWindow: composition,
   viewMode,
   zoomFrames,
   selectedClipId,
@@ -69,6 +73,7 @@ export function SessionComposition({
           selectedServiceId={selectedServiceId}
           focusedServiceId={focusedServiceId}
           collapsedServiceIds={collapsedServiceIds}
+          overviewOnly={zoomFrames === 'all' && !focusedServiceId}
         />
       ) : (
         <TreemapScene
@@ -90,8 +95,9 @@ function TimelineScene({
   selectedServiceId,
   focusedServiceId,
   collapsedServiceIds,
+  overviewOnly,
 }: {
-  composition: SessionCompositionModel
+  composition: SceneWindow
   currentFrame: number
   visibleStartFrame: number
   visibleEndFrame: number
@@ -99,11 +105,18 @@ function TimelineScene({
   selectedServiceId: string | null
   focusedServiceId: string | null
   collapsedServiceIds: string[]
+  overviewOnly: boolean
 }) {
   const frameSpan = Math.max(1, visibleEndFrame - visibleStartFrame)
-  const lanes = focusedServiceId
+  const scopedLanes = focusedServiceId
     ? composition.lanes.filter((lane) => lane.serviceGroupId === focusedServiceId)
     : composition.lanes
+  const matchingLanes = scopedLanes.filter((lane) => lane.clips.some((clip) => {
+    const clipEnd = clip.startFrame + clip.durationFrames
+    return clipEnd >= visibleStartFrame && clip.startFrame <= visibleEndFrame
+  }))
+  const lanes = matchingLanes.slice(0, MAX_RENDERED_LANES)
+  const hiddenLaneCount = Math.max(0, matchingLanes.length - lanes.length)
   const focusedLane = lanes.find((lane) => lane.serviceGroupId === focusedServiceId)
   const domainFocused = Boolean(focusedLane)
   const collapsed = new Set(collapsedServiceIds)
@@ -166,14 +179,17 @@ function TimelineScene({
         ) : (
           lanes.map((lane) => {
             const selected = selectedServiceId === lane.serviceGroupId
-            const isCollapsed = collapsed.has(lane.serviceGroupId)
-            const visibleClips = lane.clips.filter((clip) => {
+            const isCollapsed = overviewOnly || collapsed.has(lane.serviceGroupId)
+            const matchingClips = lane.clips.filter((clip) => {
               const clipEnd = clip.startFrame + clip.durationFrames
               return clipEnd >= visibleStartFrame && clip.startFrame <= visibleEndFrame
             })
-            const associatedCount = lane.clips.filter(
-              (clip) => clip.associationRelationship === 'temporally_associated',
-            ).length
+            const visibleClips = matchingClips.slice(0, MAX_RENDERED_CLIPS_PER_LANE)
+            const selectedOutsideBudget = matchingClips.find((clip) => clip.id === selectedClipId)
+            if (selectedOutsideBudget && !visibleClips.includes(selectedOutsideBudget)) {
+              visibleClips[visibleClips.length - 1] = selectedOutsideBudget
+            }
+            const associatedCount = lane.associatedFlowCount
             const groupStart = Math.max(
               visibleStartFrame,
               Math.min(...lane.clips.map((clip) => clip.startFrame)),
@@ -211,7 +227,7 @@ function TimelineScene({
                     <span className="min-w-0 flex-1">
                       <span className="block truncate text-sm font-semibold leading-tight text-slate-950">{lane.label}</span>
                       <span className="block truncate text-xs text-slate-500">
-                        {lane.clips.length} {lane.clips.length === 1 ? 'connection' : 'connections'}
+                        {lane.flowCount} {lane.flowCount === 1 ? 'connection' : 'connections'}
                         {associatedCount ? ` · ${associatedCount} associated` : ''}
                         {' · '}{formatTraffic(lane.totalBytes, composition.totals.trafficCountersAvailable)}
                       </span>
@@ -241,7 +257,10 @@ function TimelineScene({
                     const x = ((start - visibleStartFrame) / frameSpan) * timelineWidth
                     const width = Math.max(4, ((end - start) / frameSpan) * timelineWidth)
                     const duration = Math.max(0, (clip.endMs - clip.startMs) / 1000)
-                    const activityColumns = buildActivityColumns(clip, composition, start, end, width)
+                    const activityColumns = clip.activityColumns.filter((sample) => {
+                      const sampleFrame = ((sample.startMs - composition.sessionStartMs) / 1000) * composition.fps
+                      return sampleFrame >= start && sampleFrame <= end
+                    })
                     const activityMetrics = activityVisualMetrics(domainFocused)
 
                     return (
@@ -286,12 +305,14 @@ function TimelineScene({
                             })}
                             <span className="absolute left-0 right-0 top-1/2 h-px bg-slate-500/70" />
                             {activityColumns.map((sample) => {
+                              const sampleFrame = ((sample.startMs - composition.sessionStartMs) / 1000) * composition.fps
+                              const sampleX = Math.max(0, Math.min(Math.ceil(width) - 1, Math.floor(((sampleFrame - start) / Math.max(1, end - start)) * width)))
                               const outHeight = activityHeight(sample.payloadBytesOut, sample.packetsOut, activityMetrics)
                               const inHeight = activityHeight(sample.payloadBytesIn, sample.packetsIn, activityMetrics)
                               return (
                                 <span key={sample.x}>
-                                  {outHeight > 0 ? <i className="absolute bottom-1/2 bg-amber-500" style={{ height: outHeight, left: sample.x, width: activityMetrics.columnWidth }} title={activitySampleTitle(sample)} /> : null}
-                                  {inHeight > 0 ? <i className="absolute top-1/2 bg-cyan-500" style={{ height: inHeight, left: sample.x, width: activityMetrics.columnWidth }} title={activitySampleTitle(sample)} /> : null}
+                                  {outHeight > 0 ? <i className="absolute bottom-1/2 bg-amber-500" style={{ height: outHeight, left: sampleX, width: activityMetrics.columnWidth }} title={activitySampleTitle(sample)} /> : null}
+                                  {inHeight > 0 ? <i className="absolute top-1/2 bg-cyan-500" style={{ height: inHeight, left: sampleX, width: activityMetrics.columnWidth }} title={activitySampleTitle(sample)} /> : null}
                                 </span>
                               )
                             })}
@@ -313,9 +334,13 @@ function TimelineScene({
         <div className="-ml-[5px] h-3 w-3 rounded-full bg-red-600" />
       </div>
       <div className="absolute bottom-5 right-7 rounded-sm bg-white/90 px-3 py-2 text-xs font-medium text-slate-600 shadow-sm">
-        {domainFocused
-          ? 'Full retained domain history. Use 10s / 30s below for a closer view; hatching means capture was incomplete.'
-          : 'Click a domain to focus it. Pale bars are connection lifetimes; colored spikes are 50 ms packet activity.'}
+        {hiddenLaneCount > 0
+          ? `${hiddenLaneCount} additional groups are outside the render budget. Narrow the time window or focus a domain.`
+          : domainFocused
+          ? 'Retained domain detail is windowed to keep playback bounded. Use 10s / 30s below for a closer view; hatching means capture was incomplete.'
+          : overviewOnly
+            ? 'Whole-session overview. Click a domain to load its bounded connection detail.'
+            : 'Click a domain to focus it. Pale bars are connection lifetimes; colored spikes show the loaded activity resolution.'}
       </div>
     </div>
   )
@@ -326,7 +351,7 @@ function TreemapScene({
   currentFrame,
   selectedServiceId,
 }: {
-  composition: SessionCompositionModel
+  composition: SceneWindow
   currentFrame: number
   selectedServiceId: string | null
 }) {
@@ -407,7 +432,7 @@ function buildTimeMarks(startFrame: number, endFrame: number, sessionStartMs: nu
   })
 }
 
-function frameToMs(frame: number, composition: SessionCompositionModel) {
+function frameToMs(frame: number, composition: SceneWindow) {
   return composition.sessionStartMs + (frame / composition.fps) * 1000
 }
 
@@ -427,52 +452,7 @@ function activityHeight(
   )
 }
 
-type ActivityColumn = {
-  x: number
-  startMs: number
-  endMs: number
-  payloadBytesOut: number
-  payloadBytesIn: number
-  packetsOut: number
-  packetsIn: number
-}
-
-function buildActivityColumns(
-  clip: SessionCompositionModel['clips'][number],
-  composition: SessionCompositionModel,
-  visibleClipStart: number,
-  visibleClipEnd: number,
-  width: number,
-) {
-  const result = new Map<number, ActivityColumn>()
-  const frameSpan = Math.max(1, visibleClipEnd - visibleClipStart)
-  for (const sample of clip.activity.samples) {
-    const sampleFrame = ((sample.startMs - composition.sessionStartMs) / 1000) * composition.fps
-    if (sampleFrame < visibleClipStart || sampleFrame > visibleClipEnd) continue
-    const x = Math.max(0, Math.min(Math.ceil(width) - 1, Math.floor(((sampleFrame - visibleClipStart) / frameSpan) * width)))
-    const current = result.get(x)
-    if (current) {
-      current.endMs = Math.max(current.endMs, sample.startMs + sample.durationMs)
-      current.payloadBytesOut += sample.payloadBytesOut
-      current.payloadBytesIn += sample.payloadBytesIn
-      current.packetsOut += sample.packetsOut
-      current.packetsIn += sample.packetsIn
-    } else {
-      result.set(x, {
-        x,
-        startMs: sample.startMs,
-        endMs: sample.startMs + sample.durationMs,
-        payloadBytesOut: sample.payloadBytesOut,
-        payloadBytesIn: sample.payloadBytesIn,
-        packetsOut: sample.packetsOut,
-        packetsIn: sample.packetsIn,
-      })
-    }
-  }
-  return Array.from(result.values())
-}
-
-function activitySampleTitle(sample: ActivityColumn) {
+function activitySampleTitle(sample: SceneActivityColumn) {
   return `${formatActivityTimestamp(sample.startMs)}–${formatActivityTimestamp(sample.endMs)}\nClient → remote: ${formatBytes(sample.payloadBytesOut)} payload / ${sample.packetsOut} packets\nRemote → client: ${formatBytes(sample.payloadBytesIn)} payload / ${sample.packetsIn} packets`
 }
 

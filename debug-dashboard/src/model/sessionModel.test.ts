@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import type { FlowActivityChunk, GatewayData } from '../data/types'
-import { buildSessionComposition, decodeActivityChunk } from './sessionModel'
+import type { FlowActivityChunk, GatewayData } from '@infrareveal/session-state'
+import { buildSessionComposition, decodeActivityChunk, SessionCompositionProjector } from './sessionModel'
 
 const chunkStart = '2026-08-25T14:00:00.000Z'
 
@@ -116,5 +116,35 @@ describe('flow activity model', () => {
     const groupedComposition = buildSessionComposition(data)
     expect(groupedComposition.lanes).toHaveLength(1)
     expect(groupedComposition.lanes[0].clips.map((clip) => clip.flowId)).toEqual(['flow-2', 'flow-1'])
+  })
+
+  it('reprojects only the flow and service group whose revision changed', () => {
+    const data = gatewayData(chunk())
+    data.flows.push({
+      ...data.flows[0],
+      id: 'flow-2',
+      updated: '2026-08-25T14:00:01.000Z',
+      destination_ip: '151.101.1.69',
+      destination_port: 8443,
+      source_port: 53001,
+    })
+    const projector = new SessionCompositionProjector()
+    const first = projector.project(data)
+    const changedData = {
+      ...data,
+      flows: data.flows.map((flow) => flow.id === 'flow-1'
+        ? { ...flow, updated: '2026-08-25T14:00:03.000Z', bytes_in: flow.bytes_in + 100 }
+        : flow),
+    }
+    const second = projector.project(changedData)
+    const firstUnchangedClip = first.clips.find((clip) => clip.flowId === 'flow-2')
+    const secondUnchangedClip = second.clips.find((clip) => clip.flowId === 'flow-2')
+    const unchangedGroupID = firstUnchangedClip!.serviceGroupId
+
+    expect(secondUnchangedClip).toBe(firstUnchangedClip)
+    expect(second.serviceGroups.find((group) => group.id === unchangedGroupID))
+      .toBe(first.serviceGroups.find((group) => group.id === unchangedGroupID))
+    expect(second.clips.find((clip) => clip.flowId === 'flow-1'))
+      .not.toBe(first.clips.find((clip) => clip.flowId === 'flow-1'))
   })
 })

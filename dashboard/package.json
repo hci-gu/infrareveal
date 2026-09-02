@@ -1,0 +1,50 @@
+{
+  "name": "@infrareveal/dashboard",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc -b && vite build",
+    "test": "vitest run",
+    "lint": "eslint .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@deck.gl/core": "^9.3.11",
+    "@deck.gl/layers": "^9.3.11",
+    "@deck.gl/react": "^9.3.11",
+    "@deck.gl/widgets": "^9.3.11",
+    "@infrareveal/session-state": "workspace:*",
+    "@loaders.gl/core": "^4.4.5",
+    "@luma.gl/core": "^9.3.6",
+    "@luma.gl/engine": "^9.3.6",
+    "@luma.gl/shadertools": "^9.3.6",
+    "@remotion/player": "^4.0.520",
+    "maplibre-gl": "^6.6.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
+    "react-map-gl": "^8.1.2",
+    "react-router-dom": "^7.18.3",
+    "remotion": "^4.0.520"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@tailwindcss/postcss": "^4.3.3",
+    "@types/node": "^26.4.1",
+    "@types/react": "^19.2.18",
+    "@types/react-dom": "^19.2.5",
+    "@vitejs/plugin-react": "^6.1.1",
+    "autoprefixer": "^10.5.4",
+    "eslint": "^10.9.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.6",
+    "globals": "^17.12.0",
+    "postcss": "^8.5.26",
+    "tailwindcss": "^4.3.3",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.69.0",
+    "vite": "^8.2.2",
+    "vitest": "^4.1.11"
+  }
+}

@@ -1,5 +1,5 @@
 {
-  "name": "dashboard",
+  "name": "@infrareveal/debug-dashboard",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -11,17 +11,18 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@infrareveal/session-state": "workspace:*",
     "@radix-ui/react-slot": "^1.3.0",
     "@remotion/player": "^4.0.482",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "koota": "^0.6.6",
     "lucide-react": "^1.21.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "remotion": "^4.0.482",
     "tailwind-merge": "^3.6.0",
-    "tailwindcss-animate": "^1.0.7"
+    "tailwindcss-animate": "^1.0.7",
+    "zustand": "^5.0.15"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

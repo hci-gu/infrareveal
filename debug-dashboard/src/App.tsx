@@ -3,6 +3,7 @@ import { Player } from '@remotion/player'
 import {
   Activity,
   Database,
+  Download,
   FastForward,
   Grid2X2,
   Pause,
@@ -20,17 +21,31 @@ import {
 } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
+import { useStore } from 'zustand'
+import {
+  frameForTime,
+  selectGatewayDataWindow,
+  sessionTimelineStore,
+  setTimelinePlayback,
+  setTimelineUI,
+  timeForFrame,
+  toggleTimelineServiceCollapsed,
+  useFlowActivityRange,
+  useGatewayData,
+} from '@infrareveal/session-state'
 import { clearObservationData } from './data/clearObservationData'
-import { useFlowActivityRange, useGatewayData } from './data/useGatewayData'
 import {
   COMPOSITION_HEIGHT,
   COMPOSITION_WIDTH,
   FPS,
-  buildSessionComposition,
+  SessionCompositionProjector,
 } from './model/sessionModel'
 import type { ServiceGroup, TimelineClip } from './model/sessionModel'
+import type { SessionComposition as SessionCompositionModel } from './model/sessionModel'
 import { SessionComposition } from './remotion/SessionComposition'
-import type { DashboardViewMode, SessionCompositionProps } from './remotion/SessionComposition'
+import { createRecordedRenderBundle } from './remotion/renderBundle'
+import type { SessionCompositionProps } from './remotion/SessionComposition'
+import { selectSceneWindow } from './timeline/selectors/selectSceneWindow'
 import { formatBytes, formatClock, formatDateTime, formatDuration } from './views/formatters'
 
 type ZoomPreset = {
@@ -50,23 +65,41 @@ const zoomPresets: ZoomPreset[] = [
   { label: '5m', frames: FPS * 300 },
   { label: 'All', frames: 'all' },
 ]
+const MAX_VISIBLE_FEED_ROWS = 200
 
 function App() {
   const playerRef = useRef<PlayerRef>(null)
-  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null)
-  const { data, connectionState, error, refresh } = useGatewayData(selectedSessionId)
-  const baseComposition = useMemo(() => buildSessionComposition(data), [data])
-  const [viewMode, setViewMode] = useState<DashboardViewMode>('timeline')
+  const lastFramePublishRef = useRef(0)
+  const lastURLPublishRef = useRef(0)
+  const deepLinkAppliedRef = useRef(false)
+  const [initialDeepLink] = useState(readTimelineLocation)
+  const [baseProjector] = useState(() => new SessionCompositionProjector())
+  const [sceneProjector] = useState(() => new SessionCompositionProjector())
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(initialDeepLink.sessionId)
+  const { data, connectionState, error, refresh, timeline } = useGatewayData(selectedSessionId)
+  const staticBaseComposition = useMemo(
+    () => baseProjector.project(data, { sessionStartMs: timeline.epochMs }),
+    [baseProjector, data, timeline.epochMs],
+  )
+  const logicalSessionEndMs = Math.max(staticBaseComposition.sessionEndMs, timeline.liveEdgeMs)
+  const baseComposition = useMemo(
+    () => extendCompositionTo(staticBaseComposition, logicalSessionEndMs),
+    [logicalSessionEndMs, staticBaseComposition],
+  )
+  const ui = useStore(sessionTimelineStore, (state) => state.ui)
+  const {
+    viewMode,
+    zoomFrames,
+    selectedClipId,
+    selectedServiceId,
+    focusedServiceId,
+    collapsedServiceIds,
+    inspectorOpen,
+  } = ui
   const [currentFrame, setCurrentFrame] = useState(0)
   const [isPlaying, setIsPlaying] = useState(true)
-  const [followLive, setFollowLive] = useState(true)
-  const [playbackRate, setPlaybackRate] = useState(1)
-  const [zoomFrames, setZoomFrames] = useState<number | 'all'>('all')
-  const [selectedClipId, setSelectedClipId] = useState<string | null>(null)
-  const [selectedServiceId, setSelectedServiceId] = useState<string | null>(null)
-  const [focusedServiceId, setFocusedServiceId] = useState<string | null>(null)
-  const [collapsedServiceIds, setCollapsedServiceIds] = useState<string[]>([])
-  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const followLive = timeline.playback === 'following'
+  const playbackRate = timeline.rate
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [clearState, setClearState] = useState<{
     status: 'idle' | 'clearing' | 'done' | 'error'
@@ -77,23 +110,15 @@ function App() {
     () => baseComposition.serviceGroups.find((group) => group.id === focusedServiceId) ?? null,
     [baseComposition.serviceGroups, focusedServiceId],
   )
-  const focusedFlowIds = useMemo(
-    () => focusedServiceId
-      ? baseComposition.clips
-          .filter((clip) => clip.serviceGroupId === focusedServiceId)
-          .map((clip) => clip.flowId)
-          .sort()
-      : [],
-    [baseComposition.clips, focusedServiceId],
-  )
   const activityRange = useMemo(() => {
     const maximumSpan = 15 * 60 * 1000
     const sessionStart = baseComposition.sessionStartMs
     const sessionEnd = baseComposition.sessionEndMs
     if (focusedBaseService) {
+      const end = Math.ceil((focusedBaseService.lastSeenMs + 5000) / 5000) * 5000
       return {
-        start: Math.floor(focusedBaseService.firstSeenMs / 5000) * 5000,
-        end: Math.ceil((focusedBaseService.lastSeenMs + 5000) / 5000) * 5000,
+        start: Math.floor(Math.max(focusedBaseService.firstSeenMs, end - maximumSpan) / 5000) * 5000,
+        end,
       }
     }
     const requestedSpan = zoomFrames === 'all'
@@ -113,24 +138,86 @@ function App() {
       end: Math.ceil(Math.min(sessionEnd + 5000, boundedStart + span) / 5000) * 5000,
     }
   }, [baseComposition.clips, baseComposition.sessionEndMs, baseComposition.sessionStartMs, currentFrame, focusedBaseService, followLive, selectedClipId, zoomFrames])
+  const detailFlowIds = useMemo(
+    () => baseComposition.clips
+      .filter((clip) => (!focusedServiceId || clip.serviceGroupId === focusedServiceId) && clip.startMs < activityRange.end && clip.endMs >= activityRange.start)
+      .map((clip) => clip.flowId)
+      .sort(),
+    [activityRange.end, activityRange.start, baseComposition.clips, focusedServiceId],
+  )
+  const requestedDetailFlowIds = useMemo(
+    () => viewMode === 'timeline' && (zoomFrames !== 'all' || focusedServiceId)
+      ? detailFlowIds
+      : [],
+    [detailFlowIds, focusedServiceId, viewMode, zoomFrames],
+  )
+
+  useEffect(() => {
+    setTimelinePlayback({ viewport: { fromMs: activityRange.start, toMs: activityRange.end } })
+  }, [activityRange.end, activityRange.start])
+
   const activity = useFlowActivityRange(
     data.selectedSession?.id ?? null,
     activityRange.start,
     activityRange.end,
-    focusedServiceId ? focusedFlowIds : undefined,
+    requestedDetailFlowIds,
   )
-  const composition = useMemo(
-    () => buildSessionComposition({
-      ...data,
-      flowActivityChunks: activity.chunks,
-      flowActivityWindows: activity.windows,
+  const staticSceneComposition = useMemo(
+    () => viewMode === 'treemap' || (zoomFrames === 'all' && !focusedServiceId)
+      ? staticBaseComposition
+      : sceneProjector.project(
+          selectGatewayDataWindow(data, requestedDetailFlowIds, {
+            dnsQueries: activity.dnsQueries,
+            flowActivityChunks: activity.chunks,
+            flowActivityWindows: activity.windows,
+          }),
+          { sessionStartMs: timeline.epochMs },
+        ),
+    [activity.chunks, activity.dnsQueries, activity.windows, data, focusedServiceId, requestedDetailFlowIds, sceneProjector, staticBaseComposition, timeline.epochMs, viewMode, zoomFrames],
+  )
+  const sceneComposition = useMemo(
+    () => extendCompositionTo(staticSceneComposition, logicalSessionEndMs),
+    [logicalSessionEndMs, staticSceneComposition],
+  )
+  const sceneWindow = useMemo(
+    () => selectSceneWindow(sceneComposition, {
+      fromMs: activityRange.start,
+      toMs: activityRange.end,
+      overview: viewMode === 'treemap' || (zoomFrames === 'all' && !focusedServiceId),
+      focusedServiceId,
+      selectedClipId,
+      loadedRanges: [{
+        fromMs: activityRange.start,
+        toMs: activityRange.end,
+        complete: !activity.error && !activity.loading,
+      }],
     }),
-    [activity.chunks, activity.windows, data],
+    [activity.error, activity.loading, activityRange.end, activityRange.start, focusedServiceId, sceneComposition, selectedClipId, viewMode, zoomFrames],
   )
+  const composition = baseComposition
+  const playerDurationInFrames = timeline.mode === 'live'
+    ? Math.max(FPS, Math.ceil((composition.durationInFrames + FPS * 30) / (FPS * 30)) * FPS * 30)
+    : composition.durationInFrames
+  const compositionRef = useRef(composition)
+  const followLiveRef = useRef(followLive)
+  const selectedSessionRef = useRef(data.selectedSession?.id ?? null)
+
+  useEffect(() => {
+    compositionRef.current = composition
+  }, [composition])
+
+  useEffect(() => {
+    followLiveRef.current = followLive
+  }, [followLive])
+
+  useEffect(() => {
+    selectedSessionRef.current = data.selectedSession?.id ?? null
+  }, [data.selectedSession?.id])
 
   const selectedClip = useMemo(
-    () => composition.clips.find((clip) => clip.id === selectedClipId) ?? null,
-    [composition.clips, selectedClipId],
+    () => sceneComposition.clips.find((clip) => clip.id === selectedClipId) ??
+      composition.clips.find((clip) => clip.id === selectedClipId) ?? null,
+    [composition.clips, sceneComposition.clips, selectedClipId],
   )
   const activeServiceId = selectedServiceId ?? selectedClip?.serviceGroupId ?? null
   const selectedService = useMemo(
@@ -140,7 +227,7 @@ function App() {
 
   const inputProps = useMemo<SessionCompositionProps>(
     () => ({
-      composition,
+      sceneWindow,
       viewMode,
       zoomFrames,
       selectedClipId,
@@ -149,7 +236,7 @@ function App() {
       collapsedServiceIds,
       followLive,
     }),
-    [activeServiceId, collapsedServiceIds, composition, focusedServiceId, followLive, selectedClipId, viewMode, zoomFrames],
+    [activeServiceId, collapsedServiceIds, focusedServiceId, followLive, sceneWindow, selectedClipId, viewMode, zoomFrames],
   )
 
   useEffect(() => {
@@ -159,11 +246,31 @@ function App() {
     }
 
     const handleFrameUpdate: CallbackListener<'frameupdate'> = (event) => {
-      setCurrentFrame(event.detail.frame)
+      const now = performance.now()
+      if (now - lastFramePublishRef.current < 100) return
+      lastFramePublishRef.current = now
+      const currentComposition = compositionRef.current
+      const frame = Math.min(event.detail.frame, Math.max(0, currentComposition.durationInFrames - 1))
+      setCurrentFrame(frame)
+      const cursorMs = timeForFrame(currentComposition.sessionStartMs, frame, currentComposition.fps)
+      setTimelinePlayback({ cursorMs })
+      if (now - lastURLPublishRef.current >= 1000) {
+        lastURLPublishRef.current = now
+        writeTimelineLocation(selectedSessionRef.current, cursorMs)
+      }
     }
-    const handlePlay = () => setIsPlaying(true)
-    const handlePause = () => setIsPlaying(false)
-    const handleEnded = () => setIsPlaying(false)
+    const handlePlay = () => {
+      setIsPlaying(true)
+      setTimelinePlayback({ playback: followLiveRef.current ? 'following' : 'playing' })
+    }
+    const handlePause = () => {
+      setIsPlaying(false)
+      setTimelinePlayback({ playback: 'paused' })
+    }
+    const handleEnded = () => {
+      setIsPlaying(false)
+      setTimelinePlayback({ playback: 'paused' })
+    }
 
     player.addEventListener('frameupdate', handleFrameUpdate)
     player.addEventListener('play', handlePlay)
@@ -178,7 +285,26 @@ function App() {
       player.removeEventListener('pause', handlePause)
       player.removeEventListener('ended', handleEnded)
     }
-  }, [composition.durationInFrames])
+  }, [])
+
+  useEffect(() => {
+    if (deepLinkAppliedRef.current || initialDeepLink.cursorMs === null || !data.selectedSession || timeline.liveEdgeMs <= 0) return
+    if (initialDeepLink.sessionId && initialDeepLink.sessionId !== data.selectedSession.id) return
+    const player = playerRef.current
+    if (!player) return
+    const frame = Math.max(0, Math.min(
+      composition.durationInFrames - 1,
+      frameForTime(composition.sessionStartMs, initialDeepLink.cursorMs, composition.fps),
+    ))
+    deepLinkAppliedRef.current = true
+    player.pause()
+    player.seekTo(frame)
+    setCurrentFrame(frame)
+    setTimelinePlayback({
+      cursorMs: timeForFrame(composition.sessionStartMs, frame, composition.fps),
+      playback: 'paused',
+    })
+  }, [composition.durationInFrames, composition.fps, composition.sessionStartMs, data.selectedSession, initialDeepLink.cursorMs, initialDeepLink.sessionId, timeline.liveEdgeMs])
 
   useEffect(() => {
     const handleSelection = (event: Event) => {
@@ -187,15 +313,11 @@ function App() {
         return
       }
       if (detail.kind === 'toggle-service') {
-        setCollapsedServiceIds((current) =>
-          current.includes(detail.id)
-            ? current.filter((id) => id !== detail.id)
-            : [...current, detail.id],
-        )
+        toggleTimelineServiceCollapsed(detail.id)
         return
       }
       if (detail.kind === 'clear-focus') {
-        setFocusedServiceId(null)
+        setTimelineUI({ focusedServiceId: null })
         return
       }
       if (detail.kind === 'focus-service') {
@@ -204,45 +326,50 @@ function App() {
           ? Math.max(...lane.clips.map((clip) => clip.startFrame + clip.durationFrames))
           : composition.durationInFrames - 1
         const focusedFrame = Math.max(0, Math.min(composition.durationInFrames - 1, Math.round(lastFrame)))
-        setFocusedServiceId(detail.id)
-        setSelectedClipId(null)
-        setSelectedServiceId(detail.id)
-        setCollapsedServiceIds((current) => current.filter((id) => id !== detail.id))
-        setZoomFrames('all')
-        setFollowLive(false)
+        setTimelineUI({
+          focusedServiceId: detail.id,
+          selectedClipId: null,
+          selectedServiceId: detail.id,
+          collapsedServiceIds: collapsedServiceIds.filter((id) => id !== detail.id),
+          zoomFrames: 'all',
+          inspectorOpen: true,
+        })
+        setTimelinePlayback({ playback: 'paused' })
         playerRef.current?.pause()
         playerRef.current?.seekTo(focusedFrame)
         setIsPlaying(false)
         setCurrentFrame(focusedFrame)
-        setInspectorOpen(true)
         return
       }
       if (detail.kind === 'clip') {
         const clip = composition.clips.find((item) => item.id === detail.id)
-        setSelectedClipId(detail.id)
-        setSelectedServiceId(clip?.serviceGroupId ?? null)
+        setTimelineUI({ selectedClipId: detail.id, selectedServiceId: clip?.serviceGroupId ?? null, inspectorOpen: true })
       } else {
-        setSelectedClipId(null)
-        setSelectedServiceId(detail.id)
+        setTimelineUI({ selectedClipId: null, selectedServiceId: detail.id, inspectorOpen: true })
       }
-      setInspectorOpen(true)
     }
 
     window.addEventListener('infrareveal:select', handleSelection)
     return () => window.removeEventListener('infrareveal:select', handleSelection)
-  }, [composition.clips, composition.durationInFrames, composition.lanes])
+  }, [collapsedServiceIds, composition.clips, composition.durationInFrames, composition.lanes])
 
   useEffect(() => {
     const player = playerRef.current
-    if (!player || !followLive) {
+    if (!player || !followLive || sessionTimelineStore.getState().playback !== 'following') {
       return
     }
 
-    const latestFrame = Math.max(0, composition.durationInFrames - 1)
-    player.seekTo(latestFrame)
-    setCurrentFrame(latestFrame)
-    player.play()
-  }, [composition.durationInFrames, followLive])
+    const latestFrame = Math.max(0, Math.min(
+      composition.durationInFrames - 1,
+      frameForTime(composition.sessionStartMs, timeline.liveEdgeMs - 500, composition.fps),
+    ))
+    if (Math.abs(player.getCurrentFrame() - latestFrame) > composition.fps) {
+      player.seekTo(latestFrame)
+      setCurrentFrame(latestFrame)
+    }
+    if (!player.isPlaying()) player.play()
+    setTimelinePlayback({ playback: 'following', cursorMs: timeForFrame(composition.sessionStartMs, latestFrame, composition.fps) })
+  }, [composition.durationInFrames, composition.fps, composition.sessionStartMs, followLive, timeline.liveEdgeMs])
 
   function togglePlay() {
     const player = playerRef.current
@@ -251,9 +378,10 @@ function App() {
     }
     if (player.isPlaying()) {
       player.pause()
-      setFollowLive(false)
+      setTimelinePlayback({ playback: 'paused' })
     } else {
       player.play()
+      setTimelinePlayback({ playback: followLive ? 'following' : 'playing' })
     }
   }
 
@@ -265,7 +393,10 @@ function App() {
     const nextFrame = Math.max(0, Math.min(composition.durationInFrames - 1, Math.round(frame)))
     player.seekTo(nextFrame)
     setCurrentFrame(nextFrame)
-    setFollowLive(false)
+    setTimelinePlayback({
+      cursorMs: timeForFrame(composition.sessionStartMs, nextFrame, composition.fps),
+      playback: 'paused',
+    })
   }
 
   function jumpBy(frames: number) {
@@ -275,28 +406,36 @@ function App() {
   function jumpLive() {
     const player = playerRef.current
     const latestFrame = Math.max(0, composition.durationInFrames - 1)
-    setFollowLive(true)
-    setFocusedServiceId(null)
+    setTimelineUI({ focusedServiceId: null })
     setCurrentFrame(latestFrame)
     player?.seekTo(latestFrame)
     player?.play()
+    setTimelinePlayback({
+      cursorMs: timeForFrame(composition.sessionStartMs, latestFrame, composition.fps),
+      playback: 'following',
+    })
   }
 
   function changePlaybackRate(rate: number) {
-    setPlaybackRate(rate)
-    setFollowLive(false)
+    setTimelinePlayback({ rate, playback: 'playing' })
   }
 
   function changeSession(value: string) {
     const nextSessionId = value === 'active' ? null : value
     setSelectedSessionId(nextSessionId)
-    setPlaybackRate(1)
-    setCollapsedServiceIds([])
-    setSelectedClipId(null)
-    setSelectedServiceId(null)
-    setFocusedServiceId(null)
-    setInspectorOpen(false)
-    setFollowLive(nextSessionId === null)
+    deepLinkAppliedRef.current = true
+    writeTimelineLocation(nextSessionId, null)
+    setTimelineUI({
+      collapsedServiceIds: [],
+      selectedClipId: null,
+      selectedServiceId: null,
+      focusedServiceId: null,
+      inspectorOpen: false,
+    })
+    setTimelinePlayback({
+      rate: 1,
+      playback: nextSessionId === null ? 'following' : 'paused',
+    })
     if (nextSessionId !== null) {
       playerRef.current?.seekTo(0)
       setCurrentFrame(0)
@@ -304,9 +443,7 @@ function App() {
   }
 
   function selectClip(clip: TimelineClip) {
-    setSelectedClipId(clip.id)
-    setSelectedServiceId(clip.serviceGroupId)
-    setInspectorOpen(true)
+    setTimelineUI({ selectedClipId: clip.id, selectedServiceId: clip.serviceGroupId, inspectorOpen: true })
   }
 
   async function clearAllObservationData() {
@@ -321,10 +458,7 @@ function App() {
         refreshGatewayData: refresh,
       })
       const deletedTotal = Object.values(result.deleted).reduce((total, count) => total + count, 0)
-      setSelectedClipId(null)
-      setSelectedServiceId(null)
-      setFocusedServiceId(null)
-      setInspectorOpen(false)
+      setTimelineUI({ selectedClipId: null, selectedServiceId: null, focusedServiceId: null, inspectorOpen: false })
       setClearState({
         status: 'done',
         message: `Deleted ${deletedTotal.toLocaleString()} records.`,
@@ -335,6 +469,21 @@ function App() {
         message: clearError instanceof Error ? clearError.message : 'Failed to clear observation data.',
       })
     }
+  }
+
+  function exportRecordedScene() {
+    const session = data.selectedSession
+    if (!session || timeline.mode !== 'recorded') return
+    const bundle = createRecordedRenderBundle(session.id, sceneWindow)
+    const blob = new Blob([JSON.stringify(bundle)], { type: 'application/json' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `infrareveal-${session.id}-render-bundle.json`
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -358,13 +507,13 @@ function App() {
               active={viewMode === 'timeline'}
               icon={<Rows3 size={16} />}
               label="Timeline"
-              onClick={() => setViewMode('timeline')}
+              onClick={() => setTimelineUI({ viewMode: 'timeline' })}
             />
             <SegmentedButton
               active={viewMode === 'treemap'}
               icon={<Grid2X2 size={16} />}
               label="Treemap"
-              onClick={() => setViewMode('treemap')}
+              onClick={() => setTimelineUI({ viewMode: 'treemap' })}
             />
             <SegmentedButton
               active={settingsOpen}
@@ -419,7 +568,7 @@ function App() {
               compositionHeight={COMPOSITION_HEIGHT}
               compositionWidth={COMPOSITION_WIDTH}
               controls={false}
-              durationInFrames={composition.durationInFrames}
+              durationInFrames={playerDurationInFrames}
               fps={composition.fps}
               inputProps={inputProps}
               loop={false}
@@ -494,7 +643,7 @@ function App() {
                         : 'border-slate-200 bg-white text-slate-700 hover:bg-slate-50'
                     }`}
                     key={preset.label}
-                    onClick={() => setZoomFrames(preset.frames)}
+                    onClick={() => setTimelineUI({ zoomFrames: preset.frames })}
                     type="button"
                   >
                     {preset.frames === 'all' && focusedServiceId ? 'Domain' : preset.label}
@@ -521,13 +670,15 @@ function App() {
           currentFrame={currentFrame}
           compositionDuration={composition.durationInFrames}
           open={inspectorOpen}
-          onClose={() => setInspectorOpen(false)}
+          onClose={() => setTimelineUI({ inspectorOpen: false })}
         />
 
         <SettingsModal
+          canExport={timeline.mode === 'recorded' && Boolean(data.selectedSession)}
           clearState={clearState}
           onClear={clearAllObservationData}
           onClose={() => setSettingsOpen(false)}
+          onExport={exportRecordedScene}
           open={settingsOpen}
         />
       </section>
@@ -539,14 +690,14 @@ function ConnectionPill({ state, error }: { state: string; error: string | null 
   const styles =
     state === 'live'
       ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-      : state === 'error'
+      : state === 'error' || state === 'offline'
         ? 'border-red-200 bg-red-50 text-red-800'
         : 'border-amber-200 bg-amber-50 text-amber-800'
 
   return (
     <div className={`inline-flex h-9 items-center gap-2 border px-3 text-sm font-semibold ${styles}`} title={error ?? state}>
-      {state === 'error' ? <WifiOff size={16} /> : <Wifi size={16} />}
-      {state === 'live' ? 'Realtime' : state === 'polling' ? 'Polling' : state}
+      {state === 'error' || state === 'offline' ? <WifiOff size={16} /> : <Wifi size={16} />}
+      {state === 'live' ? 'Realtime' : state === 'polling' ? 'Polling' : state === 'offline' ? 'Offline cache' : state}
     </div>
   )
 }
@@ -658,17 +809,21 @@ function IconButton({
 }
 
 function SettingsModal({
+  canExport,
   clearState,
   onClear,
   onClose,
+  onExport,
   open,
 }: {
+  canExport: boolean
   clearState: {
     status: 'idle' | 'clearing' | 'done' | 'error'
     message: string
   }
   onClear: () => void
   onClose: () => void
+  onExport: () => void
   open: boolean
 }) {
   if (!open) {
@@ -695,6 +850,27 @@ function SettingsModal({
         </div>
 
         <div className="space-y-5 px-5 py-5">
+          <div className="border border-sky-200 bg-sky-50 px-4 py-4">
+            <div className="flex items-start gap-3">
+              <Download className="mt-0.5 shrink-0 text-sky-700" size={18} />
+              <div className="min-w-0">
+                <div className="text-sm font-semibold text-sky-950">Export deterministic render bundle</div>
+                <p className="mt-2 text-sm leading-6 text-sky-900">
+                  Freezes the current recorded SceneWindow as JSON for a repeatable Remotion render.
+                </p>
+                <button
+                  className="mt-4 inline-flex h-9 items-center gap-2 border border-sky-700 bg-sky-700 px-3 text-sm font-semibold text-white hover:bg-sky-800 disabled:cursor-not-allowed disabled:opacity-60"
+                  disabled={!canExport}
+                  onClick={onExport}
+                  type="button"
+                >
+                  <Download size={16} />
+                  {canExport ? 'Download render bundle' : 'Available for recorded sessions'}
+                </button>
+              </div>
+            </div>
+          </div>
+
           <div className="border border-red-200 bg-red-50 px-4 py-4">
             <div className="flex items-start gap-3">
               <Trash2 className="mt-0.5 shrink-0 text-red-700" size={18} />
@@ -748,6 +924,7 @@ function LiveFlowFeed({
     () => clips.slice().sort((left, right) => right.endMs - left.endMs || right.startMs - left.startMs),
     [clips],
   )
+  const visibleClips = orderedClips.slice(0, MAX_VISIBLE_FEED_ROWS)
 
   return (
     <aside className="border border-slate-200 bg-white">
@@ -768,7 +945,7 @@ function LiveFlowFeed({
           </div>
         ) : (
           <div className="divide-y divide-slate-100">
-            {orderedClips.map((clip) => {
+            {visibleClips.map((clip) => {
               const selected = selectedClipId === clip.id
               return (
                 <button
@@ -798,6 +975,11 @@ function LiveFlowFeed({
                 </button>
               )
             })}
+            {orderedClips.length > visibleClips.length ? (
+              <div className="bg-slate-50 px-4 py-3 text-xs text-slate-500">
+                Showing the {MAX_VISIBLE_FEED_ROWS} most recent flows. Focus a domain or time range to narrow the list.
+              </div>
+            ) : null}
           </div>
         )}
       </div>
@@ -981,6 +1163,33 @@ function formatAssociationRelationship(relationship: TimelineClip['associationRe
     default:
       return 'None'
   }
+}
+
+function readTimelineLocation() {
+  if (typeof window === 'undefined') return { sessionId: null as string | null, cursorMs: null as number | null }
+  const params = new URLSearchParams(window.location.search)
+  const cursor = Number(params.get('at'))
+  return {
+    sessionId: params.get('session'),
+    cursorMs: Number.isFinite(cursor) && cursor > 0 ? cursor : null,
+  }
+}
+
+function writeTimelineLocation(sessionId: string | null, cursorMs: number | null) {
+  if (typeof window === 'undefined') return
+  const url = new URL(window.location.href)
+  if (sessionId) url.searchParams.set('session', sessionId)
+  else url.searchParams.delete('session')
+  if (cursorMs !== null) url.searchParams.set('at', String(Math.round(cursorMs)))
+  else url.searchParams.delete('at')
+  if (url.href !== window.location.href) window.history.replaceState(null, '', url)
+}
+
+function extendCompositionTo(composition: SessionCompositionModel, endMs: number): SessionCompositionModel {
+  const sessionEndMs = Math.max(composition.sessionEndMs, endMs, composition.sessionStartMs + 1)
+  const durationInFrames = Math.max(1, Math.ceil(((sessionEndMs - composition.sessionStartMs) / 1000) * composition.fps))
+  if (sessionEndMs === composition.sessionEndMs && durationInFrames === composition.durationInFrames) return composition
+  return { ...composition, sessionEndMs, durationInFrames }
 }
 
 export default App

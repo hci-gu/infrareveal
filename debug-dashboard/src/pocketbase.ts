@@ -1,4 +1,4 @@
-export { emptyGatewayData, getGatewayData, pb } from './data/pocketbaseClient'
+export { emptyGatewayData, getGatewayData, pb } from '@infrareveal/session-state'
 export type {
   ConnectionState,
   Destination,
@@ -7,4 +7,4 @@ export type {
   FlowAttribution,
   GatewayData,
   Route,
-} from './data/types'
+} from '@infrareveal/session-state'

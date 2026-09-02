@@ -123,6 +123,7 @@ func main() {
 
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		// serves static files from the provided public dir (if exists)
+		registerSessionTimelineRoutes(se.Router, app)
 		se.Router.POST("/api/infrareveal/clear-observations", func(e *core.RequestEvent) error {
 			result, err := clearObservationCollections(app)
 			if err != nil {
@@ -161,6 +162,25 @@ func main() {
 
 	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
 		cancelObservers()
+		return e.Next()
+	})
+
+	app.OnRecordCreate("sessions").BindFunc(func(e *core.RecordEvent) error {
+		if e.Record.GetDateTime("started_at").IsZero() {
+			e.Record.Set("started_at", time.Now().UTC().Format(time.RFC3339Nano))
+		}
+		if e.Record.GetBool("active") {
+			e.Record.Set("ended_at", "")
+		}
+		return e.Next()
+	})
+
+	app.OnRecordUpdate("sessions").BindFunc(func(e *core.RecordEvent) error {
+		if e.Record.GetBool("active") {
+			e.Record.Set("ended_at", "")
+		} else if e.Record.GetDateTime("ended_at").IsZero() {
+			e.Record.Set("ended_at", time.Now().UTC().Format(time.RFC3339Nano))
+		}
 		return e.Next()
 	})
 

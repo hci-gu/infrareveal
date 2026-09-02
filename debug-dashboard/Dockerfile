@@ -1,15 +1,20 @@
 FROM node:24-alpine AS builder
 
-WORKDIR /app
+WORKDIR /workspace
 
-COPY package.json pnpm-lock.yaml ./
-RUN corepack enable && pnpm install --frozen-lockfile
+COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY dashboard/package.json ./dashboard/package.json
+COPY debug-dashboard/package.json ./debug-dashboard/package.json
+COPY packages/session-state/package.json ./packages/session-state/package.json
+# pnpm 7 otherwise prunes Rolldown's platform binding from a frozen workspace install.
+RUN corepack enable && corepack prepare pnpm@7.16.0 --activate && pnpm install --frozen-lockfile --force
 
-COPY . .
-RUN pnpm run build
+COPY packages/session-state ./packages/session-state
+COPY debug-dashboard ./debug-dashboard
+RUN pnpm --filter @infrareveal/debug-dashboard run build
 
 FROM nginx:1.29-alpine
 
-COPY --from=builder /app/dist /usr/share/nginx/html
+COPY --from=builder /workspace/debug-dashboard/dist /usr/share/nginx/html
 
 EXPOSE 80
