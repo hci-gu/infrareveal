@@ -78,4 +78,43 @@ describe('flow activity model', () => {
     })
     expect(buildSessionComposition(gatewayData(bothDirections)).clips[0].activity.activeMs).toBe(50)
   })
+
+  it('orders groups and their connections by the latest directional activity', () => {
+    const data = gatewayData(chunk({
+      samples: { version: 1, bucket_ms: 50, chunk_ms: 5000, samples: [[0, 420, 0, 3, 0]] },
+    }))
+    const laterFlow = {
+      ...data.flows[0],
+      id: 'flow-2',
+      destination_ip: '151.101.1.69',
+      destination_port: 8443,
+      source_port: 53001,
+      start: '2026-08-25T14:00:00.500Z',
+      last_seen: '2026-08-25T14:00:02.000Z',
+      bytes_out: 10,
+      bytes_in: 10,
+      packets_out: 1,
+      packets_in: 1,
+    }
+    const latestChunk = chunk({
+      id: 'chunk-2',
+      flow: laterFlow.id,
+      flow_key: 'flow-key-2',
+      samples: { version: 1, bucket_ms: 50, chunk_ms: 5000, samples: [[1000, 0, 10, 0, 1]] },
+      payload_bytes_out: 0,
+      payload_bytes_in: 10,
+      packets_out: 0,
+      packets_in: 1,
+    })
+    data.flows.push(laterFlow)
+    data.flowActivityChunks.push(latestChunk)
+
+    const composition = buildSessionComposition(data)
+    expect(composition.lanes[0].clips[0].flowId).toBe(laterFlow.id)
+
+    laterFlow.destination_port = 443
+    const groupedComposition = buildSessionComposition(data)
+    expect(groupedComposition.lanes).toHaveLength(1)
+    expect(groupedComposition.lanes[0].clips.map((clip) => clip.flowId)).toEqual(['flow-2', 'flow-1'])
+  })
 })

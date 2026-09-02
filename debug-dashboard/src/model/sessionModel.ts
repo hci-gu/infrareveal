@@ -61,6 +61,7 @@ export type ServiceGroup = {
   flowCount: number
   firstSeenMs: number
   lastSeenMs: number
+  lastActivityMs: number | null
   routeCompleteCount: number
   routeCount: number
   associatedFlowCount: number
@@ -79,6 +80,7 @@ export type TimelineClip = {
   state: string
   startMs: number
   endMs: number
+  lastActivityMs: number | null
   startFrame: number
   durationFrames: number
   bytes: number
@@ -201,6 +203,7 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
       existing.flowCount += 1
       existing.firstSeenMs = Math.min(existing.firstSeenMs, clip.startMs)
       existing.lastSeenMs = Math.max(existing.lastSeenMs, clip.endMs)
+      existing.lastActivityMs = latestTimestamp(existing.lastActivityMs, clip.lastActivityMs)
       existing.routeCount += route ? 1 : 0
       existing.routeCompleteCount += route?.complete ? 1 : 0
       existing.associatedFlowCount += clip.associationRelationship === 'temporally_associated' ? 1 : 0
@@ -231,6 +234,7 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
       flowCount: flow ? 1 : 0,
       firstSeenMs: clip.startMs,
       lastSeenMs: clip.endMs,
+      lastActivityMs: clip.lastActivityMs,
       routeCompleteCount: route?.complete ? 1 : 0,
       routeCount: route ? 1 : 0,
       associatedFlowCount: clip.associationRelationship === 'temporally_associated' ? 1 : 0,
@@ -244,7 +248,9 @@ export function buildSessionComposition(data: GatewayData): SessionComposition {
       label: group.label,
       serviceGroupId: group.id,
       totalBytes: group.totalBytes,
-      clips: clips.filter((clip) => clip.serviceGroupId === group.id),
+      clips: clips
+        .filter((clip) => clip.serviceGroupId === group.id)
+        .sort(compareClipsByRecentActivity),
     }))
 
   return {
@@ -306,6 +312,13 @@ function buildClip({
   const bytes = Math.max(0, flow.bytes_in + flow.bytes_out)
   const packets = Math.max(0, flow.packets_in + flow.packets_out)
   const activity = buildFlowActivitySummary(startMs, endMs, activityChunks, activityWindows)
+  const lastActivityMs = activity.samples.reduce<number | null>((latest, sample) => {
+    const hasDirectionalActivity = sample.payloadBytesOut > 0 || sample.payloadBytesIn > 0 ||
+      sample.packetsOut > 0 || sample.packetsIn > 0
+    return hasDirectionalActivity
+      ? latestTimestamp(latest, sample.startMs + sample.durationMs)
+      : latest
+  }, null)
 
   return {
     id: `clip:${flow.id}`,
@@ -320,6 +333,7 @@ function buildClip({
     state: flow.state,
     startMs,
     endMs,
+    lastActivityMs,
     startFrame,
     durationFrames,
     bytes,
@@ -790,10 +804,34 @@ function routeKey(destinationIP: string, destinationPort: number) {
 
 function compareGroups(left: ServiceGroup, right: ServiceGroup) {
   return (
+    compareLatestActivity(left.lastActivityMs, right.lastActivityMs) ||
+    right.lastSeenMs - left.lastSeenMs ||
     right.totalBytes - left.totalBytes ||
     right.flowCount - left.flowCount ||
     left.label.localeCompare(right.label)
   )
+}
+
+function compareClipsByRecentActivity(left: TimelineClip, right: TimelineClip) {
+  return (
+    compareLatestActivity(left.lastActivityMs, right.lastActivityMs) ||
+    right.endMs - left.endMs ||
+    right.bytes - left.bytes ||
+    left.label.localeCompare(right.label)
+  )
+}
+
+function compareLatestActivity(left: number | null, right: number | null) {
+  if (left === null && right === null) return 0
+  if (left === null) return 1
+  if (right === null) return -1
+  return right - left
+}
+
+function latestTimestamp(left: number | null, right: number | null) {
+  if (left === null) return right
+  if (right === null) return left
+  return Math.max(left, right)
 }
 
 function strongerConfidence(left: Confidence, right: Confidence): Confidence {
