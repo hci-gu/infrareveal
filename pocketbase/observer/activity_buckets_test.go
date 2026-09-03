@@ -125,7 +125,11 @@ func BenchmarkActivityAggregatorReplay(b *testing.B) {
 	for index := 0; index < b.N; index++ {
 		aggregator := NewActivityAggregator(50*time.Millisecond, 5*time.Second, 4096)
 		for packet := 0; packet < 10_000; packet++ {
-			event := activityEvent(start.Add(time.Duration(packet)*time.Millisecond), Direction(packet%2+1), 1500, 1440)
+			direction := ClientToRemote
+			if packet%2 == 1 {
+				direction = RemoteToClient
+			}
+			event := activityEvent(start.Add(time.Duration(packet)*time.Millisecond), direction, 1500, 1440)
 			aggregator.Add(event)
 		}
 		_ = aggregator.DirtySnapshots()

@@ -171,6 +171,33 @@ export type Route = {
   completed_at: string
 }
 
+export type GateEvent = {
+  id: string
+  session: string
+  decision_id: string
+  flow_key: string
+  client_ip: string
+  destination_ip: string
+  source_port: number
+  destination_port: number
+  protocol: string
+  mode?: 'flow' | 'strict' | 'dns'
+  direction?: 'client_to_remote' | 'remote_to_client'
+  wire_bytes?: number
+  payload_bytes?: number
+  tcp_flags?: number
+  packet_count: number
+  state: 'queued' | 'approved' | 'rejected' | 'expired' | 'bypassed' | 'drained'
+  actor: string
+  reason: string
+  verdict_source: 'operator' | 'watchdog' | 'overflow' | 'shutdown' | 'system'
+  queued_at: string
+  decided_at?: string
+  wait_ms: number
+  created: string
+  updated?: string
+}
+
 export type Session = {
   id: string
   created: string
@@ -179,6 +206,8 @@ export type Session = {
   active: boolean
   started_at?: string
   ended_at?: string
+  gate_audit_complete?: boolean
+  gate_audit_drops?: number
 }
 
 export type TimelineLOD = '50ms' | '500ms' | '1s' | '5s' | 'overview'
@@ -193,6 +222,8 @@ export type SessionManifest = {
   watermark: string
   counts: Record<string, number>
   coverage: { from: string; to: string }
+  gateAuditComplete?: boolean
+  gateAuditDrops?: number
   transport?: 'timeline' | 'collections'
 }
 
@@ -210,6 +241,7 @@ export type SessionWindow = {
   flowActivityStatuses: FlowActivityStatus[]
   destinations: Destination[]
   routes: Route[]
+  gateEvents: GateEvent[]
   nextCursor: string | null
 }
 
@@ -226,6 +258,7 @@ export type GatewayData = {
   flowActivityStatuses: FlowActivityStatus[]
   destinations: Destination[]
   routes: Route[]
+  gateEvents: GateEvent[]
 }
 
 export type ConnectionState = 'loading' | 'live' | 'polling' | 'offline' | 'error'

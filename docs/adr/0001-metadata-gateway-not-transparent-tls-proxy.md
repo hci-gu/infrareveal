@@ -30,3 +30,5 @@ Destination context is stored by observed destination IP. Route records are gate
 Normal browsing should keep working without client certificate installation. Hostnames will be incomplete when clients use encrypted DNS, ECH, VPNs, Private Relay, or shared CDN infrastructure.
 
 The dashboard must show uncertainty honestly. Later lab mode controls may intentionally shape client behavior, but those controls must be explicit and separate from default passive gateway observability.
+
+The later opt-in implementation is governed by [ADR 0002](0002-opt-in-nfqueue-flow-admission.md). It does not weaken this production-default decision: passive metadata forwarding remains the normal mode and the traffic gate remains debug-only, authenticated, selected-client, and fail-open.

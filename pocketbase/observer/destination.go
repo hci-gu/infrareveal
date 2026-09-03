@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"myapp/debugtrace"
+
 	"github.com/oschwald/geoip2-golang"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
@@ -55,7 +57,8 @@ type RouteResult struct {
 	Error    string
 }
 
-func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID func() string) {
+func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID func() string, trace debugtrace.Sink) {
+	trace = usableTraceSink(trace)
 	go func() {
 		ticker := time.NewTicker(destinationEnrichmentInterval)
 		defer ticker.Stop()
@@ -63,7 +66,7 @@ func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, g
 		for {
 			activeSessionID := sessionID()
 			if activeSessionID != "" {
-				if err := enrichDestinationRecords(app, geoipDB, scope, activeSessionID); err != nil {
+				if err := enrichDestinationRecords(app, geoipDB, scope, activeSessionID, trace); err != nil {
 					log.Printf("destination enricher error: %v", err)
 				}
 			}
@@ -87,7 +90,7 @@ func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, g
 				if activeSessionID == "" {
 					continue
 				}
-				if err := traceNextDestination(ctx, app, geoipDB, scope, activeSessionID); err != nil {
+				if err := traceNextDestination(ctx, app, geoipDB, scope, activeSessionID, trace); err != nil {
 					log.Printf("route discovery error: %v", err)
 				}
 			}
@@ -103,14 +106,18 @@ func sessionDestinationObservations(app *pocketbase.PocketBase, scope Observatio
 	return uniqueDestinationObservations(flowRecords, scope), nil
 }
 
-func enrichDestinationRecords(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID string) error {
+func enrichDestinationRecords(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID string, trace debugtrace.Sink) error {
 	observations, err := sessionDestinationObservations(app, scope, sessionID)
 	if err != nil {
 		return err
 	}
 	for _, observation := range uniqueDestinationIPs(observations) {
-		if _, err := upsertDestination(app, geoipDB, observation); err != nil {
+		record, changed, err := upsertDestination(app, geoipDB, observation)
+		if err != nil {
 			return err
+		}
+		if changed {
+			emitDestinationTrace(trace, observation, record)
 		}
 	}
 	return nil
@@ -131,7 +138,7 @@ func uniqueDestinationIPs(observations []DestinationObservation) []DestinationOb
 	return result
 }
 
-func traceNextDestination(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID string) error {
+func traceNextDestination(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID string, trace debugtrace.Sink) error {
 	observations, err := sessionDestinationObservations(app, scope, sessionID)
 	if err != nil {
 		return err
@@ -145,15 +152,28 @@ func traceNextDestination(ctx context.Context, app *pocketbase.PocketBase, geoip
 			continue
 		}
 
-		destinationRecord, err := upsertDestination(app, geoipDB, observation)
+		destinationRecord, destinationChanged, err := upsertDestination(app, geoipDB, observation)
 		if err != nil {
 			return err
 		}
+		if destinationChanged {
+			emitDestinationTrace(trace, observation, destinationRecord)
+		}
 		result := TraceDestination(ctx, observation)
 		enrichRouteHops(result.Hops, geoipDB)
-		if err := saveRoute(app, observation, destinationRecord.Id, result); err != nil {
+		routeRecord, err := saveRoute(app, observation, destinationRecord.Id, result)
+		if err != nil {
 			return err
 		}
+		completedAt := routeRecord.GetDateTime("completed_at").Time()
+		trace.TryEmit(debugtrace.Event{
+			ID: "route-completed:" + routeRecord.Id, SessionID: observation.SessionID,
+			TraceID: "route:" + routeRecord.Id, Kind: debugtrace.KindRoute, Stage: debugtrace.StageRoute,
+			OccurredAtMs: completedAt.UnixMilli(), ProcessedAtMs: traceProcessedNow(), Timing: debugtrace.TimingObserved,
+			Summary: debugtrace.Summary{
+				Protocol: observation.Protocol, RemoteIP: observation.IP, RemotePort: tracePort(observation.DestinationPort),
+			},
+		})
 		return nil
 	}
 	return nil
@@ -194,19 +214,21 @@ func uniqueDestinationObservations(records []*core.Record, scope ObservationScop
 	return observations
 }
 
-func upsertDestination(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, observation DestinationObservation) (*core.Record, error) {
+func upsertDestination(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, observation DestinationObservation) (*core.Record, bool, error) {
 	nowTime := time.Now().UTC()
 	now := nowTime.Format(time.RFC3339)
 	record, err := app.FindFirstRecordByFilter("destinations", "ip={:ip}", dbx.Params{"ip": observation.IP})
+	created := false
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			return nil, err
+			return nil, false, err
 		}
 		collection, err := app.FindCollectionByNameOrId("destinations")
 		if err != nil {
-			return nil, err
+			return nil, false, err
 		}
 		record = core.NewRecord(collection)
+		created = true
 		record.Set("ip", observation.IP)
 		record.Set("first_seen", now)
 	}
@@ -245,9 +267,22 @@ func upsertDestination(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, obser
 	}
 
 	if err := app.Save(record); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return record, nil
+	return record, created || shouldRefresh, nil
+}
+
+func emitDestinationTrace(trace debugtrace.Sink, observation DestinationObservation, record *core.Record) {
+	observedAt := record.GetDateTime("last_seen").Time()
+	trace.TryEmit(debugtrace.Event{
+		ID: traceEventID("destination-enriched", record.Id, observedAt), SessionID: observation.SessionID,
+		TraceID: "destination:" + observation.IP, Kind: debugtrace.KindDestination, Stage: debugtrace.StageDestination,
+		OccurredAtMs: observedAt.UnixMilli(), ProcessedAtMs: traceProcessedNow(), Timing: debugtrace.TimingDerived,
+		Summary: debugtrace.Summary{
+			Protocol: observation.Protocol, RemoteIP: observation.IP, RemotePort: tracePort(observation.DestinationPort),
+			Hostname: record.GetString("reverse_dns"),
+		},
+	})
 }
 
 func knownDestinationProvider(observation DestinationObservation) (organization, provider string) {
@@ -282,10 +317,10 @@ func routeExists(app *pocketbase.PocketBase, observation DestinationObservation)
 	return false, err
 }
 
-func saveRoute(app *pocketbase.PocketBase, observation DestinationObservation, destinationID string, result RouteResult) error {
+func saveRoute(app *pocketbase.PocketBase, observation DestinationObservation, destinationID string, result RouteResult) (*core.Record, error) {
 	collection, err := app.FindCollectionByNameOrId("routes")
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
@@ -301,7 +336,10 @@ func saveRoute(app *pocketbase.PocketBase, observation DestinationObservation, d
 	record.Set("error", result.Error)
 	record.Set("started_at", now)
 	record.Set("completed_at", now)
-	return app.Save(record)
+	if err := app.Save(record); err != nil {
+		return nil, err
+	}
+	return record, nil
 }
 
 func TraceDestination(ctx context.Context, observation DestinationObservation) RouteResult {

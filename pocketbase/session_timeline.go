@@ -23,15 +23,17 @@ const (
 )
 
 type sessionTimelineManifest struct {
-	SessionID string           `json:"sessionId"`
-	Name      string           `json:"name"`
-	StartedAt string           `json:"startedAt"`
-	EndedAt   *string          `json:"endedAt"`
-	Active    bool             `json:"active"`
-	ServerNow string           `json:"serverNow"`
-	Watermark string           `json:"watermark"`
-	Counts    map[string]int64 `json:"counts"`
-	Coverage  timelineRange    `json:"coverage"`
+	SessionID         string           `json:"sessionId"`
+	Name              string           `json:"name"`
+	StartedAt         string           `json:"startedAt"`
+	EndedAt           *string          `json:"endedAt"`
+	Active            bool             `json:"active"`
+	ServerNow         string           `json:"serverNow"`
+	Watermark         string           `json:"watermark"`
+	Counts            map[string]int64 `json:"counts"`
+	Coverage          timelineRange    `json:"coverage"`
+	GateAuditComplete bool             `json:"gateAuditComplete"`
+	GateAuditDrops    int              `json:"gateAuditDrops"`
 }
 
 type timelineRange struct {
@@ -53,6 +55,7 @@ type sessionTimelineWindow struct {
 	FlowActivityStatuses []map[string]any `json:"flowActivityStatuses"`
 	Destinations         []map[string]any `json:"destinations"`
 	Routes               []map[string]any `json:"routes"`
+	GateEvents           []map[string]any `json:"gateEvents"`
 	NextCursor           *string          `json:"nextCursor"`
 }
 
@@ -127,6 +130,7 @@ func buildSessionTimelineManifest(app core.App, sessionID string, now time.Time)
 	for _, collection := range []string{
 		"flows", "dns_queries", "flow_attributions", "activity_episodes",
 		"flow_associations", "flow_activity_chunks", "flow_activity_windows", "routes",
+		"gate_events",
 	} {
 		count, countErr := app.CountRecords(collection, dbx.HashExp{"session": sessionID})
 		if countErr != nil {
@@ -136,13 +140,15 @@ func buildSessionTimelineManifest(app core.App, sessionID string, now time.Time)
 	}
 
 	manifest := sessionTimelineManifest{
-		SessionID: sessionID,
-		Name:      record.GetString("name"),
-		StartedAt: started.UTC().Format(time.RFC3339Nano),
-		Active:    active,
-		ServerNow: now.Format(time.RFC3339Nano),
-		Watermark: now.Format(time.RFC3339Nano),
-		Counts:    counts,
+		SessionID:         sessionID,
+		Name:              record.GetString("name"),
+		StartedAt:         started.UTC().Format(time.RFC3339Nano),
+		Active:            active,
+		ServerNow:         now.Format(time.RFC3339Nano),
+		Watermark:         now.Format(time.RFC3339Nano),
+		Counts:            counts,
+		GateAuditComplete: record.GetBool("gate_audit_complete"),
+		GateAuditDrops:    record.GetInt("gate_audit_drops"),
 		Coverage: timelineRange{
 			From: coverageFrom.UTC().Format(time.RFC3339Nano),
 			To:   coverageTo.UTC().Format(time.RFC3339Nano),
@@ -217,8 +223,14 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 
 	var dnsQueries []*core.Record
 	var dnsMore bool
+	var gateEvents []*core.Record
+	var gateMore bool
 	if !overview {
 		dnsQueries, dnsMore, err = queryTimelinePage(app, "dns_queries", "session={:session} && timestamp >= {:lookback} && timestamp < {:to}", "timestamp,id", limit, cursor["dns"], params)
+		if err != nil {
+			return sessionTimelineWindow{}, http.StatusInternalServerError, err
+		}
+		gateEvents, gateMore, err = queryTimelinePage(app, "gate_events", "session={:session} && queued_at >= {:from} && queued_at < {:to}", "queued_at,id", limit, cursor["gates"], params)
 		if err != nil {
 			return sessionTimelineWindow{}, http.StatusInternalServerError, err
 		}
@@ -282,6 +294,7 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 		advanceTimelineCursor(cursor, "dns", dnsMore, limit)
 		advanceTimelineCursor(cursor, "chunks", chunkMore, limit)
 		advanceTimelineCursor(cursor, "windows", windowMore, limit)
+		advanceTimelineCursor(cursor, "gates", gateMore, limit)
 	}
 	nextCursor, err := encodeTimelineCursor(cursor)
 	if err != nil {
@@ -305,6 +318,7 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 		FlowActivityStatuses: exportRecords(statuses),
 		Destinations:         exportRecords(destinations),
 		Routes:               exportRecords(routes),
+		GateEvents:           exportRecords(gateEvents),
 		NextCursor:           nextCursor,
 	}, http.StatusOK, nil
 }
@@ -462,11 +476,12 @@ func parseFlowIDs(value string) []string {
 }
 
 func decodeTimelineCursor(value string, overview bool) (timelineCursor, error) {
-	cursor := timelineCursor{"flows": 0, "episodes": 0, "dns": 0, "chunks": 0, "windows": 0}
+	cursor := timelineCursor{"flows": 0, "episodes": 0, "dns": 0, "chunks": 0, "windows": 0, "gates": 0}
 	if overview {
 		cursor["dns"] = -1
 		cursor["chunks"] = -1
 		cursor["windows"] = -1
+		cursor["gates"] = -1
 	}
 	if value == "" {
 		return cursor, nil
@@ -475,7 +490,7 @@ func decodeTimelineCursor(value string, overview bool) (timelineCursor, error) {
 	if err != nil || json.Unmarshal(raw, &cursor) != nil {
 		return nil, fmt.Errorf("invalid cursor")
 	}
-	for _, key := range []string{"flows", "episodes", "dns", "chunks", "windows"} {
+	for _, key := range []string{"flows", "episodes", "dns", "chunks", "windows", "gates"} {
 		if _, ok := cursor[key]; !ok || cursor[key] < -1 {
 			return nil, fmt.Errorf("invalid cursor")
 		}

@@ -1,10 +1,11 @@
 import { beforeEach, describe, expect, it } from 'vitest'
-import type { Flow, FlowActivityChunk, Session, SessionWindow } from '../../data/types'
+import type { Flow, FlowActivityChunk, GateEvent, Session, SessionWindow } from '../../data/types'
 import {
   applyRealtimeBatch,
   applySessionWindow,
   clearDetailPages,
   configureDetailCacheBudget,
+  observeTimelineLiveEdge,
   reconcileOverviewWindow,
   resetSessionTimeline,
   selectDetailGatewayData,
@@ -141,6 +142,14 @@ describe('shared sessionTimelineStore', () => {
     expect(sessionTimelineStore.getState().liveEdgeMs).toBe(edge)
   })
 
+  it('accepts a trace edge but clamps future-dated events to server time', () => {
+    const serverNow = Date.parse('2026-09-02T10:02:00Z')
+    observeTimelineLiveEdge(serverNow + 30_000, serverNow)
+    expect(sessionTimelineStore.getState().liveEdgeMs).toBe(serverNow)
+    observeTimelineLiveEdge(serverNow - 5_000, serverNow + 1_000)
+    expect(sessionTimelineStore.getState().liveEdgeMs).toBe(serverNow)
+  })
+
   it('evicts least-recently-used detail pages and their unowned records', () => {
     const first = makeWindow('50ms', [], [makeChunk('chunk-1', '2026-09-02T10:00:00Z')])
     const second = makeWindow('50ms', [], [makeChunk('chunk-2', '2026-09-02T10:00:10Z')])
@@ -182,6 +191,21 @@ describe('shared sessionTimelineStore', () => {
     reconcileOverviewWindow(makeWindow('overview', [first]))
 
     expect(Array.from(sessionTimelineStore.getState().entities.flows.keys())).toEqual(['flow-1'])
+  })
+
+  it('indexes, updates, and evicts durable gate events with their detail page', () => {
+    const queued = makeGateEvent('queued')
+    const window = makeWindow('50ms')
+    window.gateEvents = [queued]
+    applySessionWindow(window, detailPage('gate-page', 0))
+    expect(selectDetailGatewayData(Date.parse('2026-09-02T10:00:00Z'), Date.parse('2026-09-02T10:01:00Z')).gateEvents).toHaveLength(1)
+
+    const approved: GateEvent = { ...queued, state: 'approved', decided_at: '2026-09-02T10:00:03Z', updated: '2026-09-02T10:00:04Z' }
+    applyRealtimeBatch([{ collection: 'gateEvents', action: 'update', record: approved }])
+    expect(sessionTimelineStore.getState().entities.gateEvents.get(queued.id)?.state).toBe('approved')
+    clearDetailPages()
+    expect(sessionTimelineStore.getState().entities.gateEvents.size).toBe(0)
+    expect(sessionTimelineStore.getState().indexes.gates.query(Date.parse('2026-09-02T09:59:00Z'), Date.parse('2026-09-02T10:01:00Z')).size).toBe(0)
   })
 })
 
@@ -230,6 +254,16 @@ function makeChunk(id: string, start: string): FlowActivityChunk {
   }
 }
 
+function makeGateEvent(state: GateEvent['state']): GateEvent {
+  return {
+    id: 'gate-1', session: session.id, decision_id: 'decision-1', flow_key: 'flow-key',
+    client_ip: '192.168.0.2', destination_ip: '1.1.1.1', source_port: 50_000,
+    destination_port: 443, protocol: 'tcp', packet_count: 1, state, actor: '', reason: '',
+    verdict_source: 'system', queued_at: '2026-09-02T10:00:02Z', wait_ms: 0,
+    created: '2026-09-02T10:00:02Z', updated: '2026-09-02T10:00:02Z',
+  }
+}
+
 function makeWindow(lod: SessionWindow['lod'], flows: Flow[] = [], chunks: FlowActivityChunk[] = []): SessionWindow {
   return {
     range: { from: '2026-09-02T10:00:00Z', to: '2026-09-02T10:01:00Z' },
@@ -245,6 +279,7 @@ function makeWindow(lod: SessionWindow['lod'], flows: Flow[] = [], chunks: FlowA
     flowActivityStatuses: [],
     destinations: [],
     routes: [],
+    gateEvents: [],
     nextCursor: null,
   }
 }

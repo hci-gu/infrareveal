@@ -52,6 +52,8 @@ func TestSessionTimelineManifestAndWindow(t *testing.T) {
 	session.Set("name", "Timeline test")
 	session.Set("active", true)
 	session.Set("started_at", start.Format(time.RFC3339Nano))
+	session.Set("gate_audit_complete", false)
+	session.Set("gate_audit_drops", 2)
 	if err := app.Save(session); err != nil {
 		t.Fatal(err)
 	}
@@ -94,12 +96,35 @@ func TestSessionTimelineManifestAndWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	gateCollection, _ := app.FindCollectionByNameOrId("gate_events")
+	gate := core.NewRecord(gateCollection)
+	gate.Set("session", session.Id)
+	gate.Set("decision_id", "timeline-decision")
+	gate.Set("flow_key", flow.GetString("flow_key"))
+	gate.Set("client_ip", "10.0.0.50")
+	gate.Set("destination_ip", "93.184.216.34")
+	gate.Set("source_port", 53000)
+	gate.Set("destination_port", 443)
+	gate.Set("protocol", "tcp")
+	gate.Set("packet_count", 1)
+	gate.Set("state", "approved")
+	gate.Set("verdict_source", "operator")
+	gate.Set("queued_at", start.Add(1500*time.Millisecond).Format(time.RFC3339Nano))
+	gate.Set("decided_at", start.Add(2*time.Second).Format(time.RFC3339Nano))
+	gate.Set("wait_ms", 500)
+	if err := app.Save(gate); err != nil {
+		t.Fatal(err)
+	}
+
 	manifest, err := buildSessionTimelineManifest(app, session.Id, start.Add(10*time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.SessionID != session.Id || manifest.Counts["flows"] != 1 || manifest.Counts["flow_activity_chunks"] != 1 {
+	if manifest.SessionID != session.Id || manifest.Counts["flows"] != 1 || manifest.Counts["flow_activity_chunks"] != 1 || manifest.Counts["gate_events"] != 1 {
 		t.Fatalf("unexpected manifest: %#v", manifest)
+	}
+	if manifest.GateAuditComplete || manifest.GateAuditDrops != 2 {
+		t.Fatalf("gate audit disclosure missing: %#v", manifest)
 	}
 
 	window, status, err := buildSessionTimelineWindow(app, session.Id, map[string][]string{
@@ -110,7 +135,7 @@ func TestSessionTimelineManifestAndWindow(t *testing.T) {
 	if err != nil || status != 200 {
 		t.Fatalf("window failed: status=%d err=%v", status, err)
 	}
-	if len(window.Flows) != 1 || len(window.FlowActivityChunks) != 1 {
+	if len(window.Flows) != 1 || len(window.FlowActivityChunks) != 1 || len(window.GateEvents) != 1 {
 		t.Fatalf("unexpected window counts: flows=%d chunks=%d", len(window.Flows), len(window.FlowActivityChunks))
 	}
 	if window.FlowActivityChunks[0]["bucket_ms"] != 500 {

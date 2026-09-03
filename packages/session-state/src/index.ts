@@ -28,6 +28,7 @@ export { selectGatewayDataWindow } from './timeline/selectors/selectGatewayDataW
 export {
   DEFAULT_DETAIL_CACHE_BUDGET_BYTES,
   configureDetailCacheBudget,
+  observeTimelineLiveEdge,
   selectDetailGatewayData,
   selectOverviewGatewayData,
   sessionTimelineStore,

@@ -9,6 +9,7 @@ import type {
   FlowActivityWindow,
   FlowAttribution,
   GatewayData,
+  GateEvent,
   Route,
   Session,
   SessionManifest,
@@ -111,6 +112,7 @@ export async function getGatewayData(
     flowActivityStatuses,
     destinations,
     routes,
+    gateEvents: [],
   }
 }
 
@@ -219,7 +221,7 @@ export async function getCollectionSessionWindow({
     `last_seen >= "${from}"`,
     valueFilter('id', flowIds),
   )
-  const [flows, activityEpisodes, flowActivityStatuses, dnsQueries, flowActivityChunks, flowActivityWindows] = await Promise.all([
+  const [flows, activityEpisodes, flowActivityStatuses, dnsQueries, flowActivityChunks, flowActivityWindows, gateEvents] = await Promise.all([
     listAllRecords<Flow>('flows', { sort: 'start', filter: flowFilter, signal }),
     listOptionalRecords<ActivityEpisode>('activity_episodes', {
       sort: 'start',
@@ -265,6 +267,13 @@ export async function getCollectionSessionWindow({
           ),
           signal,
         }),
+    overview
+      ? Promise.resolve([] as GateEvent[])
+      : listOptionalRecords<GateEvent>('gate_events', {
+          sort: 'queued_at',
+          filter: joinFilters(sessionFilter, `queued_at >= "${from}"`, `queued_at < "${to}"`),
+          signal,
+        }),
   ])
 
   const visibleFlowIDs = flows.map((flow) => flow.id)
@@ -290,6 +299,7 @@ export async function getCollectionSessionWindow({
     flowActivityStatuses,
     destinations,
     routes,
+    gateEvents,
     nextCursor: null,
   }
 }
@@ -328,6 +338,7 @@ function emptySessionWindow(fromMs: number, toMs: number, lod: TimelineLOD): Ses
     flowActivityStatuses: [],
     destinations: [],
     routes: [],
+    gateEvents: [],
     nextCursor: null,
   }
 }
@@ -346,6 +357,7 @@ function mergeSessionWindow(target: SessionWindow, page: SessionWindow) {
   target.flowActivityStatuses = mergeById(target.flowActivityStatuses, page.flowActivityStatuses)
   target.destinations = mergeById(target.destinations, page.destinations)
   target.routes = mergeById(target.routes, page.routes)
+  target.gateEvents = mergeById(target.gateEvents, page.gateEvents)
 }
 
 function mergeById<T extends { id: string }>(current: T[], incoming: T[]) {
@@ -391,6 +403,7 @@ export function emptyGatewayData(): GatewayData {
     flowActivityStatuses: [],
     destinations: [],
     routes: [],
+    gateEvents: [],
   }
 }
 

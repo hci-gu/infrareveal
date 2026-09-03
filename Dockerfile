@@ -1,5 +1,5 @@
 # Base image with Go installed
-FROM golang:1.23-bullseye AS builder
+FROM golang:1.27.1-bookworm AS builder
 
 WORKDIR /src
 
@@ -12,6 +12,9 @@ COPY pocketbase/lib ./lib
 COPY pocketbase/migrations ./migrations
 COPY pocketbase/observer ./observer
 COPY pocketbase/parser ./parser
+COPY pocketbase/debugtrace ./debugtrace
+COPY pocketbase/labgate ./labgate
+COPY pocketbase/netmeta ./netmeta
 
 # Build the infra-reveal binary with CGO disabled
 ENV CGO_ENABLED=0
@@ -19,15 +22,18 @@ ARG GOARCH=arm64
 ARG GOARM=7
 RUN GOOS=linux GOARCH=${GOARCH} GOARM=${GOARM} go build -trimpath -o /out/infra-reveal .
 
-# Use a minimal runtime image for the final container
-FROM balenalib/rpi-raspbian:bullseye
+# Use a multi-architecture runtime. The old rpi-raspbian tag resolves to
+# linux/arm/v6 and cannot produce the arm64 image built above.
+FROM debian:bookworm-slim
 
 # Install required dependencies
-RUN apt-get update --fix-missing && apt-get install -y --no-install-recommends \
+RUN export DEBIAN_FRONTEND=noninteractive; \
+    apt-get update --fix-missing && apt-get install -y --no-install-recommends \
     hostapd \
     dbus \
     net-tools \
     iptables \
+    ipset \
     dnsmasq \
     macchanger \
     iproute2 \

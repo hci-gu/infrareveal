@@ -9,7 +9,7 @@ import { chooseLOD, sessionController } from '../timeline/transport/sessionContr
 import { parseEpoch } from '../timeline/domain/time'
 
 /** React adapter for the shared session runtime. */
-export function useGatewayData(requestedSessionId?: string | null) {
+export function useGatewayData(requestedSessionId?: string | null, enabled = true) {
   const [fallbackEpochMs] = useState(() => Date.now())
   const sessionVersion = useStore(sessionTimelineStore, (state) => state.sessionVersion)
   const overviewVersion = useStore(sessionTimelineStore, (state) => state.overviewVersion)
@@ -22,9 +22,10 @@ export function useGatewayData(requestedSessionId?: string | null) {
   const rate = useStore(sessionTimelineStore, (state) => state.rate)
 
   useEffect(() => {
+    if (!enabled) return
     void sessionController.start(requestedSessionId ?? null)
     return () => sessionController.dispose()
-  }, [requestedSessionId])
+  }, [enabled, requestedSessionId])
 
   const data = useMemo(
     () => {
@@ -35,8 +36,8 @@ export function useGatewayData(requestedSessionId?: string | null) {
     [overviewVersion, sessionVersion],
   )
   const refresh = useCallback(async () => {
-    await sessionController.refresh()
-  }, [])
+    if (enabled) await sessionController.refresh()
+  }, [enabled])
 
   const epochMs = parseEpoch(manifest?.startedAt, parseEpoch(data.selectedSession?.started_at || data.selectedSession?.created, fallbackEpochMs))
   return {
@@ -44,7 +45,7 @@ export function useGatewayData(requestedSessionId?: string | null) {
     connectionState,
     error,
     refresh,
-    timeline: { epochMs, liveEdgeMs, mode, playback, rate },
+    timeline: { epochMs, liveEdgeMs, mode, playback, rate, manifest },
   }
 }
 
@@ -98,6 +99,7 @@ export function useFlowActivityRange(
     chunks: data.flowActivityChunks,
     windows: data.flowActivityWindows,
     dnsQueries: data.dnsQueries,
+    gateEvents: data.gateEvents,
     loading: !explicitlyEmpty && loadingPageCount > 0,
     error,
     clear,

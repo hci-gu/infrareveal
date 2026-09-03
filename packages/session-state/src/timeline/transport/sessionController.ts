@@ -46,6 +46,7 @@ const subscriptions = [
   ['flow_activity_status', 'flowActivityStatuses'],
   ['destinations', 'destinations'],
   ['routes', 'routes'],
+  ['gate_events', 'gateEvents'],
 ] as const
 
 /** Owns bootstrap, realtime delivery, reconciliation, and bounded detail loading. */
@@ -189,6 +190,7 @@ class SessionController {
             chunk_start?: string
             window_start?: string
             timestamp?: string
+            queued_at?: string
             ip?: string
           }
           if (!record.id) return

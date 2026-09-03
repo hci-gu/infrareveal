@@ -11,6 +11,7 @@ import (
 	"math/rand"
 	"net"
 	"net/http"
+	"net/netip"
 	"os"
 	"strings"
 	"sync"
@@ -21,6 +22,8 @@ import (
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 
+	"myapp/debugtrace"
+	"myapp/labgate"
 	"myapp/lib"
 	_ "myapp/migrations"
 	"myapp/observer"
@@ -115,6 +118,52 @@ func main() {
 	app := pocketbase.New()
 	ctx, cancelObservers := context.WithCancel(context.Background())
 	defer cancelObservers()
+	traceConfig := debugtrace.ConfigFromEnv()
+	traceConfig.LogEffective()
+	traceHub, traceSink := debugtrace.NewRuntime(context.Background(), traceConfig)
+	if traceHub != nil {
+		defer traceHub.Close()
+	}
+	gateConfig := labgate.ConfigFromEnv()
+	gateConfig.LogEffective()
+	var gateAudit labgate.AuditSink = labgate.NopAuditSink{}
+	var gateAuditWriter *labgate.AuditWriter
+	if gateConfig.Enabled {
+		gateAuditWriter = labgate.NewAuditWriter(app, 512)
+		gateAudit = gateAuditWriter
+		defer func() {
+			closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			_ = gateAuditWriter.Close(closeCtx)
+		}()
+	}
+	clientSubnetText := envOrDefault("LAB_GATE_CLIENT_SUBNET", "10.0.0.0/24")
+	clientSubnet, subnetErr := netip.ParsePrefix(clientSubnetText)
+	if subnetErr != nil {
+		log.Fatalf("invalid LAB_GATE_CLIENT_SUBNET: %v", subnetErr)
+	}
+	var controlToken []byte
+	if gateConfig.ControlTokenFile != "" {
+		loadedToken, tokenErr := labgate.LoadControlToken(gateConfig.ControlTokenFile)
+		if tokenErr != nil {
+			log.Printf("lab gate controls unavailable: %v", tokenErr)
+		} else {
+			controlToken = loadedToken
+		}
+	}
+	gateController, err := newLabGateRuntime(
+		context.Background(), gateConfig, traceSink,
+		envOrDefault("AP_IFACE", "wlan0"), envOrDefault("INTERNET_IFACE", "eth0"),
+		clientSubnetText, gateAudit,
+	)
+	if err != nil {
+		log.Fatalf("invalid lab gate configuration: %v", err)
+	}
+	defer func() {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		_ = gateController.Close(closeCtx)
+	}()
 
 	geoipDB, _ := geoip2.Open("./geoip/city.mmdb")
 	if geoipDB != nil {
@@ -124,6 +173,10 @@ func main() {
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		// serves static files from the provided public dir (if exists)
 		registerSessionTimelineRoutes(se.Router, app)
+		debugtrace.RegisterRoutes(se.Router, app, traceHub)
+		labgate.RegisterControlRoutes(se.Router, app, gateController, labgate.ControlRouteConfig{
+			Token: controlToken, AllowedOrigins: gateConfig.AllowedOrigins, ClientSubnet: clientSubnet,
+		})
 		se.Router.POST("/api/infrareveal/clear-observations", func(e *core.RequestEvent) error {
 			result, err := clearObservationCollections(app)
 			if err != nil {
@@ -145,23 +198,37 @@ func main() {
 		apInterface := envOrDefault("AP_IFACE", "wlan0")
 		observationScope := observer.NewObservationScope(clientPrefix, gatewayIP)
 
-		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, currentSessionID)
-		conntrackSampler = observer.StartConntrackSampler(ctx, app, conntrackPath, observationScope, currentSessionID)
+		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, currentSessionID, traceSink)
+		conntrackSampler = observer.StartConntrackSampler(ctx, app, conntrackPath, observationScope, currentSessionID, traceSink)
 		observer.StartPacketActivityObserver(
 			ctx,
 			app,
 			observationScope,
 			currentSessionID,
 			observer.PacketActivityConfigFromEnv(apInterface),
+			traceSink,
 		)
-		observer.StartFlowCorrelator(ctx, app, observationScope, currentSessionID)
-		observer.StartDestinationEnricher(ctx, app, geoipDB, observationScope, currentSessionID)
+		observer.StartFlowCorrelator(ctx, app, observationScope, currentSessionID, traceSink)
+		observer.StartDestinationEnricher(ctx, app, geoipDB, observationScope, currentSessionID, traceSink)
 
 		return se.Next()
 	})
 
 	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error {
+		closeCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		if err := gateController.Close(closeCtx); err != nil {
+			log.Printf("lab gate shutdown: %v", err)
+		}
+		cancel()
+		if gateAuditWriter != nil {
+			auditCtx, auditCancel := context.WithTimeout(context.Background(), 5*time.Second)
+			if err := gateAuditWriter.Close(auditCtx); err != nil {
+				log.Printf("lab gate audit shutdown: %v", err)
+			}
+			auditCancel()
+		}
 		cancelObservers()
+		traceHub.Close()
 		return e.Next()
 	})
 
@@ -172,13 +239,35 @@ func main() {
 		if e.Record.GetBool("active") {
 			e.Record.Set("ended_at", "")
 		}
+		e.Record.Set("gate_audit_complete", true)
+		e.Record.Set("gate_audit_drops", 0)
 		return e.Next()
 	})
 
 	app.OnRecordUpdate("sessions").BindFunc(func(e *core.RecordEvent) error {
 		if e.Record.GetBool("active") {
 			e.Record.Set("ended_at", "")
+			e.Record.Set("gate_audit_complete", true)
+			e.Record.Set("gate_audit_drops", 0)
 		} else if e.Record.GetDateTime("ended_at").IsZero() {
+			statusCtx, statusCancel := context.WithTimeout(context.Background(), 2*time.Second)
+			status, statusErr := gateController.Status(statusCtx)
+			if statusErr == nil && status.Armed && status.SessionID == e.Record.Id {
+				if _, disarmErr := gateController.Disarm(statusCtx); disarmErr != nil {
+					log.Printf("lab gate session-end disarm: %v", disarmErr)
+				}
+			}
+			statusCancel()
+			if gateAuditWriter != nil {
+				auditCtx, auditCancel := context.WithTimeout(context.Background(), 3*time.Second)
+				if flushErr := gateAuditWriter.Flush(auditCtx); flushErr != nil {
+					log.Printf("lab gate audit flush for session %s: %v", e.Record.Id, flushErr)
+				}
+				drops := gateAuditWriter.DroppedForSession(e.Record.Id)
+				e.Record.Set("gate_audit_complete", drops == 0)
+				e.Record.Set("gate_audit_drops", drops)
+				auditCancel()
+			}
 			e.Record.Set("ended_at", time.Now().UTC().Format(time.RFC3339Nano))
 		}
 		return e.Next()
@@ -286,6 +375,7 @@ func clearObservationCollections(app *pocketbase.PocketBase) (clearObservationsR
 	}
 	skipped := map[string]bool{}
 	collections := []string{
+		"gate_events",
 		"flow_activity_chunks",
 		"flow_activity_windows",
 		"flow_activity_status",

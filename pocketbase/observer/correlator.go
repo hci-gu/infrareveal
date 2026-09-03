@@ -10,6 +10,8 @@ import (
 	"strings"
 	"time"
 
+	"myapp/debugtrace"
+
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
@@ -22,8 +24,10 @@ type FlowObservation struct {
 	SessionID       string
 	ClientIP        string
 	DestinationIP   string
+	SourcePort      int
 	DestinationPort int
 	Protocol        string
+	FlowKey         string
 	Start           time.Time
 	LastSeen        time.Time
 }
@@ -47,7 +51,8 @@ type AttributionConclusion struct {
 	ObservedAt        time.Time
 }
 
-func StartFlowCorrelator(ctx context.Context, app *pocketbase.PocketBase, scope ObservationScope, sessionID func() string) {
+func StartFlowCorrelator(ctx context.Context, app *pocketbase.PocketBase, scope ObservationScope, sessionID func() string, trace debugtrace.Sink) {
+	trace = usableTraceSink(trace)
 	go func() {
 		ticker := time.NewTicker(3 * time.Second)
 		defer ticker.Stop()
@@ -61,7 +66,7 @@ func StartFlowCorrelator(ctx context.Context, app *pocketbase.PocketBase, scope 
 				if sessionID == "" {
 					continue
 				}
-				if err := correlateSession(app, scope, sessionID); err != nil {
+				if err := correlateSession(app, scope, sessionID, trace); err != nil {
 					log.Printf("flow correlator error: %v", err)
 					continue
 				}
@@ -73,7 +78,7 @@ func StartFlowCorrelator(ctx context.Context, app *pocketbase.PocketBase, scope 
 	}()
 }
 
-func correlateSession(app *pocketbase.PocketBase, scope ObservationScope, sessionID string) error {
+func correlateSession(app *pocketbase.PocketBase, scope ObservationScope, sessionID string, trace debugtrace.Sink) error {
 	flowRecords, err := app.FindAllRecords("flows", dbx.HashExp{"session": sessionID})
 	if err != nil {
 		return err
@@ -95,8 +100,22 @@ func correlateSession(app *pocketbase.PocketBase, scope ObservationScope, sessio
 			continue
 		}
 		conclusion := AttributeFlow(flow, dnsObservations, dnsAttributionWindow)
-		if err := upsertAttribution(app, flow, conclusion); err != nil {
+		changed, err := upsertAttribution(app, flow, conclusion)
+		if err != nil {
 			return err
+		}
+		if changed {
+			trace.TryEmit(debugtrace.Event{
+				ID:        traceEventID("flow-attribution", flow.ID, conclusion.ObservedAt),
+				SessionID: flow.SessionID, TraceID: "flow:" + flow.ID,
+				Kind: debugtrace.KindAttribution, Stage: debugtrace.StageAttribution,
+				OccurredAtMs: conclusion.ObservedAt.UnixMilli(), ProcessedAtMs: traceProcessedNow(), Timing: debugtrace.TimingDerived,
+				Summary: debugtrace.Summary{
+					Protocol: flow.Protocol, ClientIP: flow.ClientIP, ClientPort: tracePort(flow.SourcePort),
+					RemoteIP: flow.DestinationIP, RemotePort: tracePort(flow.DestinationPort), FlowKey: flow.FlowKey,
+					Hostname: conclusion.CandidateHostname, Confidence: conclusion.Confidence,
+				},
+			})
 		}
 	}
 
@@ -231,7 +250,8 @@ func hasReducedVisibilityPort(flow FlowObservation) bool {
 	}
 }
 
-func upsertAttribution(app *pocketbase.PocketBase, flow FlowObservation, conclusion AttributionConclusion) error {
+func upsertAttribution(app *pocketbase.PocketBase, flow FlowObservation, conclusion AttributionConclusion) (bool, error) {
+	created := false
 	record, err := app.FindFirstRecordByFilter(
 		"flow_attributions",
 		"flow={:flow}",
@@ -239,18 +259,24 @@ func upsertAttribution(app *pocketbase.PocketBase, flow FlowObservation, conclus
 	)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			return err
+			return false, err
 		}
 		collection, err := app.FindCollectionByNameOrId("flow_attributions")
 		if err != nil {
-			return err
+			return false, err
 		}
 		record = core.NewRecord(collection)
+		created = true
 		record.Set("session", flow.SessionID)
 		record.Set("flow", flow.ID)
 	} else if !shouldReplaceAttribution(record.GetString("confidence"), record.GetString("candidate_hostname"), conclusion) {
-		return nil
+		return false, nil
 	}
+	materialChange := created ||
+		record.GetString("candidate_hostname") != conclusion.CandidateHostname ||
+		record.GetString("source_signal") != conclusion.SourceSignal ||
+		record.GetString("confidence") != conclusion.Confidence ||
+		record.GetString("dns_query") != conclusion.DNSQueryID
 
 	record.Set("candidate_hostname", conclusion.CandidateHostname)
 	record.Set("source_signal", conclusion.SourceSignal)
@@ -258,7 +284,10 @@ func upsertAttribution(app *pocketbase.PocketBase, flow FlowObservation, conclus
 	record.Set("explanation", conclusion.Explanation)
 	record.Set("dns_query", conclusion.DNSQueryID)
 	record.Set("observed_at", conclusion.ObservedAt.UTC().Format(time.RFC3339))
-	return app.Save(record)
+	if err := app.Save(record); err != nil {
+		return false, err
+	}
+	return materialChange, nil
 }
 
 func shouldReplaceAttribution(existingConfidence, existingHostname string, next AttributionConclusion) bool {
@@ -292,8 +321,10 @@ func flowObservationFromRecord(record *core.Record) FlowObservation {
 		SessionID:       record.GetString("session"),
 		ClientIP:        record.GetString("client_ip"),
 		DestinationIP:   record.GetString("destination_ip"),
+		SourcePort:      record.GetInt("source_port"),
 		DestinationPort: record.GetInt("destination_port"),
 		Protocol:        strings.ToLower(record.GetString("protocol")),
+		FlowKey:         record.GetString("flow_key"),
 		Start:           record.GetDateTime("start").Time(),
 		LastSeen:        record.GetDateTime("last_seen").Time(),
 	}

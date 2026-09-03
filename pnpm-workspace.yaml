@@ -2,3 +2,7 @@ packages:
   - packages/*
   - dashboard
   - debug-dashboard
+minimumReleaseAgeExclude:
+  # Already present in the baseline lockfile; keep reproducible installs working
+  # while the local pnpm supply-chain policy's release-age window elapses.
+  - eslint-plugin-react-refresh@0.5.6

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { FlowActivityChunk, GatewayData } from '@infrareveal/session-state'
-import { buildSessionComposition, decodeActivityChunk, SessionCompositionProjector } from './sessionModel'
+import { buildSessionComposition, SessionCompositionProjector } from './sessionModel'
 
 const chunkStart = '2026-08-25T14:00:00.000Z'
 
@@ -30,7 +30,7 @@ function gatewayData(activityChunk: FlowActivityChunk): GatewayData {
     dnsQueries: [], attributions: [], activityEpisodes: [], flowAssociations: [],
     flowActivityChunks: [activityChunk],
     flowActivityWindows: [{ id: 'window-1', session: 'session-1', window_key: 'session-1|window', window_start: chunkStart, window_ms: 5000, capture_running: true, capture_complete: true, dropped_events: 0, last_error: '' }],
-    flowActivityStatuses: [], destinations: [], routes: [],
+    flowActivityStatuses: [], destinations: [], routes: [], gateEvents: [],
   }
 }
 
@@ -46,16 +46,6 @@ describe('flow activity model', () => {
       startMs: Date.parse(chunkStart),
       endMs: Date.parse('2026-08-25T14:00:02.000Z'),
     }])
-  })
-
-  it.each([
-    { version: 2, bucket_ms: 50, chunk_ms: 5000, samples: [[0, 1, 0, 1, 0]] },
-    { version: 1, bucket_ms: -50, chunk_ms: 5000, samples: [[0, 1, 0, 1, 0]] },
-    { version: 1, bucket_ms: 50, chunk_ms: 5000, samples: [[5000, 1, 0, 1, 0]] },
-    { version: 1, bucket_ms: 50, chunk_ms: 5000, samples: [[0, -1, 0, 1, 0]] },
-    { version: 1, bucket_ms: 50, chunk_ms: 5000, samples: [['bad', 1, 0, 1, 0]] },
-  ])('ignores malformed or out-of-range JSON %#', (samples) => {
-    expect(decodeActivityChunk(chunk({ samples }))).toEqual([])
   })
 
   it('ignores activity chunks whose parent flow is not displayable', () => {

@@ -1,0 +1,40 @@
+{
+  "version": 1,
+  "sessionId": "fixture-session",
+  "events": [
+    {
+      "id": "fixture-flow-1",
+      "sequence": 41,
+      "sessionId": "fixture-session",
+      "traceId": "fixture-trace-1",
+      "parentId": "fixture-parent-1",
+      "kind": "flow",
+      "stage": "gateway_ingress",
+      "direction": "client_to_remote",
+      "occurredAtMs": 1788343200000,
+      "processedAtMs": 1788343200002,
+      "timing": "observed",
+      "summary": {
+        "protocol": "tcp",
+        "clientIp": "10.42.0.18",
+        "clientPort": 53120,
+        "remoteIp": "142.250.74.14",
+        "remotePort": 443,
+        "flowKey": "tcp|10.42.0.18|53120|142.250.74.14|443",
+        "dnsName": "example.org",
+        "dnsType": "A",
+        "hostname": "edge.example.org",
+        "confidence": "high",
+        "wireBytes": 1514,
+        "payloadBytes": 1448,
+        "packetCount": 1,
+        "tcpFlags": 2,
+        "verdict": "approved",
+        "verdictSource": "operator",
+        "captureComplete": true
+      }
+    }
+  ],
+  "droppedEvents": 0,
+  "serverNowMs": 1788343200100
+}

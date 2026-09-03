@@ -10,6 +10,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	"myapp/debugtrace"
+
 	"github.com/pocketbase/pocketbase"
 )
 
@@ -71,7 +73,9 @@ func StartPacketActivityObserver(
 	scope ObservationScope,
 	sessionID func() string,
 	config PacketActivityConfig,
+	trace debugtrace.Sink,
 ) {
+	trace = usableTraceSink(trace)
 	events := make(chan PacketActivityEvent, config.EventQueueSize)
 	persistRequests := make(chan activityPersistRequest, config.PersistenceQueueSize)
 	persistAcks := make(chan activityPersistAck, config.PersistenceQueueSize)
@@ -129,7 +133,7 @@ func StartPacketActivityObserver(
 		}()
 	}
 
-	go runPacketActivityPipeline(ctx, app, sessionID, config, events, persistRequests, persistAcks, captureState, &droppedEvents)
+	go runPacketActivityPipeline(ctx, app, sessionID, config, events, persistRequests, persistAcks, captureState, &droppedEvents, trace)
 }
 
 func runPacketActivityPipeline(
@@ -142,6 +146,7 @@ func runPacketActivityPipeline(
 	persistAcks <-chan activityPersistAck,
 	captureState <-chan captureStateEvent,
 	droppedEvents *atomic.Int64,
+	trace debugtrace.Sink,
 ) {
 	aggregator := NewActivityAggregator(config.BucketDuration, config.ChunkDuration, config.MaxPendingChunks)
 	flushTicker := time.NewTicker(config.FlushInterval)
@@ -158,6 +163,20 @@ func runPacketActivityPipeline(
 	lastError := ""
 	windowSessionID := ""
 	windowDrops := make(map[time.Time]int64)
+	emitHealth := func(now time.Time, complete bool, dropped int64) {
+		activeSessionID := sessionID()
+		if activeSessionID == "" {
+			return
+		}
+		captureComplete := complete
+		trace.TryEmit(debugtrace.Event{
+			ID: traceEventID("capture-health", config.Interface, now), SessionID: activeSessionID,
+			TraceID: "capture:" + config.Interface, Kind: debugtrace.KindHealth, Stage: debugtrace.StageHealth,
+			OccurredAtMs: now.UnixMilli(), ProcessedAtMs: traceProcessedNow(), Timing: debugtrace.TimingObserved,
+			Summary: debugtrace.Summary{DroppedEvents: traceCount(dropped), CaptureComplete: &captureComplete},
+		})
+	}
+	defer emitHealth(time.Now().UTC(), false, droppedEvents.Load())
 
 	reportStatus := func(now time.Time) {
 		activeSessionID := sessionID()
@@ -205,8 +224,10 @@ func runPacketActivityPipeline(
 				log.Printf("packet activity capture enabled on %s with %s buckets", config.Interface, config.BucketDuration)
 			}
 			reportStatus(time.Now())
+			emitHealth(time.Now().UTC(), state.running && state.err == nil, droppedEvents.Load())
 		case event := <-events:
 			lastEventAt = event.ObservedAt
+			tracePacketActivity(trace, event)
 			if !aggregator.Add(event) {
 				droppedEvents.Add(1)
 			}
@@ -234,6 +255,7 @@ func runPacketActivityPipeline(
 				aggregator.MarkCaptureDrop(delta, now)
 				windowDrops[now.UTC().Truncate(config.ChunkDuration)] += delta
 				log.Printf("packet activity dropped %d metadata events under backpressure (total %d)", delta, currentDropped)
+				emitHealth(now.UTC(), false, currentDropped)
 				lastDropped = currentDropped
 			}
 			queueFull := false
@@ -263,6 +285,14 @@ func runPacketActivityPipeline(
 			}
 		}
 	}
+}
+
+func tracePacketActivity(trace debugtrace.Sink, event PacketActivityEvent) {
+	trace.TryBurst(debugtrace.BurstInput{
+		SessionID: event.SessionID, TraceID: "flow:" + event.FlowKey, FlowKey: event.FlowKey,
+		Protocol: event.Protocol, Direction: debugtrace.Direction(event.Direction), OccurredAtMs: event.ObservedAt.UnixMilli(),
+		WireBytes: uint64(event.WireBytes), PayloadBytes: uint64(event.PayloadBytes), PacketCount: 1, TCPFlags: event.TCPFlags,
+	})
 }
 
 func enqueuePacketActivity(events chan<- PacketActivityEvent, event PacketActivityEvent, dropped *atomic.Int64) bool {

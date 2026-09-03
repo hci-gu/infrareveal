@@ -5,9 +5,26 @@ INTERNET_IFACE="${INTERNET_IFACE:-eth0}"
 SSID="${SSID:-Public}"
 CAPTURE_FILE="${CAPTURE_FILE:-/root/data/http-traffic.cap}"
 MAC="${MAC:-random}"
+CHILD=""
+
+cleanup_lab_rules() {
+  while iptables -w -C FORWARD -j INFRAREVEAL_LAB 2>/dev/null; do
+    iptables -w -D FORWARD -j INFRAREVEAL_LAB 2>/dev/null || break
+  done
+  while iptables -w -C INPUT -j INFRAREVEAL_LAB_DNS 2>/dev/null; do
+    iptables -w -D INPUT -j INFRAREVEAL_LAB_DNS 2>/dev/null || break
+  done
+  iptables -w -F INFRAREVEAL_LAB 2>/dev/null || true
+  iptables -w -X INFRAREVEAL_LAB 2>/dev/null || true
+  iptables -w -F INFRAREVEAL_LAB_DNS 2>/dev/null || true
+  iptables -w -X INFRAREVEAL_LAB_DNS 2>/dev/null || true
+  ipset flush infrareveal_lab_clients 2>/dev/null || true
+  ipset destroy infrareveal_lab_clients 2>/dev/null || true
+}
 
 # SIGTERM-handler
 term_handler() {
+  cleanup_lab_rules
   while iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337 2>/dev/null; do
     iptables -t nat -D PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337
   done
@@ -24,10 +41,25 @@ term_handler() {
   /etc/init.d/hostapd stop
   /etc/init.d/dbus stop
 
-  kill -TERM "$CHILD" 2>/dev/null
+  if [ -n "$CHILD" ] && kill -0 "$CHILD" 2>/dev/null; then
+    kill -TERM "$CHILD" 2>/dev/null || true
+    wait "$CHILD" 2>/dev/null || true
+  fi
 
   echo "received shutdown signal, exiting."
 }
+
+if [ "${INFRAREVEAL_ENTRYPOINT_LIBRARY_ONLY:-false}" = "true" ]; then
+  if [ "${BASH_SOURCE[0]}" != "$0" ]; then
+    return 0
+  fi
+  exit 0
+fi
+
+# Recover safely from an unclean previous lab run before normal forwarding is
+# configured. The Go controller recreates this empty chain/set only when lab
+# support is explicitly enabled.
+cleanup_lab_rules
 
 # Set AP interface
 ip link set "$AP_IFACE" down
@@ -111,20 +143,22 @@ iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 53 -j REDIRECT --to-
 iptables -t nat -A PREROUTING -i "$AP_IFACE" -p tcp --dport 53 -j REDIRECT --to-ports 53
 
 # Signal handling
-trap term_handler SIGTERM
+trap term_handler SIGTERM SIGINT
 
 # Start infra-reveal
 if [ -x /root/pb/infra-reveal ]; then
-  /root/pb/infra-reveal serve --http="0.0.0.0:8090" || {
-    echo "infra-reveal failed to start"
-    exit 1
-  }
+  /root/pb/infra-reveal serve --http="0.0.0.0:8090" &
+  CHILD=$!
 else
   echo "infra-reveal binary not found or not executable"
   exit 1
 fi
 
-# Keep the container running
-tail -f /dev/null &
-CHILD=$!
 wait "$CHILD"
+status=$?
+if [ "$status" -ne 0 ]; then
+  echo "infra-reveal exited with status $status"
+  cleanup_lab_rules
+  exit "$status"
+fi
+cleanup_lab_rules

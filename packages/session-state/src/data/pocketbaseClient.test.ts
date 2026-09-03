@@ -157,6 +157,7 @@ function makeWindow(flows: Flow[], nextCursor: string | null): SessionWindow {
     flowActivityStatuses: [],
     destinations: [],
     routes: [],
+    gateEvents: [],
     nextCursor,
   }
 }

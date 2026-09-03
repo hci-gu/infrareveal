@@ -4,7 +4,7 @@ import type { GatewayData } from '../../data/types'
 export function selectGatewayDataWindow(
   data: GatewayData,
   flowIds: string[],
-  detail: Pick<GatewayData, 'dnsQueries' | 'flowActivityChunks' | 'flowActivityWindows'>,
+  detail: Pick<GatewayData, 'dnsQueries' | 'flowActivityChunks' | 'flowActivityWindows'> & Partial<Pick<GatewayData, 'gateEvents'>>,
 ): GatewayData {
   const requested = new Set(flowIds)
   const flows = data.flows.filter((flow) => requested.has(flow.id))
@@ -26,5 +26,6 @@ export function selectGatewayDataWindow(
     flowActivityStatuses: data.flowActivityStatuses,
     destinations: data.destinations.filter((record) => destinationIPs.has(record.ip)),
     routes: data.routes.filter((record) => destinationSockets.has(`${record.destination_ip}:${record.destination_port}:${record.protocol}`)),
+    gateEvents: detail.gateEvents ?? [],
   }
 }

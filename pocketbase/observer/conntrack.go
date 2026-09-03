@@ -12,6 +12,9 @@ import (
 	"sync"
 	"time"
 
+	"myapp/debugtrace"
+	"myapp/netmeta"
+
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
@@ -35,10 +38,15 @@ type ConntrackSampler struct {
 	scope      ObservationScope
 	mu         sync.Mutex
 	suppressed map[string]struct{}
+	trace      debugtrace.Sink
 }
 
 func (f FlowSample) Key() string {
-	return flowKey(f.Protocol, f.ClientIP, f.SourcePort, f.DestinationIP, f.DestinationPort)
+	tuple, ok := netmeta.ParseFlowTuple(f.Protocol, f.ClientIP, f.SourcePort, f.DestinationIP, f.DestinationPort)
+	if !ok {
+		return ""
+	}
+	return tuple.Key()
 }
 
 func NewConntrackSampler(path string, scope ObservationScope) *ConntrackSampler {
@@ -46,11 +54,13 @@ func NewConntrackSampler(path string, scope ObservationScope) *ConntrackSampler 
 		path:       path,
 		scope:      scope,
 		suppressed: make(map[string]struct{}),
+		trace:      debugtrace.NopSink{},
 	}
 }
 
-func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path string, scope ObservationScope, sessionID func() string) *ConntrackSampler {
+func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path string, scope ObservationScope, sessionID func() string, trace debugtrace.Sink) *ConntrackSampler {
 	sampler := NewConntrackSampler(path, scope)
+	sampler.trace = usableTraceSink(trace)
 	accountingPath := os.Getenv("CONNTRACK_ACCOUNTING_PATH")
 	if accountingPath == "" {
 		accountingPath = "/proc/sys/net/netfilter/nf_conntrack_acct"
@@ -145,8 +155,23 @@ func (sampler *ConntrackSampler) sampleAndPersist(app *pocketbase.PocketBase, se
 		return err
 	}
 	for _, sample := range samples {
-		if err := upsertFlow(app, sessionID, sample); err != nil {
+		result, err := upsertFlow(app, sessionID, sample)
+		if err != nil {
 			return err
+		}
+		if result.Created {
+			wireBytes := traceCount(sample.BytesOut + sample.BytesIn)
+			packetCount := traceCount(sample.PacketsOut + sample.PacketsIn)
+			sampler.trace.TryEmit(debugtrace.Event{
+				ID: "flow-discovered:" + result.RecordID, SessionID: sessionID, TraceID: "flow:" + result.RecordID,
+				Kind: debugtrace.KindFlow, Stage: debugtrace.StageConntrack, Direction: debugtrace.ClientToRemote,
+				OccurredAtMs: result.ObservedAt.UnixMilli(), ProcessedAtMs: traceProcessedNow(), Timing: debugtrace.TimingObserved,
+				Summary: debugtrace.Summary{
+					Protocol: sample.Protocol, ClientIP: sample.ClientIP, ClientPort: tracePort(sample.SourcePort),
+					RemoteIP: sample.DestinationIP, RemotePort: tracePort(sample.DestinationPort),
+					FlowKey: sample.Key(), WireBytes: wireBytes, PacketCount: packetCount,
+				},
+			})
 		}
 	}
 	return nil
@@ -261,9 +286,17 @@ func parseConntrackLine(line string, scope ObservationScope) (FlowSample, bool) 
 	}, true
 }
 
-func upsertFlow(app *pocketbase.PocketBase, sessionID string, sample FlowSample) error {
-	now := time.Now().UTC().Format(time.RFC3339)
+type flowUpsertResult struct {
+	RecordID   string
+	Created    bool
+	ObservedAt time.Time
+}
+
+func upsertFlow(app *pocketbase.PocketBase, sessionID string, sample FlowSample) (flowUpsertResult, error) {
+	observedAt := time.Now().UTC()
+	now := observedAt.Format(time.RFC3339)
 	key := sample.Key()
+	created := false
 
 	record, err := app.FindFirstRecordByFilter(
 		"flows",
@@ -272,13 +305,14 @@ func upsertFlow(app *pocketbase.PocketBase, sessionID string, sample FlowSample)
 	)
 	if err != nil {
 		if !errors.Is(err, sql.ErrNoRows) {
-			return err
+			return flowUpsertResult{}, err
 		}
 		collection, err := app.FindCollectionByNameOrId("flows")
 		if err != nil {
-			return err
+			return flowUpsertResult{}, err
 		}
 		record = core.NewRecord(collection)
+		created = true
 		record.Set("session", sessionID)
 		record.Set("flow_key", key)
 		record.Set("client_ip", sample.ClientIP)
@@ -297,7 +331,10 @@ func upsertFlow(app *pocketbase.PocketBase, sessionID string, sample FlowSample)
 	record.Set("packets_out", sample.PacketsOut)
 	record.Set("packets_in", sample.PacketsIn)
 
-	return app.Save(record)
+	if err := app.Save(record); err != nil {
+		return flowUpsertResult{}, err
+	}
+	return flowUpsertResult{RecordID: record.Id, Created: created, ObservedAt: observedAt}, nil
 }
 
 func parseInt(value string) int {

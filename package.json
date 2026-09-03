@@ -2,7 +2,7 @@
   "name": "@infrareveal/workspace",
   "private": true,
   "version": "0.0.0",
-  "packageManager": "pnpm@7.16.0",
+  "packageManager": "pnpm@11.25.0",
   "scripts": {
     "build": "pnpm -r --if-present run build",
     "test": "pnpm -r --if-present run test",

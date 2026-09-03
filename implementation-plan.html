@@ -1,0 +1,912 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="InfraReveal proxy visualization and turn-based network lab implementation plan">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23111722'/%3E%3Ccircle cx='10' cy='16' r='4' fill='%2367e8f9'/%3E%3Ccircle cx='22' cy='10' r='4' fill='%23fbbf24'/%3E%3Ccircle cx='22' cy='22' r='4' fill='%235ee3a1'/%3E%3C/svg%3E">
+  <title>InfraReveal — Proxy Lab Implementation Plan</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --ink: #f5f7fb;
+      --muted: #98a5b8;
+      --faint: #68758a;
+      --page: #090d14;
+      --panel: #111722;
+      --panel-2: #161e2b;
+      --line: #293447;
+      --line-strong: #3d4a60;
+      --cyan: #67e8f9;
+      --cyan-dim: #164e63;
+      --amber: #fbbf24;
+      --amber-dim: #78350f;
+      --green: #5ee3a1;
+      --green-dim: #164e3b;
+      --rose: #fb7185;
+      --rose-dim: #7f1d2d;
+      --violet: #c4b5fd;
+      --violet-dim: #4c1d95;
+      --radius: 14px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; min-width: 320px; background: var(--page); color: var(--ink); }
+    button, input { font: inherit; }
+    button { color: inherit; }
+    a { color: inherit; }
+    code, pre, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    :focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+
+    .shell { width: min(1480px, calc(100% - 40px)); margin: 0 auto; }
+    .topbar {
+      position: sticky; top: 0; z-index: 30; border-bottom: 1px solid rgba(61, 74, 96, .75);
+      background: rgba(9, 13, 20, .94); backdrop-filter: blur(18px);
+    }
+    .topbar-inner { min-height: 68px; display: flex; align-items: center; gap: 28px; }
+    .brand { display: flex; align-items: center; gap: 11px; text-decoration: none; font-weight: 760; letter-spacing: -.02em; }
+    .brand-mark { width: 27px; height: 27px; position: relative; border: 1px solid var(--line-strong); border-radius: 8px; }
+    .brand-mark::before, .brand-mark::after { content: ""; position: absolute; border-radius: 50%; background: var(--cyan); }
+    .brand-mark::before { width: 7px; height: 7px; left: 5px; top: 9px; box-shadow: 10px -5px 0 var(--amber), 10px 5px 0 var(--green); }
+    .topnav { display: flex; gap: 4px; margin-left: auto; overflow-x: auto; scrollbar-width: none; }
+    .topnav a { color: var(--muted); font-size: 13px; text-decoration: none; padding: 9px 11px; border-radius: 8px; white-space: nowrap; }
+    .topnav a:hover { color: var(--ink); background: var(--panel-2); }
+    .review-pill { display: inline-flex; gap: 7px; align-items: center; border: 1px solid #6b4f0d; background: #221a08; color: #fde68a; border-radius: 999px; padding: 7px 10px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+    .review-pill i { width: 7px; height: 7px; border-radius: 50%; background: var(--amber); }
+
+    .hero { padding: 82px 0 54px; display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, .65fr); gap: 70px; align-items: end; }
+    .eyebrow { color: var(--cyan); text-transform: uppercase; letter-spacing: .16em; font: 700 12px/1.4 "SFMono-Regular", Consolas, monospace; }
+    h1 { margin: 15px 0 20px; max-width: 950px; font-size: clamp(42px, 6vw, 82px); line-height: .98; letter-spacing: -.058em; font-weight: 760; }
+    .hero p { max-width: 820px; margin: 0; color: #bdc6d5; font-size: clamp(18px, 2vw, 22px); line-height: 1.55; }
+    .hero-note { border-left: 2px solid var(--cyan); padding-left: 20px; color: var(--muted); line-height: 1.6; }
+    .hero-note strong { display: block; color: var(--ink); margin-bottom: 6px; }
+    .summary-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; padding-bottom: 62px; }
+    .summary-card { min-height: 116px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 18px; }
+    .summary-card .value { font: 720 28px/1.1 "SFMono-Regular", Consolas, monospace; letter-spacing: -.04em; }
+    .summary-card .label { color: var(--muted); margin-top: 9px; font-size: 13px; line-height: 1.45; }
+    .summary-card:nth-child(1) .value { color: var(--cyan); }
+    .summary-card:nth-child(2) .value { color: var(--green); }
+    .summary-card:nth-child(3) .value { color: var(--amber); }
+    .summary-card:nth-child(4) .value { color: var(--violet); }
+
+    .section { padding: 76px 0; border-top: 1px solid var(--line); }
+    .section-heading { display: grid; grid-template-columns: 240px minmax(0, 760px); gap: 34px; margin-bottom: 34px; align-items: start; }
+    .section-number { color: var(--faint); font: 700 12px/1.5 "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; text-transform: uppercase; }
+    h2 { margin: 0; font-size: clamp(30px, 4vw, 48px); letter-spacing: -.045em; line-height: 1.06; }
+    .section-lede { grid-column: 2; margin: -17px 0 0; color: var(--muted); font-size: 17px; line-height: 1.65; }
+
+    .prototype { border: 1px solid var(--line-strong); background: #0c111a; border-radius: 18px; overflow: hidden; box-shadow: 0 28px 90px rgba(0, 0, 0, .32); }
+    .appbar { min-height: 69px; display: flex; align-items: center; gap: 18px; padding: 13px 17px; border-bottom: 1px solid var(--line); background: #111722; }
+    .app-title { min-width: 215px; }
+    .app-title strong { display: block; font-size: 14px; }
+    .app-title span { display: block; color: var(--faint); font: 11px/1.5 "SFMono-Regular", Consolas, monospace; margin-top: 2px; }
+    .mode-switch { display: flex; gap: 3px; background: #090d14; border: 1px solid var(--line); padding: 3px; border-radius: 10px; }
+    .mode-button { border: 0; background: transparent; color: var(--muted); border-radius: 7px; padding: 8px 12px; font-size: 12px; font-weight: 720; cursor: pointer; }
+    .mode-button:hover { color: var(--ink); }
+    .mode-button[aria-pressed="true"] { color: var(--ink); background: var(--panel-2); box-shadow: inset 0 0 0 1px var(--line-strong); }
+    .app-spacer { flex: 1; }
+    .live-status { display: flex; align-items: center; gap: 8px; border: 1px solid var(--line); border-radius: 9px; padding: 8px 10px; font-size: 12px; font-weight: 700; }
+    .live-status i { width: 7px; height: 7px; border-radius: 50%; background: var(--cyan); box-shadow: 0 0 0 4px rgba(103,232,249,.1); }
+    [data-mode="gate"] .live-status { color: #fde68a; border-color: #6b4f0d; background: #221a08; }
+    [data-mode="gate"] .live-status i { background: var(--amber); box-shadow: 0 0 0 4px rgba(251,191,36,.1); }
+    .session-select { border: 1px solid var(--line); background: #0c111a; color: var(--ink); border-radius: 9px; padding: 8px 10px; font-size: 12px; }
+
+    .workspace { display: grid; grid-template-columns: minmax(680px, 1fr) 350px; min-height: 660px; }
+    .canvas-column { min-width: 0; border-right: 1px solid var(--line); }
+    .canvas-toolbar { min-height: 49px; display: flex; align-items: center; gap: 15px; padding: 8px 15px; border-bottom: 1px solid var(--line); color: var(--muted); font-size: 11px; }
+    .canvas-toolbar strong { color: var(--ink); }
+    .legend { margin-left: auto; display: flex; gap: 13px; flex-wrap: wrap; }
+    .legend span { display: flex; align-items: center; gap: 6px; }
+    .legend i { width: 8px; height: 8px; border-radius: 50%; }
+    .graph-wrap { position: relative; min-height: 505px; overflow: auto; background-color: #0a0f17; background-image: linear-gradient(#1b2432 1px, transparent 1px), linear-gradient(90deg, #1b2432 1px, transparent 1px); background-size: 28px 28px; }
+    .graph { display: block; width: 100%; min-width: 850px; height: 505px; }
+    .graph .wire { stroke: #354157; stroke-width: 2; fill: none; marker-end: url(#arrow); }
+    .graph .wire.observer { stroke: #324e59; stroke-dasharray: 5 6; }
+    .graph .wire.gate-path { stroke: #6b4f0d; }
+    .graph .plane-label { fill: #68758a; font: 700 10px "SFMono-Regular", Consolas, monospace; letter-spacing: .12em; }
+    .node rect { fill: #141c29; stroke: #3b475b; stroke-width: 1.5; rx: 10; }
+    .node .icon-bg { fill: #202b3c; }
+    .node text.title { fill: #f5f7fb; font: 700 13px Inter, sans-serif; }
+    .node text.meta { fill: #7e8ba0; font: 10px "SFMono-Regular", Consolas, monospace; }
+    .node.data rect { stroke: #466075; }
+    .node.observe rect { stroke: #285b68; }
+    .node.derived rect { stroke: #4f3f7d; }
+    .node.gate rect { stroke: #83651b; }
+    .node .icon-dot { fill: var(--cyan); }
+    .node.gate .icon-dot { fill: var(--amber); }
+    .node.derived .icon-dot { fill: var(--violet); }
+    .gate-off { opacity: .43; }
+    [data-mode="gate"] .gate-off { opacity: 1; }
+    [data-mode="gate"] .node.gate rect { fill: #271f0e; stroke: var(--amber); }
+    .moving-token { filter: drop-shadow(0 0 5px currentColor); }
+    [data-mode="gate"] .moving-token { opacity: .16; }
+    [data-mode="gate"] .held-token { display: block; }
+    .held-token { display: none; filter: drop-shadow(0 0 8px rgba(251,191,36,.75)); }
+    .pulse-ring { fill: none; stroke: var(--amber); stroke-width: 2; opacity: 0; }
+    [data-mode="gate"] .pulse-ring { animation: ring 1.8s ease-out infinite; }
+    @keyframes ring { 0% { opacity: .8; r: 7; } 100% { opacity: 0; r: 23; } }
+
+    .playback { border-top: 1px solid var(--line); background: #101722; padding: 13px 15px 15px; }
+    .playback-row { display: flex; gap: 11px; align-items: center; }
+    .icon-button, .speed-button, .action-button { border: 1px solid var(--line); background: #161e2b; border-radius: 8px; cursor: pointer; font-weight: 700; }
+    .icon-button { width: 35px; height: 35px; display: inline-grid; place-items: center; }
+    .icon-button:hover, .speed-button:hover, .action-button:hover { border-color: var(--line-strong); background: #1b2534; }
+    .icon-button.primary { background: #e8f8fb; color: #07131a; border-color: #e8f8fb; }
+    .time-readout { color: var(--muted); font: 11px "SFMono-Regular", Consolas, monospace; min-width: 92px; text-align: right; }
+    .scrubber { flex: 1; accent-color: var(--cyan); min-width: 120px; }
+    .speed-group { display: flex; gap: 4px; margin-left: 5px; }
+    .speed-button { color: var(--muted); padding: 7px 8px; font-size: 10px; }
+    .speed-button.active { color: #07131a; background: var(--cyan); border-color: var(--cyan); }
+    .timeline-tracks { margin-top: 12px; display: grid; grid-template-columns: 80px 1fr; gap: 6px 10px; font: 10px "SFMono-Regular", Consolas, monospace; color: var(--faint); }
+    .track { position: relative; height: 6px; background: #202a3a; border-radius: 999px; overflow: hidden; }
+    .track i { position: absolute; height: 100%; border-radius: inherit; }
+    .cursor { position: absolute; height: 100%; width: 2px; left: var(--cursor, 38%); background: white; box-shadow: 0 0 8px white; }
+
+    .queue { min-width: 0; display: flex; flex-direction: column; background: #0e141e; }
+    .queue-head { padding: 16px; border-bottom: 1px solid var(--line); }
+    .queue-headline { display: flex; justify-content: space-between; align-items: center; gap: 15px; }
+    .queue-head h3 { margin: 0; font-size: 15px; }
+    .queue-count { color: var(--amber); font: 800 12px "SFMono-Regular", Consolas, monospace; }
+    .queue-head p { color: var(--faint); font-size: 11px; line-height: 1.5; margin: 6px 0 0; }
+    .queue-tools { display: none; gap: 6px; padding: 11px 13px; border-bottom: 1px solid var(--line); }
+    [data-mode="gate"] .queue-tools { display: flex; }
+    .action-button { padding: 7px 9px; color: var(--muted); font-size: 10px; }
+    .action-button.approve-all { color: #b7f7d7; border-color: #245e48; background: #10271f; }
+    .queue-list { padding: 11px; display: flex; flex-direction: column; gap: 8px; overflow: auto; max-height: 536px; }
+    .queue-item { position: relative; border: 1px solid var(--line); border-radius: 10px; background: #141b27; padding: 12px; transition: opacity .2s, border-color .2s, background .2s; }
+    .queue-item.approved { border-color: #245e48; background: #10241d; }
+    .queue-item.rejected { border-color: #713344; background: #26141a; opacity: .72; }
+    .queue-item.event-only .gate-actions { display: none; }
+    [data-mode="gate"] .queue-item.event-only .gate-actions { display: flex; }
+    .queue-line { display: flex; justify-content: space-between; gap: 10px; align-items: center; }
+    .protocol { border-radius: 5px; padding: 3px 5px; font: 800 9px "SFMono-Regular", Consolas, monospace; background: #203142; color: var(--cyan); }
+    .protocol.udp { color: #ddd6fe; background: #2a2442; }
+    .protocol.dns { color: #fde68a; background: #3a2b10; }
+    .waiting { color: var(--amber); font: 700 9px "SFMono-Regular", Consolas, monospace; text-transform: uppercase; }
+    .flow-name { font-weight: 700; font-size: 12px; margin-top: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .flow-meta { margin-top: 5px; color: var(--faint); font: 9px/1.45 "SFMono-Regular", Consolas, monospace; }
+    .gate-actions { display: none; gap: 6px; margin-top: 10px; }
+    [data-mode="gate"] .gate-actions { display: flex; }
+    .approve, .reject { flex: 1; border-radius: 7px; padding: 6px; cursor: pointer; font-size: 10px; font-weight: 800; }
+    .approve { color: #b7f7d7; border: 1px solid #245e48; background: #10271f; }
+    .reject { color: #fecdd3; border: 1px solid #713344; background: #28131a; }
+    .queue-item.approved .gate-actions, .queue-item.rejected .gate-actions { display: none; }
+    .queue-item.approved .waiting { color: var(--green); }
+    .queue-item.rejected .waiting { color: var(--rose); }
+    .filters { padding: 12px 15px; border-top: 1px solid var(--line); margin-top: auto; display: flex; flex-wrap: wrap; gap: 8px 13px; color: var(--muted); font-size: 10px; }
+    .filters label { display: flex; gap: 6px; align-items: center; }
+    .filters input { accent-color: var(--cyan); }
+
+    .annotation { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); display: grid; grid-template-columns: 56px 1fr; overflow: hidden; }
+    .annotation + .annotation { margin-top: 10px; }
+    .annotation-num { display: grid; place-items: center; color: var(--cyan); font: 800 12px "SFMono-Regular", Consolas, monospace; border-right: 1px solid var(--line); }
+    .annotation-copy { padding: 14px 16px; }
+    .annotation-copy strong { display: block; font-size: 13px; }
+    .annotation-copy span { color: var(--muted); display: block; font-size: 12px; line-height: 1.55; margin-top: 4px; }
+
+    .principles { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .principle { border-top: 2px solid var(--line-strong); background: var(--panel); padding: 23px; min-height: 192px; }
+    .principle:nth-child(1) { border-color: var(--cyan); }
+    .principle:nth-child(2) { border-color: var(--green); }
+    .principle:nth-child(3) { border-color: var(--amber); }
+    .principle small { color: var(--faint); font: 700 10px "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; }
+    .principle h3 { margin: 28px 0 8px; font-size: 18px; }
+    .principle p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.6; }
+
+    .architecture { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+    .arch-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 22px; }
+    .arch-card.full { grid-column: 1 / -1; }
+    .arch-card h3 { margin: 0 0 16px; font-size: 17px; }
+    .arch-flow { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; }
+    .arch-flow span { border: 1px solid var(--line-strong); background: var(--panel-2); padding: 8px 9px; border-radius: 7px; font: 10px "SFMono-Regular", Consolas, monospace; }
+    .arch-flow b { color: var(--faint); font-weight: 500; }
+    .arch-card p { color: var(--muted); font-size: 13px; line-height: 1.65; margin: 15px 0 0; }
+    .callout { border-left: 3px solid var(--amber); background: #1d180d; color: #e8d9ad; padding: 15px 17px; margin-top: 13px; font-size: 13px; line-height: 1.6; }
+
+    .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--radius); }
+    table { width: 100%; border-collapse: collapse; min-width: 760px; background: var(--panel); }
+    th, td { padding: 14px 16px; text-align: left; border-bottom: 1px solid var(--line); vertical-align: top; }
+    th { color: var(--faint); font: 800 10px "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; background: #0f151f; }
+    td { color: var(--muted); font-size: 12px; line-height: 1.55; }
+    td strong { color: var(--ink); }
+    tr:last-child td { border-bottom: 0; }
+    .tag { display: inline-flex; padding: 3px 6px; border-radius: 5px; font: 800 9px "SFMono-Regular", Consolas, monospace; text-transform: uppercase; }
+    .tag.green { background: var(--green-dim); color: #b7f7d7; }
+    .tag.amber { background: var(--amber-dim); color: #fde68a; }
+    .tag.violet { background: var(--violet-dim); color: #ddd6fe; }
+    .tag.cyan { background: var(--cyan-dim); color: #cffafe; }
+
+    .schema-grid { display: grid; grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); gap: 13px; }
+    pre { margin: 0; white-space: pre-wrap; color: #ced7e5; font-size: 11px; line-height: 1.65; }
+    .code-card { border: 1px solid var(--line); background: #0c111a; border-radius: var(--radius); padding: 20px; overflow: auto; }
+    .schema-notes { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 20px; }
+    .schema-notes h3 { margin: 0 0 10px; font-size: 16px; }
+    .schema-notes ul, .safety-list, .decision-list { margin: 0; padding-left: 18px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .schema-notes li + li, .safety-list li + li, .decision-list li + li { margin-top: 8px; }
+
+    .phase-list { counter-reset: phase; display: grid; gap: 10px; }
+    .phase { counter-increment: phase; display: grid; grid-template-columns: 62px minmax(220px, .65fr) minmax(0, 1.35fr); border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); overflow: hidden; }
+    .phase::before { content: counter(phase, decimal-leading-zero); display: grid; place-items: center; color: var(--cyan); border-right: 1px solid var(--line); font: 800 12px "SFMono-Regular", Consolas, monospace; }
+    .phase-title { padding: 18px; border-right: 1px solid var(--line); }
+    .phase-title strong { display: block; font-size: 14px; }
+    .phase-title span { color: var(--faint); display: block; margin-top: 6px; font: 10px/1.5 "SFMono-Regular", Consolas, monospace; }
+    .phase-copy { padding: 18px; color: var(--muted); font-size: 12px; line-height: 1.6; }
+    .phase-copy ul { margin: 0; padding-left: 17px; }
+    .phase-copy li + li { margin-top: 5px; }
+
+    .safety-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+    .safety-card { border: 1px solid var(--line); border-radius: var(--radius); background: var(--panel); padding: 22px; }
+    .safety-card h3 { margin: 0 0 14px; font-size: 17px; }
+    .safety-card.warning { border-color: #66511e; background: #17140d; }
+    .state-machine { display: flex; gap: 8px; flex-wrap: wrap; margin: 15px 0 0; }
+    .state-machine span { border: 1px solid var(--line-strong); border-radius: 7px; padding: 8px 10px; font: 10px "SFMono-Regular", Consolas, monospace; }
+    .state-machine b { color: var(--faint); align-self: center; }
+
+    .check-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 9px; }
+    .check { display: flex; gap: 11px; align-items: flex-start; border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 14px; color: var(--muted); font-size: 12px; line-height: 1.55; }
+    .check i { width: 17px; height: 17px; border: 1px solid #376254; background: #11251e; border-radius: 5px; flex: 0 0 auto; position: relative; margin-top: 1px; }
+    .check i::after { content: ""; position: absolute; left: 4px; top: 1px; width: 5px; height: 9px; border: solid var(--green); border-width: 0 2px 2px 0; transform: rotate(45deg); }
+
+    .decision { border: 1px solid #5f4b1c; border-radius: var(--radius); background: #18140b; padding: 24px; }
+    .decision h3 { color: #fde68a; margin: 0 0 10px; font-size: 19px; }
+    .decision p { color: #cfc2a0; margin: 0 0 15px; font-size: 13px; line-height: 1.6; }
+    .decision-list { color: #d5c8a6; }
+
+    footer { border-top: 1px solid var(--line); padding: 36px 0 52px; color: var(--faint); font-size: 12px; }
+    footer .shell { display: flex; justify-content: space-between; gap: 30px; }
+    .print-button { border: 1px solid var(--line); color: var(--muted); background: var(--panel); border-radius: 8px; padding: 8px 11px; cursor: pointer; }
+
+    @media (max-width: 1050px) {
+      .topnav { display: none; }
+      .hero { grid-template-columns: 1fr; gap: 28px; }
+      .summary-grid { grid-template-columns: 1fr 1fr; }
+      .workspace { grid-template-columns: 1fr; }
+      .canvas-column { border-right: 0; }
+      .queue { border-top: 1px solid var(--line); }
+      .queue-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); max-height: none; }
+    }
+    @media (max-width: 740px) {
+      .shell { width: min(100% - 24px, 1480px); }
+      .topbar-inner { gap: 10px; }
+      .brand span:not(.brand-mark) { display: none; }
+      .review-pill { margin-left: auto; }
+      .hero { padding-top: 54px; }
+      .summary-grid, .principles, .architecture, .schema-grid, .safety-grid, .check-grid { grid-template-columns: 1fr; }
+      .arch-card.full { grid-column: auto; }
+      .section { padding: 54px 0; }
+      .section-heading { grid-template-columns: 1fr; gap: 9px; }
+      .section-lede { grid-column: 1; margin: 5px 0 0; }
+      .appbar { align-items: flex-start; flex-wrap: wrap; }
+      .mode-switch { order: 4; width: 100%; }
+      .mode-button { flex: 1; }
+      .session-select { display: none; }
+      .queue-list { grid-template-columns: 1fr; }
+      .phase { grid-template-columns: 48px 1fr; }
+      .phase-title { border-right: 0; }
+      .phase-copy { grid-column: 2; border-top: 1px solid var(--line); }
+      .playback-row { flex-wrap: wrap; }
+      .scrubber { order: 5; flex-basis: 100%; }
+      .time-readout { min-width: 80px; }
+      footer .shell { flex-direction: column; }
+    }
+    @media print {
+      :root { color-scheme: light; --ink: #101827; --muted: #445166; --faint: #657086; --page: white; --panel: #f7f8fa; --panel-2: #eef1f5; --line: #d7dce4; --line-strong: #adb6c4; }
+      .topbar { position: static; background: white; }
+      .prototype { break-inside: avoid; box-shadow: none; }
+      .topnav, .print-button { display: none; }
+      .section { break-before: page; }
+      .hero { padding-top: 36px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      html { scroll-behavior: auto; }
+      *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; }
+    }
+  </style>
+</head>
+<body data-mode="replay">
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"></span><span>InfraReveal / Proxy Lab</span></a>
+      <nav class="topnav" aria-label="Plan sections">
+        <a href="#prototype">UI concept</a>
+        <a href="#architecture">Architecture</a>
+        <a href="#contract">Event contract</a>
+        <a href="#delivery">Delivery plan</a>
+        <a href="#safety">Safety</a>
+        <a href="#review">Review points</a>
+      </nav>
+      <span class="review-pill"><i aria-hidden="true"></i>Implemented · validation guide included</span>
+    </div>
+  </header>
+
+  <main id="top">
+    <div class="shell">
+      <section class="hero">
+        <div>
+          <div class="eyebrow">Implementation plan · Debug experiment</div>
+          <h1>Make the invisible network observable—and stoppable.</h1>
+          <p>A seekable proxy visualization for recorded and live sessions, paired with an explicit lab mode that can hold new network flows until an operator lets them continue.</p>
+        </div>
+        <aside class="hero-note">
+          <strong>Proposed product boundary</strong>
+          The visualization represents flows, DNS transactions, packet-activity bursts, and derived observations. Full packet-by-packet approval is restricted to a single-client diagnostic mode.
+        </aside>
+      </section>
+
+      <section class="summary-grid" aria-label="Plan summary">
+        <article class="summary-card"><div class="value">5</div><div class="label">UI modes sharing one time-based scene</div></article>
+        <article class="summary-card"><div class="value">50 ms</div><div class="label">Finest normal replay resolution</div></article>
+        <article class="summary-card"><div class="value">Flow</div><div class="label">Recommended manual approval unit</div></article>
+        <article class="summary-card"><div class="value">Fail-open</div><div class="label">Required default when the lab controller fails</div></article>
+      </section>
+    </div>
+
+    <section class="section" id="prototype">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-number">01 / UI concept</div>
+          <h2>One canvas, five operating modes</h2>
+          <p class="section-lede">The implemented UI retains Replay, Live observe, and Turn based from this approved interactive mockup, and adds the isolated Strict packet and DNS gate modes as separate controls. Scrubbing never rewinds current gate state.</p>
+        </div>
+
+        <div class="prototype" id="app-prototype">
+          <div class="appbar">
+            <div class="app-title"><strong>Gateway pipeline</strong><span>session / friday-workshop</span></div>
+            <div class="mode-switch" role="group" aria-label="Experiment mode">
+              <button class="mode-button" data-mode-button="replay" aria-pressed="true">Replay</button>
+              <button class="mode-button" data-mode-button="live" aria-pressed="false">Live observe</button>
+              <button class="mode-button" data-mode-button="gate" aria-pressed="false">Turn-based lab</button>
+            </div>
+            <div class="app-spacer"></div>
+            <div class="live-status"><i aria-hidden="true"></i><span id="mode-status">Recorded · paused</span></div>
+            <select class="session-select" aria-label="Selected session"><option>Friday workshop · active</option><option>Thursday class · 42m</option></select>
+          </div>
+
+          <div class="workspace">
+            <div class="canvas-column">
+              <div class="canvas-toolbar">
+                <span><strong id="canvas-title">Historical pipeline replay</strong> · <span id="canvas-detail">deterministic from session time</span></span>
+                <div class="legend" aria-label="Token legend">
+                  <span><i style="background:var(--cyan)"></i>outbound</span>
+                  <span><i style="background:var(--green)"></i>inbound</span>
+                  <span><i style="background:var(--violet)"></i>derived</span>
+                  <span><i style="background:var(--amber)"></i>held</span>
+                </div>
+              </div>
+
+              <div class="graph-wrap">
+                <svg class="graph" id="pipeline-svg" viewBox="0 0 1000 505" role="img" aria-labelledby="graph-title graph-desc">
+                  <title id="graph-title">InfraReveal gateway data and observation planes</title>
+                  <desc id="graph-desc">Client traffic moves through Wi-Fi, conntrack, an optional traffic gate, NAT, and the internet. Passive observers branch toward aggregation, PocketBase, and the debug user interface.</desc>
+                  <defs>
+                    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse"><path d="M 0 0 L 10 5 L 0 10 z" fill="#354157"></path></marker>
+                  </defs>
+
+                  <text class="plane-label" x="42" y="48">DATA PLANE · ACTUAL FORWARDING</text>
+                  <text class="plane-label" x="42" y="272">OBSERVATION PLANE · ASYNCHRONOUS</text>
+
+                  <path class="wire" d="M142 137 H210"></path>
+                  <path class="wire" d="M320 137 H384"></path>
+                  <path class="wire gate-path" d="M505 137 H553"></path>
+                  <path class="wire gate-path" d="M668 137 H716"></path>
+                  <path class="wire" d="M816 137 H867"></path>
+                  <path class="wire observer" d="M265 174 V308"></path>
+                  <path class="wire observer" d="M335 347 H405"></path>
+                  <path class="wire observer" d="M520 347 H590"></path>
+                  <path class="wire observer" d="M710 347 H785"></path>
+                  <path class="wire observer" d="M265 386 V439 H590"></path>
+                  <path class="wire observer" d="M650 386 V419"></path>
+
+                  <g class="node data" transform="translate(42 101)">
+                    <rect width="100" height="72"></rect><rect class="icon-bg" x="12" y="13" width="23" height="23" rx="6"></rect><circle class="icon-dot" cx="23.5" cy="24.5" r="4"></circle>
+                    <text class="title" x="12" y="51">Client</text><text class="meta" x="12" y="65">10.0.0.23</text>
+                  </g>
+                  <g class="node data" transform="translate(210 101)">
+                    <rect width="110" height="72"></rect><rect class="icon-bg" x="12" y="13" width="23" height="23" rx="6"></rect><circle class="icon-dot" cx="23.5" cy="24.5" r="4"></circle>
+                    <text class="title" x="12" y="51">Wi-Fi ingress</text><text class="meta" x="12" y="65">wlan0</text>
+                  </g>
+                  <g class="node data" transform="translate(384 101)">
+                    <rect width="121" height="72"></rect><rect class="icon-bg" x="12" y="13" width="23" height="23" rx="6"></rect><circle class="icon-dot" cx="23.5" cy="24.5" r="4"></circle>
+                    <text class="title" x="12" y="51">Netfilter</text><text class="meta" x="12" y="65">conntrack</text>
+                  </g>
+                  <g class="node gate gate-off" transform="translate(553 101)">
+                    <rect width="115" height="72"></rect><rect class="icon-bg" x="12" y="13" width="23" height="23" rx="6"></rect><circle class="icon-dot" cx="23.5" cy="24.5" r="4"></circle>
+                    <text class="title" x="12" y="51">Flow gate</text><text class="meta" x="12" y="65">NFQUEUE :42</text>
+                  </g>
+                  <g class="node data" transform="translate(716 101)">
+                    <rect width="100" height="72"></rect><rect class="icon-bg" x="12" y="13" width="23" height="23" rx="6"></rect><circle class="icon-dot" cx="23.5" cy="24.5" r="4"></circle>
+                    <text class="title" x="12" y="51">NAT</text><text class="meta" x="12" y="65">masquerade</text>
+                  </g>
+                  <g class="node data" transform="translate(867 101)">
+                    <rect width="91" height="72"></rect><rect class="icon-bg" x="12" y="13" width="23" height="23" rx="6"></rect><circle class="icon-dot" cx="23.5" cy="24.5" r="4"></circle>
+                    <text class="title" x="12" y="51">Internet</text><text class="meta" x="12" y="65">remote</text>
+                  </g>
+
+                  <g class="node observe" transform="translate(205 308)">
+                    <rect width="130" height="78"></rect><rect class="icon-bg" x="12" y="13" width="23" height="23" rx="6"></rect><circle class="icon-dot" cx="23.5" cy="24.5" r="4"></circle>
+                    <text class="title" x="12" y="54">Header observer</text><text class="meta" x="12" y="69">AF_PACKET · 256 B</text>
+                  </g>
+                  <g class="node observe" transform="translate(405 308)">
+                    <rect width="115" height="78"></rect><rect class="icon-bg" x="12" y="13" width="23" height="23" rx="6"></rect><circle class="icon-dot" cx="23.5" cy="24.5" r="4"></circle>
+                    <text class="title" x="12" y="54">Aggregation</text><text class="meta" x="12" y="69">50 ms / 5 sec</text>
+                  </g>
+                  <g class="node observe" transform="translate(590 308)">
+                    <rect width="120" height="78"></rect><rect class="icon-bg" x="12" y="13" width="23" height="23" rx="6"></rect><circle class="icon-dot" cx="23.5" cy="24.5" r="4"></circle>
+                    <text class="title" x="12" y="54">PocketBase</text><text class="meta" x="12" y="69">event records</text>
+                  </g>
+                  <g class="node derived" transform="translate(785 308)">
+                    <rect width="145" height="78"></rect><rect class="icon-bg" x="12" y="13" width="23" height="23" rx="6"></rect><circle class="icon-dot" cx="23.5" cy="24.5" r="4"></circle>
+                    <text class="title" x="12" y="54">Debug scene</text><text class="meta" x="12" y="69">Remotion projection</text>
+                  </g>
+                  <g class="node observe" transform="translate(205 419)">
+                    <rect width="130" height="66"></rect><text class="title" x="12" y="30">DNS / conntrack</text><text class="meta" x="12" y="48">parallel observers</text>
+                  </g>
+                  <g class="node derived" transform="translate(590 419)">
+                    <rect width="120" height="66"></rect><text class="title" x="12" y="30">Derivation</text><text class="meta" x="12" y="48">attribute / enrich</text>
+                  </g>
+
+                  <circle class="moving-token token-out" r="5" fill="#67e8f9"><animateMotion dur="4.5s" repeatCount="indefinite" path="M 142 137 H 958"></animateMotion></circle>
+                  <circle class="moving-token token-in" r="5" fill="#5ee3a1"><animateMotion begin="1.4s" dur="4.1s" repeatCount="indefinite" path="M 958 151 H 142"></animateMotion></circle>
+                  <circle class="moving-token token-observe" r="4" fill="#c4b5fd"><animateMotion begin=".55s" dur="3.4s" repeatCount="indefinite" path="M 265 174 V 347 H 930"></animateMotion></circle>
+                  <circle class="held-token" cx="610" cy="137" r="7" fill="#fbbf24"></circle>
+                  <circle class="pulse-ring" cx="610" cy="137" r="7"></circle>
+                </svg>
+              </div>
+
+              <div class="playback">
+                <div class="playback-row">
+                  <button class="icon-button" id="step-back" aria-label="Step backward">↶</button>
+                  <button class="icon-button primary" id="play-toggle" aria-label="Play">▶</button>
+                  <button class="icon-button" id="step-forward" aria-label="Step forward">↷</button>
+                  <span class="time-readout" id="clock">00:14:38.400</span>
+                  <input class="scrubber" id="scrubber" type="range" min="0" max="1000" value="380" aria-label="Session time">
+                  <div class="speed-group" role="group" aria-label="Playback speed">
+                    <button class="speed-button" data-speed="0.05">.05×</button>
+                    <button class="speed-button active" data-speed="0.1">.1×</button>
+                    <button class="speed-button" data-speed="0.25">.25×</button>
+                    <button class="speed-button" data-speed="1">1×</button>
+                  </div>
+                </div>
+                <div class="timeline-tracks">
+                  <span>flows</span><div class="track"><i style="left:4%;width:19%;background:var(--cyan)"></i><i style="left:31%;width:36%;background:var(--cyan)"></i><i style="left:74%;width:20%;background:var(--cyan)"></i><b class="cursor"></b></div>
+                  <span>dns</span><div class="track"><i style="left:8%;width:2%;background:var(--amber)"></i><i style="left:28%;width:2%;background:var(--amber)"></i><i style="left:68%;width:2%;background:var(--amber)"></i><b class="cursor"></b></div>
+                  <span>derived</span><div class="track"><i style="left:14%;width:11%;background:var(--violet)"></i><i style="left:46%;width:18%;background:var(--violet)"></i><b class="cursor"></b></div>
+                </div>
+              </div>
+            </div>
+
+            <aside class="queue">
+              <div class="queue-head">
+                <div class="queue-headline"><h3 id="queue-title">Event stream</h3><span class="queue-count" id="queue-count">3 visible</span></div>
+                <p id="queue-subtitle">Events at the current replay cursor, ordered by source time.</p>
+              </div>
+              <div class="queue-tools">
+                <button class="action-button approve-all" id="approve-all">Approve all</button>
+                <button class="action-button" id="pause-intake">Pause intake</button>
+                <button class="action-button" id="drain">Drain</button>
+              </div>
+              <div class="queue-list" id="queue-list">
+                <article class="queue-item event-only" data-kind="tcp">
+                  <div class="queue-line"><span class="protocol">TCP</span><span class="waiting">waiting · 1.2s</span></div>
+                  <div class="flow-name">api.github.com:443</div><div class="flow-meta">10.0.0.23:52418 → 140.82.121.5<br>SYN · trace 08f1</div>
+                  <div class="gate-actions"><button class="approve">Approve</button><button class="reject">Reject</button></div>
+                </article>
+                <article class="queue-item event-only" data-kind="udp">
+                  <div class="queue-line"><span class="protocol udp">UDP</span><span class="waiting">waiting · 0.6s</span></div>
+                  <div class="flow-name">142.250.74.110:443</div><div class="flow-meta">10.0.0.41:61290 → remote<br>QUIC initial · trace 173c</div>
+                  <div class="gate-actions"><button class="approve">Approve</button><button class="reject">Reject</button></div>
+                </article>
+                <article class="queue-item event-only" data-kind="dns">
+                  <div class="queue-line"><span class="protocol dns">DNS</span><span class="waiting">observed · 14:38</span></div>
+                  <div class="flow-name">cdn.sanity.io · A</div><div class="flow-meta">10.0.0.19 → gateway resolver<br>answer 151.101.1.195</div>
+                  <div class="gate-actions"><button class="approve">Approve</button><button class="reject">Reject</button></div>
+                </article>
+                <article class="queue-item" data-kind="derived">
+                  <div class="queue-line"><span class="protocol udp">LINK</span><span class="waiting">derived</span></div>
+                  <div class="flow-name">Hostname attributed</div><div class="flow-meta">flow 08f1 ⇢ api.github.com<br>medium confidence · DNS proximity</div>
+                </article>
+              </div>
+              <div class="filters">
+                <label><input type="checkbox" data-filter="tcp" checked>TCP</label>
+                <label><input type="checkbox" data-filter="udp" checked>UDP</label>
+                <label><input type="checkbox" data-filter="dns" checked>DNS</label>
+                <label><input type="checkbox" data-filter="derived" checked>Derived</label>
+              </div>
+            </aside>
+          </div>
+        </div>
+
+        <div style="margin-top:14px">
+          <div class="annotation"><div class="annotation-num">A</div><div class="annotation-copy"><strong>The graph tells the truth about the architecture</strong><span>Solid lines are the real forwarding path. Dashed lines are passive observation or later derivation. A packet never appears to wait for PocketBase or route enrichment.</span></div></div>
+          <div class="annotation"><div class="annotation-num">B</div><div class="annotation-copy"><strong>Time is the universal control</strong><span>Recorded replay, live following, and slow motion all resolve the same scene from an epoch-millisecond cursor. Gate decisions become timestamped events on that same timeline.</span></div></div>
+          <div class="annotation"><div class="annotation-num">C</div><div class="annotation-copy"><strong>Manual approval is deliberately scoped</strong><span>The queue shows one item per new flow by default. Retransmitted packets are grouped beneath it instead of creating an impossible stream of approval prompts.</span></div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-number">02 / Product rules</div>
+          <h2>Three invariants guide the build</h2>
+        </div>
+        <div class="principles">
+          <article class="principle"><small>TRUTHFULNESS</small><h3>Observed is not derived</h3><p>Measured packet/flow events, inferred relationships, and cosmetically interpolated movement stay visibly distinct.</p></article>
+          <article class="principle"><small>DETERMINISM</small><h3>Cursor in, frame out</h3><p>No animation owns hidden local time. Remotion renders every token from event timestamps and the shared session cursor.</p></article>
+          <article class="principle"><small>SAFETY</small><h3>Passive unless explicit</h3><p>Normal gateway mode remains untouched. Traffic gating requires a lab flag, an allowlisted client, and an operator-visible armed state.</p></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="architecture">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-number">03 / Architecture</div>
+          <h2>Keep high-volume traces out of the normal session store</h2>
+          <p class="section-lede">The existing shared runtime remains the authority for sessions, time, window loading, and live-edge behaviour. The experiment adds a bounded trace channel and debug-only state.</p>
+        </div>
+        <div class="architecture">
+          <article class="arch-card">
+            <h3>Recorded path</h3>
+            <div class="arch-flow"><span>session window</span><b>→</b><span>trace adapter</span><b>→</b><span>temporal index</span><b>→</b><span>Remotion scene</span></div>
+            <p>Existing flow, DNS, activity, attribution, destination, and route records are normalized into pipeline events. Missing historical processing times are labelled as derived timing.</p>
+          </article>
+          <article class="arch-card">
+            <h3>Live observe path</h3>
+            <div class="arch-flow"><span>observers</span><b>→</b><span>debug event hub</span><b>→</b><span>SSE stream</span><b>→</b><span>ring buffer</span></div>
+            <p>Fine-grained trace events travel through a separate one-way stream. A small delay behind the live edge absorbs jitter while PocketBase remains the durable source of truth.</p>
+          </article>
+          <article class="arch-card full">
+            <h3>Turn-based path</h3>
+            <div class="arch-flow"><span>FORWARD / NEW</span><b>→</b><span>NFQUEUE 42</span><b>→</b><span>gate controller</span><b>→</b><span>operator decision</span><b>→</b><span>temporary allow set</span><b>→</b><span>verdict</span></div>
+            <p>The controller copies only enough header data to classify and display a packet. The kernel retains the actual packet until a verdict. Once a flow is approved, a short-lived allow entry bypasses further manual decisions for that tuple.</p>
+            <div class="callout"><strong>Not one universal queue:</strong> forwarded IP traffic can be gated in FORWARD. DNS currently terminates locally and needs its own later gate. ARP, Wi-Fi management, DHCP, NTP, and access to the operator UI must always bypass manual approval.</div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="contract">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-number">04 / Event contract</div>
+          <h2>A small append-only vocabulary</h2>
+          <p class="section-lede">Every visual transition and gate decision gets stable identity, source time, causality, and an honest timing provenance.</p>
+        </div>
+        <div class="schema-grid">
+          <div class="code-card"><pre><code>type PipelineEvent = {
+  id: string
+  sessionId: string
+  traceId: string
+  parentId?: string
+
+  kind:
+    | 'dns' | 'flow' | 'burst'
+    | 'attribution' | 'route' | 'gate'
+
+  stage: PipelineStage
+  direction?: 'client_to_remote' | 'remote_to_client'
+
+  occurredAtMs: number
+  processedAtMs?: number
+  sequence: number
+
+  timing: 'observed' | 'derived'
+  summary: HeaderOnlySummary
+}</code></pre></div>
+          <article class="schema-notes">
+            <h3>Contract decisions</h3>
+            <ul>
+              <li><code>occurredAtMs + sequence</code> is the deterministic sort key.</li>
+              <li><code>traceId</code> groups DNS, flow admission, activity, and later attribution without pretending every relationship is certain.</li>
+              <li>Existing 50 ms activity buckets create burst tokens; no raw-packet event is persisted.</li>
+              <li>Gate actions use the same event stream: <code>queued</code>, <code>approved</code>, <code>rejected</code>, <code>expired</code>, and <code>bypassed</code>.</li>
+              <li>Payload fields are prohibited in the durable schema.</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="table-wrap" style="margin-top:13px">
+          <table>
+            <thead><tr><th>Stage</th><th>Source</th><th>Visual meaning</th><th>Persistence</th></tr></thead>
+            <tbody>
+              <tr><td><strong>frame_observed</strong></td><td>AF_PACKET</td><td>Directional packet-activity burst enters the observation plane.</td><td>Existing sparse chunks</td></tr>
+              <tr><td><strong>flow_discovered</strong></td><td>conntrack sampler</td><td>A connection becomes visible to the two-second sampler.</td><td>Existing flow record</td></tr>
+              <tr><td><strong>dns_observed</strong></td><td>dnsmasq log</td><td>Query or answer travels through the DNS branch.</td><td>Existing DNS record</td></tr>
+              <tr><td><strong>flow_attributed</strong></td><td>correlator</td><td>A derived link travels from flow to candidate hostname.</td><td>Existing attribution</td></tr>
+              <tr><td><strong>gate_waiting</strong></td><td>NFQUEUE controller</td><td>A real forwarded packet is held pending a decision.</td><td>Audit metadata only</td></tr>
+              <tr><td><strong>gate_verdict</strong></td><td>operator/watchdog</td><td>The held item leaves the queue as accept, drop, or bypass.</td><td>Immutable audit event</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="delivery">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-number">05 / Internal todos</div>
+          <h2>Seven vertical implementation slices</h2>
+          <p class="section-lede">Each slice ends in a demonstrable state. The passive experiment lands before any code is allowed to alter network forwarding.</p>
+        </div>
+        <div class="phase-list">
+          <article class="phase"><div class="phase-title"><strong>Experiment shell</strong><span>DEBUG DASHBOARD</span></div><div class="phase-copy"><ul><li>Add experiment routing and an experiment index card.</li><li>Create the responsive three-mode layout and accessible controls.</li><li>Keep all proxy-lab UI code outside the production dashboard.</li></ul></div></article>
+          <article class="phase"><div class="phase-title"><strong>Recorded projection</strong><span>NO BACKEND CHANGE</span></div><div class="phase-copy"><ul><li>Adapt existing session records into <code>PipelineEvent</code>.</li><li>Build temporal indexes and a bounded visible-event selector.</li><li>Render deterministic node/token positions from the shared cursor.</li></ul></div></article>
+          <article class="phase"><div class="phase-title"><strong>Live trace hub</strong><span>PASSIVE BACKEND</span></div><div class="phase-copy"><ul><li>Add a typed internal debug event bus and bounded ring buffer.</li><li>Emit observer lifecycle events without adding work to the forwarding path.</li><li>Expose session-scoped SSE with reconnect watermark and drop counters.</li></ul></div></article>
+          <article class="phase"><div class="phase-title"><strong>Live scene</strong><span>DEBUG DASHBOARD</span></div><div class="phase-copy"><ul><li>Merge durable PocketBase state with ephemeral live trace events.</li><li>Follow a delayed live edge; detach when the operator scrubs backward.</li><li>Cap simultaneous tokens and summarize overflow by client/stage.</li></ul></div></article>
+          <article class="phase"><div class="phase-title"><strong>Flow gate</strong><span>LAB MODE ONLY</span></div><div class="phase-copy"><ul><li>Add an alternate gateway start mode and NFQUEUE controller.</li><li>Queue TCP SYN and first UDP datagram for allowlisted clients.</li><li>Group retransmissions and install temporary approved-flow entries.</li></ul></div></article>
+          <article class="phase"><div class="phase-title"><strong>Operator controls</strong><span>MUTATING API</span></div><div class="phase-copy"><ul><li>Add authenticated approve, reject, approve-all, pause, drain, and disarm endpoints.</li><li>Display kernel queue depth, user queue depth, age, drops, and watchdog state.</li><li>Record the actor, reason, time, and resulting verdict.</li></ul></div></article>
+          <article class="phase"><div class="phase-title"><strong>Strict diagnostics</strong><span>IMPLEMENTED / ISOLATED</span></div><div class="phase-copy"><ul><li>Queue 43 steps one exact single-client flow in both directions.</li><li>Queue 44 gates selected classic DNS before local dnsmasq.</li><li>A controlled timeout client compares gateway waits with application-visible results.</li></ul></div></article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-number">06 / File impact</div>
+          <h2>Planned repository boundaries</h2>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Area</th><th>Planned responsibility</th><th>Boundary</th></tr></thead>
+            <tbody>
+              <tr><td><strong>debug-dashboard/src/experiments/proxy-lab/</strong></td><td>Routes, node graph, queue inspector, Remotion scene, experiment-only stores and adapters.</td><td><span class="tag cyan">Debug only</span></td></tr>
+              <tr><td><strong>packages/session-state/</strong></td><td>Continue to own session loading, time cursor, live edge, playback state, and window cache. Export only generic clock hooks if required.</td><td><span class="tag green">Shared stable</span></td></tr>
+              <tr><td><strong>pocketbase/observer/</strong></td><td>Emit low-cost typed trace lifecycle events alongside current persistence.</td><td><span class="tag cyan">Passive</span></td></tr>
+              <tr><td><strong>pocketbase/debugtrace/</strong></td><td>Bounded event hub, SSE handler, replay watermark, counters, and header-only trace types.</td><td><span class="tag violet">New module</span></td></tr>
+              <tr><td><strong>pocketbase/labgate/</strong></td><td>Linux NFQUEUE ownership, flow grouping, verdict lifecycle, temporary allow set, and watchdog.</td><td><span class="tag amber">Lab only</span></td></tr>
+              <tr><td><strong>entrypoint.sh</strong></td><td>Install/remove lab rules through idempotent functions; keep current NAT path as the default.</td><td><span class="tag amber">Guarded</span></td></tr>
+              <tr><td><strong>PocketBase migrations</strong></td><td>Low-volume immutable gate audit events and optional compressed debug trace chunks.</td><td><span class="tag violet">Metadata only</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="safety">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-number">07 / Safety model</div>
+          <h2>The controller must be easier to escape than to activate</h2>
+          <p class="section-lede">Turn-based networking intentionally creates failure. Guardrails ensure the experiment cannot silently become the gateway’s normal operating condition.</p>
+        </div>
+        <div class="safety-grid">
+          <article class="safety-card">
+            <h3>Controller lifecycle</h3>
+            <ul class="safety-list">
+              <li>Default state is <strong>OFF</strong>; activation requires the lab environment flag and an operator action.</li>
+              <li>Only explicit client IP/MAC allowlists may enter the gate.</li>
+              <li>Disarm drains outstanding packets, removes queue rules, and invalidates approved-flow entries.</li>
+              <li>The operator API stays on gateway-local INPUT traffic and never enters FORWARD.</li>
+            </ul>
+            <div class="state-machine"><span>OFF</span><b>→</b><span>ARMING</span><b>→</b><span>ACTIVE</span><b>→</b><span>DRAINING</span><b>→</b><span>OFF</span></div>
+          </article>
+          <article class="safety-card warning">
+            <h3>Backpressure and timeout policy</h3>
+            <ul class="safety-list">
+              <li>Use NFQUEUE bypass when no userspace listener exists.</li>
+              <li>Enable fail-open behaviour when the kernel queue is full.</li>
+              <li>Start with a maximum of 128 pending flow decisions, below the kernel’s default 1,024-packet queue.</li>
+              <li>Recommended safety auto-release: DNS 2 s, established packets 500 ms, new flow 10 s. Strict mode may override this for one test client.</li>
+              <li>Surface every auto-release and overflow; never make missing queue data look like successful approval.</li>
+            </ul>
+          </article>
+        </div>
+
+        <div class="table-wrap" style="margin-top:13px">
+          <table>
+            <thead><tr><th>Traffic class</th><th>Default policy</th><th>Why</th></tr></thead>
+            <tbody>
+              <tr><td><strong>ARP / Wi-Fi management</strong></td><td>Always bypass</td><td>Below the forwarded IP hook; blocking breaks basic network attachment.</td></tr>
+              <tr><td><strong>DHCP / NTP / gateway control</strong></td><td>Always bypass</td><td>Keeps leases, clocks, and emergency controls available.</td></tr>
+              <tr><td><strong>TCP SYN</strong></td><td>Manual by flow</td><td>Creates visible application delay with a manageable queue.</td></tr>
+              <tr><td><strong>UDP first datagram / QUIC Initial</strong></td><td>Manual by flow + short allow TTL</td><td>Later datagrams otherwise flood the queue while no reply arrives.</td></tr>
+              <tr><td><strong>Established traffic</strong></td><td>Bypass</td><td>Per-packet approval is too high-volume and destabilizes active connections.</td></tr>
+              <tr><td><strong>DNS</strong></td><td>Observe first; separate gate later</td><td>Current DNS terminates locally and does not traverse the same FORWARD rule.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <section class="section">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-number">08 / Acceptance</div>
+          <h2>Definition of done</h2>
+        </div>
+        <div class="check-grid">
+          <div class="check"><i></i><span>The same session and cursor always produce the same Remotion frame.</span></div>
+          <div class="check"><i></i><span>Replay can distinguish observed timestamps from inferred transition timing.</span></div>
+          <div class="check"><i></i><span>Live mode can scrub backward and return to the delayed live edge without reloading.</span></div>
+          <div class="check"><i></i><span>A 60-minute, 30-client soak test keeps browser and gateway memory bounded.</span></div>
+          <div class="check"><i></i><span>Stopping or crashing the gate controller does not strand normal forwarding.</span></div>
+          <div class="check"><i></i><span>The operator UI remains reachable while all allowlisted external flows are held.</span></div>
+          <div class="check"><i></i><span>No durable trace or audit record contains packet payload data.</span></div>
+          <div class="check"><i></i><span>Queue overflow, capture loss, and automatic verdicts are visible and test-covered.</span></div>
+          <div class="check"><i></i><span>Normal mode produces identical iptables rules and forwarding behaviour to today.</span></div>
+          <div class="check"><i></i><span>Strict per-packet mode refuses to arm without exactly one client and one flow filter.</span></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="review">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-number">09 / Review</div>
+          <h2>Decisions to confirm before implementation</h2>
+        </div>
+        <article class="decision">
+          <h3>Recommended defaults</h3>
+          <p>The plan assumes the following choices. They are isolated enough to change after the passive replay slice, but confirming them prevents the gate work from drifting.</p>
+          <ol class="decision-list">
+            <li><strong>Manual unit:</strong> approve a new flow, not every packet.</li>
+            <li><strong>Historical honesty:</strong> show inferred node transitions, but label them as derived timing.</li>
+            <li><strong>Live presentation:</strong> render roughly 500 ms behind the newest event for smoother movement.</li>
+            <li><strong>Failure policy:</strong> fail open and visibly record the bypass.</li>
+            <li><strong>First gate scope:</strong> forwarded TCP and UDP for explicitly selected clients; DNS comes later.</li>
+            <li><strong>Strict mode:</strong> available only for a single isolated client/flow with an explicit warning.</li>
+          </ol>
+        </article>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell"><span>InfraReveal proxy visualization experiment · implementation review artifact</span><button class="print-button" type="button" onclick="window.print()">Print / save PDF</button></div>
+  </footer>
+
+  <script>
+    (() => {
+      const body = document.body;
+      const svg = document.getElementById('pipeline-svg');
+      const scrubber = document.getElementById('scrubber');
+      const playToggle = document.getElementById('play-toggle');
+      const clock = document.getElementById('clock');
+      const queueList = document.getElementById('queue-list');
+      const modeCopy = {
+        replay: { status: 'Recorded · paused', title: 'Historical pipeline replay', detail: 'deterministic from session time', queue: 'Event stream', subtitle: 'Events at the current replay cursor, ordered by source time.' },
+        live: { status: 'Live · following', title: 'Live observation', detail: '500 ms behind live edge', queue: 'Recent traffic', subtitle: 'A bounded live window; traffic is observed but never delayed.' },
+        gate: { status: 'Lab gate · armed', title: 'Turn-based traffic gate', detail: 'client 10.0.0.23 allowlisted', queue: 'Approval queue', subtitle: 'New flows are physically held until an operator verdict or safety timeout.' }
+      };
+      let playing = false;
+      let speed = .1;
+      let timer = 0;
+
+      function setMode(mode) {
+        body.dataset.mode = mode;
+        document.querySelectorAll('[data-mode-button]').forEach((button) => button.setAttribute('aria-pressed', button.dataset.modeButton === mode ? 'true' : 'false'));
+        const copy = modeCopy[mode];
+        document.getElementById('mode-status').textContent = copy.status;
+        document.getElementById('canvas-title').textContent = copy.title;
+        document.getElementById('canvas-detail').textContent = copy.detail;
+        document.getElementById('queue-title').textContent = copy.queue;
+        document.getElementById('queue-subtitle').textContent = copy.subtitle;
+        const statuses = mode === 'replay'
+          ? ['flow start · 14:38', 'burst · 14:38', 'observed · 14:38']
+          : mode === 'live'
+            ? ['now − 120ms', 'now − 80ms', 'now − 30ms']
+            : ['waiting · 1.2s', 'waiting · 0.6s', 'waiting · 0.2s'];
+        queueList.querySelectorAll('.queue-item').forEach((item, index) => {
+          item.classList.remove('approved', 'rejected');
+          item.querySelector('.waiting').textContent = index === 3 ? 'derived' : statuses[index];
+        });
+        if (mode === 'gate') {
+          svg.pauseAnimations();
+          playing = false;
+          playToggle.textContent = '▶';
+          playToggle.setAttribute('aria-label', 'Play');
+        } else if (playing) svg.unpauseAnimations();
+        updateQueueCount();
+      }
+
+      function formatTime(value) {
+        const baseMs = (14 * 60 + 20) * 1000;
+        const ms = baseMs + Math.round(value * 48);
+        const minutes = Math.floor(ms / 60000);
+        const seconds = Math.floor((ms % 60000) / 1000);
+        const millis = ms % 1000;
+        return `00:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}.${String(millis).padStart(3, '0')}`;
+      }
+
+      function updateCursor(value) {
+        const percent = Number(value) / 10;
+        document.querySelectorAll('.cursor').forEach((item) => item.style.left = `${percent}%`);
+        clock.textContent = formatTime(Number(value));
+      }
+
+      function togglePlayback() {
+        playing = !playing;
+        playToggle.textContent = playing ? 'Ⅱ' : '▶';
+        playToggle.setAttribute('aria-label', playing ? 'Pause' : 'Play');
+        if (playing) svg.unpauseAnimations(); else svg.pauseAnimations();
+        if (playing && body.dataset.mode === 'replay') document.getElementById('mode-status').textContent = `Recorded · ${speed}×`;
+        if (!playing && body.dataset.mode === 'replay') document.getElementById('mode-status').textContent = 'Recorded · paused';
+      }
+
+      function updateQueueCount() {
+        const visible = [...queueList.querySelectorAll('.queue-item')].filter((item) => item.style.display !== 'none');
+        const pending = visible.filter((item) => !item.classList.contains('approved') && !item.classList.contains('rejected') && item.dataset.kind !== 'derived');
+        document.getElementById('queue-count').textContent = body.dataset.mode === 'gate' ? `${pending.length} pending` : `${visible.length} visible`;
+      }
+
+      document.querySelectorAll('[data-mode-button]').forEach((button) => button.addEventListener('click', () => setMode(button.dataset.modeButton)));
+      document.querySelectorAll('[data-speed]').forEach((button) => button.addEventListener('click', () => {
+        speed = Number(button.dataset.speed);
+        document.querySelectorAll('[data-speed]').forEach((item) => item.classList.toggle('active', item === button));
+        if (playing && body.dataset.mode === 'replay') document.getElementById('mode-status').textContent = `Recorded · ${speed}×`;
+      }));
+      scrubber.addEventListener('input', () => updateCursor(scrubber.value));
+      playToggle.addEventListener('click', togglePlayback);
+      document.getElementById('step-back').addEventListener('click', () => { scrubber.value = Math.max(0, Number(scrubber.value) - 10); updateCursor(scrubber.value); });
+      document.getElementById('step-forward').addEventListener('click', () => { scrubber.value = Math.min(1000, Number(scrubber.value) + 10); updateCursor(scrubber.value); });
+
+      queueList.addEventListener('click', (event) => {
+        const item = event.target.closest('.queue-item');
+        if (!item) return;
+        if (event.target.matches('.approve')) {
+          item.classList.add('approved');
+          item.querySelector('.waiting').textContent = 'approved';
+          svg.unpauseAnimations();
+          window.setTimeout(() => { if (body.dataset.mode === 'gate') svg.pauseAnimations(); }, 900);
+        }
+        if (event.target.matches('.reject')) {
+          item.classList.add('rejected');
+          item.querySelector('.waiting').textContent = 'rejected';
+        }
+        updateQueueCount();
+      });
+
+      document.getElementById('approve-all').addEventListener('click', () => {
+        if (body.dataset.mode !== 'gate') return;
+        queueList.querySelectorAll('.queue-item:not([data-kind="derived"])').forEach((item) => {
+          if (!item.classList.contains('rejected')) {
+            item.classList.add('approved');
+            item.querySelector('.waiting').textContent = 'approved';
+          }
+        });
+        svg.unpauseAnimations();
+        window.setTimeout(() => svg.pauseAnimations(), 1200);
+        updateQueueCount();
+      });
+
+      document.getElementById('drain').addEventListener('click', () => {
+        queueList.querySelectorAll('.queue-item').forEach((item) => item.classList.remove('approved', 'rejected'));
+        queueList.querySelectorAll('.queue-item').forEach((item, index) => {
+          const status = item.querySelector('.waiting');
+          status.textContent = index === 3 ? 'derived' : body.dataset.mode === 'gate' ? 'waiting · new' : 'observed';
+        });
+        updateQueueCount();
+      });
+
+      const intake = document.getElementById('pause-intake');
+      intake.addEventListener('click', () => {
+        const paused = intake.dataset.paused === 'true';
+        intake.dataset.paused = paused ? 'false' : 'true';
+        intake.textContent = paused ? 'Pause intake' : 'Resume intake';
+      });
+
+      document.querySelectorAll('[data-filter]').forEach((checkbox) => checkbox.addEventListener('change', () => {
+        queueList.querySelectorAll(`[data-kind="${checkbox.dataset.filter}"]`).forEach((item) => item.style.display = checkbox.checked ? '' : 'none');
+        updateQueueCount();
+      }));
+
+      timer = window.setInterval(() => {
+        if (!playing || body.dataset.mode === 'gate') return;
+        const next = Number(scrubber.value) + Math.max(1, speed * 7);
+        scrubber.value = next >= 1000 ? 0 : next;
+        updateCursor(scrubber.value);
+      }, 100);
+      window.addEventListener('beforeunload', () => window.clearInterval(timer));
+      svg.pauseAnimations();
+      updateCursor(scrubber.value);
+      setMode('replay');
+    })();
+  </script>
+</body>
+</html>

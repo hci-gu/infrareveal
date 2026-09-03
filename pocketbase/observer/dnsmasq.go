@@ -14,6 +14,8 @@ import (
 	"sync"
 	"time"
 
+	"myapp/debugtrace"
+
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
@@ -47,15 +49,17 @@ type DNSMasqIngestor struct {
 	mu             sync.Mutex
 	recentByName   map[string][]recentDNSQuery
 	recentBySerial map[string][]recentDNSQuery
+	trace          debugtrace.Sink
 }
 
-func StartDNSMasqIngestor(ctx context.Context, app *pocketbase.PocketBase, path string, sessionID func() string) {
+func StartDNSMasqIngestor(ctx context.Context, app *pocketbase.PocketBase, path string, sessionID func() string, trace debugtrace.Sink) {
 	ingestor := &DNSMasqIngestor{
 		app:            app,
 		path:           path,
 		sessionID:      sessionID,
 		recentByName:   make(map[string][]recentDNSQuery),
 		recentBySerial: make(map[string][]recentDNSQuery),
+		trace:          usableTraceSink(trace),
 	}
 	go ingestor.run(ctx)
 }
@@ -161,6 +165,16 @@ func (d *DNSMasqIngestor) recordQuery(serial, clientIP, queryName, queryType str
 		log.Printf("dnsmasq observer save query error: %v", err)
 		return
 	}
+	processedAt := now.UnixMilli()
+	d.trace.TryEmit(debugtrace.Event{
+		ID: "dns-query:" + record.Id, SessionID: sessionID, TraceID: "dns:" + record.Id,
+		Kind: debugtrace.KindDNS, Stage: debugtrace.StageDNS, Direction: debugtrace.ClientToRemote,
+		OccurredAtMs: now.UnixMilli(), ProcessedAtMs: &processedAt, Timing: debugtrace.TimingObserved,
+		Summary: debugtrace.Summary{
+			Protocol: "udp", ClientIP: clientIP, RemotePort: tracePort(53),
+			DNSName: normalizeDNSName(queryName), DNSType: queryType,
+		},
+	})
 
 	key := normalizeDNSName(queryName)
 	d.mu.Lock()
@@ -213,7 +227,19 @@ func (d *DNSMasqIngestor) recordAnswer(serial, queryName, answer string) {
 		record.Set("aliases", aliases)
 		if err := d.app.Save(record); err != nil {
 			log.Printf("dnsmasq observer save answer error: %v", err)
+			continue
 		}
+		processedAt := now.UnixMilli()
+		d.trace.TryEmit(debugtrace.Event{
+			ID: traceEventID("dns-answer", record.Id, now), SessionID: record.GetString("session"),
+			TraceID: "dns:" + record.Id, ParentID: "dns-query:" + record.Id,
+			Kind: debugtrace.KindDNS, Stage: debugtrace.StageDNS, Direction: debugtrace.RemoteToClient,
+			OccurredAtMs: now.UnixMilli(), ProcessedAtMs: &processedAt, Timing: debugtrace.TimingObserved,
+			Summary: debugtrace.Summary{
+				Protocol: "udp", ClientIP: item.clientIP, RemotePort: tracePort(53),
+				DNSName: item.queryName,
+			},
+		})
 	}
 }
 

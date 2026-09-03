@@ -11,6 +11,7 @@ import type {
   FlowAssociation,
   FlowAttribution,
   GatewayData,
+  GateEvent,
   Route,
   Session,
   SessionManifest,
@@ -38,12 +39,14 @@ type EntityMaps = {
   flowActivityStatuses: Map<string, FlowActivityStatus>
   destinations: Map<string, Destination>
   routes: Map<string, Route>
+  gateEvents: Map<string, GateEvent>
 }
 
 type EntityOwnership = {
   dnsQueries: Set<string>
   flowActivityChunks: Set<string>
   flowActivityWindows: Set<string>
+  gateEvents: Set<string>
 }
 
 type EntityReferenceCounts = {
@@ -68,6 +71,7 @@ type SessionIndexes = {
   dns: TemporalBucketIndex
   chunks: TemporalBucketIndex
   windows: TemporalBucketIndex
+  gates: TemporalBucketIndex
 }
 
 export type PlaybackState = 'following' | 'playing' | 'paused' | 'buffering'
@@ -131,6 +135,7 @@ function createEntities(): EntityMaps {
     flowActivityStatuses: new Map(),
     destinations: new Map(),
     routes: new Map(),
+    gateEvents: new Map(),
   }
 }
 
@@ -141,6 +146,7 @@ function createIndexes(): SessionIndexes {
     dns: new TemporalBucketIndex(),
     chunks: new TemporalBucketIndex(),
     windows: new TemporalBucketIndex(),
+    gates: new TemporalBucketIndex(),
   }
 }
 
@@ -149,6 +155,7 @@ function createDetailRefCounts(): EntityReferenceCounts {
     dnsQueries: new Map(),
     flowActivityChunks: new Map(),
     flowActivityWindows: new Map(),
+    gateEvents: new Map(),
   }
 }
 
@@ -248,6 +255,22 @@ export function tickTimelineClock() {
   sessionTimelineStore.setState({ liveEdgeMs: projected, clockVersion: state.clockVersion + 1 })
 }
 
+/** Advances the shared edge from an accepted ephemeral trace without allowing
+ * a future-dated source event to outrun the gateway's reported server time. */
+export function observeTimelineLiveEdge(occurredAtMs: number, serverNowMs: number) {
+  if (!Number.isFinite(occurredAtMs) || !Number.isFinite(serverNowMs)) return
+  const state = sessionTimelineStore.getState()
+  const candidate = Math.max(0, Math.min(occurredAtMs, serverNowMs))
+  const nextEdge = Math.max(state.liveEdgeMs, candidate)
+  const nextServerNow = Math.max(state.serverClock.serverNowMs, serverNowMs)
+  if (nextEdge === state.liveEdgeMs && nextServerNow === state.serverClock.serverNowMs) return
+  sessionTimelineStore.setState({
+    liveEdgeMs: nextEdge,
+    serverClock: { serverNowMs: nextServerNow, syncedAtMs: performanceNow() },
+    clockVersion: state.clockVersion + 1,
+  })
+}
+
 export function setTimelinePlayback(update: Partial<Pick<SessionTimelineState, 'playback' | 'rate' | 'cursorMs' | 'viewport'>>) {
   const state = sessionTimelineStore.getState()
   sessionTimelineStore.setState({ ...update, clockVersion: state.clockVersion + 1 })
@@ -290,6 +313,7 @@ export function applySessionWindow(
       dnsQueries: new Set(window.dnsQueries.map((record) => record.id)),
       flowActivityChunks: new Set(window.flowActivityChunks.map((record) => record.id)),
       flowActivityWindows: new Set(window.flowActivityWindows.map((record) => record.id)),
+      gateEvents: new Set(window.gateEvents.map((record) => record.id)),
     }
     const bytes = estimateWindowBytes(window)
     state.pages.set(page.key, { ...page, bytes, ownership, lastAccessed: Date.now() })
@@ -388,7 +412,7 @@ export function applyRealtimeBatch(events: QueuedRealtimeEvent[]) {
       : upsertEntity(state, event.collection, record)
     if (!changed) continue
     if (event.collection === 'sessions') sessionsChanged = true
-    else if (event.collection === 'flowActivityChunks' || event.collection === 'flowActivityWindows' || event.collection === 'dnsQueries') {
+    else if (event.collection === 'flowActivityChunks' || event.collection === 'flowActivityWindows' || event.collection === 'dnsQueries' || event.collection === 'gateEvents') {
       detailChanged = true
       if (event.action !== 'delete') attachRealtimeDetailOwnership(state, event.collection, record, touchedPages)
     } else {
@@ -424,6 +448,7 @@ export function selectOverviewGatewayData(state = sessionTimelineStore.getState(
     flowActivityStatuses: Array.from(state.entities.flowActivityStatuses.values()),
     destinations: Array.from(state.entities.destinations.values()),
     routes: Array.from(state.entities.routes.values()),
+    gateEvents: [],
   }
 }
 
@@ -433,6 +458,7 @@ export function selectDetailGatewayData(fromMs: number, toMs: number, flowIds?: 
   const chunkIDs = state.indexes.chunks.query(fromMs, toMs)
   const windowIDs = state.indexes.windows.query(fromMs, toMs)
   const dnsIDs = state.indexes.dns.query(fromMs - 5 * 60_000, toMs)
+  const gateIDs = state.indexes.gates.query(fromMs, toMs)
   data.flowActivityChunks = Array.from(chunkIDs)
     .map((id) => state.entities.flowActivityChunks.get(id))
     .filter((record): record is FlowActivityChunk => record !== undefined)
@@ -443,6 +469,9 @@ export function selectDetailGatewayData(fromMs: number, toMs: number, flowIds?: 
   data.dnsQueries = Array.from(dnsIDs)
     .map((id) => state.entities.dnsQueries.get(id))
     .filter((record): record is DNSQuery => record !== undefined)
+  data.gateEvents = Array.from(gateIDs)
+    .map((id) => state.entities.gateEvents.get(id))
+    .filter((record): record is GateEvent => record !== undefined)
   return data
 }
 
@@ -452,22 +481,24 @@ export function hasDetailPage(key: string) {
 
 export function isRealtimeRecordInWorkingSet(
   collection: keyof EntityMaps,
-  record: { flow?: string; ip?: string; chunk_start?: string; window_start?: string; timestamp?: string },
+  record: { flow?: string; ip?: string; chunk_start?: string; window_start?: string; timestamp?: string; queued_at?: string },
 ) {
   if (collection === 'destinations') {
     if (!record.ip) return false
     return Array.from(sessionTimelineStore.getState().entities.flows.values()).some((flow) => flow.destination_ip === record.ip)
   }
-  if (collection !== 'flowActivityChunks' && collection !== 'flowActivityWindows' && collection !== 'dnsQueries') return true
+  if (collection !== 'flowActivityChunks' && collection !== 'flowActivityWindows' && collection !== 'dnsQueries' && collection !== 'gateEvents') return true
   const state = sessionTimelineStore.getState()
   const at = collection === 'flowActivityChunks'
     ? parseEpoch(record.chunk_start)
     : collection === 'flowActivityWindows'
       ? parseEpoch(record.window_start)
-      : parseEpoch(record.timestamp)
+      : collection === 'dnsQueries'
+        ? parseEpoch(record.timestamp)
+        : parseEpoch(record.queued_at)
   if (!at) return false
   return Array.from(state.pages.values()).some((page) => {
-    const from = collection === 'dnsQueries' ? page.fromMs - 5 * 60_000 : page.fromMs - 60_000
+    const from = collection === 'dnsQueries' ? page.fromMs - 5 * 60_000 : collection === 'gateEvents' ? page.fromMs : page.fromMs - 60_000
     const flowAccepted = collection !== 'flowActivityChunks' || page.flowIds.size === 0 || (record.flow ? page.flowIds.has(record.flow) : false)
     return flowAccepted && at >= from && at < page.toMs
   })
@@ -486,6 +517,7 @@ function mergeWindowEntities(state: SessionTimelineState, window: SessionWindow)
   for (const record of window.flowActivityStatuses) overview = upsertEntity(state, 'flowActivityStatuses', record) || overview
   for (const record of window.destinations) overview = upsertEntity(state, 'destinations', record) || overview
   for (const record of window.routes) overview = upsertEntity(state, 'routes', record) || overview
+  for (const record of window.gateEvents) detail = upsertEntity(state, 'gateEvents', record) || detail
   return { overview, detail }
 }
 
@@ -568,6 +600,7 @@ function removeEntity(state: SessionTimelineState, collection: keyof EntityMaps,
   if (collection === 'dnsQueries') state.indexes.dns.remove(id)
   if (collection === 'flowActivityChunks') state.indexes.chunks.remove(id)
   if (collection === 'flowActivityWindows') state.indexes.windows.remove(id)
+  if (collection === 'gateEvents') state.indexes.gates.remove(id)
   if (collection === 'sessions') state.sessions.delete(id)
   return true
 }
@@ -593,6 +626,10 @@ function indexEntity(state: SessionTimelineState, collection: keyof EntityMaps, 
     const window = record as FlowActivityWindow
     const start = parseEpoch(window.window_start)
     state.indexes.windows.upsert(window.id, start, start + Math.max(1, window.window_ms))
+  } else if (collection === 'gateEvents') {
+    const gate = record as GateEvent
+    const start = parseEpoch(gate.queued_at || gate.created)
+    state.indexes.gates.upsert(gate.id, start, parseEpoch(gate.decided_at, start))
   }
 }
 
@@ -602,6 +639,7 @@ function removePage(state: SessionTimelineState, page: DetailPage) {
   removeOwnedRecords(state, page.ownership.dnsQueries, 'dnsQueries')
   removeOwnedRecords(state, page.ownership.flowActivityChunks, 'flowActivityChunks')
   removeOwnedRecords(state, page.ownership.flowActivityWindows, 'flowActivityWindows')
+  removeOwnedRecords(state, page.ownership.gateEvents, 'gateEvents')
 }
 
 function removeOwnedRecords(state: SessionTimelineState, ids: Set<string>, collection: keyof EntityOwnership) {
@@ -618,7 +656,7 @@ function removeOwnedRecords(state: SessionTimelineState, ids: Set<string>, colle
 }
 
 function addOwnershipReferences(state: SessionTimelineState, ownership: EntityOwnership) {
-  for (const collection of ['dnsQueries', 'flowActivityChunks', 'flowActivityWindows'] as const) {
+  for (const collection of ['dnsQueries', 'flowActivityChunks', 'flowActivityWindows', 'gateEvents'] as const) {
     const counts = state.detailRefCounts[collection]
     for (const id of ownership[collection]) counts.set(id, (counts.get(id) ?? 0) + 1)
   }
@@ -634,10 +672,12 @@ function attachRealtimeDetailOwnership(
     ? parseEpoch((record as FlowActivityChunk).chunk_start)
     : collection === 'flowActivityWindows'
       ? parseEpoch((record as FlowActivityWindow).window_start)
-      : parseEpoch((record as DNSQuery).timestamp)
+      : collection === 'dnsQueries'
+        ? parseEpoch((record as DNSQuery).timestamp)
+        : parseEpoch((record as GateEvent).queued_at)
   if (!at) return
   for (const page of state.pages.values()) {
-    const fromMs = collection === 'dnsQueries' ? page.fromMs - 5 * 60_000 : page.fromMs - 60_000
+    const fromMs = collection === 'dnsQueries' ? page.fromMs - 5 * 60_000 : collection === 'gateEvents' ? page.fromMs : page.fromMs - 60_000
     const flowAccepted = collection !== 'flowActivityChunks' || page.flowIds.size === 0 || page.flowIds.has((record as FlowActivityChunk).flow)
     if (!flowAccepted || at < fromMs || at >= page.toMs || page.ownership[collection].has(record.id)) continue
     page.ownership[collection].add(record.id)
@@ -721,6 +761,8 @@ function entityRevision(collection: keyof EntityMaps, record: RecordBase) {
       return parseEpoch((record as Destination).last_seen, 0)
     case 'routes':
       return parseEpoch((record as Route).completed_at, 0)
+    case 'gateEvents':
+      return parseEpoch((record as GateEvent).decided_at || (record as GateEvent).queued_at, 0)
     case 'sessions':
       return parseEpoch((record as Session).ended_at || (record as Session).started_at || record.created, 0)
   }

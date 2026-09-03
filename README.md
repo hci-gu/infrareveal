@@ -17,6 +17,9 @@ What you get
 
 - [Flow activity bursts](docs/implementation-guides/flow-activity-bursts.md): implemented metadata-only capture and visualization of fine-grained traffic inside long-lived connections.
 - [Flow activity validation](docs/validation/flow-activity-raspberry-pi.md): repeatable privacy, load, growth, and browser-comparison checks for the target Pi.
+- [Proxy Lab implementation and operations](docs/implementation-guides/proxy-lab.md): passive replay/live tracing plus the opt-in flow, strict-packet, and DNS gates.
+- [Proxy Lab Raspberry Pi validation](docs/validation/proxy-lab-raspberry-pi.md): namespace, failure, soak, client, and recovery procedures.
+- [Proxy Lab local validation results](docs/validation/proxy-lab-local-results.md): automated, migration, privileged Linux, and browser evidence from the implementation handoff.
 
 ## Frontend workspace
 
@@ -90,6 +93,37 @@ Configuration knobs (via env in `docker-compose.yml`):
 - PACKET_ACTIVITY_BUCKET_MS: activity resolution, validated to 20–1000 ms (default 50)
 - PACKET_ACTIVITY_CHUNK_SECONDS: sparse persistence chunk size (default 5)
 - PACKET_ACTIVITY_RETENTION_HOURS: retention for inactive-session detail (default 24)
+
+### Proxy Lab: passive trace vs traffic gate
+
+Proxy Lab lives only in the debug dashboard at `/proxy-lab/:sessionID`. Passive trace is observation-only. It streams bounded, header-derived events and can be enabled independently with `DEBUG_TRACE_ENABLED=true`; no NFQUEUE policy is installed when lab gate support is disabled.
+
+The lab gate is a separate, explicit traffic-changing experiment. `LAB_GATE_ENABLED=true` makes the three fail-open NFQUEUE listeners and empty rule chains available, but still does not gate a client. An authenticated operator must arm selected IPv4 clients for an active session. Flow mode holds new TCP/UDP flows, strict mode steps one exact tuple in both directions, and DNS mode gates selected traffic to local dnsmasq. See the [operator guide](docs/implementation-guides/proxy-lab.md#safe-first-run) before enabling it.
+
+| Variable | Default / bounds | Safety effect |
+|---|---|---|
+| `DEBUG_TRACE_ENABLED` | `false` | Enables bounded passive SSE tracing only. |
+| `DEBUG_TRACE_RING_EVENTS` | `20000` (`100`–`200000`) | Caps in-memory replay history. |
+| `DEBUG_TRACE_RETENTION_SECONDS` | `30` (`5`–`300`) | Caps live trace age. |
+| `DEBUG_TRACE_INGRESS_BUFFER` | `8192` (`128`–`131072`) | Full buffer rejects trace events; forwarding is unaffected. |
+| `DEBUG_TRACE_SUBSCRIBER_BUFFER` | `256` (`8`–`4096`) | A slow viewer drops its own trace stream rather than blocking capture. |
+| `DEBUG_TRACE_BATCH_MS` | `50` (`10`–`1000`) | Coalescing latency. |
+| `DEBUG_TRACE_MAX_BATCH` | `200` (`1`–`200`) | Caps one SSE payload. |
+| `DEBUG_TRACE_MAX_SUBSCRIBERS` | `32` (`1`–`256`) | Caps viewer memory. |
+| `LAB_GATE_ENABLED` | `false` | Master opt-in; false leaves no effective queue policy. |
+| `LAB_GATE_QUEUE_NUM` | `42` | Flow-mode queue; must differ from 43/44. |
+| `LAB_GATE_STRICT_QUEUE_NUM` | `43` | Exact-tuple packet queue. |
+| `LAB_GATE_DNS_QUEUE_NUM` | `44` | Local DNS INPUT queue. |
+| `LAB_GATE_CLIENT_SUBNET` | `10.0.0.0/24` | Only IPv4 clients inside this prefix can arm. |
+| `LAB_GATE_MAX_PENDING_FLOWS` | `128` (`1`–`1024`) | New decisions bypass when full. |
+| `LAB_GATE_MAX_HELD_PACKETS` | `768` (`8`–`8192`, at least pending cap) | New packets bypass when full. |
+| `LAB_GATE_FLOW_TIMEOUT_MS` | `10000` (`100`–`60000`) | Pending flows are accepted as expired. |
+| `LAB_GATE_ESTABLISHED_TIMEOUT_MS` | `500` (`100`–`10000`) | Strict packets are accepted quickly. |
+| `LAB_GATE_DNS_TIMEOUT_MS` | `2000` (`100`–`15000`) | DNS is accepted before indefinite resolver stalls. |
+| `LAB_GATE_DECISION_CACHE_SECONDS` | `120` (`1`–`900`) | Bounds remembered flow verdicts. |
+| `LAB_GATE_FAIL_OPEN` | `true` | Arming is refused when false. |
+| `LAB_GATE_CONTROL_TOKEN_FILE` | unset | Mutating controls are refused without a 32–512 byte token file. |
+| `LAB_GATE_ALLOWED_ORIGINS` | unset | Comma-separated browser origins allowed to call the control API. |
 
 You can also tweak:
 - `hostapd.conf` for country_code, channel, security (currently open)

@@ -109,5 +109,6 @@ function fixture(): GatewayData {
     flowActivityChunks: [],
     flowActivityWindows: [],
     flowActivityStatuses: [],
+    gateEvents: [],
   }
 }
