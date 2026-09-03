@@ -203,20 +203,26 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 	}
 
 	params := dbx.Params{
-		"session":       sessionID,
-		"from":          formatPocketBaseTimelineDate(from),
-		"to":            formatPocketBaseTimelineDate(to),
-		"lookback":      formatPocketBaseTimelineDate(from.Add(-5 * time.Minute)),
-		"chunkOverlap":  formatPocketBaseTimelineDate(from.Add(-10 * time.Second)),
-		"windowOverlap": formatPocketBaseTimelineDate(from.Add(-time.Minute)),
+		"from": formatPocketBaseTimelineDate(from),
+		"to":   formatPocketBaseTimelineDate(to),
 	}
 
-	flowFilter, flowParams := appendIDFilter("session={:session} && start < {:to} && last_seen >= {:from}", "id", requestedFlowIDs, params)
-	flows, flowMore, err := queryTimelinePage(app, "flows", flowFilter, "start,id", limit, cursor["flows"], flowParams)
+	flowExpressions := []dbx.Expression{
+		dbx.HashExp{"session": sessionID},
+		dbx.NewExp("[[start]] < {:to} AND [[last_seen]] >= {:from}", params),
+	}
+	flowExpressions, err = appendStringSetExpression(flowExpressions, "id", requestedFlowIDs)
 	if err != nil {
 		return sessionTimelineWindow{}, http.StatusInternalServerError, err
 	}
-	episodes, episodeMore, err := queryTimelinePage(app, "activity_episodes", "session={:session} && start < {:to} && last_seen >= {:from}", "start,id", limit, cursor["episodes"], params)
+	flows, flowMore, err := queryTimelinePage(app, "flows", flowExpressions, []string{"start", "id"}, limit, cursor["flows"])
+	if err != nil {
+		return sessionTimelineWindow{}, http.StatusInternalServerError, err
+	}
+	episodes, episodeMore, err := queryTimelinePage(app, "activity_episodes", []dbx.Expression{
+		dbx.HashExp{"session": sessionID},
+		dbx.NewExp("[[start]] < {:to} AND [[last_seen]] >= {:from}", params),
+	}, []string{"start", "id"}, limit, cursor["episodes"])
 	if err != nil {
 		return sessionTimelineWindow{}, http.StatusInternalServerError, err
 	}
@@ -226,11 +232,20 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 	var gateEvents []*core.Record
 	var gateMore bool
 	if !overview {
-		dnsQueries, dnsMore, err = queryTimelinePage(app, "dns_queries", "session={:session} && timestamp >= {:lookback} && timestamp < {:to}", "timestamp,id", limit, cursor["dns"], params)
+		dnsQueries, dnsMore, err = queryTimelinePage(app, "dns_queries", []dbx.Expression{
+			dbx.HashExp{"session": sessionID},
+			dbx.NewExp("[[timestamp]] >= {:lookback} AND [[timestamp]] < {:to}", dbx.Params{
+				"lookback": formatPocketBaseTimelineDate(from.Add(-5 * time.Minute)),
+				"to":       formatPocketBaseTimelineDate(to),
+			}),
+		}, []string{"timestamp", "id"}, limit, cursor["dns"])
 		if err != nil {
 			return sessionTimelineWindow{}, http.StatusInternalServerError, err
 		}
-		gateEvents, gateMore, err = queryTimelinePage(app, "gate_events", "session={:session} && queued_at >= {:from} && queued_at < {:to}", "queued_at,id", limit, cursor["gates"], params)
+		gateEvents, gateMore, err = queryTimelinePage(app, "gate_events", []dbx.Expression{
+			dbx.HashExp{"session": sessionID},
+			dbx.NewExp("[[queued_at]] >= {:from} AND [[queued_at]] < {:to}", params),
+		}, []string{"queued_at", "id"}, limit, cursor["gates"])
 		if err != nil {
 			return sessionTimelineWindow{}, http.StatusInternalServerError, err
 		}
@@ -241,12 +256,28 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 	var windows []*core.Record
 	var windowMore bool
 	if !overview {
-		chunkFilter, chunkParams := appendIDFilter("session={:session} && chunk_start >= {:chunkOverlap} && chunk_start < {:to}", "flow", requestedFlowIDs, params)
-		chunks, chunkMore, err = queryTimelinePage(app, "flow_activity_chunks", chunkFilter, "chunk_start,id", limit, cursor["chunks"], chunkParams)
+		chunkExpressions := []dbx.Expression{
+			dbx.HashExp{"session": sessionID},
+			dbx.NewExp("[[chunk_start]] >= {:chunkOverlap} AND [[chunk_start]] < {:to}", dbx.Params{
+				"chunkOverlap": formatPocketBaseTimelineDate(from.Add(-10 * time.Second)),
+				"to":           formatPocketBaseTimelineDate(to),
+			}),
+		}
+		chunkExpressions, err = appendStringSetExpression(chunkExpressions, "flow", requestedFlowIDs)
 		if err != nil {
 			return sessionTimelineWindow{}, http.StatusInternalServerError, err
 		}
-		windows, windowMore, err = queryTimelinePage(app, "flow_activity_windows", "session={:session} && window_start >= {:windowOverlap} && window_start < {:to}", "window_start,id", limit, cursor["windows"], params)
+		chunks, chunkMore, err = queryTimelinePage(app, "flow_activity_chunks", chunkExpressions, []string{"chunk_start", "id"}, limit, cursor["chunks"])
+		if err != nil {
+			return sessionTimelineWindow{}, http.StatusInternalServerError, err
+		}
+		windows, windowMore, err = queryTimelinePage(app, "flow_activity_windows", []dbx.Expression{
+			dbx.HashExp{"session": sessionID},
+			dbx.NewExp("[[window_start]] >= {:windowOverlap} AND [[window_start]] < {:to}", dbx.Params{
+				"windowOverlap": formatPocketBaseTimelineDate(from.Add(-time.Minute)),
+				"to":            formatPocketBaseTimelineDate(to),
+			}),
+		}, []string{"window_start", "id"}, limit, cursor["windows"])
 		if err != nil {
 			return sessionTimelineWindow{}, http.StatusInternalServerError, err
 		}
@@ -275,15 +306,24 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 	if err != nil {
 		return sessionTimelineWindow{}, http.StatusInternalServerError, err
 	}
-	routeFilter, routeParams := appendIDFilter("session={:session}", "destination_ip", destinationIPs, dbx.Params{"session": sessionID})
 	routes := []*core.Record{}
 	if len(destinationIPs) > 0 {
-		routes, err = app.FindRecordsByFilter("routes", routeFilter, "completed_at", 0, 0, routeParams)
+		routeExpressions, expressionErr := appendStringSetExpression(
+			[]dbx.Expression{dbx.HashExp{"session": sessionID}},
+			"destination_ip",
+			destinationIPs,
+		)
+		if expressionErr != nil {
+			return sessionTimelineWindow{}, http.StatusInternalServerError, expressionErr
+		}
+		routes, err = queryRecords(app, "routes", routeExpressions, "completed_at")
 		if err != nil {
 			return sessionTimelineWindow{}, http.StatusInternalServerError, err
 		}
 	}
-	statuses, err := app.FindRecordsByFilter("flow_activity_status", "session={:session}", "-reported_at", 1, 0, dbx.Params{"session": sessionID})
+	statuses, _, err := queryTimelinePage(app, "flow_activity_status", []dbx.Expression{
+		dbx.HashExp{"session": sessionID},
+	}, []string{"reported_at DESC"}, 1, 0)
 	if err != nil {
 		return sessionTimelineWindow{}, http.StatusInternalServerError, err
 	}
@@ -323,13 +363,13 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 	}, http.StatusOK, nil
 }
 
-func queryTimelinePage(app core.App, collection, filter, sortFields string, limit, offset int, params dbx.Params) ([]*core.Record, bool, error) {
+func queryTimelinePage(app core.App, collection string, expressions []dbx.Expression, sortFields []string, limit, offset int) ([]*core.Record, bool, error) {
 	if offset < 0 {
 		return []*core.Record{}, false, nil
 	}
-	records, err := app.FindRecordsByFilter(collection, filter, sortFields, limit+1, offset, params)
+	records, err := queryRecordsPage(app, collection, expressions, sortFields, limit+1, offset)
 	if err != nil {
-		return nil, false, fmt.Errorf("query %s: %w", collection, err)
+		return nil, false, err
 	}
 	more := len(records) > limit
 	if more {
@@ -342,29 +382,54 @@ func queryRelatedRecords(app core.App, collection, field string, values []string
 	if len(values) == 0 {
 		return []*core.Record{}, nil
 	}
-	filter, params := appendIDFilter("", field, values, dbx.Params{})
-	return app.FindRecordsByFilter(collection, filter, sortFields, 0, 0, params)
+	expressions, err := appendStringSetExpression(nil, field, values)
+	if err != nil {
+		return nil, err
+	}
+	return queryRecords(app, collection, expressions, sortFields)
 }
 
-func appendIDFilter(base, field string, values []string, original dbx.Params) (string, dbx.Params) {
-	params := dbx.Params{}
-	for key, value := range original {
-		params[key] = value
+func queryRecords(app core.App, collection string, expressions []dbx.Expression, sortFields ...string) ([]*core.Record, error) {
+	return queryRecordsPage(app, collection, expressions, sortFields, 0, 0)
+}
+
+func queryRecordsPage(app core.App, collection string, expressions []dbx.Expression, sortFields []string, limit, offset int) ([]*core.Record, error) {
+	query := app.RecordQuery(collection)
+	for _, expression := range expressions {
+		query.AndWhere(expression)
 	}
+	if len(sortFields) > 0 {
+		query.OrderBy(sortFields...)
+	}
+	if limit > 0 {
+		query.Limit(int64(limit))
+	}
+	if offset > 0 {
+		query.Offset(int64(offset))
+	}
+
+	records := []*core.Record{}
+	if err := query.All(&records); err != nil {
+		return nil, fmt.Errorf("query %s: %w", collection, err)
+	}
+	return records, nil
+}
+
+// appendStringSetExpression keeps set membership constant-sized by passing the
+// values as one JSON parameter. Fields are internal schema constants, never
+// request-provided identifiers; set values remain bound query parameters.
+func appendStringSetExpression(expressions []dbx.Expression, field string, values []string) ([]dbx.Expression, error) {
 	if len(values) == 0 {
-		return base, params
+		return expressions, nil
 	}
-	conditions := make([]string, 0, len(values))
-	for index, value := range values {
-		key := fmt.Sprintf("value%d", index)
-		conditions = append(conditions, fmt.Sprintf("%s={:%s}", field, key))
-		params[key] = value
+	payload, err := json.Marshal(values)
+	if err != nil {
+		return nil, fmt.Errorf("encode %s value set: %w", field, err)
 	}
-	joined := "(" + strings.Join(conditions, " || ") + ")"
-	if base == "" {
-		return joined, params
-	}
-	return base + " && " + joined, params
+	return append(expressions, dbx.NewExp(
+		fmt.Sprintf("[[%s]] IN (SELECT value FROM json_each({:valueSet}))", field),
+		dbx.Params{"valueSet": string(payload)},
+	)), nil
 }
 
 func exportRecords(records []*core.Record) []map[string]any {

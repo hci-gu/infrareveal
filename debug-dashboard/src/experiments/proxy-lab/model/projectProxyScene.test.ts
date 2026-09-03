@@ -55,6 +55,10 @@ describe('proxy scene projection', () => {
     expect(projectProxyScene([inbound], 100).tokens[0].path.id).toBe('gate-wait-in')
   })
 
+  it('keeps capture quality events out of the animated traffic graph', () => {
+    expect(projectProxyScene([event('capture-health', 0, 'health', 'health')], 100).tokens).toEqual([])
+  })
+
   it('maps the recorded source families onto their explicit paths', () => {
     const fixtures: Array<[PipelineEvent['kind'], PipelineEvent['stage'], string]> = [
       ['flow', 'conntrack', 'flow-out'],
@@ -65,6 +69,10 @@ describe('proxy scene projection', () => {
     ]
     expect(fixtures.map(([kind, stage]) => projectProxyScene([event(`${kind}`, 0, kind, stage)], 100).tokens[0].path.id))
       .toEqual(fixtures.map(([, , path]) => path))
+    const attributionNodes = projectProxyScene([event('attribute', 0, 'attribution', 'attribution')], 100).tokens[0].path.nodes
+    const dnsNodes = projectProxyScene([event('dns', 0, 'dns', 'dns')], 100).tokens[0].path.nodes
+    expect(attributionNodes[attributionNodes.length - 1]).toBe('pocketbase')
+    expect(dnsNodes[dnsNodes.length - 1]).toBe('pocketbase')
   })
 
   it('keeps a simulated ten-minute frame run finite and deterministic', () => {

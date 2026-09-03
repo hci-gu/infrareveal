@@ -152,7 +152,7 @@ export class TraceClient {
   private running = false
 
   constructor(private readonly options: TraceClientOptions) {
-    this.fetchImpl = options.fetchImpl ?? fetch
+    this.fetchImpl = (options.fetchImpl ?? globalThis.fetch).bind(globalThis)
   }
 
   start(handlers: TraceClientHandlers) {
@@ -181,8 +181,8 @@ export class TraceClient {
       } catch (error) {
         if (!this.running || isAbort(error)) return
         const normalized = error instanceof Error ? error : new Error('Trace stream failed')
-        handlers.onError?.(normalized)
         handlers.onState?.('error')
+        handlers.onError?.(normalized)
         attempt += 1
       }
       if (!this.running) return

@@ -8,17 +8,12 @@ export function PipelineGraph({ scene, mode }: { scene: ProxyScene; mode: ProxyL
   return (
     <svg aria-label="Gateway packet and observation pipeline" height="100%" role="img" viewBox="0 0 1600 900" width="100%">
       <defs>
-        <pattern height="16" id="unknown-hatch" patternUnits="userSpaceOnUse" width="16">
-          <path d="M-4 4L4-4M0 16L16 0M12 20L20 12" stroke="#fb923c" strokeOpacity="0.23" strokeWidth="3" />
-        </pattern>
         <filter id="token-glow"><feGaussianBlur stdDeviation="4" /></filter>
       </defs>
       <rect fill="#020617" height="900" width="1600" />
-      {scene.tokens.some((token) => token.stage === 'health') ? (
-        <rect fill="url(#unknown-hatch)" height="900" width="1600" />
-      ) : null}
-      <text fill="#64748b" fontFamily="ui-monospace, monospace" fontSize="18" letterSpacing="4" x="80" y="60">DATA PLANE</text>
-      <text fill="#64748b" fontFamily="ui-monospace, monospace" fontSize="18" letterSpacing="4" x="80" y="650">OBSERVATION / DERIVATION</text>
+      <text fill="#64748b" fontFamily="ui-monospace, monospace" fontSize="18" letterSpacing="4" x="80" y="180">DNS / ASYNC WORKERS</text>
+      <text fill="#64748b" fontFamily="ui-monospace, monospace" fontSize="18" letterSpacing="4" x="80" y="290">FORWARDED DATA PLANE</text>
+      <text fill="#64748b" fontFamily="ui-monospace, monospace" fontSize="18" letterSpacing="4" x="80" y="650">PASSIVE OBSERVATION</text>
       {edges.map((edge) => (
         <line
           key={edge.id}
@@ -33,6 +28,8 @@ export function PipelineGraph({ scene, mode }: { scene: ProxyScene; mode: ProxyL
       ))}
       {GRAPH_NODES.map((node) => {
         const gateDimmed = (node.id === 'flow_gate' && mode !== 'turn-based' && mode !== 'strict') || (node.id === 'dns_gate' && mode !== 'dns')
+        const labelLines = node.labelLines ?? [node.label]
+        const maxLabelLength = Math.max(...labelLines.map((line) => line.length))
         return (
           <g key={node.id} opacity={gateDimmed ? 0.38 : 1}>
             <rect
@@ -46,8 +43,18 @@ export function PipelineGraph({ scene, mode }: { scene: ProxyScene; mode: ProxyL
               x={node.x - 75}
               y={node.y - 31}
             />
-            <text fill="#e2e8f0" fontFamily="Inter, sans-serif" fontSize="17" fontWeight="650" textAnchor="middle" x={node.x} y={node.y + 6}>
-              {node.label}
+            <text
+              fill="#e2e8f0"
+              fontFamily="Inter, sans-serif"
+              fontSize={maxLabelLength > 16 ? 13 : maxLabelLength > 12 ? 15 : 17}
+              fontWeight="650"
+              textAnchor="middle"
+              x={node.x}
+              y={node.y + (labelLines.length > 1 ? -3 : 6)}
+            >
+              {labelLines.map((line, index) => (
+                <tspan dy={index === 0 ? 0 : 17} key={line} x={node.x}>{line}</tspan>
+              ))}
             </text>
           </g>
         )

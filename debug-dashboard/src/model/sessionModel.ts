@@ -569,7 +569,7 @@ function serviceIdentity(
       sourceSignal: attribution.source_signal || 'dns-attribution',
       explanation:
         attribution.explanation ||
-        `Matched to ${attribution.candidate_hostname} by the flow attribution correlator, then grouped into ${activity.label}.`,
+        `Matched to ${attribution.candidate_hostname} by DNS attribution, then grouped into ${activity.label}.`,
     }
   }
 

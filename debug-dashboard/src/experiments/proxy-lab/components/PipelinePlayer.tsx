@@ -3,17 +3,20 @@ import { Player } from '@remotion/player'
 import { ChevronFirst, ChevronLast, FastForward, Pause, Play, Radio, Rewind, StepBack, StepForward } from 'lucide-react'
 import { useEffect, useRef, useState, type ReactNode } from 'react'
 import { frameForTime, setTimelinePlayback, timeForFrame } from '@infrareveal/session-state'
+import type { ActivityDataQuality as ActivityDataQualityModel, CaptureQualityInterval } from '../model/activityDataQuality'
 import { PROXY_COMPOSITION_HEIGHT, PROXY_COMPOSITION_WIDTH } from '../model/graphLayout'
 import { ProxyLabComposition, type ProxyLabCompositionProps } from '../remotion/ProxyLabComposition'
+import { ActivityDataQuality } from './ActivityDataQuality'
 import { goLiveTransition, neighboringEventFrame, pauseTransition, playTransition, seekTransition } from './playerState'
 
 const rates = [0.05, 0.1, 0.25, 0.5, 1, 2, 4]
 
-export function PipelinePlayer({ inputProps, durationInFrames, liveEdgeMs, playback, rate, reduceMotion = false }: {
+export function PipelinePlayer({ inputProps, durationInFrames, liveEdgeMs, playback, quality, rate, reduceMotion = false }: {
   inputProps: ProxyLabCompositionProps
   durationInFrames: number
   liveEdgeMs: number
   playback: 'following' | 'playing' | 'paused' | 'buffering'
+  quality: ActivityDataQualityModel
   rate: number
   reduceMotion?: boolean
 }) {
@@ -138,6 +141,7 @@ export function PipelinePlayer({ inputProps, durationInFrames, liveEdgeMs, playb
           />
         </div>
       </div>
+      <ActivityDataQuality quality={quality} />
       <div className="space-y-3 border-t border-slate-800 bg-slate-900 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <Control label="Previous event" onClick={() => seekEvent('previous')}><ChevronFirst size={16} /></Control>
@@ -162,20 +166,76 @@ export function PipelinePlayer({ inputProps, durationInFrames, liveEdgeMs, playb
         </div>
         <div className="flex items-center gap-3">
           <span className="w-24 shrink-0 font-mono text-[11px] text-slate-400">{formatTime(cursorMs)}</span>
-          <input
-            aria-label="Proxy session scrubber"
-            className="min-w-0 flex-1 accent-cyan-500"
-            max={Math.max(0, durationInFrames - 1)}
-            min={0}
-            onChange={(event) => seek(Number(event.target.value))}
-            type="range"
-            value={Math.min(currentFrame, Math.max(0, durationInFrames - 1))}
-          />
+          <div className="min-w-0 flex-1">
+            <input
+              aria-label="Proxy session scrubber"
+              className="block w-full accent-cyan-500"
+              max={Math.max(0, durationInFrames - 1)}
+              min={0}
+              onChange={(event) => seek(Number(event.target.value))}
+              type="range"
+              value={Math.min(currentFrame, Math.max(0, durationInFrames - 1))}
+            />
+            <QualityTimeline
+              cursorMs={cursorMs}
+              endMs={timeForFrame(inputProps.epochMs, Math.max(1, durationInFrames - 1), inputProps.fps)}
+              quality={quality}
+              startMs={inputProps.epochMs}
+            />
+          </div>
           <span className="font-mono text-[11px] text-slate-500">frame {currentFrame}</span>
         </div>
       </div>
     </div>
   )
+}
+
+function QualityTimeline({ quality, startMs, endMs, cursorMs }: {
+  quality: ActivityDataQualityModel
+  startMs: number
+  endMs: number
+  cursorMs: number
+}) {
+  const durationMs = Math.max(1, endMs - startMs)
+  const cursorLeft = percent(cursorMs, startMs, durationMs)
+  return (
+    <div
+      aria-label="Activity quality timeline. Amber ranges are partial capture, red ranges are unavailable capture, and violet ticks are browser live-stream gaps."
+      className="relative mt-0.5 h-2 overflow-hidden border border-slate-700 bg-slate-950"
+      role="img"
+    >
+      {quality.captureIntervals.map((interval) => (
+        <CaptureInterval key={interval.id} interval={interval} rangeDurationMs={durationMs} rangeStartMs={startMs} />
+      ))}
+      {quality.streamGapTimes.map((time, index) => {
+        const left = percent(time, startMs, durationMs)
+        if (left < 0 || left > 100) return null
+        return <span className="absolute inset-y-0 z-20 w-0.5 bg-violet-400" key={`${time}:${index}`} style={{ left: `${left}%` }} title={`Live stream gap at ${formatTime(time)}`} />
+      })}
+      <span aria-hidden className="absolute inset-y-0 z-30 w-px bg-cyan-200" style={{ left: `${Math.min(100, Math.max(0, cursorLeft))}%` }} />
+    </div>
+  )
+}
+
+function CaptureInterval({ interval, rangeStartMs, rangeDurationMs }: {
+  interval: CaptureQualityInterval
+  rangeStartMs: number
+  rangeDurationMs: number
+}) {
+  const clippedStart = Math.max(rangeStartMs, interval.startMs)
+  const clippedEnd = Math.min(rangeStartMs + rangeDurationMs, interval.endMs)
+  if (clippedEnd <= clippedStart) return null
+  return (
+    <span
+      className={`absolute inset-y-0 z-10 opacity-90 ${interval.level === 'unavailable' ? 'bg-rose-500' : 'bg-amber-500'}`}
+      style={{ left: `${percent(clippedStart, rangeStartMs, rangeDurationMs)}%`, minWidth: '2px', width: `${(clippedEnd - clippedStart) / rangeDurationMs * 100}%` }}
+      title={`${interval.level === 'unavailable' ? 'Capture unavailable' : 'Capture partial'} · ${formatTime(interval.startMs)} · ${interval.detail}`}
+    />
+  )
+}
+
+function percent(value: number, startMs: number, durationMs: number) {
+  return (value - startMs) / durationMs * 100
 }
 
 function Control({ label, onClick, children, primary = false, active = false }: {

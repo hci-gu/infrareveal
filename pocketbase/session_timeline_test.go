@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -33,6 +35,159 @@ func TestTimelineLODAndActivityAggregation(t *testing.T) {
 	}
 	if payload.Samples[0][1] != 10 || payload.Samples[0][2] != 20 || payload.Samples[0][3] != 1 || payload.Samples[0][4] != 2 {
 		t.Fatalf("unexpected first aggregate bin: %#v", payload.Samples[0])
+	}
+}
+
+func TestSessionTimelineWindowSupportsMoreThanFilterExpressionLimit(t *testing.T) {
+	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
+	if err := app.Bootstrap(); err != nil {
+		t.Fatal(err)
+	}
+	if err := app.RunAppMigrations(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = app.ResetBootstrapState() })
+
+	start := time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC)
+	sessionCollection, _ := app.FindCollectionByNameOrId("sessions")
+	session := core.NewRecord(sessionCollection)
+	session.Set("name", "Large timeline test")
+	session.Set("active", true)
+	session.Set("started_at", start.Format(time.RFC3339Nano))
+	if err := app.Save(session); err != nil {
+		t.Fatal(err)
+	}
+
+	flowCollection, _ := app.FindCollectionByNameOrId("flows")
+	flowIDs := make([]string, 0, 205)
+	for index := 0; index < 205; index++ {
+		flow := core.NewRecord(flowCollection)
+		flow.Set("session", session.Id)
+		flow.Set("flow_key", fmt.Sprintf("tcp|10.0.0.50|%d|198.51.%d.%d|443", 40000+index, index/250, index%250+1))
+		flow.Set("client_ip", "10.0.0.50")
+		flow.Set("destination_ip", fmt.Sprintf("198.51.%d.%d", index/250, index%250+1))
+		flow.Set("source_port", 40000+index)
+		flow.Set("destination_port", 443)
+		flow.Set("protocol", "tcp")
+		flow.Set("start", start.Add(time.Duration(index)*time.Millisecond).Format(time.RFC3339Nano))
+		flow.Set("last_seen", start.Add(time.Minute).Format(time.RFC3339Nano))
+		if err := app.Save(flow); err != nil {
+			t.Fatal(err)
+		}
+		flowIDs = append(flowIDs, flow.Id)
+	}
+
+	attributionCollection, _ := app.FindCollectionByNameOrId("flow_attributions")
+	attribution := core.NewRecord(attributionCollection)
+	attribution.Set("session", session.Id)
+	attribution.Set("flow", flowIDs[0])
+	attribution.Set("candidate_hostname", "example.test")
+	attribution.Set("source_signal", "dns")
+	attribution.Set("confidence", "high")
+	attribution.Set("observed_at", start.Format(time.RFC3339Nano))
+	if err := app.Save(attribution); err != nil {
+		t.Fatal(err)
+	}
+
+	episodeCollection, _ := app.FindCollectionByNameOrId("activity_episodes")
+	episode := core.NewRecord(episodeCollection)
+	episode.Set("session", session.Id)
+	episode.Set("episode_key", "large-timeline-episode")
+	episode.Set("client_ip", "10.0.0.50")
+	episode.Set("site_key", "example.test")
+	episode.Set("label", "Example")
+	episode.Set("anchor_hostname", "example.test")
+	episode.Set("start", start.Format(time.RFC3339Nano))
+	episode.Set("last_seen", start.Add(time.Minute).Format(time.RFC3339Nano))
+	episode.Set("confidence", "high")
+	if err := app.Save(episode); err != nil {
+		t.Fatal(err)
+	}
+
+	associationCollection, _ := app.FindCollectionByNameOrId("flow_associations")
+	association := core.NewRecord(associationCollection)
+	association.Set("session", session.Id)
+	association.Set("flow", flowIDs[0])
+	association.Set("episode", episode.Id)
+	association.Set("parent_site_key", "example.test")
+	association.Set("parent_label", "Example")
+	association.Set("relationship", "first_party")
+	association.Set("confidence", "high")
+	association.Set("score", 100)
+	association.Set("observed_at", start.Format(time.RFC3339Nano))
+	if err := app.Save(association); err != nil {
+		t.Fatal(err)
+	}
+
+	destinationCollection, _ := app.FindCollectionByNameOrId("destinations")
+	destination := core.NewRecord(destinationCollection)
+	destination.Set("ip", "198.51.0.1")
+	destination.Set("reverse_dns", "example.test")
+	destination.Set("first_seen", start.Format(time.RFC3339Nano))
+	destination.Set("last_seen", start.Add(time.Minute).Format(time.RFC3339Nano))
+	if err := app.Save(destination); err != nil {
+		t.Fatal(err)
+	}
+
+	routeCollection, _ := app.FindCollectionByNameOrId("routes")
+	route := core.NewRecord(routeCollection)
+	route.Set("session", session.Id)
+	route.Set("destination", destination.Id)
+	route.Set("destination_ip", destination.GetString("ip"))
+	route.Set("destination_port", 443)
+	route.Set("protocol", "tcp")
+	route.Set("method", "traceroute")
+	route.Set("started_at", start.Format(time.RFC3339Nano))
+	route.Set("completed_at", start.Add(time.Second).Format(time.RFC3339Nano))
+	if err := app.Save(route); err != nil {
+		t.Fatal(err)
+	}
+
+	chunkCollection, _ := app.FindCollectionByNameOrId("flow_activity_chunks")
+	chunk := core.NewRecord(chunkCollection)
+	chunk.Set("session", session.Id)
+	chunk.Set("flow", flowIDs[0])
+	chunk.Set("chunk_key", "large-timeline-chunk")
+	chunk.Set("flow_key", "large-timeline-flow")
+	chunk.Set("chunk_start", start.Format(time.RFC3339Nano))
+	chunk.Set("bucket_ms", 50)
+	chunk.Set("chunk_ms", 5000)
+	chunk.Set("samples", map[string]any{
+		"version": 1, "bucket_ms": 50, "chunk_ms": 5000,
+		"samples": [][]int64{{0, 10, 20, 1, 2}},
+	})
+	if err := app.Save(chunk); err != nil {
+		t.Fatal(err)
+	}
+
+	window, status, err := buildSessionTimelineWindow(app, session.Id, map[string][]string{
+		"from":  {strconv.FormatInt(start.UnixMilli(), 10)},
+		"to":    {strconv.FormatInt(start.Add(time.Hour).UnixMilli(), 10)},
+		"lod":   {"overview"},
+		"limit": {"250"},
+	})
+	if err != nil || status != 200 {
+		t.Fatalf("large window failed: status=%d err=%v", status, err)
+	}
+	if len(window.Flows) != len(flowIDs) || len(window.Attributions) != 1 || len(window.FlowAssociations) != 1 || len(window.Destinations) != 1 || len(window.Routes) != 1 {
+		t.Fatalf(
+			"unexpected large window counts: flows=%d attributions=%d associations=%d destinations=%d routes=%d",
+			len(window.Flows), len(window.Attributions), len(window.FlowAssociations), len(window.Destinations), len(window.Routes),
+		)
+	}
+
+	filtered, status, err := buildSessionTimelineWindow(app, session.Id, map[string][]string{
+		"from":  {strconv.FormatInt(start.UnixMilli(), 10)},
+		"to":    {strconv.FormatInt(start.Add(5*time.Minute).UnixMilli(), 10)},
+		"lod":   {"50ms"},
+		"limit": {"250"},
+		"flow":  {strings.Join(flowIDs[:maxTimelineFlowFilter], ",")},
+	})
+	if err != nil || status != 200 {
+		t.Fatalf("large filtered window failed: status=%d err=%v", status, err)
+	}
+	if len(filtered.Flows) != maxTimelineFlowFilter || len(filtered.FlowActivityChunks) != 1 {
+		t.Fatalf("unexpected filtered counts: flows=%d chunks=%d", len(filtered.Flows), len(filtered.FlowActivityChunks))
 	}
 }
 

@@ -3,7 +3,6 @@ import type {
   Destination,
   Flow,
   FlowActivityChunk,
-  FlowActivityWindow,
   FlowAttribution,
   GateEvent,
   GatewayData,
@@ -80,10 +79,6 @@ export function projectRecordedEvents(
   }
   for (const route of data.routes) {
     events.push(...cached('route', route, '', () => projectRoute(route)))
-  }
-  for (const window of data.flowActivityWindows) {
-    if (window.capture_complete && window.dropped_events === 0) continue
-    events.push(...cached('capture-window', window, '', () => projectCaptureGap(window)))
   }
   for (const gateEvent of gateEvents) {
     events.push(...cached('gate', gateEvent, '', () => projectGateEvent(gateEvent)))
@@ -209,16 +204,6 @@ function projectRoute(route: Route): PipelineEvent[] {
     id: `route:${route.id}`, sessionId: route.session, traceId: `route:${route.id}`,
     kind: 'route', stage: 'route', occurredAtMs, timing: 'observed',
     summary: { protocol: route.protocol, remoteIp: route.destination_ip, remotePort: validPort(route.destination_port) },
-  })]
-}
-
-function projectCaptureGap(window: FlowActivityWindow): PipelineEvent[] {
-  const occurredAtMs = timestamp(window.window_start)
-  if (occurredAtMs === null) return []
-  return [recordedEvent({
-    id: `capture-gap:${window.id}`, sessionId: window.session, traceId: `capture-gap:${window.id}`,
-    kind: 'health', stage: 'health', occurredAtMs, timing: 'observed',
-    summary: { droppedEvents: Math.max(0, window.dropped_events), captureComplete: false },
   })]
 }
 

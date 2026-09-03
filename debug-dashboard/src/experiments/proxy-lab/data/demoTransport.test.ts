@@ -12,6 +12,8 @@ describe('proxy lab demo transport', () => {
     expect(demoPipelineEnvelope.events.some((event) => event.summary.protocol === 'udp')).toBe(true)
     expect(demoPipelineEnvelope.events.some((event) => event.summary.verdict === 'approved')).toBe(true)
     expect(demoPipelineEnvelope.events.some((event) => event.summary.verdict === 'rejected')).toBe(true)
+    expect(demoPipelineEnvelope.droppedEvents).toBe(0)
+    expect(demoPipelineEnvelope.events.find((event) => event.kind === 'health')?.summary.droppedEvents).toBe(37)
   })
 
   it('never enables the query switch in production', () => {

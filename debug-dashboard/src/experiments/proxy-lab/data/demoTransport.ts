@@ -23,7 +23,7 @@ export const demoPipelineEnvelope: PipelineStreamEnvelope = {
   version: 1,
   sessionId: DEMO_SESSION_ID,
   events: demoPipelineEvents,
-  droppedEvents: 37,
+  droppedEvents: 0,
   serverNowMs: DEMO_EPOCH_MS + 8_000,
 }
 

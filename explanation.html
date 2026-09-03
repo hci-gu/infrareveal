@@ -1,0 +1,1007 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A code-accurate explanation of every node in the InfraReveal gateway pipeline">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23090d14'/%3E%3Ccircle cx='8' cy='16' r='3' fill='%2367e8f9'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23fbbf24'/%3E%3Ccircle cx='24' cy='16' r='3' fill='%23c4b5fd'/%3E%3Cpath d='M11 16h2m6 0h2' stroke='%23f5f7fb' stroke-width='2'/%3E%3C/svg%3E">
+  <title>InfraReveal — Inside the gateway pipeline</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --page: #080c12;
+      --panel: #101722;
+      --panel-2: #151e2b;
+      --panel-3: #0c121b;
+      --ink: #f4f7fb;
+      --muted: #a0adbf;
+      --faint: #68778e;
+      --line: #29364a;
+      --line-strong: #44536a;
+      --cyan: #67e8f9;
+      --cyan-bg: #102d37;
+      --green: #5ee3a1;
+      --green-bg: #10291f;
+      --amber: #fbbf24;
+      --amber-bg: #2d220c;
+      --violet: #c4b5fd;
+      --violet-bg: #251e3d;
+      --rose: #fb7185;
+      --rose-bg: #32141d;
+      --radius: 14px;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-synthesis: none;
+      text-rendering: optimizeLegibility;
+    }
+
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body { margin: 0; min-width: 320px; background: var(--page); color: var(--ink); }
+    button { color: inherit; font: inherit; }
+    a { color: inherit; }
+    code, .mono { font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace; }
+    :focus-visible { outline: 2px solid var(--cyan); outline-offset: 3px; }
+    ::selection { background: rgba(103, 232, 249, .26); }
+
+    .shell { width: min(1460px, calc(100% - 40px)); margin: 0 auto; }
+    .topbar {
+      position: sticky; top: 0; z-index: 40; border-bottom: 1px solid rgba(68, 83, 106, .65);
+      background: rgba(8, 12, 18, .92); backdrop-filter: blur(18px);
+    }
+    .topbar-inner { min-height: 68px; display: flex; align-items: center; gap: 24px; }
+    .brand { display: flex; align-items: center; gap: 11px; text-decoration: none; font-weight: 780; letter-spacing: -.025em; }
+    .brand-mark { width: 29px; height: 29px; border: 1px solid var(--line-strong); border-radius: 9px; position: relative; }
+    .brand-mark i { position: absolute; width: 6px; height: 6px; border-radius: 50%; top: 11px; background: var(--cyan); }
+    .brand-mark i:nth-child(1) { left: 4px; }
+    .brand-mark i:nth-child(2) { left: 11px; background: var(--amber); }
+    .brand-mark i:nth-child(3) { left: 18px; background: var(--violet); }
+    .topnav { margin-left: auto; display: flex; gap: 2px; overflow-x: auto; scrollbar-width: none; }
+    .topnav a { color: var(--muted); padding: 9px 10px; border-radius: 8px; font-size: 12px; text-decoration: none; white-space: nowrap; }
+    .topnav a:hover { color: var(--ink); background: var(--panel-2); }
+    .code-pill { border: 1px solid var(--line); color: var(--cyan); background: var(--panel); border-radius: 999px; padding: 7px 10px; font: 700 10px/1 "SFMono-Regular", Consolas, monospace; white-space: nowrap; }
+
+    .hero { padding: 86px 0 64px; display: grid; grid-template-columns: minmax(0, 1.25fr) minmax(320px, .75fr); gap: 72px; align-items: end; }
+    .eyebrow { color: var(--cyan); font: 750 11px/1.4 "SFMono-Regular", Consolas, monospace; letter-spacing: .16em; text-transform: uppercase; }
+    h1 { margin: 15px 0 21px; max-width: 940px; font-size: clamp(44px, 6vw, 82px); line-height: .98; letter-spacing: -.06em; }
+    .hero-lede { max-width: 850px; margin: 0; color: #c0cad8; font-size: clamp(18px, 2vw, 23px); line-height: 1.55; }
+    .hero-aside { border-left: 2px solid var(--amber); padding: 4px 0 4px 20px; }
+    .hero-aside strong { display: block; margin-bottom: 7px; font-size: 14px; }
+    .hero-aside p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .truth-strip { display: grid; grid-template-columns: repeat(4, 1fr); border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; margin-bottom: 70px; background: var(--panel); }
+    .truth { padding: 19px 20px; border-right: 1px solid var(--line); }
+    .truth:last-child { border-right: 0; }
+    .truth b { display: block; color: var(--cyan); font: 780 23px/1.1 "SFMono-Regular", Consolas, monospace; }
+    .truth:nth-child(2) b { color: var(--green); }
+    .truth:nth-child(3) b { color: var(--amber); }
+    .truth:nth-child(4) b { color: var(--violet); }
+    .truth span { display: block; color: var(--muted); margin-top: 7px; font-size: 12px; line-height: 1.45; }
+
+    .section { padding: 78px 0; border-top: 1px solid var(--line); }
+    .section-heading { display: grid; grid-template-columns: 210px minmax(0, 820px); gap: 34px; align-items: start; margin-bottom: 38px; }
+    .section-index { color: var(--faint); font: 750 11px/1.5 "SFMono-Regular", Consolas, monospace; letter-spacing: .13em; text-transform: uppercase; }
+    h2 { margin: 0; font-size: clamp(31px, 4vw, 50px); line-height: 1.05; letter-spacing: -.048em; }
+    .section-lede { grid-column: 2; margin: -17px 0 0; color: var(--muted); font-size: 16px; line-height: 1.7; }
+    h3 { letter-spacing: -.025em; }
+
+    .correction { display: grid; grid-template-columns: 8px 1fr; background: #17140c; border: 1px solid #57471c; border-radius: var(--radius); overflow: hidden; margin-bottom: 14px; }
+    .correction::before { content: ""; background: var(--amber); }
+    .correction div { padding: 22px 24px; }
+    .correction strong { display: block; color: #fde68a; font-size: 16px; margin-bottom: 8px; }
+    .correction p { margin: 0; max-width: 1020px; color: #d2c8a9; line-height: 1.7; font-size: 13px; }
+    .planes { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .plane { min-height: 260px; background: var(--panel); border: 1px solid var(--line); border-top: 3px solid var(--cyan); padding: 24px; }
+    .plane:nth-child(2) { border-top-color: var(--green); }
+    .plane:nth-child(3) { border-top-color: var(--violet); }
+    .plane small { color: var(--faint); font: 720 10px "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; }
+    .plane h3 { margin: 27px 0 10px; font-size: 20px; }
+    .plane p { margin: 0; color: var(--muted); font-size: 13px; line-height: 1.65; }
+    .node-list { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 19px; }
+    .node-list span { padding: 5px 7px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; color: #ccd4df; font: 700 9px "SFMono-Regular", Consolas, monospace; }
+
+    .map-shell { border: 1px solid var(--line-strong); border-radius: 18px; overflow: hidden; background: #090f17; box-shadow: 0 30px 90px rgba(0, 0, 0, .3); }
+    .map-toolbar { min-height: 66px; display: flex; align-items: center; gap: 10px; padding: 12px 15px; border-bottom: 1px solid var(--line); background: var(--panel); }
+    .map-toolbar strong { margin-right: 8px; font-size: 13px; }
+    .scenario { border: 1px solid var(--line); background: var(--panel-2); color: var(--muted); border-radius: 8px; padding: 8px 10px; cursor: pointer; font-size: 11px; font-weight: 720; }
+    .scenario:hover { color: var(--ink); border-color: var(--line-strong); }
+    .scenario[aria-pressed="true"] { background: var(--cyan-bg); border-color: #2f8392; color: #d9fbff; }
+    .map-legend { margin-left: auto; display: flex; gap: 13px; color: var(--faint); font-size: 10px; white-space: nowrap; }
+    .map-legend span { display: flex; gap: 6px; align-items: center; }
+    .legend-line { width: 19px; height: 0; border-top: 2px solid #58728a; }
+    .legend-line.dashed { border-top-style: dashed; border-top-color: #705fa6; }
+    .map-layout { display: grid; grid-template-columns: minmax(690px, 1fr) 370px; min-height: 630px; }
+    .graph-pane { min-width: 0; overflow: auto; border-right: 1px solid var(--line); background-color: #080e16; background-image: linear-gradient(#182230 1px, transparent 1px), linear-gradient(90deg, #182230 1px, transparent 1px); background-size: 30px 30px; }
+    .pipeline-graph { display: block; width: 100%; min-width: 900px; height: 630px; }
+    .pipeline-graph .edge { stroke: #35455a; stroke-width: 4; opacity: .6; transition: stroke .2s, opacity .2s, stroke-width .2s; }
+    .pipeline-graph .edge.observe { stroke: #514873; stroke-width: 2.5; stroke-dasharray: 10 9; }
+    .pipeline-graph .edge.is-active { stroke: var(--cyan); stroke-width: 6; opacity: .9; }
+    .pipeline-graph .edge.observe.is-active { stroke: var(--violet); stroke-width: 5; }
+    .pipeline-graph .plane-label { fill: #5e6b7e; font: 750 14px "SFMono-Regular", Consolas, monospace; letter-spacing: .15em; }
+    .node { cursor: pointer; opacity: .68; transition: opacity .2s; }
+    .node rect { fill: #111a27; stroke: #4b5d75; stroke-width: 2; transition: fill .2s, stroke .2s, stroke-width .2s; }
+    .node.observe rect { stroke: #6d5aa6; stroke-dasharray: 6 5; }
+    .node.gate rect { stroke: #8a6a1b; }
+    .node.drop rect { stroke: #7f3143; }
+    .node text.label { fill: #edf2f8; font: 720 15px Inter, sans-serif; pointer-events: none; }
+    .node text.meta { fill: #75849a; font: 10px "SFMono-Regular", Consolas, monospace; pointer-events: none; }
+    .node.is-active, .node.is-selected { opacity: 1; }
+    .node.is-active rect { fill: #102b35; stroke: var(--cyan); stroke-width: 3; }
+    .node.observe.is-active rect { fill: #211c38; stroke: var(--violet); }
+    .node.is-selected rect { stroke: #fff; stroke-width: 3; }
+    .node:focus { outline: none; }
+    .node:focus rect { stroke: #fff; stroke-width: 3; }
+    #demo-token { fill: #fff; stroke: var(--cyan); stroke-width: 7; filter: drop-shadow(0 0 8px var(--cyan)); pointer-events: none; }
+    .scenario-caption { fill: #7f8da0; font: 11px "SFMono-Regular", Consolas, monospace; }
+    .inspector { padding: 23px; background: #0d141e; min-width: 0; }
+    .inspector-kicker { display: flex; justify-content: space-between; gap: 12px; color: var(--faint); font: 750 10px "SFMono-Regular", Consolas, monospace; text-transform: uppercase; letter-spacing: .1em; }
+    .plane-badge { padding: 4px 6px; border-radius: 4px; background: var(--violet-bg); color: var(--violet); letter-spacing: 0; }
+    .plane-badge.data { background: var(--cyan-bg); color: var(--cyan); }
+    .inspector h3 { font-size: 27px; margin: 16px 0 10px; }
+    .inspector-summary { color: #c0cad7; font-size: 13px; line-height: 1.7; margin: 0 0 22px; }
+    .inspector dl { margin: 0; }
+    .inspector dt { color: var(--faint); font: 740 9px "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; margin-top: 17px; }
+    .inspector dd { color: var(--muted); font-size: 12px; line-height: 1.62; margin: 6px 0 0; }
+    .inspector-note { margin-top: 20px; padding: 13px; background: #19150c; border-left: 2px solid var(--amber); color: #d6cba9; font-size: 11px; line-height: 1.6; }
+    .inspector-source { margin-top: 18px; color: var(--faint); font: 9px/1.55 "SFMono-Regular", Consolas, monospace; overflow-wrap: anywhere; }
+    .map-help { color: var(--faint); margin: 13px 3px 0; font-size: 11px; line-height: 1.55; }
+
+    .questions { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+    .question-card { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 23px; position: relative; overflow: hidden; }
+    .question-card::before { content: ""; position: absolute; inset: 0 auto 0 0; width: 3px; background: var(--violet); }
+    .question-card:nth-child(2)::before { background: var(--green); }
+    .question-card:nth-child(3)::before { background: var(--amber); }
+    .question-card .role { color: var(--violet); font: 760 10px "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; text-transform: uppercase; }
+    .question-card:nth-child(2) .role { color: var(--green); }
+    .question-card:nth-child(3) .role { color: var(--amber); }
+    .question-card h3 { min-height: 54px; margin: 23px 0 10px; font-size: 19px; line-height: 1.35; }
+    .question-card p { color: var(--muted); margin: 0; font-size: 12px; line-height: 1.65; }
+    .question-card .answer { margin-top: 18px; padding-top: 15px; border-top: 1px solid var(--line); color: #dce4ee; font-size: 12px; }
+
+    .deep { display: grid; gap: 14px; margin-top: 15px; }
+    .deep-card { display: grid; grid-template-columns: 250px minmax(0, 1fr); border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); overflow: hidden; }
+    .deep-title { padding: 25px; border-right: 1px solid var(--line); background: #0d141e; }
+    .deep-title small { color: var(--faint); font: 750 9px "SFMono-Regular", Consolas, monospace; letter-spacing: .1em; }
+    .deep-title h3 { margin: 31px 0 8px; font-size: 22px; }
+    .deep-title p { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .deep-body { padding: 24px; }
+    .algorithm { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 8px; counter-reset: algo; }
+    .algorithm-step { counter-increment: algo; padding: 14px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px; color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .algorithm-step::before { content: counter(algo, decimal-leading-zero); display: block; color: var(--cyan); font: 760 9px "SFMono-Regular", Consolas, monospace; margin-bottom: 12px; }
+    .deep-card:nth-child(2) .algorithm-step::before { color: var(--green); }
+    .deep-card:nth-child(3) .algorithm-step::before { color: var(--amber); }
+    .fact-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-top: 9px; }
+    .fact { border-top: 1px solid var(--line-strong); padding: 13px 2px 0; }
+    .fact b { display: block; color: #dce4ee; font: 700 10px "SFMono-Regular", Consolas, monospace; margin-bottom: 6px; }
+    .fact span { color: var(--muted); font-size: 11px; line-height: 1.55; }
+    .precision-note { margin: 15px 0 0; padding: 13px 15px; border-left: 2px solid var(--amber); background: #18150d; color: #cfc5a7; font-size: 11px; line-height: 1.65; }
+
+    .worked { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; background: var(--panel); }
+    .worked-head { padding: 19px 21px; border-bottom: 1px solid var(--line); display: flex; justify-content: space-between; gap: 20px; align-items: center; }
+    .worked-head h3 { margin: 0; font-size: 17px; }
+    .worked-head span { color: var(--faint); font: 10px "SFMono-Regular", Consolas, monospace; }
+    .timeline { display: grid; grid-template-columns: 116px 36px 1fr; padding: 12px 21px 21px; }
+    .timeline-row { display: contents; }
+    .time { color: var(--cyan); font: 720 10px "SFMono-Regular", Consolas, monospace; padding-top: 19px; }
+    .rail { position: relative; }
+    .rail::before { content: ""; position: absolute; left: 14px; top: 0; bottom: 0; width: 1px; background: var(--line-strong); }
+    .rail i { position: absolute; left: 9px; top: 22px; width: 11px; height: 11px; border-radius: 50%; background: var(--page); border: 2px solid var(--cyan); }
+    .timeline-row.derived .rail i { border-color: var(--violet); }
+    .timeline-row.probe .rail i { border-color: var(--amber); }
+    .timeline-copy { margin-top: 9px; border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); padding: 12px 14px; }
+    .timeline-copy strong { display: block; font-size: 12px; }
+    .timeline-copy p { margin: 5px 0 0; color: var(--muted); font-size: 11px; line-height: 1.58; }
+
+    .reference-tools { display: flex; gap: 9px; margin-bottom: 14px; }
+    .filter-button { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 8px; padding: 8px 10px; font-size: 11px; cursor: pointer; }
+    .filter-button[aria-pressed="true"] { color: var(--ink); border-color: var(--line-strong); background: var(--panel-2); }
+    .reference-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .reference-card { border: 1px solid var(--line); background: var(--panel); border-radius: 11px; padding: 19px; }
+    .reference-card[hidden] { display: none; }
+    .reference-head { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+    .reference-card h3 { margin: 0; font-size: 17px; }
+    .kind { border-radius: 5px; padding: 4px 6px; font: 750 8px "SFMono-Regular", Consolas, monospace; letter-spacing: .06em; text-transform: uppercase; background: var(--cyan-bg); color: var(--cyan); }
+    .kind.observe { background: var(--violet-bg); color: var(--violet); }
+    .reference-card > p { margin: 11px 0 0; color: var(--muted); font-size: 12px; line-height: 1.62; }
+    .reference-meta { margin-top: 15px; display: grid; grid-template-columns: 105px 1fr; gap: 7px 12px; padding-top: 13px; border-top: 1px solid var(--line); }
+    .reference-meta dt { color: var(--faint); font: 720 9px "SFMono-Regular", Consolas, monospace; text-transform: uppercase; }
+    .reference-meta dd { margin: 0; color: #c5cfdb; font-size: 10px; line-height: 1.5; }
+
+    .storage-flow { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0; align-items: stretch; margin-bottom: 13px; }
+    .storage-step { position: relative; border: 1px solid var(--line); background: var(--panel); padding: 19px; min-height: 155px; }
+    .storage-step + .storage-step { border-left: 0; }
+    .storage-step:first-child { border-radius: var(--radius) 0 0 var(--radius); }
+    .storage-step:last-child { border-radius: 0 var(--radius) var(--radius) 0; }
+    .storage-step:not(:last-child)::after { content: "→"; position: absolute; right: -11px; top: 17px; z-index: 2; display: grid; place-items: center; width: 21px; height: 21px; border-radius: 50%; background: var(--page); color: var(--faint); }
+    .storage-step b { color: var(--cyan); font: 750 10px "SFMono-Regular", Consolas, monospace; }
+    .storage-step:nth-child(3) b, .storage-step:nth-child(4) b { color: var(--violet); }
+    .storage-step h3 { margin: 20px 0 7px; font-size: 14px; }
+    .storage-step p { margin: 0; color: var(--muted); font-size: 10px; line-height: 1.55; }
+    .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .info-card { border: 1px solid var(--line); background: var(--panel); border-radius: var(--radius); padding: 22px; }
+    .info-card h3 { margin: 0 0 12px; font-size: 17px; }
+    .info-card p, .info-card li { color: var(--muted); font-size: 12px; line-height: 1.65; }
+    .info-card p { margin: 0; }
+    .info-card ul { margin: 0; padding-left: 18px; }
+    .info-card li + li { margin-top: 7px; }
+
+    .limits { display: grid; grid-template-columns: 1.15fr .85fr; gap: 12px; }
+    .timeout-table { border: 1px solid var(--line); border-radius: var(--radius); overflow: hidden; }
+    table { width: 100%; border-collapse: collapse; background: var(--panel); }
+    th, td { text-align: left; border-bottom: 1px solid var(--line); padding: 13px 15px; vertical-align: top; }
+    th { background: #0d141e; color: var(--faint); font: 750 9px "SFMono-Regular", Consolas, monospace; letter-spacing: .08em; text-transform: uppercase; }
+    td { color: var(--muted); font-size: 11px; line-height: 1.55; }
+    td strong { color: var(--ink); }
+    tr:last-child td { border-bottom: 0; }
+    .warning-card { border: 1px solid #604b1c; border-radius: var(--radius); background: #18140c; padding: 22px; }
+    .warning-card h3 { color: #fde68a; margin: 0 0 11px; font-size: 18px; }
+    .warning-card p { color: #d0c5a5; margin: 0; font-size: 12px; line-height: 1.68; }
+    .warning-card p + p { margin-top: 12px; }
+
+    .source-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+    .source { border: 1px solid var(--line); border-radius: 10px; background: var(--panel); padding: 15px; }
+    .source code { display: block; color: var(--cyan); font-size: 10px; overflow-wrap: anywhere; }
+    .source span { display: block; color: var(--muted); margin-top: 7px; font-size: 11px; line-height: 1.55; }
+    footer { border-top: 1px solid var(--line); padding: 34px 0 50px; color: var(--faint); font-size: 11px; }
+    footer .shell { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+    .print { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 8px; padding: 8px 10px; cursor: pointer; }
+
+    @media (max-width: 1120px) {
+      .hero { grid-template-columns: 1fr; gap: 30px; }
+      .map-layout { grid-template-columns: 1fr; }
+      .graph-pane { border-right: 0; border-bottom: 1px solid var(--line); }
+      .inspector { display: grid; grid-template-columns: .8fr 1.2fr; gap: 22px; }
+      .inspector h3 { margin-top: 12px; }
+      .inspector-summary { margin-bottom: 0; }
+      .inspector dl { grid-column: 2; grid-row: 1 / span 3; }
+      .inspector-note, .inspector-source { grid-column: 1; }
+      .algorithm { grid-template-columns: 1fr 1fr; }
+      .storage-flow { grid-template-columns: 1fr 1fr; gap: 9px; }
+      .storage-step, .storage-step + .storage-step { border: 1px solid var(--line); border-radius: 10px; }
+      .storage-step:not(:last-child)::after { display: none; }
+    }
+    @media (max-width: 780px) {
+      .shell { width: min(100% - 24px, 1460px); }
+      .topnav { display: none; }
+      .code-pill { margin-left: auto; }
+      .hero { padding: 58px 0 48px; }
+      .truth-strip, .planes, .questions, .reference-grid, .two-col, .limits, .source-list { grid-template-columns: 1fr; }
+      .truth { border-right: 0; border-bottom: 1px solid var(--line); }
+      .truth:last-child { border-bottom: 0; }
+      .section { padding: 55px 0; }
+      .section-heading { display: block; }
+      .section-index { margin-bottom: 13px; }
+      .section-lede { margin: 14px 0 0; }
+      .map-toolbar { align-items: flex-start; overflow-x: auto; }
+      .map-toolbar strong { display: none; }
+      .map-legend { display: none; }
+      .graph-pane { margin: 0; }
+      .pipeline-graph { min-width: 820px; }
+      .inspector { display: block; }
+      .inspector dl, .inspector-note, .inspector-source { grid-column: auto; grid-row: auto; }
+      .deep-card { grid-template-columns: 1fr; }
+      .deep-title { border-right: 0; border-bottom: 1px solid var(--line); }
+      .algorithm, .fact-grid { grid-template-columns: 1fr; }
+      .timeline { grid-template-columns: 78px 28px 1fr; padding-left: 12px; padding-right: 12px; }
+      .storage-flow { grid-template-columns: 1fr; }
+      .reference-tools { overflow-x: auto; }
+      footer .shell { align-items: flex-start; }
+    }
+    @media print {
+      :root { color-scheme: light; --page: #fff; --panel: #fff; --panel-2: #f5f6f8; --panel-3: #fff; --ink: #111827; --muted: #445064; --faint: #667085; --line: #cfd5df; --line-strong: #a9b2c1; }
+      .topbar, .map-toolbar, .print, #demo-token { display: none !important; }
+      .hero { padding-top: 35px; }
+      .section { break-inside: avoid; }
+      .map-layout { grid-template-columns: 1fr; }
+      .graph-pane { border-right: 0; }
+      .pipeline-graph { min-width: 0; height: auto; }
+      .inspector { display: none; }
+      .reference-card, .deep-card { break-inside: avoid; }
+    }
+    @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="shell topbar-inner">
+      <a class="brand" href="#top"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span><span>InfraReveal pipeline</span></a>
+      <nav class="topnav" aria-label="Report sections">
+        <a href="#model">Mental model</a>
+        <a href="#map">Interactive map</a>
+        <a href="#workers">Three workers</a>
+        <a href="#nodes">All nodes</a>
+        <a href="#time">Time &amp; replay</a>
+        <a href="#limits">Limits</a>
+      </nav>
+      <span class="code-pill">CODE-ACCURATE · 2026-09-03</span>
+    </div>
+  </header>
+
+  <main id="top">
+    <div class="shell">
+      <section class="hero">
+        <div>
+          <div class="eyebrow">A field guide to all 15 nodes</div>
+          <h1>Inside the gateway pipeline</h1>
+          <p class="hero-lede">What physically happens to a packet, what InfraReveal merely observes, and what is inferred later. The crucial idea: the diagram combines three different kinds of work on one canvas.</p>
+        </div>
+        <aside class="hero-aside">
+          <strong>The short answer about the confusing three</strong>
+          <p><b>DNS attribution</b> guesses which observed DNS name best explains a flow. <b>GeoIP + reverse DNS</b> adds facts about the destination IP. <b>Traceroute</b> runs a separate route probe. None of them is inline with the participant’s connection.</p>
+        </aside>
+      </section>
+
+      <div class="truth-strip" aria-label="Pipeline summary">
+        <div class="truth"><b>15</b><span>visible nodes in the debug pipeline</span></div>
+        <div class="truth"><b>3</b><span>kinds of work: forward, observe, derive</span></div>
+        <div class="truth"><b>0</b><span>HTTP bodies or TLS plaintext represented</span></div>
+        <div class="truth"><b>time</b><span>the common replay coordinate</span></div>
+      </div>
+    </div>
+
+    <section class="section" id="model">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-index">01 · Mental model</div>
+          <h2>One picture, three planes</h2>
+          <p class="section-lede">A line between boxes can mean “the packet actually travels here,” “metadata was observed here,” or “a later result was written here.” Reading every line as physical packet movement is the source of most confusion.</p>
+        </div>
+
+        <div class="correction">
+          <div>
+            <strong>This is a gateway observer, not the old transparent HTTP proxy.</strong>
+            <p>The current entrypoint explicitly removes the legacy port 80/443 redirect rules. Linux routes and NATs normal traffic without terminating TLS. InfraReveal records bounded network metadata—tuples, counters, DNS answers, timing and coarse packet activity—not whole HTTP requests.</p>
+          </div>
+        </div>
+
+        <div class="planes">
+          <article class="plane">
+            <small>PLANE A · INLINE</small>
+            <h3>Packet handling</h3>
+            <p>Kernel and network components that can actually receive, forward, translate, hold or discard traffic. An armed lab gate is the only experimental component that deliberately waits for an operator.</p>
+            <div class="node-list"><span>Client</span><span>wlan0</span><span>Flow gate</span><span>DNS gate</span><span>FORWARD</span><span>NAT</span><span>Remote</span><span>Drop</span></div>
+          </article>
+          <article class="plane">
+            <small>PLANE B · OBSERVE</small>
+            <h3>Metadata collection</h3>
+            <p>Readers that watch kernel state, frames or dnsmasq logs. If these lag or drop metadata, ordinary traffic should continue. <code>conntrack</code> and <code>dnsmasq</code> are hybrids: real kernel/service components plus observer code that reads them.</p>
+            <div class="node-list"><span>conntrack sampler</span><span>Traffic activity capture</span><span>dnsmasq log ingestor</span></div>
+          </article>
+          <article class="plane">
+            <small>PLANE C · ASYNC</small>
+            <h3>Derive, store, present</h3>
+            <p>Background jobs reinterpret records after the connection exists. They can be seconds or minutes behind and can be recomputed without affecting the network path.</p>
+            <div class="node-list"><span>DNS attribution</span><span>GeoIP + reverse DNS</span><span>Traceroute</span><span>PocketBase</span></div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="map">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-index">02 · Interactive map</div>
+          <h2>Follow a path, then inspect a node</h2>
+          <p class="section-lede">Choose a scenario to highlight its conceptual route. Click any box for the code-level contract: input, work, output, cadence and—just as importantly—what that box does not do.</p>
+        </div>
+
+        <div class="map-shell">
+          <div class="map-toolbar" role="toolbar" aria-label="Pipeline scenarios">
+            <strong>Trace:</strong>
+            <button class="scenario" type="button" data-scenario="web" aria-pressed="true">Web connection</button>
+            <button class="scenario" type="button" data-scenario="activity" aria-pressed="false">Packet activity</button>
+            <button class="scenario" type="button" data-scenario="dns" aria-pressed="false">DNS lookup</button>
+            <button class="scenario" type="button" data-scenario="derive" aria-pressed="false">DNS → attribution</button>
+            <button class="scenario" type="button" data-scenario="reject" aria-pressed="false">Manual reject</button>
+            <div class="map-legend"><span><i class="legend-line"></i>data path</span><span><i class="legend-line dashed"></i>observation / result</span></div>
+          </div>
+          <div class="map-layout">
+            <div class="graph-pane">
+              <svg class="pipeline-graph" viewBox="0 0 1600 900" role="img" aria-labelledby="graph-title graph-desc">
+                <title id="graph-title">InfraReveal gateway data and observation pipeline</title>
+                <desc id="graph-desc">Interactive diagram of client traffic, Linux forwarding, metadata observers, derived workers and PocketBase storage.</desc>
+                <text class="plane-label" x="68" y="64">DNS / CONTROL / ASYNC WORKERS</text>
+                <text class="plane-label" x="68" y="304">FORWARDED DATA PATH</text>
+                <text class="plane-label" x="68" y="640">PASSIVE OBSERVATION</text>
+
+                <g aria-hidden="true">
+                  <line class="edge" data-edge="client:wlan0" x1="115" y1="410" x2="300" y2="410" />
+                  <line class="edge" data-edge="wlan0:conntrack" x1="300" y1="410" x2="510" y2="410" />
+                  <line class="edge" data-edge="conntrack:flow_gate" x1="510" y1="410" x2="710" y2="410" />
+                  <line class="edge" data-edge="flow_gate:forward" x1="710" y1="410" x2="910" y2="410" />
+                  <line class="edge" data-edge="forward:nat" x1="910" y1="410" x2="1110" y2="410" />
+                  <line class="edge" data-edge="nat:remote" x1="1110" y1="410" x2="1480" y2="410" />
+                  <line class="edge" data-edge="flow_gate:drop" x1="710" y1="410" x2="710" y2="555" />
+
+                  <line class="edge observe" data-edge="wlan0:header_capture" x1="300" y1="410" x2="510" y2="555" />
+                  <line class="edge observe" data-edge="header_capture:forward" x1="510" y1="555" x2="910" y2="410" />
+                  <line class="edge" data-edge="wlan0:dns_gate" x1="300" y1="410" x2="420" y2="150" />
+                  <line class="edge observe" data-edge="dns_gate:dnsmasq" x1="420" y1="150" x2="620" y2="150" />
+                  <line class="edge" data-edge="dns_gate:drop" x1="420" y1="150" x2="710" y2="555" />
+                  <line class="edge observe" data-edge="dnsmasq:pocketbase" x1="620" y1="150" x2="1000" y2="245" />
+                  <line class="edge observe" data-edge="correlator:pocketbase" x1="790" y1="115" x2="1000" y2="245" />
+                  <line class="edge observe" data-edge="enricher:pocketbase" x1="1000" y1="115" x2="1000" y2="245" />
+                  <line class="edge observe" data-edge="route_worker:pocketbase" x1="1210" y1="115" x2="1000" y2="245" />
+                </g>
+
+                <g class="node" data-node="client" tabindex="0" role="button" aria-label="Inspect Client">
+                  <rect x="40" y="375" width="150" height="70" rx="7"/><text class="label" x="115" y="407" text-anchor="middle">Client</text><text class="meta" x="115" y="427" text-anchor="middle">participant device</text>
+                </g>
+                <g class="node" data-node="wlan0" tabindex="0" role="button" aria-label="Inspect wlan0">
+                  <rect x="225" y="375" width="150" height="70" rx="7"/><text class="label" x="300" y="407" text-anchor="middle">wlan0</text><text class="meta" x="300" y="427" text-anchor="middle">AP interface</text>
+                </g>
+                <g class="node" data-node="conntrack" tabindex="0" role="button" aria-label="Inspect conntrack">
+                  <rect x="435" y="375" width="150" height="70" rx="7"/><text class="label" x="510" y="407" text-anchor="middle">conntrack</text><text class="meta" x="510" y="427" text-anchor="middle">kernel flow table</text>
+                </g>
+                <g class="node gate" data-node="flow_gate" tabindex="0" role="button" aria-label="Inspect Flow gate">
+                  <rect x="635" y="375" width="150" height="70" rx="7"/><text class="label" x="710" y="407" text-anchor="middle">Flow gate</text><text class="meta" x="710" y="427" text-anchor="middle">optional NFQUEUE</text>
+                </g>
+                <g class="node" data-node="forward" tabindex="0" role="button" aria-label="Inspect FORWARD">
+                  <rect x="835" y="375" width="150" height="70" rx="7"/><text class="label" x="910" y="407" text-anchor="middle">FORWARD</text><text class="meta" x="910" y="427" text-anchor="middle">iptables filter</text>
+                </g>
+                <g class="node" data-node="nat" tabindex="0" role="button" aria-label="Inspect NAT">
+                  <rect x="1035" y="375" width="150" height="70" rx="7"/><text class="label" x="1110" y="407" text-anchor="middle">NAT</text><text class="meta" x="1110" y="427" text-anchor="middle">MASQUERADE</text>
+                </g>
+                <g class="node" data-node="remote" tabindex="0" role="button" aria-label="Inspect Remote">
+                  <rect x="1405" y="375" width="150" height="70" rx="7"/><text class="label" x="1480" y="407" text-anchor="middle">Remote</text><text class="meta" x="1480" y="427" text-anchor="middle">internet endpoint</text>
+                </g>
+                <g class="node drop" data-node="drop" tabindex="0" role="button" aria-label="Inspect Drop">
+                  <rect x="635" y="520" width="150" height="70" rx="7"/><text class="label" x="710" y="552" text-anchor="middle">Drop</text><text class="meta" x="710" y="572" text-anchor="middle">terminal verdict</text>
+                </g>
+
+                <g class="node gate" data-node="dns_gate" tabindex="0" role="button" aria-label="Inspect DNS gate">
+                  <rect x="345" y="115" width="150" height="70" rx="7"/><text class="label" x="420" y="147" text-anchor="middle">DNS gate</text><text class="meta" x="420" y="167" text-anchor="middle">optional NFQUEUE</text>
+                </g>
+                <g class="node observe" data-node="dnsmasq" tabindex="0" role="button" aria-label="Inspect dnsmasq">
+                  <rect x="545" y="115" width="150" height="70" rx="7"/><text class="label" x="620" y="147" text-anchor="middle">dnsmasq</text><text class="meta" x="620" y="167" text-anchor="middle">resolver + log</text>
+                </g>
+                <g class="node observe" data-node="pocketbase" tabindex="0" role="button" aria-label="Inspect PocketBase">
+                  <rect x="925" y="210" width="150" height="70" rx="7"/><text class="label" x="1000" y="242" text-anchor="middle">PocketBase</text><text class="meta" x="1000" y="262" text-anchor="middle">persistent records</text>
+                </g>
+                <g class="node observe" data-node="header_capture" tabindex="0" role="button" aria-label="Inspect Traffic activity capture">
+                  <rect x="415" y="520" width="190" height="70" rx="7"/><text class="label" x="510" y="552" text-anchor="middle" font-size="12">Traffic activity capture</text><text class="meta" x="510" y="572" text-anchor="middle">packet and byte counts</text>
+                </g>
+                <g class="node observe" data-node="correlator" tabindex="0" role="button" aria-label="Inspect DNS attribution">
+                  <rect x="695" y="80" width="190" height="70" rx="7"/><text class="label" x="790" y="112" text-anchor="middle">DNS attribution</text><text class="meta" x="790" y="132" text-anchor="middle">flow ↔ observed DNS</text>
+                </g>
+                <g class="node observe" data-node="enricher" tabindex="0" role="button" aria-label="Inspect GeoIP and reverse DNS">
+                  <rect x="900" y="80" width="200" height="70" rx="7"/><text class="label" x="1000" y="112" text-anchor="middle" font-size="13">GeoIP + reverse DNS</text><text class="meta" x="1000" y="132" text-anchor="middle">facts about IP</text>
+                </g>
+                <g class="node observe" data-node="route_worker" tabindex="0" role="button" aria-label="Inspect Traceroute">
+                  <rect x="1125" y="80" width="170" height="70" rx="7"/><text class="label" x="1210" y="112" text-anchor="middle">Traceroute</text><text class="meta" x="1210" y="132" text-anchor="middle">active route probe</text>
+                </g>
+                <circle id="demo-token" cx="115" cy="410" r="7" aria-hidden="true" />
+                <text id="scenario-caption" class="scenario-caption" x="68" y="842">A normal TCP/UDP flow. When lab support is installed, its unarmed gate chain returns immediately.</text>
+              </svg>
+            </div>
+            <aside class="inspector" aria-live="polite">
+              <div class="inspector-kicker"><span>Selected node</span><span id="inspector-plane" class="plane-badge">async worker</span></div>
+              <h3 id="inspector-title">DNS attribution</h3>
+              <p id="inspector-summary" class="inspector-summary">Joins an observed flow to the most plausible DNS answer from the same client.</p>
+              <dl>
+                <dt>Receives / reads</dt><dd id="inspector-input">Flow and DNS records for the active session.</dd>
+                <dt>Actual work</dt><dd id="inspector-work">Matches exact destination IP, same client and nearby timestamps.</dd>
+                <dt>Produces</dt><dd id="inspector-output">One flow_attributions record per flow, with confidence and explanation.</dd>
+                <dt>Cadence</dt><dd id="inspector-cadence">Every 3 seconds.</dd>
+              </dl>
+              <div id="inspector-note" class="inspector-note">It infers “likely hostname,” not “the user visited this URL,” and never handles the packet.</div>
+              <div id="inspector-source" class="inspector-source">pocketbase/observer/correlator.go</div>
+            </aside>
+          </div>
+        </div>
+        <p class="map-help">The moving dot illustrates ordering, not measured hop latency. Reverse traffic follows the kernel path in the opposite direction. Observation lines are intentionally dashed.</p>
+      </div>
+    </section>
+
+    <section class="section" id="workers">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-index">03 · The confusing three</div>
+          <h2>Three workers, three different questions</h2>
+          <p class="section-lede">They all start from flows and eventually write to PocketBase, but they should never be mentally collapsed into one “lookup” step.</p>
+        </div>
+
+        <div class="questions">
+          <article class="question-card">
+            <div class="role">DNS attribution</div>
+            <h3>“Which hostname probably led this client to that IP?”</h3>
+            <p>Looks backward in the same client’s DNS history and compares timing plus exact answer IP.</p>
+            <div class="answer">Output: <code>flow_attributions</code></div>
+          </article>
+          <article class="question-card">
+            <div class="role">GeoIP + reverse DNS</div>
+            <h3>“What public context do we know about this IP itself?”</h3>
+            <p>Uses reverse DNS, a local GeoIP database and a small known-network rule.</p>
+            <div class="answer">Output: <code>destinations</code></div>
+          </article>
+          <article class="question-card">
+            <div class="role">Traceroute</div>
+            <h3>“What route does a new probe from the gateway see now?”</h3>
+            <p>Runs a separate numeric traceroute toward one unseen destination socket.</p>
+            <div class="answer">Output: <code>routes</code></div>
+          </article>
+        </div>
+
+        <div class="deep">
+          <article class="deep-card">
+            <div class="deep-title">
+              <small>WORKER 01 · INFERENCE</small>
+              <h3>DNS attribution</h3>
+              <p>Runs every 3 seconds for the active session.</p>
+            </div>
+            <div class="deep-body">
+              <div class="algorithm">
+                <div class="algorithm-step">Load all <code>flows</code> and <code>dns_queries</code> belonging to the active session.</div>
+                <div class="algorithm-step">For each in-scope flow, use <code>start</code> (or <code>last_seen</code>) as its reference time.</div>
+                <div class="algorithm-step">Keep DNS answers from the same client whose IP exactly equals the flow destination and is within 5 minutes.</div>
+                <div class="algorithm-step">Choose the closest match; on an exact timing tie, prefer the DNS record with more CNAME aliases.</div>
+              </div>
+              <div class="fact-grid">
+                <div class="fact"><b>MATCH → MEDIUM</b><span>Stores the queried name, DNS relation, source <code>dns_answer</code> and a human explanation.</span></div>
+                <div class="fact"><b>NO MATCH → LOW</b><span>Stores destination-only evidence. The hostname remains empty because IP alone is not a hostname.</span></div>
+                <div class="fact"><b>HIDDEN PORTS</b><span>UDP/443, 853, 51820, and UDP/500 or 4500 become <code>hidden</code>: encrypted DNS, QUIC or tunnelling may obscure local DNS evidence.</span></div>
+              </div>
+              <p class="precision-note"><b>Why not “Local DNS cache”?</b> dnsmasq has resolver/cache behavior, but this node does not: it reads persisted DNS observations and attributes flows to them. The algorithm normally expects DNS before the flow, but permits a DNS timestamp up to 10 seconds after it to tolerate observation ordering. Existing stronger conclusions are not downgraded. In the same 3-second loop, the backend also groups selected first-party site families into 30-second episodes and may associate freshly resolved companion flows within 8 seconds. The graph token visualizes the flow-attribution result, not every activity-association update.</p>
+            </div>
+          </article>
+
+          <article class="deep-card">
+            <div class="deep-title">
+              <small>WORKER 02 · ENRICHMENT</small>
+              <h3>GeoIP + reverse DNS</h3>
+              <p>Runs every 3 seconds; refreshes slow lookups after 15 minutes.</p>
+            </div>
+            <div class="deep-body">
+              <div class="algorithm">
+                <div class="algorithm-step">Read active-session flows, filter them to the observation scope, and reduce them to unique destination IPs.</div>
+                <div class="algorithm-step">Upsert the globally unique <code>destinations.ip</code> record and update first/last-seen bookkeeping.</div>
+                <div class="algorithm-step">When stale, run reverse DNS and query the local MaxMind city database for city, country and coordinates.</div>
+                <div class="algorithm-step">Derive a provider label from reverse DNS, except known network rules take priority (currently Apple’s <code>17.0.0.0/8</code>).</div>
+              </div>
+              <div class="fact-grid">
+                <div class="fact"><b>IDENTITY</b><span>One destination record per IP, shared across sessions; not one per flow and not one per hostname.</span></div>
+                <div class="fact"><b>LOCATION</b><span>GeoIP describes an address-registration estimate. It is not the participant’s location and may be approximate.</span></div>
+                <div class="fact"><b>CURRENT GAP</b><span>The schema contains <code>asn</code>, but this worker does not currently populate it. Organization is only set by explicit known-network logic.</span></div>
+              </div>
+              <p class="precision-note">Reverse DNS answers “what name does the owner publish for this IP?” DNS attribution answers “what name did this client resolve before opening the flow?” Those names can differ, especially behind CDNs. This worker never decides which website caused a connection. It also derives a provider label, so the new UI name covers its main lookups but not every small output.</p>
+            </div>
+          </article>
+
+          <article class="deep-card">
+            <div class="deep-title">
+              <small>WORKER 03 · ACTIVE PROBE</small>
+              <h3>Traceroute</h3>
+              <p>Runs every 30 seconds and attempts at most one missing route per tick.</p>
+            </div>
+            <div class="deep-body">
+              <div class="algorithm">
+                <div class="algorithm-step">Reduce active-session flows to unique <code>IP + protocol + port</code> observations and skip sockets already routed for this session.</div>
+                <div class="algorithm-step">For TCP, invoke <code>traceroute -T -p PORT</code>. For other protocols, use the platform traceroute default.</div>
+                <div class="algorithm-step">Use numeric output, one probe per hop, 1-second hop waits, at most 20 hops and a 25-second overall process timeout.</div>
+                <div class="algorithm-step">Parse hop IPs and timings, mark missing hops, GeoIP-enrich visible hops, then save success, partial result or error.</div>
+              </div>
+              <div class="fact-grid">
+                <div class="fact"><b>NOT THE FLOW</b><span>This is a new probe emitted by the Raspberry Pi. It does not record the exact route taken by the participant’s earlier packets.</span></div>
+                <div class="fact"><b>PARTIAL IS NORMAL</b><span>Routers may ignore probes, load-balance, filter traceroute or use asymmetric paths. Asterisks do not mean ordinary traffic failed.</span></div>
+                <div class="fact"><b>BACKLOG</b><span>One new route every 30 seconds means many unique destination sockets can take a long time to cover.</span></div>
+              </div>
+              <p class="precision-note">The command uses <code>-n</code>, so hop hostnames are not currently filled even though the JSON hop type has a hostname field. Also, <code>started_at</code> and <code>completed_at</code> are currently written to the same post-command time; they do not measure traceroute duration.</p>
+            </div>
+          </article>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="walkthrough">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-index">04 · Worked example</div>
+          <h2>One connection becomes several records</h2>
+          <p class="section-lede">These events are causally related, but they do not appear at the same moment. “Observed at” and “processed at” are deliberately separate ideas.</p>
+        </div>
+        <div class="worked">
+          <div class="worked-head"><h3>Client opens <code>api.example.test:443</code></h3><span>illustrative timing</span></div>
+          <div class="timeline">
+            <div class="timeline-row"><div class="time">12:00:00.000</div><div class="rail"><i></i></div><div class="timeline-copy"><strong>DNS query observed</strong><p>dnsmasq logs the client’s A/AAAA query; the ingestor creates <code>dns_queries</code>.</p></div></div>
+            <div class="timeline-row"><div class="time">12:00:00.040</div><div class="rail"><i></i></div><div class="timeline-copy"><strong>DNS answer attached</strong><p>The answer IP and any transaction-aware aliases are appended to the same DNS record.</p></div></div>
+            <div class="timeline-row"><div class="time">12:00:00.130</div><div class="rail"><i></i></div><div class="timeline-copy"><strong>Packet activity captured</strong><p>AF_PACKET sees bounded headers and counts bytes/packets in a 50 ms bucket. The bytes themselves are not retained.</p></div></div>
+            <div class="timeline-row"><div class="time">≈ 12:00:02</div><div class="rail"><i></i></div><div class="timeline-copy"><strong>Flow discovered</strong><p>The 2-second conntrack sampler sees the 5-tuple and upserts <code>flows</code> with state and accounting counters.</p></div></div>
+            <div class="timeline-row derived"><div class="time">≤ 3 s later</div><div class="rail"><i></i></div><div class="timeline-copy"><strong>Hostname inferred</strong><p>DNS attribution joins same-client DNS evidence to the exact destination IP and writes a medium-confidence attribution.</p></div></div>
+            <div class="timeline-row derived"><div class="time">≤ 3 s later</div><div class="rail"><i></i></div><div class="timeline-copy"><strong>IP enriched</strong><p>GeoIP + reverse DNS updates reverse DNS, provider and available location context for the destination.</p></div></div>
+            <div class="timeline-row probe"><div class="time">later tick</div><div class="rail"><i></i></div><div class="timeline-copy"><strong>Independent route probe completes</strong><p>Traceroute eventually selects this unseen socket, runs a new probe and persists its approximate current hop path.</p></div></div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="nodes">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-index">05 · Complete reference</div>
+          <h2>Every node in the diagram</h2>
+          <p class="section-lede">The labels below describe the implementation that exists now, including the optional lab-gate experiment.</p>
+        </div>
+        <div class="reference-tools" role="toolbar" aria-label="Filter node reference">
+          <button class="filter-button" type="button" data-filter="all" aria-pressed="true">All 15</button>
+          <button class="filter-button" type="button" data-filter="data" aria-pressed="false">Data / control</button>
+          <button class="filter-button" type="button" data-filter="observation" aria-pressed="false">Observation / derivation</button>
+        </div>
+        <div id="reference-grid" class="reference-grid"></div>
+      </div>
+    </section>
+
+    <section class="section" id="time">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-index">06 · Storage &amp; replay</div>
+          <h2>How live and recorded become the same movie</h2>
+          <p class="section-lede">The animation is a projection of timestamped facts. Live mode keeps adding facts near the moving edge; recorded mode reads a fixed range. Remotion receives the same deterministic scene for a chosen cursor time.</p>
+        </div>
+        <div class="storage-flow">
+          <article class="storage-step"><b>01 · OBSERVE</b><h3>Timestamp facts</h3><p>DNS, flow, burst and gate events get occurrence times; capture completeness is recorded per time window.</p></article>
+          <article class="storage-step"><b>02 · PERSIST</b><h3>PocketBase records</h3><p>Durable collections keep the full session; the debug trace ring is only short-lived.</p></article>
+          <article class="storage-step"><b>03 · WINDOW</b><h3>Fetch nearby time</h3><p>The session API pages bounded ranges instead of loading an hour into memory.</p></article>
+          <article class="storage-step"><b>04 · INDEX</b><h3>Zustand + temporal index</h3><p>Shared state normalizes entities and locates only records relevant to the cursor.</p></article>
+          <article class="storage-step"><b>05 · PROJECT</b><h3>Render the scene</h3><p>UI and Remotion convert events around <code>cursorMs</code> into nodes and moving tokens.</p></article>
+        </div>
+        <div class="two-col">
+          <article class="info-card">
+            <h3>There are two useful timestamps</h3>
+            <ul>
+              <li><code>occurredAtMs</code>: when the network fact is understood to have happened. This drives playback.</li>
+              <li><code>processedAtMs</code>: when an observer or worker emitted/created the trace fact. This reveals observer lag.</li>
+              <li>Derived conclusions intentionally keep the flow/destination reference time where possible, even when computed later.</li>
+            </ul>
+          </article>
+          <article class="info-card">
+            <h3>Live trace versus session history</h3>
+            <ul>
+              <li>The optional SSE debug trace is bounded: 20,000 events and 30 seconds retention by default, batched every 50 ms.</li>
+              <li>PocketBase collections are durable and feed the session manifest/window API for replay.</li>
+              <li>Detailed window requests are capped at 15 minutes and page 500 records by default (1,000 maximum); the client moves the window with the cursor.</li>
+            </ul>
+          </article>
+        </div>
+        <div class="correction">
+          <div>
+            <strong>Activity data quality is a timeline property, not a pipeline step.</strong>
+            <p>The debug UI keeps it beside the player: amber or red timeline ranges come from durable <code>flow_activity_windows</code> and mean capture was partial or unavailable. Violet ticks mean the browser missed live SSE trace events. Those are deliberately separate—a live-stream gap can make the animation briefly stale even when the gateway’s durable packet-activity capture is complete.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="limits">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-index">07 · Timing &amp; limitations</div>
+          <h2>What can wait, what can drop, what cannot be claimed</h2>
+          <p class="section-lede">The observation design is deliberately lossy under pressure; the forwarding design is deliberately fail-open. Quality metadata tells the UI when fine-grained activity is incomplete.</p>
+        </div>
+        <div class="limits">
+          <div class="timeout-table">
+            <table>
+              <thead><tr><th>Component</th><th>Default</th><th>Meaning</th></tr></thead>
+              <tbody>
+                <tr><td><strong>conntrack sampler</strong></td><td><code>2 s</code></td><td>Poll interval; flow start is discovery time, not necessarily the first SYN.</td></tr>
+                <tr><td><strong>DNS attribution / GeoIP + reverse DNS</strong></td><td><code>3 s</code></td><td>Background scan cadence for the active session.</td></tr>
+                <tr><td><strong>Traceroute</strong></td><td><code>30 s</code></td><td>One missing destination route attempted per tick.</td></tr>
+                <tr><td><strong>flow gate watchdog</strong></td><td><code>10 s</code></td><td>New-flow decision deadline; expiry accepts traffic because fail-open is required.</td></tr>
+                <tr><td><strong>strict packet watchdog</strong></td><td><code>500 ms</code></td><td>Per-packet hold deadline in strict mode.</td></tr>
+                <tr><td><strong>DNS gate watchdog</strong></td><td><code>2 s</code></td><td>DNS decision deadline; long waits can still trigger client resolver retry behavior.</td></tr>
+                <tr><td><strong>traceroute process</strong></td><td><code>25 s</code></td><td>Overall worker timeout; it is unrelated to the participant’s socket timeout.</td></tr>
+                <tr><td><strong>activity buckets / chunks</strong></td><td><code>50 ms / 5 s</code></td><td>Fine-grained counts are aggregated into persistence-sized chunks.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <aside class="warning-card">
+            <h3>Inference boundaries</h3>
+            <p>A DNS match is evidence, not proof of user intent. A reverse-DNS name is infrastructure naming, not necessarily the visited site. GeoIP is approximate. Traceroute is a separate point-in-time probe. Packet activity represents countable headers and lengths, not readable application content.</p>
+            <p>When capture queues fill, metadata is dropped and the affected time windows are marked incomplete. When the lab gate queue/listener fails, <code>--queue-bypass</code>, overflow handling and watchdogs release traffic. Those are different failure policies on purpose.</p>
+          </aside>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="sources">
+      <div class="shell">
+        <div class="section-heading">
+          <div class="section-index">08 · Code map</div>
+          <h2>Where each claim comes from</h2>
+          <p class="section-lede">These are the primary implementation files to open when the behavior changes.</p>
+        </div>
+        <div class="source-list">
+          <div class="source"><code>entrypoint.sh</code><span>AP setup, forwarding, MASQUERADE, DNS redirect and removal of legacy transparent-proxy rules.</span></div>
+          <div class="source"><code>pocketbase/observer/conntrack.go</code><span>Flow discovery, 2-second polling, tuple normalization and counters.</span></div>
+          <div class="source"><code>pocketbase/observer/packet_activity.go</code><span>Capture queues, aggregation, backpressure, persistence and activity-quality status/windows.</span></div>
+          <div class="source"><code>pocketbase/observer/dnsmasq.go</code><span>DNS query/answer log parsing, record updates and CNAME alias handling.</span></div>
+          <div class="source"><code>pocketbase/observer/correlator.go</code><span>Flow-to-DNS attribution and confidence replacement policy.</span></div>
+          <div class="source"><code>pocketbase/observer/activity.go</code><span>Higher-order activity episodes and temporal associations.</span></div>
+          <div class="source"><code>pocketbase/observer/destination.go</code><span>GeoIP/reverse-DNS enrichment and traceroute worker implementation.</span></div>
+          <div class="source"><code>pocketbase/labgate/firewall.go</code><span>Optional NFQUEUE placement, client selection and flow/strict/DNS modes.</span></div>
+          <div class="source"><code>pocketbase/debugtrace/</code><span>Payload-free live trace vocabulary, bounded ring and SSE stream.</span></div>
+          <div class="source"><code>pocketbase/session_timeline.go</code><span>Durable manifest and paged time-window endpoints.</span></div>
+          <div class="source"><code>packages/session-state/</code><span>Shared Zustand runtime, normalized records, temporal indexes and live/replay reconciliation.</span></div>
+          <div class="source"><code>debug-dashboard/src/experiments/proxy-lab/</code><span>Diagram paths, event projection, Remotion scene and controls.</span></div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <footer>
+    <div class="shell"><span>InfraReveal gateway pipeline explanation · based on the current repository implementation</span><button class="print" type="button" onclick="window.print()">Print / save PDF</button></div>
+  </footer>
+
+  <script>
+    const nodes = {
+      client: {
+        title: 'Client', plane: 'data / source', group: 'data',
+        summary: 'A participant device connected to the Raspberry Pi access point, normally addressed inside 10.0.0.0/24.',
+        input: 'Human/app actions create ordinary TCP, UDP, ICMP and DNS traffic.',
+        work: 'The device uses the gateway as its network path. No InfraReveal agent needs to run on it.',
+        output: 'Frames sent over Wi-Fi to wlan0; return frames received from wlan0.',
+        cadence: 'Driven by the device and its apps.',
+        note: '“Client” identifies a network endpoint, not a known person or browser tab.',
+        source: 'entrypoint.sh · observation scope defaults in pocketbase/main.go'
+      },
+      wlan0: {
+        title: 'wlan0', plane: 'data / boundary', group: 'data',
+        summary: 'The Linux wireless access-point interface: the boundary where participant traffic enters and leaves the gateway.',
+        input: '802.11 traffic bridged into Linux networking; the interface is configured as 10.0.0.1/24.',
+        work: 'hostapd exposes the SSID; frames enter the Linux network stack here. AF_PACKET also passively taps this interface for activity metadata.',
+        output: 'DNS is redirected locally; other in-scope traffic is routed toward the uplink.',
+        cadence: 'Per frame.',
+        note: 'The interface itself does not infer hostnames or save records.',
+        source: 'entrypoint.sh · pocketbase/observer/packet_activity_linux.go'
+      },
+      conntrack: {
+        title: 'conntrack', plane: 'kernel state + observer', group: 'data',
+        summary: 'Linux connection tracking remembers both directions of a network flow; InfraReveal polls that table to create durable flow records.',
+        input: 'Kernel conntrack entries from /proc/net/nf_conntrack, including original/reply tuples, protocol, TCP state and optional counters.',
+        work: 'Every 2 seconds, normalize the client-facing 5-tuple, filter scope, and upsert one flow per session + flow key.',
+        output: 'flows records with start, last_seen, state, packets and bytes; a live “flow discovered” trace event on first sight.',
+        cadence: '2-second polling.',
+        note: 'The box is drawn inline for comprehension, but the Go sampler does not pass packets onward. “start” is sampler discovery time.',
+        source: 'pocketbase/observer/conntrack.go'
+      },
+      flow_gate: {
+        title: 'Flow gate', plane: 'optional data control', group: 'data',
+        summary: 'The opt-in lab experiment that can hold a selected client’s new TCP/UDP flow in Linux NFQUEUE until a verdict arrives.',
+        input: 'NEW outbound TCP/UDP packets for selected client IPs in flow mode; exact bidirectional tuple packets in strict mode.',
+        work: 'Create a pending decision, expose it to the operator UI, cache flow verdicts, then issue ACCEPT or DROP to the kernel.',
+        output: 'Released or rejected packets plus durable gate_events audit records.',
+        cadence: 'Only while explicitly armed.',
+        note: 'Unarmed clients return through an empty chain. Failure, overflow and watchdog expiry accept traffic; fail-open is mandatory.',
+        source: 'pocketbase/labgate/controller.go · pocketbase/labgate/firewall.go'
+      },
+      forward: {
+        title: 'FORWARD', plane: 'kernel data', group: 'data',
+        summary: 'The Linux iptables forwarding path that decides whether traffic may cross from wlan0 to the internet interface and back.',
+        input: 'Routed packets that are not addressed to a local service such as dnsmasq.',
+        work: 'Allow outbound AP-to-uplink traffic and allow RELATED/ESTABLISHED return traffic; invoke the lab chain first when lab support exists.',
+        output: 'Accepted packets continue toward NAT/uplink; rejected packets stop.',
+        cadence: 'Per routed packet.',
+        note: 'FORWARD is a kernel hook/rule set, not a Go worker or message queue.',
+        source: 'entrypoint.sh · pocketbase/labgate/firewall.go'
+      },
+      nat: {
+        title: 'NAT', plane: 'kernel data', group: 'data',
+        summary: 'Source network-address translation lets private 10.0.0.x clients share the Raspberry Pi uplink address.',
+        input: 'Accepted outbound packets leaving the configured internet interface.',
+        work: 'iptables POSTROUTING MASQUERADE rewrites the source; conntrack remembers the mapping so replies can be de-translated.',
+        output: 'Internet-routable outbound packets and correctly mapped return packets.',
+        cadence: 'Per applicable packet/connection.',
+        note: 'NAT changes addressing. It does not decrypt, inspect HTTP, or determine the destination hostname.',
+        source: 'entrypoint.sh'
+      },
+      remote: {
+        title: 'Remote', plane: 'external data', group: 'data',
+        summary: 'The destination service or host somewhere beyond the gateway: CDN, API, resolver, VPN endpoint, website infrastructure, and so on.',
+        input: 'NATed requests or probes sent through the uplink.',
+        work: 'Whatever the external network/service normally does; it is outside InfraReveal.',
+        output: 'Replies, errors, timeouts, or no response.',
+        cadence: 'External and uncontrolled.',
+        note: 'One IP can serve many hostnames, and one hostname can resolve to many IPs.',
+        source: 'Conceptual boundary in debug-dashboard/.../graphLayout.ts'
+      },
+      drop: {
+        title: 'Drop', plane: 'terminal data outcome', group: 'data',
+        summary: 'A visual terminal for packets deliberately rejected by the armed flow or DNS gate.',
+        input: 'A queued packet receiving an operator DROP verdict.',
+        work: 'The kernel discards that packet. The controller records the rejected decision.',
+        output: 'No packet continues; the client experiences loss, retry, timeout or application failure.',
+        cadence: 'Only on explicit reject.',
+        note: 'It is not a running service. It represents an outcome.',
+        source: 'pocketbase/labgate/controller.go · graphLayout.ts'
+      },
+      dns_gate: {
+        title: 'DNS gate', plane: 'optional data control', group: 'data',
+        summary: 'The DNS-specific lab gate placed on local INPUT before the redirected request reaches dnsmasq.',
+        input: 'Selected clients’ UDP/53 traffic and new TCP/53 connections arriving on wlan0.',
+        work: 'Queue the DNS packet on NFQUEUE 44 and wait for approve/reject; watchdog expiry accepts by default.',
+        output: 'Accepted DNS reaches dnsmasq; rejected DNS terminates at Drop; gate_events preserve the decision.',
+        cadence: 'Only while DNS mode is armed; 2-second default decision deadline.',
+        note: 'It controls classic port-53 DNS only. DoH/DoT or VPN-carried name resolution will not pass through this box as DNS.',
+        source: 'pocketbase/labgate/firewall.go · pocketbase/labgate/config.go'
+      },
+      dnsmasq: {
+        title: 'dnsmasq', plane: 'local service + observer', group: 'observation',
+        summary: 'The gateway’s local DNS resolver/forwarder and DHCP-adjacent service. Its query log is the source of hostname evidence.',
+        input: 'Classic DNS redirected from client UDP/TCP port 53 plus upstream resolver responses.',
+        work: 'Resolve/forward normally. Separately, a Go tailer parses query/reply lines, correlating replies by dnsmasq serial then name.',
+        output: 'DNS replies to the client and dns_queries records containing name, type, answer IPs and transaction-aware aliases.',
+        cadence: 'Service is request-driven; log follower polls EOF every 300 ms and retries missing logs every 2 seconds.',
+        note: 'Recent in-memory query correlation lasts 45 seconds. The log observer starts at EOF, so it does not re-import old lines.',
+        source: 'entrypoint.sh · pocketbase/observer/dnsmasq.go'
+      },
+      header_capture: {
+        title: 'Traffic activity capture', plane: 'passive observation', group: 'observation',
+        summary: 'A Linux AF_PACKET tap on wlan0 that turns bounded Ethernet/IP/TCP/UDP headers into coarse activity counts.',
+        input: 'Ethernet frames (including VLAN forms) visible on the AP interface.',
+        work: 'Orient each tuple client↔remote, calculate wire/payload lengths and TCP flags, then aggregate into 50 ms buckets and 5-second chunks.',
+        output: 'flow_activity_chunks plus live burst summaries; capture window/status metadata tracks completeness.',
+        cadence: 'Per frame, non-blocking; persistence flush checks every 400 ms.',
+        note: 'It calculates payload length but does not store packet bytes, request bodies or TLS plaintext. A chunk waits up to 5 seconds for its conntrack flow; unresolved or full-queue metadata is dropped, never the traffic.',
+        source: 'pocketbase/observer/packet_parser.go · packet_activity.go'
+      },
+      correlator: {
+        title: 'DNS attribution', plane: 'async worker', group: 'observation',
+        summary: 'Joins an observed flow to the most plausible DNS answer from the same client.',
+        input: 'All flows and DNS-query records for the current active session.',
+        work: 'Match same client + exact answer IP inside a 5-minute window, select the nearest timestamp, and rank/retain confidence.',
+        output: 'One flow_attributions record per flow with candidate hostname, signal, confidence, explanation and optional DNS relation.',
+        cadence: 'Every 3 seconds.',
+        note: 'It infers “likely hostname,” not “the user visited this URL,” and never handles the packet.',
+        source: 'pocketbase/observer/correlator.go · pocketbase/observer/activity.go'
+      },
+      enricher: {
+        title: 'GeoIP + reverse DNS', plane: 'async worker', group: 'observation',
+        summary: 'Adds reusable infrastructure context to each unique destination IP seen in active-session flows.',
+        input: 'Unique, in-scope destination IP observations extracted from flows.',
+        work: 'Refresh reverse DNS and GeoIP after 15 minutes; derive provider label; apply explicit known-network overrides.',
+        output: 'Global destinations records with IP, reverse name, provider, available organization/location and seen/enriched times.',
+        cadence: 'Every 3 seconds.',
+        note: 'It describes the IP, not why the client contacted it. ASN exists in schema but is not currently filled.',
+        source: 'pocketbase/observer/destination.go'
+      },
+      route_worker: {
+        title: 'Traceroute', plane: 'async active probe', group: 'observation',
+        summary: 'Discovers an approximate route by launching a new traceroute from the gateway to a not-yet-routed destination socket.',
+        input: 'Unique active-session destination IP + protocol + port observations without a matching route record.',
+        work: 'Run numeric traceroute (TCP probes for TCP destinations), parse up to 20 hops, add GeoIP to visible hop IPs.',
+        output: 'One routes record containing method, hops, complete flag and any error.',
+        cadence: 'Every 30 seconds; at most one destination per tick; 25-second process timeout.',
+        note: 'This is not a passive record of the participant packet’s path. It is a later probe from the Pi.',
+        source: 'pocketbase/observer/destination.go'
+      },
+      pocketbase: {
+        title: 'PocketBase', plane: 'storage + API', group: 'observation',
+        summary: 'The durable source of truth for sessions, flows, DNS, activity, attributions, destinations, routes and gate audit.',
+        input: 'Records written by observers/workers and session/control requests from dashboards.',
+        work: 'Persist indexed collections, apply record hooks, expose normal collection APIs and custom session timeline endpoints.',
+        output: 'Session manifests, paged time windows, realtime collection changes and gate-control responses.',
+        cadence: 'Event-driven database/API work.',
+        note: 'PocketBase history is durable. The separate debug-trace hub is an ephemeral 30-second ring by default.',
+        source: 'pocketbase/main.go · pocketbase/session_timeline.go · pocketbase/migrations/'
+      },
+    };
+
+    const positions = {
+      client: [115, 410], wlan0: [300, 410], conntrack: [510, 410], flow_gate: [710, 410],
+      forward: [910, 410], nat: [1110, 410], remote: [1480, 410], drop: [710, 555],
+      dns_gate: [420, 150], dnsmasq: [620, 150], pocketbase: [1000, 245],
+      header_capture: [510, 555], correlator: [790, 115], enricher: [1000, 115], route_worker: [1210, 115]
+    };
+
+    const scenarios = {
+      web: {
+        nodes: ['client', 'wlan0', 'conntrack', 'flow_gate', 'forward', 'nat', 'remote'],
+        caption: 'A normal TCP/UDP flow. When lab support is installed, its unarmed gate chain returns immediately.'
+      },
+      activity: {
+        nodes: ['client', 'wlan0', 'header_capture', 'forward', 'nat', 'remote'],
+        caption: 'The packet is forwarded normally while traffic activity capture emits passive packet and byte counts.'
+      },
+      dns: {
+        nodes: ['client', 'wlan0', 'dns_gate', 'dnsmasq', 'pocketbase'],
+        caption: 'Classic DNS terminates at local dnsmasq; its log becomes a durable query record.'
+      },
+      derive: {
+        nodes: ['correlator', 'pocketbase'],
+        caption: 'Later, DNS attribution writes its conclusion. No original packet moves along this dashed line.'
+      },
+      reject: {
+        nodes: ['client', 'wlan0', 'conntrack', 'flow_gate', 'drop'],
+        caption: 'In the opt-in lab, an operator DROP verdict terminates the selected packet.'
+      }
+    };
+
+    const inspector = {
+      plane: document.querySelector('#inspector-plane'), title: document.querySelector('#inspector-title'),
+      summary: document.querySelector('#inspector-summary'), input: document.querySelector('#inspector-input'),
+      work: document.querySelector('#inspector-work'), output: document.querySelector('#inspector-output'),
+      cadence: document.querySelector('#inspector-cadence'), note: document.querySelector('#inspector-note'),
+      source: document.querySelector('#inspector-source')
+    };
+    let selectedNode = 'correlator';
+    let activeScenario = 'web';
+    let animationStart = performance.now();
+
+    function edgeKey(a, b) {
+      return document.querySelector(`[data-edge="${a}:${b}"]`) ? `${a}:${b}` : `${b}:${a}`;
+    }
+
+    function selectNode(id) {
+      selectedNode = id;
+      const data = nodes[id];
+      document.querySelectorAll('.node').forEach((node) => node.classList.toggle('is-selected', node.dataset.node === id));
+      inspector.title.textContent = data.title;
+      inspector.plane.textContent = data.plane;
+      inspector.plane.classList.toggle('data', data.group === 'data');
+      inspector.summary.textContent = data.summary;
+      inspector.input.textContent = data.input;
+      inspector.work.textContent = data.work;
+      inspector.output.textContent = data.output;
+      inspector.cadence.textContent = data.cadence;
+      inspector.note.textContent = data.note;
+      inspector.source.textContent = data.source;
+    }
+
+    function selectScenario(id) {
+      activeScenario = id;
+      animationStart = performance.now();
+      const scenario = scenarios[id];
+      const edges = new Set(scenario.nodes.slice(1).map((node, index) => edgeKey(scenario.nodes[index], node)));
+      document.querySelectorAll('.scenario').forEach((button) => button.setAttribute('aria-pressed', String(button.dataset.scenario === id)));
+      document.querySelectorAll('.node').forEach((node) => node.classList.toggle('is-active', scenario.nodes.includes(node.dataset.node)));
+      document.querySelectorAll('.edge').forEach((edge) => edge.classList.toggle('is-active', edges.has(edge.dataset.edge)));
+      document.querySelector('#scenario-caption').textContent = scenario.caption;
+    }
+
+    function animateToken(now) {
+      if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+        const path = scenarios[activeScenario].nodes;
+        const segmentDuration = 720;
+        const total = Math.max(1, path.length - 1) * segmentDuration;
+        const time = (now - animationStart) % total;
+        const segment = Math.min(path.length - 2, Math.floor(time / segmentDuration));
+        const progress = (time % segmentDuration) / segmentDuration;
+        const eased = progress * progress * (3 - 2 * progress);
+        const from = positions[path[segment]];
+        const to = positions[path[segment + 1]];
+        const token = document.querySelector('#demo-token');
+        token.setAttribute('cx', String(from[0] + (to[0] - from[0]) * eased));
+        token.setAttribute('cy', String(from[1] + (to[1] - from[1]) * eased));
+      }
+      requestAnimationFrame(animateToken);
+    }
+
+    document.querySelectorAll('.node').forEach((node) => {
+      node.addEventListener('click', () => selectNode(node.dataset.node));
+      node.addEventListener('keydown', (event) => {
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); selectNode(node.dataset.node); }
+      });
+    });
+    document.querySelectorAll('.scenario').forEach((button) => button.addEventListener('click', () => selectScenario(button.dataset.scenario)));
+
+    const referenceGrid = document.querySelector('#reference-grid');
+    Object.entries(nodes).forEach(([id, node]) => {
+      const article = document.createElement('article');
+      article.className = 'reference-card';
+      article.dataset.group = node.group;
+      article.innerHTML = `<div class="reference-head"><h3>${node.title}</h3><span class="kind ${node.group === 'observation' ? 'observe' : ''}">${node.plane}</span></div><p>${node.summary}</p><dl class="reference-meta"><dt>Does</dt><dd>${node.work}</dd><dt>Produces</dt><dd>${node.output}</dd><dt>Boundary</dt><dd>${node.note}</dd><dt>Source</dt><dd><code>${node.source}</code></dd></dl>`;
+      referenceGrid.append(article);
+    });
+
+    document.querySelectorAll('.filter-button').forEach((button) => {
+      button.addEventListener('click', () => {
+        const filter = button.dataset.filter;
+        document.querySelectorAll('.filter-button').forEach((item) => item.setAttribute('aria-pressed', String(item === button)));
+        document.querySelectorAll('.reference-card').forEach((card) => { card.hidden = filter !== 'all' && card.dataset.group !== filter; });
+      });
+    });
+
+    selectNode(selectedNode);
+    selectScenario(activeScenario);
+    requestAnimationFrame(animateToken);
+  </script>
+</body>
+</html>

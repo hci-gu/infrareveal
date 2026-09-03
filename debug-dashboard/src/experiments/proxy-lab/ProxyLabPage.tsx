@@ -20,6 +20,7 @@ import { demoPipelineEnvelope, isProxyLabDemoEnabled } from './data/demoTranspor
 import { GateAPIError, GateClient } from './data/gateClient'
 import { TraceClient } from './data/traceClient'
 import { gapEvent, mergeLiveEvents } from './model/mergeLiveEvents'
+import { deriveActivityDataQuality } from './model/activityDataQuality'
 import { RecordedEventProjector } from './model/projectRecordedEvents'
 import { selectFilteredEvents } from './state/selectors'
 import {
@@ -97,7 +98,7 @@ export function ProxyLabPage() {
       onMessage: (message) => {
         applyTraceMessageMetadata(message)
         if (message.type === 'gap') {
-          addEphemeralEvents([gapEvent(message)], message.droppedEvents)
+          addEphemeralEvents([gapEvent(message)])
           setTraceConnection('gap')
           clearActivity()
           void refreshGateway()
@@ -160,9 +161,23 @@ export function ProxyLabPage() {
   const allEvents = useMemo(() => {
     return mergeLiveEvents(recordedEvents, lab.ephemeralEvents.values(), effectiveLiveEdgeMs)
   }, [effectiveLiveEdgeMs, lab.ephemeralEvents, recordedEvents])
-  const filteredEvents = useMemo(() => selectFilteredEvents(lab, allEvents), [allEvents, lab])
+  const visualEvents = useMemo(() => allEvents.filter((event) => event.kind !== 'health'), [allEvents])
+  const filteredEvents = useMemo(() => selectFilteredEvents(lab, visualEvents), [lab, visualEvents])
   const projectedLastMs = filteredEvents.reduce((latest, event) => Math.max(latest, event.occurredAtMs + 2_000), epochMs + 10_000)
   const durationInFrames = Math.max(1, Math.ceil(((Math.max(projectedLastMs, effectiveLiveEdgeMs) - epochMs) / 1000) * FPS))
+  const qualityCursorMs = cursorMs >= epochMs ? cursorMs : effectiveLiveEdgeMs
+  const usesLiveStream = !demo && activeSession && lab.mode !== 'replay'
+  const captureStatus = latestCaptureStatus(gateway.data.flowActivityStatuses, sessionID)
+  const activityQuality = useMemo(() => deriveActivityDataQuality({
+    cursorMs: qualityCursorMs,
+    windows: activity.windows,
+    status: captureStatus,
+    healthEvents: allEvents.filter((event) => event.kind === 'health'),
+    streamDropped: demo ? 0 : lab.traceDropped,
+    traceConnection: demo ? 'idle' : lab.traceConnection,
+    usesLiveStream,
+    atLiveEdge: activeSession && (playback === 'following' || Math.abs(qualityCursorMs - effectiveLiveEdgeMs) <= 1_000),
+  }), [activeSession, activity.windows, allEvents, captureStatus, demo, effectiveLiveEdgeMs, lab.traceConnection, lab.traceDropped, playback, qualityCursorMs, usesLiveStream])
   const inputProps = useMemo(() => ({
     epochMs,
     fps: FPS,
@@ -180,7 +195,7 @@ export function ProxyLabPage() {
 
   const historical = playback !== 'following' && cursorMs < effectiveLiveEdgeMs - 1_000
   const candidateClients = Array.from(new Set([
-    ...allEvents.map((event) => event.summary.clientIp),
+    ...visualEvents.map((event) => event.summary.clientIp),
     ...gateway.data.flows.map((flow) => flow.client_ip),
     ...gateway.data.dnsQueries.map((query) => query.client_ip),
     ...gateway.data.activityEpisodes.map((episode) => episode.client_ip),
@@ -241,7 +256,7 @@ export function ProxyLabPage() {
       </header>
 
       <div className="mx-auto max-w-[1900px] space-y-4 px-5 py-5">
-        {demo ? <div className="border border-amber-800 bg-amber-950/30 px-4 py-2 text-xs text-amber-200">Deterministic demo · {demoPipelineEnvelope.events.length} events · dropped/capture gaps stay explicit</div> : null}
+        {demo ? <div className="border border-amber-800 bg-amber-950/30 px-4 py-2 text-xs text-amber-200">Deterministic demo · {demoPipelineEnvelope.events.length} source events · capture loss is marked on the quality timeline</div> : null}
         {!demo && gateway.timeline.manifest?.gateAuditComplete === false ? <div className="border border-rose-800 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">Recorded gate audit is incomplete · {gateway.timeline.manifest.gateAuditDrops ?? 0} audit item(s) were lost. Missing intervals must not be interpreted as normal forwarding.</div> : null}
         {(!demo && (gateway.error || activity.error || lab.traceError)) || lab.controlError ? (
           <div className="border border-rose-800 bg-rose-950/40 px-4 py-3 text-sm text-rose-200">{lab.controlError || (!demo && (lab.traceError || activity.error || gateway.error))}</div>
@@ -253,17 +268,18 @@ export function ProxyLabPage() {
               inputProps={inputProps}
               liveEdgeMs={effectiveLiveEdgeMs}
               playback={demo && playback === 'following' ? 'paused' : playback}
+              quality={activityQuality}
               rate={rate}
               reduceMotion={reduceMotion}
             />
-            <PipelineFilters events={allEvents} filters={lab.filters} onChange={setProxyLabFilters} />
+            <PipelineFilters events={visualEvents} filters={lab.filters} onChange={setProxyLabFilters} />
           </div>
           <aside className="space-y-3">
             <ModeSwitcher mode={lab.mode} onChange={setProxyLabMode} />
             <GateHealth
               busy={(key) => lab.controlInFlight.has(key)}
               controlStatus={demo ? 'fixture' : lab.controlConnection}
-              dropped={demo ? demoPipelineEnvelope.droppedEvents : lab.traceDropped}
+              streamDropped={demo ? 0 : lab.traceDropped}
               onDisarm={() => void runStatusCommand('disarm', () => gateClient.disarm())}
               onDrain={() => void runStatusCommand('drain', () => gateClient.drain())}
               onPause={() => void runStatusCommand('pause', () => gateClient.pause())}
@@ -284,7 +300,7 @@ export function ProxyLabPage() {
             <QueueInspector
               actionable={lab.controlConnection === 'ready' && Boolean(lab.operatorToken)}
               decisions={Array.from(lab.pendingDecisions.values())}
-              events={allEvents}
+              events={visualEvents}
               gateMode={lab.gateStatus?.mode ?? null}
               historical={historical && (lab.mode === 'turn-based' || lab.mode === 'strict' || lab.mode === 'dns')}
               inFlight={lab.controlInFlight}
@@ -293,20 +309,18 @@ export function ProxyLabPage() {
               onAcceptNext={(count) => void runStatusCommand('accept-next', () => gateClient.acceptNext(count))}
               onApproveAll={() => {
                 const count = lab.pendingDecisions.size
-                if (window.confirm(`Approve all ${count} currently queued flows?`)) {
-                  void runStatusCommand('approve-all', async () => {
-                    const response = await gateClient.approveAll(count)
-                    response.results.forEach(completeGateDecision)
-                    return response.status
-                  })
-                }
+                void runStatusCommand('approve-all', async () => {
+                  const response = await gateClient.approveAll(count)
+                  response.results.forEach(completeGateDecision)
+                  return response.status
+                })
               }}
               onReject={(id) => void decide(id, 'drop')}
               recent={lab.recentDecisions}
               onSelect={selectProxyLabEvent}
             />
             <p aria-live="polite" className="sr-only">{lab.announcement}</p>
-            <EventInspector events={allEvents} selectedEventId={lab.selectedEventId} selectedTraceId={lab.selectedTraceId} />
+            <EventInspector events={visualEvents} selectedEventId={lab.selectedEventId} selectedTraceId={lab.selectedTraceId} />
           </aside>
         </div>
       </div>
@@ -365,4 +379,10 @@ function usePrefersReducedMotion() {
 function pocketBaseURL() {
   const configured = import.meta.env.VITE_POCKETBASE_URL
   return (configured || `${window.location.protocol}//${window.location.hostname}:8090`).replace(/\/$/, '')
+}
+
+function latestCaptureStatus<T extends { session: string; reported_at: string }>(statuses: readonly T[], sessionID: string) {
+  return statuses
+    .filter((status) => status.session === sessionID)
+    .sort((left, right) => Date.parse(right.reported_at) - Date.parse(left.reported_at))[0] ?? null
 }

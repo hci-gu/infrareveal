@@ -1,10 +1,10 @@
 import type { GateStatus } from '../types'
 
-export function GateHealth({ status, traceStatus, controlStatus, dropped, busy, onPause, onResume, onDrain, onDisarm }: {
+export function GateHealth({ status, traceStatus, controlStatus, streamDropped, busy, onPause, onResume, onDrain, onDisarm }: {
   status: GateStatus | null
   traceStatus: string
   controlStatus: string
-  dropped: number
+  streamDropped: number
   busy: (key: string) => boolean
   onPause: () => void
   onResume: () => void
@@ -23,7 +23,7 @@ export function GateHealth({ status, traceStatus, controlStatus, dropped, busy, 
         <Metric label="kernel queue" value={status?.queue.queueDepth} /><Metric label="oldest ms" value={status?.oldestWaitMs} />
         <Metric danger label="overflow" value={status?.overflowCount} /><Metric danger label="watchdogs" value={status?.watchdogReleases} />
         <Metric danger label="parse bypass" value={status?.parseBypassCount} /><Metric danger label="audit drops" value={status?.auditDrops} />
-        <Metric danger label="kernel drops" value={status?.queue.kernelDrops} /><Metric danger label="trace gaps" value={dropped} />
+        <Metric danger label="kernel drops" value={status?.queue.kernelDrops} /><Metric danger label="stream loss" value={streamDropped} />
         <Metric danger label="user drops" value={status?.queue.userDrops} /><Metric danger label="verdict errors" value={status?.verdictErrors} />
       </div>
       {budgetUsed >= 0.5 ? <p className={`mt-3 border-l-2 pl-2 ${budgetUsed >= 0.8 ? 'border-rose-500 text-rose-300' : 'border-amber-500 text-amber-300'}`}>Oldest decision has used {Math.min(100, Math.round(budgetUsed * 100))}% of its safety watchdog. Expiry accepts traffic and is recorded as expired.</p> : null}

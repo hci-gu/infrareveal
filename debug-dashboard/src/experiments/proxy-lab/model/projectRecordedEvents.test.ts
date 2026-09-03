@@ -21,7 +21,7 @@ describe('recorded event projection', () => {
     expect(first.filter((event) => event.kind === 'burst').map((event) => event.direction)).toEqual([
       'client_to_remote', 'remote_to_client',
     ])
-    expect(first.some((event) => event.id === 'capture-gap:window-1' && event.summary.captureComplete === false)).toBe(true)
+    expect(first.some((event) => event.kind === 'health')).toBe(false)
   })
 
   it('retains unchanged cached projections and evicts missing detail records', () => {

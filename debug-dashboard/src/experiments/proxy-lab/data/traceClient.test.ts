@@ -64,6 +64,25 @@ describe('decodePipelineStreamEnvelope', () => {
 })
 
 describe('live trace transport', () => {
+  it('invokes browser fetch with the global receiver', async () => {
+    const receivers: unknown[] = []
+    const fetchImpl = function (this: unknown) {
+      receivers.push(this)
+      return Promise.resolve(streamResponse({
+        type: 'hello', version: 1, sessionId: 'receiver-test', droppedEvents: 0,
+        serverNowMs: 1000, oldestSequence: 0, newestSequence: 0,
+      }))
+    } as typeof fetch
+    const client = new TraceClient({ sessionId: 'receiver-test', fetchImpl })
+    await new Promise<void>((resolve, reject) => {
+      client.start({
+        onMessage: () => { client.stop(); resolve() },
+        onError: reject,
+      })
+    })
+    expect(receivers).toEqual([globalThis])
+  })
+
   it('parses SSE events split across arbitrary chunks', () => {
     const decoder = new SSEDecoder()
     expect(decoder.push('event: bat')).toEqual([])
@@ -144,6 +163,28 @@ describe('live trace transport', () => {
       })
     })
     expect(error).toBeInstanceOf(PipelineDecodeError)
+  })
+
+  it('reports the error state before the detailed error', async () => {
+    const callbacks: string[] = []
+    const client = new TraceClient({
+      sessionId: 'error-order-test',
+      fetchImpl: async () => { throw new Error('specific trace failure') },
+    })
+    await new Promise<void>((resolve) => {
+      client.start({
+        onMessage: () => undefined,
+        onState: (state) => {
+          if (state === 'error') callbacks.push('state:error')
+        },
+        onError: (error) => {
+          callbacks.push(error.message)
+          client.stop()
+          resolve()
+        },
+      })
+    })
+    expect(callbacks).toEqual(['state:error', 'specific trace failure'])
   })
 })
 

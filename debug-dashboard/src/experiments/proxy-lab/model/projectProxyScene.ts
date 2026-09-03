@@ -45,6 +45,7 @@ export function projectProxyScene(
   const durationMs = Math.max(1, options.tokenDurationMs ?? 1_200)
   const source = options.source ?? 'recorded'
   const allTokens = events
+    .filter((event) => event.kind !== 'health')
     .map((event) => tokenForEvent(event, durationMs, source))
     .filter((token) => cursorMs >= token.startMs && cursorMs <= token.endMs)
     .sort((left, right) => left.startMs - right.startMs || left.id.localeCompare(right.id))
@@ -128,7 +129,6 @@ function aggregateTokens(tokens: SceneToken[]) {
 }
 
 function colorForEvent(event: PipelineEvent) {
-  if (event.kind === 'health') return '#f97316'
   if (event.kind === 'gate' && event.summary.verdict === 'rejected') return '#ef4444'
   if (event.kind === 'gate') return '#facc15'
   if (event.timing === 'derived') return '#a78bfa'
