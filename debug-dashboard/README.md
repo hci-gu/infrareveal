@@ -77,7 +77,7 @@ Graph/filter/trace preferences use separate `infrareveal.debug.v3.lab.*` keys. C
 
 ## Validation and fixtures
 
-Run `pnpm test`, `pnpm lint` and `pnpm build` from the repository root to check both consumers and shared session state. [Validation evidence](../docs/validation/debug-ui/validation.md) records browser scenarios and performance measurements.
+Run `pnpm test`, `pnpm lint` and `pnpm build` from the repository root to check both consumers and shared session state. [Browser validation](../docs/validation/debug-dashboard.md) describes repeatable scenarios and performance measurements to collect.
 
 For a local gateway substitute, in separate terminals:
 
@@ -96,7 +96,7 @@ playwright-cli --session implementation run-code "$(cat debug-dashboard/test-sup
 
 The explicit development demo remains `/proxy-lab/demo?demo=1`; it never sends real gate mutations. Legacy bare `/timeline` and `/proxy-lab` routes retain `session` and `at` query handling. `/controlled-client` remains available.
 
-Original gateway implementation and outstanding physical Raspberry Pi acceptance are preserved in [the earlier Proxy Lab plan](../docs/implementation-plans/proxy-lab-original.md). Local UI fixture checks do not claim physical gateway validation.
+Gateway behavior is documented in the [Proxy Lab operator guide](../docs/implementation-guides/proxy-lab.md); outstanding physical checks are in the [Raspberry Pi validation procedure](../docs/validation/proxy-lab-raspberry-pi.md). Local UI fixture checks do not claim physical gateway validation.
 
 
 The lifecycle browser check also uses the production dashboard on port 5175:

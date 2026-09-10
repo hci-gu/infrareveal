@@ -1,6 +1,6 @@
 import type { Destination, Flow, GatewayData, Route } from '@infrareveal/session-state'
 import { isTrafficConnection, parseEpoch, routeForFlowAt } from '@infrareveal/session-state'
-import { mapRoutePath, routeProgress } from './mapRoutes'
+import { hasMapCoordinates, mapRoutePath, routeProgress } from './mapRoutes'
 import type { RouteNode } from './mapRoutes'
 
 export type MapPosition = [longitude: number, latitude: number]
@@ -125,7 +125,7 @@ export function buildMapTimelineScene(data: GatewayData, origin: GatewayOrigin, 
     if (!interval) continue
     const paths = routesBySocket.get(socketKey(flow.destination_ip, flow.destination_port, flow.protocol)) ?? []
     const location = destinationsByIP.get(flow.destination_ip)!
-    if (!(location.lat || location.lon) && !paths.some(path => path.positions.length > 1)) continue
+    if (!hasMapCoordinates(location.lat, location.lon) && !paths.some(path => path.positions.length > 1)) continue
     const flows = flowsByDestination.get(flow.destination_ip)
     if (flows) flows.push(interval)
     else flowsByDestination.set(flow.destination_ip, [interval])
@@ -222,7 +222,7 @@ export function projectMapFrame(
       activeFlowCount: endpointActiveFlows,
       bytes: endpointBytes,
     }
-    if (validPosition(point.position[0], point.position[1]) && (point.position[0] !== 0 || point.position[1] !== 0)) points.push(point)
+    if (hasMapCoordinates(point.position[1], point.position[0])) points.push(point)
     seenFlowCount += endpointSeenFlows
     activeFlowCount += endpointActiveFlows
     byteCount += endpointBytes
@@ -244,7 +244,7 @@ export function projectMapFrame(
   const arcs: MapArc[] = []
   const hops = new Map<string, MapHopPoint>()
   for (const { endpoint, point, route } of connectedEndpoints) {
-    const positions = route?.positions ?? ((endpoint.position[0] !== 0 || endpoint.position[1] !== 0) ? [originPosition(scene.origin), endpoint.position] : [])
+    const positions = route?.positions ?? (hasMapCoordinates(endpoint.position[1], endpoint.position[0]) ? [originPosition(scene.origin), endpoint.position] : [])
     // Keep complete paths when the display budget is exhausted.
     if (arcs.length + positions.length - 1 > maximumArcSegments) continue
     const progress = routeProgress(positions)
@@ -325,12 +325,6 @@ function latestAvailableRoute(routes: MapRoutePath[], cursorMs: number) {
 
 function originPosition(origin: GatewayOrigin): MapPosition {
   return [origin.longitude, origin.latitude]
-}
-
-function validPosition(longitude: number | undefined, latitude: number | undefined): longitude is number {
-  return Number.isFinite(longitude) && Number.isFinite(latitude)
-    && longitude! >= -180 && longitude! <= 180
-    && latitude! >= -90 && latitude! <= 90
 }
 
 function endpointLabel(destination: Destination) {

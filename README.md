@@ -15,11 +15,13 @@ What you get
 
 ## Development guides
 
+See the [documentation index](docs/README.md) for architecture decisions, current guides and repeatable validation procedures.
+
 - [Flow activity bursts](docs/implementation-guides/flow-activity-bursts.md): implemented metadata-only capture and visualization of fine-grained traffic inside long-lived connections.
 - [Flow activity validation](docs/validation/flow-activity-raspberry-pi.md): repeatable privacy, load, growth, and browser-comparison checks for the target Pi.
 - [Proxy Lab implementation and operations](docs/implementation-guides/proxy-lab.md): passive replay/live tracing plus the opt-in flow, strict-packet, and DNS gates.
 - [Proxy Lab Raspberry Pi validation](docs/validation/proxy-lab-raspberry-pi.md): namespace, failure, soak, client, and recovery procedures.
-- [Proxy Lab local validation results](docs/validation/proxy-lab-local-results.md): automated, migration, privileged Linux, and browser evidence from the implementation handoff.
+- [Dashboard browser validation](docs/validation/debug-dashboard.md): fixture, interaction, accessibility, performance and lifecycle checks.
 - [Live route discovery](docs/implementation-guides/live-route-discovery.md): priority scheduling, persistent reuse, progressive paths and diagnostics.
 - [Live route validation](docs/validation/live-route-discovery.md): timing targets, cache/replay checks and pending Pi measurements.
 

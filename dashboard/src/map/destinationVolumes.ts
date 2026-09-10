@@ -2,6 +2,7 @@ import { parseEpoch } from '@infrareveal/session-state'
 import type { FlowActivityChunk } from '@infrareveal/session-state'
 import type { MapPosition, MapTimelineScene } from './mapModel'
 import type { MapConnection } from './mapTracks'
+import { hasMapCoordinates } from './mapRoutes'
 
 export type VolumeChunk = Pick<FlowActivityChunk, 'id' | 'session' | 'flow' | 'chunk_start' | 'chunk_ms' | 'wire_bytes_in' | 'wire_bytes_out' | 'capture_complete' | 'dropped_events' | 'updated_at_source' | 'updated'>
 type Interval = { start: number; end: number; received: number; sent: number; partial: boolean }
@@ -77,6 +78,7 @@ export function projectDestinationVolumes(scene: MapTimelineScene, connections: 
   const groups = new Map<string, DestinationVolume>()
   const seenFlows = new Set<string>()
   for (const endpoint of scene.endpoints) {
+    if (!hasMapCoordinates(endpoint.position[1], endpoint.position[0])) continue
     if (endpoint.availableFromMs > cursorMs || (visibleIPs && !visibleIPs.has(endpoint.ip))) continue
     const id = endpoint.position.join(',')
     for (const flow of endpoint.flows) {

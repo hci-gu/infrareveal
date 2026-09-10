@@ -75,6 +75,22 @@ describe('map timeline projection', () => {
     expect(frame.points).toHaveLength(1)
     expect(frame.points[0].flowCount).toBe(2)
   })
+
+  it('hides invalid direct destinations in both route modes while retaining valid router hops', () => {
+    const data = fixture()
+    data.destinations[0].lat = 95
+    data.destinations[0].lon = 200
+    const scene = buildMapTimelineScene(data, origin)
+    const direct = projectMapFrame({ ...scene, endpoints: scene.endpoints.map(endpoint => ({ ...endpoint, routes: [] })) }, start + 4000)
+    expect(direct.points).toHaveLength(0)
+    expect(direct.arcs).toHaveLength(0)
+    const traced = projectMapFrame(scene, start + 4000)
+    expect(traced.points).toHaveLength(0)
+    expect(traced.arcs).toHaveLength(1)
+    expect(traced.arcs[0].targetPosition).toEqual([13.2, 55.6])
+    data.routes = []
+    expect(buildMapTimelineScene(data, origin).endpoints).toHaveLength(0)
+  })
 })
 
 function fixture(): GatewayData {

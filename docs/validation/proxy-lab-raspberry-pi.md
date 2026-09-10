@@ -12,12 +12,18 @@ pnpm lint
 
 (cd pocketbase && go test -count=1 ./...)
 (cd pocketbase && go test -race ./debugtrace ./labgate ./netmeta)
+(cd pocketbase && go vet ./...)
+(cd pocketbase && GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...)
 ./scripts/test-entrypoint.sh
+./scripts/check-proxy-lab-privacy.sh
 sudo ./scripts/test-lab-gate-netns.sh
+docker compose config --quiet
 docker compose build proxy dashboard debug-dashboard
 ```
 
 The namespace script proves baseline/queue-bypass forwarding, delayed accept, explicit drop, listener-kill recovery, and repeatable cleanup without touching the physical AP. Run it before every Pi trial. `shellcheck` is used automatically when installed.
+
+For migration smoke testing, migrate an isolated copy of the existing PocketBase data directory and serve it on a separate port. Verify health, `sessions` and `gate_events` without modifying the source directory. Use the [dashboard browser procedure](debug-dashboard.md) for fixture-based UI validation.
 
 ## Capability and privacy preflight
 
@@ -84,6 +90,8 @@ For each case record status before/during/after and a simultaneous request from 
 ## Mode/client matrix
 
 Test Chromium desktop, Firefox desktop, Safari desktop/iOS, Android Chromium, and a Linux CLI using `curl`, `dig`, and the controlled page at `/controlled-client`. For each, record visible three-second flow pause, resolver retries, QUIC fallback, Happy Eyeballs alternate connections, application timeout, and connection pooling. Use an HTTP IP target with QUIC disabled for strict TCP mechanics; use a hostname for DNS. Holds beyond ordinary client patience belong only to the controlled CLI/client.
+
+On the physical target, verify AP/uplink hook ordering, including DNS INPUT hooks for UDP and TCP/53. Exercise DNS approve and reject against its actual dnsmasq instance.
 
 Strict acceptance requires exact tuple rules to catch both directions and no neighbouring tuple; individual retransmissions remain separate; 500 ms watchdog prevents retention; FIN/RST disarms. DNS acceptance requires selected UDP and TCP/53 to wait/release/reach dnsmasq while another client, DHCP, dashboard, and control API remain unaffected.
 

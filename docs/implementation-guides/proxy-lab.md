@@ -72,7 +72,7 @@ Suggested preset: **DNS retry**. Use a hostname in the controlled client and rel
 
 ## Safe first run
 
-1. Run the automated and Linux namespace suites in the validation guide.
+1. Run the automated and Linux namespace suites in the [Raspberry Pi validation guide](../validation/proxy-lab-raspberry-pi.md).
 2. Generate a token without putting it in shell history where possible:
 
    ```bash

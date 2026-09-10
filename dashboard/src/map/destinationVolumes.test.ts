@@ -85,6 +85,23 @@ describe('accumulated destination traffic', () => {
     expect(columnMetersPerPixel(60, 2)).toBeCloseTo(columnMetersPerPixel(0, 2) / 2)
     expect(columnMetersPerPixel(0, 3)).toBeCloseTo(columnMetersPerPixel(0, 2) / 2)
   })
+
+  it.each([[0, 0], [NaN, 59], [18, Infinity], [181, 59], [18, -91], [undefined, 59], [18, null]])('omits columns with invalid longitude/latitude %s, %s', (lon, lat) => {
+    const { scene, connections } = fixture()
+    // Partial traceroutes can retain an endpoint whose final location is unknown.
+    scene.endpoints[0].position = [lon, lat] as [number, number]
+    const destinations = projectDestinationVolumes(scene, connections, new Map(), epoch + 10_000)
+    expect(destinations).toHaveLength(1)
+    expect(destinations[0].ips).toEqual(['203.0.113.2'])
+    expect(destinations[0].bytes).toBe(10_000)
+  })
+
+  it('retains real locations on the equator or prime meridian', () => {
+    const { scene, connections } = fixture()
+    scene.endpoints[0].position = [0, 51]
+    scene.endpoints[1].position = [37, 0]
+    expect(projectDestinationVolumes(scene, connections, new Map(), epoch + 10_000)).toHaveLength(2)
+  })
 })
 
 afterEach(() => vi.unstubAllGlobals())

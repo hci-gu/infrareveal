@@ -36,13 +36,11 @@ docker run --rm --network none --cap-add NET_RAW \
   -test.run 'TestPacket(Capture|Original)' -test.v -test.timeout 20s
 ```
 
-On 2026-09-10, all three large-frame cases reproduced silent loss before the `PACKET_AUXDATA` fix and passed afterward on Linux arm64 in Docker. Malformed/missing auxiliary metadata checks passed as well. This verifies the kernel/socket boundary locally; deployment and fresh capture on the Pi remain required to validate the actual AP interface. The old recording cannot be repaired from cumulative counters.
+The socket test establishes the kernel/socket boundary locally; fresh capture on the Pi is still required to validate its AP interface. Historical missing timing cannot be reconstructed from cumulative flow counters.
 
-The subsequent Pi recording retained 73,262 packet observations; its largest SVT, YouTube and Spotify flow wire totals agreed with the independent IP-byte counters after header overhead. Supplied gateway logs showed repeated single-packet matching timeouts being incorrectly logged as backpressure and applied to unrelated active capture chunks. `TestUnmatchedActivityDoesNotBecomeCaptureLoss` reproduces that path through the real aggregator, persistence acknowledgements and migrated status/window records, and separately injects queue loss to ensure that genuine loss stays visible. The correction records `unmatched_events` separately; it requires a new gateway build and does not rewrite historical quality flags.
+`TestUnmatchedActivityDoesNotBecomeCaptureLoss` checks matching expiry through the aggregator, persistence acknowledgements and migrated status/window records. It also injects queue loss to verify that real capture loss remains visible. Keep `unmatched_events` separate from `dropped_events`; existing recording flags are not rewritten.
 
-Development reference only—not a Raspberry Pi result: on an Apple M1 Max running arm64 Darwin on 2026-08-25, the replay took 1.67–1.71 ms per 10,000 events and allocated about 1.07 MB. Record target-Pi results below rather than treating this figure as an acceptance measurement.
-
-Also on 2026-08-25, a fresh local PocketBase data directory was migrated and served through the compiled application. HTTP list requests against `flow_activity_status`, `flow_activity_windows`, and a paginated/time-filtered `flow_activity_chunks` query succeeded. Repeated two-second status heartbeats updated one stable record per five-second capture window, and graceful shutdown produced no activity-observer database errors. This is a migration/API smoke check, not a substitute for raw capture or performance testing on the Pi.
+For migration/API smoke testing, use an isolated copy of the data directory. Verify list requests for `flow_activity_status`, `flow_activity_windows` and paginated/time-filtered `flow_activity_chunks`, stable capture-window identity across heartbeats, and graceful shutdown without observer database errors.
 
 ## Controlled session matrix
 
@@ -77,7 +75,7 @@ docker compose logs proxy | grep 'packet activity dropped'
 du -h data/data.db
 ```
 
-Record database size before and after the hour. Count `flow_activity_chunks` at the beginning and end through the PocketBase admin/API, then calculate writes/minute and bytes/hour. In browser developer tools, record dashboard initial load and render time for a 60-minute session at “All,” 5m, and 1m zoom. “All” should still fetch at most the implementation's 15-minute detailed window.
+Record database size before and after the hour. Count `flow_activity_chunks` at the beginning and end through the PocketBase admin/API, then calculate writes/minute and bytes/hour. In browser developer tools, record initial load and render time for a 60-minute session at wide and narrow zoom ranges. Fine activity loading must stay within bounded visible/selected intervals even when the overview spans the session. Compact cumulative summaries are separate from fine-grained history.
 
 | Pi model / OS / build | Scenario | Proxy CPU | Proxy memory | Dropped events | Chunk writes/min | DB growth/hour | Dashboard load/render |
 |---|---|---:|---:|---:|---:|---:|---:|

@@ -1,10 +1,10 @@
 # Debug dashboard UI redesign — implementation plan
 
-Status: **Implemented and validated (M0–M6), 7 September 2026.** See the [validation record](docs/validation/debug-ui/validation.md) for tests, screenshots, performance measurements and their limits. Physical Raspberry Pi acceptance remains in the original plan.
+Status: **Implemented and validated (M0–M6), 7 September 2026.** For ongoing checks, use the [browser validation procedure](docs/validation/debug-dashboard.md). Physical Raspberry Pi acceptance remains in the [Proxy Lab validation procedure](docs/validation/proxy-lab-raspberry-pi.md).
 
 Design reference: [redesign-report.html](redesign-report.html), Workspace study 03, 7 September 2026. Its Traffic, Lab and Sessions previews define the accepted direction. Fixture data and report navigation are illustrative, not production behavior.
 
-Target: `debug-dashboard`, with narrowly scoped shared session-runtime changes where required. The earlier [Proxy Lab implementation plan](docs/implementation-plans/proxy-lab-original.md) is preserved separately, including outstanding Raspberry Pi validation. This redesign does not mark that validation complete.
+Target: `debug-dashboard`, with narrowly scoped shared session-runtime changes where required. Current gateway behavior is documented in the [Proxy Lab operator guide](docs/implementation-guides/proxy-lab.md), with outstanding hardware checks in the [Raspberry Pi validation procedure](docs/validation/proxy-lab-raspberry-pi.md). This redesign does not mark that validation complete.
 
 ## 1. Accepted design and scope
 
@@ -80,7 +80,7 @@ Implementation record (7 September 2026):
 | M3 | `TrafficTransport.tsx`, `useTrafficPlayback.ts`, inspector, ledger, utilities and secondary treemap | Time/coverage/LOD tests; scrubbing, zoom, linked selection, keyboard splitters, focus and bundle download checks |
 | M4 | `GraphViewport.tsx`, `traceNavigation.ts`, `NodeInspector.tsx`, `LabReplayControls.tsx` and `lab.css` | Path and projection suites; node/branch/zoom browser checks; independent layouts |
 | M5 | `useLabControl.ts`, observation/configuration state, existing gate forms, health and NOW queue | Independence/expiry tests; authenticated flow/strict/DNS, pause/resume/drain/disarm, invalid-token, offline and in-flight browser checks |
-| M6 | `debug-dashboard/test-support`, README and validation artifacts | [Validation record](docs/validation/debug-ui/validation.md) |
+| M6 | `debug-dashboard/test-support`, README and validation artifacts | [Browser validation procedure](docs/validation/debug-dashboard.md) |
 
 
 ## 4. M0 — Baseline and visual foundation
