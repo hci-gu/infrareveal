@@ -198,7 +198,9 @@ Maintain a bounded pending map keyed by session and flow key:
 2. Resolve the corresponding `flows` record asynchronously.
 3. Hold unresolved chunks for up to five seconds.
 4. Persist them once the flow relation exists.
-5. Drop them with a diagnostic counter if the flow never becomes an in-scope stored flow.
+5. Expire them into the separate `flow_activity_status.unmatched_events` diagnostic counter if the flow never becomes an in-scope stored flow.
+
+Unmatched observations retain their flow key in the expiry log and are counted cumulatively for the collector's lifetime. They must not increment `dropped_events`, emit capture-loss health events, or mark unrelated chunks/windows incomplete. Queue/aggregation loss remains in `dropped_events`. Previously both causes shared that counter, so a one-packet matching timeout marked every active connection incomplete in the later timeout window and misleadingly logged backpressure. Existing recording flags are preserved because their stored counters do not retain enough information to separate the causes retrospectively.
 
 Do not create `flows` records from packet capture in Phase 1. Conntrack remains the single authority for stored flow identity and noise filtering.
 

@@ -69,6 +69,7 @@ Graph/filter/trace preferences use separate `infrareveal.debug.v3.lab.*` keys. C
 - **Complete capture:** a loaded completeness window reports no known capture loss. Sparse absence of samples can represent silence within that coverage.
 - **Partial / unavailable capture:** hatching and text identify dropped activity, disabled capture or capture errors. Missing samples are not counted as zero traffic.
 - **Unknown / unloaded:** no completeness report covers the selected interval.
+- **Unmatched observations:** the collector captured packet metadata but could not link it to a stored connection within five seconds. Updated gateways count these separately from capture loss; they do not mark unrelated Traffic tracks incomplete. **Traffic utilities** shows a nonzero count, cumulative since collector startup as of the session's last report. Older recordings retain their original combined quality flags.
 - **Browser trace loss:** delivery to Lab's live visualization was incomplete; durable capture can still be complete.
 - **Gate-audit loss:** durable decision history is incomplete. This is separate from capture and browser delivery.
 - **Hostname vs association:** attribution identifies a candidate hostname; association proposes a parent activity. Confidence and provenance remain separate.

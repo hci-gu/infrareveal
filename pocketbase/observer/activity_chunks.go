@@ -131,13 +131,14 @@ func activityWindowKey(sessionID string, start time.Time) string {
 }
 
 type ActivityCaptureStatus struct {
-	SessionID     string
-	Interface     string
-	Enabled       bool
-	Running       bool
-	DroppedEvents int64
-	LastError     string
-	LastEventAt   time.Time
+	SessionID       string
+	Interface       string
+	Enabled         bool
+	Running         bool
+	DroppedEvents   int64
+	UnmatchedEvents int64
+	LastError       string
+	LastEventAt     time.Time
 }
 
 func upsertActivityCaptureStatus(app core.App, status ActivityCaptureStatus) error {
@@ -164,6 +165,7 @@ func upsertActivityCaptureStatus(app core.App, status ActivityCaptureStatus) err
 	record.Set("enabled", status.Enabled)
 	record.Set("running", status.Running)
 	record.Set("dropped_events", status.DroppedEvents)
+	record.Set("unmatched_events", status.UnmatchedEvents)
 	record.Set("last_error", status.LastError)
 	if !status.LastEventAt.IsZero() {
 		record.Set("last_event_at", status.LastEventAt.UTC().Format(time.RFC3339Nano))

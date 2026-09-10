@@ -30,15 +30,15 @@ func TestPendingActivityExpiresAfterTTL(t *testing.T) {
 	aggregator := NewActivityAggregator(50*time.Millisecond, 5*time.Second, 10)
 	aggregator.Add(activityEvent(start, ClientToRemote, 100, 60))
 	snapshot := aggregator.DirtySnapshots()[0]
-	var dropped atomic.Int64
-	if expirePendingActivity(aggregator, snapshot.Key, 5*time.Second, start.Add(5*time.Second), &dropped) {
+	var unmatched atomic.Int64
+	if expirePendingActivity(aggregator, snapshot.Key, 5*time.Second, start.Add(5*time.Second), &unmatched) {
 		t.Fatal("pending activity expired at rather than after the TTL")
 	}
-	if !expirePendingActivity(aggregator, snapshot.Key, 5*time.Second, start.Add(5*time.Second+time.Nanosecond), &dropped) {
+	if !expirePendingActivity(aggregator, snapshot.Key, 5*time.Second, start.Add(5*time.Second+time.Nanosecond), &unmatched) {
 		t.Fatal("expected unresolved activity to expire")
 	}
-	if aggregator.Len() != 0 || dropped.Load() != 1 {
-		t.Fatalf("expected one packet to be dropped and state removed: len=%d dropped=%d", aggregator.Len(), dropped.Load())
+	if aggregator.Len() != 0 || unmatched.Load() != 1 {
+		t.Fatalf("expected one unmatched observation and state removed: len=%d unmatched=%d", aggregator.Len(), unmatched.Load())
 	}
 }
 

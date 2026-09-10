@@ -124,6 +124,8 @@ export type FlowActivityStatus = {
   enabled: boolean
   running: boolean
   dropped_events: number
+  /** Collector-lifetime matching failures, separate from capture loss; absent on older gateways. */
+  unmatched_events?: number
   last_error: string
   last_event_at: string
   reported_at: string

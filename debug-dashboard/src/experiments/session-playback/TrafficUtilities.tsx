@@ -14,6 +14,7 @@ export function TrafficUtilities({ open, onClose, view, onView, onReset, composi
   const dialog = useRef<HTMLDialogElement>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
+  const unmatched = composition.captureStatus?.unmatched_events ?? 0
   useEffect(() => { if (open) dialog.current?.showModal(); else dialog.current?.close() }, [open])
   const exportBundle = () => {
     const sceneWindow = selectSceneWindow(composition, { ...range, overview: view === 'treemap', focusedServiceId: null, selectedClipId: selectedId })
@@ -23,6 +24,7 @@ export function TrafficUtilities({ open, onClose, view, onView, onReset, composi
   }
   return <dialog className="traffic-utilities desktop-ui" ref={dialog} onCancel={onClose} onClose={onClose} aria-label="Traffic utilities and settings"><header><h2>Traffic utilities</h2><button type="button" aria-label="Close utilities" onClick={onClose}><X size={16} /></button></header>
     <section><h3>Workspace</h3><label>View<select value={view} onChange={event => { onView(event.target.value as 'timeline' | 'treemap'); onClose() }}><option value="timeline">Timeline</option><option value="treemap">Treemap</option></select></label><button type="button" onClick={() => { onReset(); onClose() }}>Restore default layout</button><Link to="/controlled-client">Open controlled network client ↗</Link></section>
+    {unmatched > 0 ? <section><h3>Unmatched observations</h3><p>{unmatched.toLocaleString()} packet observations could not be linked to a saved connection before the matching timeout. This collector total is separate from capture loss and does not mark other connections incomplete.</p><p>The count is cumulative since the collector started, as of this session's last status report.</p></section> : null}
     <section><h3>Keyboard</h3><p>Space plays/pauses. ← / → steps one second; Shift + arrows steps five seconds. The session scrubber also supports native arrow keys. Focus a pane divider and use arrows to resize it. Escape leaves the expanded workspace.</p></section>
     <section><h3>Recorded export</h3><p>Save the current loaded scene and source times as a deterministic Remotion render bundle. Missing activity stays explicit in the bundle.</p><button type="button" disabled={session.active} onClick={exportBundle}>{session.active ? 'Available for recorded sessions' : 'Download render bundle'}</button></section>
     <section className="danger-zone"><h3>Gateway data</h3><p>Delete all observation and derived activity records. The existing confirmation applies to all sessions.</p><button type="button" disabled={busy} onClick={async () => {

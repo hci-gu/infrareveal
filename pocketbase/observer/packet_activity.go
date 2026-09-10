@@ -158,6 +158,9 @@ func runPacketActivityPipeline(
 
 	inFlight := make(map[string]uint64)
 	lastDropped := int64(0)
+	// Matching failures have a known flow key and are not capture-queue loss.
+	// Keep them out of the counter that marks every active chunk incomplete.
+	var unmatchedEvents atomic.Int64
 	lastEventAt := time.Time{}
 	running := false
 	lastError := ""
@@ -193,7 +196,8 @@ func runPacketActivityPipeline(
 		if err := upsertActivityCaptureStatus(app, ActivityCaptureStatus{
 			SessionID: activeSessionID, Interface: config.Interface, Enabled: config.Enabled,
 			Running: running, DroppedEvents: droppedEvents.Load(), LastError: lastError,
-			LastEventAt: lastEventAt,
+			UnmatchedEvents: unmatchedEvents.Load(),
+			LastEventAt:     lastEventAt,
 		}); err != nil {
 			log.Printf("packet activity status error: %v", err)
 		}
@@ -242,8 +246,8 @@ func runPacketActivityPipeline(
 				lastError = ""
 			}
 			if ack.result == activityFlowPending {
-				if expirePendingActivity(aggregator, ack.key, config.PendingTTL, time.Now(), droppedEvents) {
-					log.Printf("packet activity dropped unresolved chunk %s after %s without an in-scope conntrack flow", ack.key, config.PendingTTL)
+				if expirePendingActivity(aggregator, ack.key, config.PendingTTL, time.Now(), &unmatchedEvents) {
+					log.Printf("packet activity expired unmatched chunk %s after %s without an in-scope conntrack flow (unmatched observations total %d)", ack.key, config.PendingTTL, unmatchedEvents.Load())
 				}
 				continue
 			}
@@ -305,10 +309,10 @@ func enqueuePacketActivity(events chan<- PacketActivityEvent, event PacketActivi
 	}
 }
 
-func expirePendingActivity(aggregator *ActivityAggregator, key string, ttl time.Duration, now time.Time, dropped *atomic.Int64) bool {
+func expirePendingActivity(aggregator *ActivityAggregator, key string, ttl time.Duration, now time.Time, unmatched *atomic.Int64) bool {
 	for _, snapshot := range aggregator.DirtySnapshots() {
 		if snapshot.Key == key && now.Sub(snapshot.FirstObservedAt) > ttl {
-			dropped.Add(snapshot.PacketsIn + snapshot.PacketsOut)
+			unmatched.Add(snapshot.PacketsIn + snapshot.PacketsOut)
 			aggregator.Drop(snapshot.Key)
 			return true
 		}
