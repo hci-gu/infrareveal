@@ -16,6 +16,13 @@ function chunk(samples: unknown): FlowActivityChunk {
 }
 
 describe('decodeActivityChunk', () => {
+  it('decodes five-second summaries returned by the timeline API at wide zoom', () => {
+    const summary = { ...chunk({ version: 1, bucket_ms: 5000, chunk_ms: 5000, samples: [[0, 420, 16384, 3, 12]] }), bucket_ms: 5000 }
+    expect(decodeActivityChunk(summary)).toEqual([
+      { startMs: Date.parse(chunkStart), durationMs: 5000, payloadBytesOut: 420, payloadBytesIn: 16384, packetsOut: 3, packetsIn: 12, complete: true },
+    ])
+  })
+
   it('decodes sparse directional samples', () => {
     expect(decodeActivityChunk(chunk({
       version: 1,
@@ -31,6 +38,7 @@ describe('decodeActivityChunk', () => {
   it.each([
     { version: 2, bucket_ms: 50, chunk_ms: 5000, samples: [[0, 1, 0, 1, 0]] },
     { version: 1, bucket_ms: -50, chunk_ms: 5000, samples: [[0, 1, 0, 1, 0]] },
+    { version: 1, bucket_ms: 5001, chunk_ms: 10_000, samples: [[0, 1, 0, 1, 0]] },
     { version: 1, bucket_ms: 50, chunk_ms: 5000, samples: [[5000, 1, 0, 1, 0]] },
     { version: 1, bucket_ms: 50, chunk_ms: 5000, samples: [[0, -1, 0, 1, 0]] },
     { version: 1, bucket_ms: 50, chunk_ms: 5000, samples: [['bad', 1, 0, 1, 0]] },

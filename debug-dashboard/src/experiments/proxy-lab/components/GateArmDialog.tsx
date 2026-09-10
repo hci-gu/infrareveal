@@ -4,13 +4,14 @@ import type { GateStatus, ProxyLabMode } from '../types'
 
 type GateMode = 'flow' | 'strict' | 'dns'
 
-export function GateArmDialog({ mode, status, sessionId, candidateClients, token, busy, onToken, onArm }: {
+export function GateArmDialog({ mode, status, sessionId, candidateClients, token, busy, available = true, onToken, onArm }: {
   mode: ProxyLabMode
   status: GateStatus | null
   sessionId: string
   candidateClients: string[]
   token: string
   busy: boolean
+  available?: boolean
   onToken: (token: string) => void
   onArm: (clientIps: string[], mode: GateMode, strict?: StrictTuple) => void
 }) {
@@ -28,7 +29,7 @@ export function GateArmDialog({ mode, status, sessionId, candidateClients, token
         <strong className="block text-sm">Gate armed for live traffic</strong>
         <p className="mt-1 font-mono text-amber-200">session {status.sessionId} · {status.clientIps.join(', ') || 'No selected client'} · {status.mode}</p>
         {status.sessionId !== sessionId ? <p className="mt-2 text-rose-300">This gate belongs to another active route. Disarm it before starting a new experiment.</p> : null}
-        <p className="mt-2 text-amber-200/75">Playback controls never rewind this control state.</p>
+        <label className="mt-3 block" htmlFor="gate-token">Operator token</label><input id="gate-token" type="password" autoComplete="off" value={token} onChange={event => onToken(event.target.value)} placeholder="Kept in memory only" className="mt-1 w-full bg-slate-950 p-2" /><p className="mt-2 text-amber-200/75">Playback controls never rewind this control state.</p>
       </section>
     )
   }
@@ -80,7 +81,7 @@ export function GateArmDialog({ mode, status, sessionId, candidateClients, token
       </div>
       <label className="mt-3 flex items-start gap-2 leading-5"><input checked={acknowledged} className="mt-1" onChange={(event) => setAcknowledged(event.target.checked)} type="checkbox" />I understand this traffic-changing experiment may cause retries or visible failures on the selected client.</label>
       {!capabilityReady ? <p className="mt-2 text-rose-300">The gateway reports that lab support, the listener, rules, or fail-open policy is unavailable.</p> : null}
-      <button className="mt-3 border border-amber-500 px-3 py-1.5 font-semibold hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-40" disabled={!capabilityReady || !token || !selectedValid || !strictValid || !acknowledged || busy} onClick={() => onArm(validSelected, backendMode, strictTuple)} type="button">{busy ? 'Arming…' : `Arm ${backendMode === 'strict' ? 'strict flow' : backendMode === 'dns' ? 'DNS gate' : 'flow gate'}`}</button>
+      <button className="mt-3 border border-amber-500 px-3 py-1.5 font-semibold hover:bg-amber-900 disabled:cursor-not-allowed disabled:opacity-40" disabled={!available || !capabilityReady || !token || !selectedValid || !strictValid || !acknowledged || busy} onClick={() => onArm(validSelected, backendMode, strictTuple)} type="button">{busy ? 'Arming…' : `Arm ${backendMode === 'strict' ? 'strict flow' : backendMode === 'dns' ? 'DNS gate' : 'flow gate'}`}</button>
     </section>
   )
 }

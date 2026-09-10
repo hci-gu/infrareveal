@@ -1,0 +1,46 @@
+import type { GatewayData } from '@infrareveal/session-state'
+import type { ReactNode } from 'react'
+import type { TrafficRecord, TrafficSelection } from './trafficModel'
+import { activityInWindow } from './trafficModel'
+import type { TimeRange } from './trafficTime'
+import type { CaptureShortfall } from './trafficCaptureQuality'
+import { CopyButton } from '../../shared/ui/CopyButton'
+import { formatBytes, formatClock } from '../../views/formatters'
+
+export function TrafficInspector({ data, selected, records, range, loading, error, filtered, shortfall }: { shortfall?: CaptureShortfall; data: GatewayData; selected: TrafficSelection | null; records: TrafficRecord[]; range: TimeRange; loading: boolean; error: string | null; filtered: boolean }) {
+  const flow = data.flows.find(flow => flow.id === selected?.flowId)
+  const record = records.find(record => record.selection.kind === selected?.kind && record.selection.id === selected?.id)
+  const attributions = data.attributions.filter(item => item.flow === flow?.id)
+  const associations = data.flowAssociations.filter(item => item.flow === flow?.id)
+  const dnsIds = new Set(attributions.map(item => item.dns_query))
+  const queries = data.dnsQueries.filter(query => dnsIds.has(query.id) || selected?.kind === 'dns' && selected.id === query.id)
+  const destination = data.destinations.find(item => item.ip === flow?.destination_ip)
+  const routes = data.routes.filter(item => item.destination_ip === flow?.destination_ip && item.destination_port === flow?.destination_port)
+  const activity = activityInWindow(data.flowActivityChunks.filter(chunk => chunk.flow === flow?.id), data.flowActivityWindows, range.fromMs, range.toMs)
+  const title = attributions.find(item => item.confidence !== 'hidden')?.candidate_hostname || flow?.destination_ip || record?.endpoint
+  return <aside className="traffic-inspector" aria-label="Selection inspector"><header><h2>Selected {selected?.kind || 'record'}</h2>{selected ? <CopyButton label="Copy selected identifier" value={selected.id} /> : null}</header><div className="traffic-inspector-scroll">
+    {!selected ? <div className="ui-empty"><h3>Inspect an observation</h3><p>Select a flow, DNS marker or evidence record to see its source data.</p></div> : <>
+      <div className="selected-identity"><h3>{title || selected.id}</h3>{flow ? <p className="numeric">{flow.client_ip}:{flow.source_port}<br />→ {flow.destination_ip}:{flow.destination_port} · {flow.protocol.toUpperCase()}</p> : null}<p className="muted">{selected.id}</p></div>
+      {filtered ? <p className="ui-notice">The selected record is outside the current filter.</p> : null}
+      {loading ? <p className="muted" role="status">Loading evidence for this interval…</p> : null}
+      {error ? <p className="ui-notice warning">Detail unavailable. {error}</p> : null}
+      {!flow && !record ? <p className="ui-notice">This record is not in the loaded data. Its selection is retained; it may have been deleted or evicted.</p> : null}
+      {shortfall ? <div className="ui-notice warning" role="status"><strong>Activity detail incomplete</strong><p>Only {formatBytes(shortfall.capturedBytes)} of packet detail was saved for a {formatBytes(shortfall.totalBytes)} flow. The curve understates this transfer; missing timing cannot be recovered from the total.</p><p>Check the collector before making a new recording.</p></div> : null}
+      {record && selected.kind !== 'flow' ? <InspectorSection title="Selected evidence"><Facts entries={[["Time", formatClock(record.time)], ['Provenance', record.provenance], ['Client', record.client], ['Detail', record.detail]]} /><Raw value={record.raw} /></InspectorSection> : null}
+      {flow ? <>
+        <InspectorSection title="Connection"><Facts entries={[["Flow ID", flow.id], ['Protocol / state', `${flow.protocol.toUpperCase()} / ${flow.state}`], ['First observed', formatClock(flow.start)], ['Last observed', formatClock(flow.last_seen)], ['Lifetime', `${Math.max(0, Math.round((Date.parse(flow.last_seen) - Date.parse(flow.start)) / 1000))}s`]]} /></InspectorSection>
+        <InspectorSection title="Counters · complete flow record"><Facts entries={[["Received / sent", `${counter(flow.bytes_in)} / ${counter(flow.bytes_out)}`], ['Packets in / out', `${count(flow.packets_in)} / ${count(flow.packets_out)}`]]} /><p>These are cumulative flow counters, not measurements for the visible window.</p></InspectorSection>
+        <InspectorSection title="Visible window · captured activity"><Facts entries={[["Interval", `${formatClock(range.fromMs)}–${formatClock(range.toMs)}`], ['Payload in / out', activity.resolution.length ? `${counter(activity.payloadIn)} / ${counter(activity.payloadOut)}` : 'Not loaded'], ['Packets in / out', activity.resolution.length ? `${count(activity.packetsIn)} / ${count(activity.packetsOut)}` : 'Not loaded'], ['Bucket resolution', activity.resolution.length ? activity.resolution.map(ms => `${ms} ms`).join(', ') : 'Unknown'], ['Coverage', shortfall ? 'Incomplete · counter mismatch' : activity.complete ? 'Complete capture' : 'Incomplete / unknown intervals']]} /><p>Totals include whole, non-overlapping loaded buckets inside this window. Partial boundary buckets are excluded. Missing capture is not zero traffic.</p></InspectorSection>
+        <InspectorSection title="Hostname evidence">{attributions.length ? attributions.map(item => <div className="evidence-item" key={item.id}><Facts entries={[["Candidate", item.candidate_hostname], ['Source', item.source_signal], ['Confidence', item.confidence], ['Observed', formatClock(item.observed_at)]]} /><p>{item.explanation}</p><CopyButton label="Copy attribution" value={JSON.stringify(item, null, 2)} /></div>) : <p>No supported hostname attribution is available. The destination IP remains the endpoint identity.</p>}{queries.map(q => <div className="evidence-item" key={q.id}><Facts entries={[["Question", `${q.query_name} / ${q.query_type}`], ['Answers', q.answers?.join(', ') || 'No answer'], ['Aliases', q.aliases?.join(' → ') || 'None'], ['Client', q.client_ip]]} /><CopyButton label="Copy DNS source" value={JSON.stringify(q, null, 2)} /></div>)}{attributions.some(a => a.dns_query && !queries.some(q => q.id === a.dns_query)) ? <p>The linked DNS record is outside the loaded interval or unavailable.</p> : null}</InspectorSection>
+        <InspectorSection title="Activity association" open={false}>{associations.length ? associations.map(item => <div className="evidence-item" key={item.id}><Facts entries={[["Parent", item.parent_label], ['Relationship', item.relationship], ['Confidence / score', `${item.confidence} / ${item.score}`]]} /><p>{item.explanation}</p><CopyButton label="Copy association" value={JSON.stringify(item, null, 2)} /></div>) : <p>Independent traffic. A nearby flow or shared provider does not establish a parent activity.</p>}<p>Association is a separate derived relationship, not hostname identity.</p></InspectorSection>
+        <InspectorSection title="Destination / gateway route" open={false}><Facts entries={[["Provider", destination?.provider_label || 'Unknown'], ['Organization', destination?.organization || 'Unknown'], ['ASN', destination?.asn ? String(destination.asn) : 'Unknown'], ['Reverse DNS', destination?.reverse_dns || 'Unknown'], ['Coarse location', [destination?.city, destination?.country].filter(Boolean).join(', ') || 'Unknown']]} />{routes.length ? routes.map(route => <div className="evidence-item" key={route.id}><p>{route.method} · {formatClock(route.completed_at)} · {route.complete ? 'Complete' : 'Incomplete'}{route.error ? ` · ${route.error}` : ''}</p>{route.hops?.map(hop => <p className="numeric" key={hop.ttl}>{hop.ttl} · {hop.missing ? 'No response' : hop.hostname || hop.address}{!hop.missing && hop.timings?.length ? ` · ${hop.timings.join(' / ')} ms` : ''}</p>)}</div>) : <p>No route is available.</p>}<p>Gateway route approximation. Probe timings do not measure application latency.</p></InspectorSection>
+        <InspectorSection title="Raw source fields" open={false}><Raw value={flow} /></InspectorSection>
+      </> : null}
+    </>}
+  </div></aside>
+}
+function InspectorSection({ title, children, open = true }: { title: string; children: ReactNode; open?: boolean }) { return <details className="traffic-inspector-section" open={open}><summary>{title}</summary>{children}</details> }
+function Facts({ entries }: { entries: [string, string][] }) { return <dl>{entries.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl> }
+function Raw({ value }: { value: unknown }) { return <><CopyButton label="Copy raw source record" value={JSON.stringify(value, null, 2)} /><pre>{JSON.stringify(value, null, 2)}</pre></> }
+function counter(value: number) { return Number.isFinite(value) ? formatBytes(value) : 'Unknown' }
+function count(value: number) { return Number.isFinite(value) ? value.toLocaleString() : 'Unknown' }

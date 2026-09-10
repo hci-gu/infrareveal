@@ -51,8 +51,9 @@ export type PathDefinition = {
 
 const paths = {
   flowOut: path('flow-out', ['client', 'wlan0', 'conntrack', 'flow_gate', 'forward', 'nat', 'remote'], 'data'),
-  burstOut: path('burst-out', ['client', 'wlan0', 'header_capture', 'forward', 'nat', 'remote'], 'mixed'),
-  burstIn: path('burst-in', ['remote', 'nat', 'forward', 'header_capture', 'wlan0', 'client'], 'mixed'),
+  flowIn: path('flow-in', ['remote', 'nat', 'forward', 'flow_gate', 'conntrack', 'wlan0', 'client'], 'data'),
+  burstOut: path('burst-out', ['client', 'wlan0', 'conntrack', 'flow_gate', 'forward', 'nat', 'remote'], 'data'),
+  burstIn: path('burst-in', ['remote', 'nat', 'forward', 'flow_gate', 'conntrack', 'wlan0', 'client'], 'data'),
   dnsOut: path('dns-out', ['client', 'wlan0', 'dnsmasq', 'pocketbase'], 'mixed'),
   dnsIn: path('dns-in', ['dnsmasq', 'wlan0', 'client'], 'mixed'),
   gateWait: path('gate-wait', ['conntrack', 'flow_gate'], 'data'),
@@ -92,7 +93,7 @@ export function pathForEvent(event: {
   if (event.kind === 'attribution') return paths.attribution
   if (event.kind === 'destination') return paths.destination
   if (event.kind === 'route') return paths.route
-  return paths.flowOut
+  return event.direction === 'remote_to_client' ? paths.flowIn : paths.flowOut
 }
 
 export function nodeById(id: GraphNodeId) {

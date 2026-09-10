@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, useId } from 'react'
 import { useStore } from 'zustand'
 import {
   selectDetailGatewayData,
@@ -57,28 +57,31 @@ export function useFlowActivityRange(
 ) {
   const detailVersion = useStore(sessionTimelineStore, (state) => state.detailVersion)
   const loadingPageCount = useStore(sessionTimelineStore, (state) => state.loadingPageKeys.size)
+  const owner = useId()
   const [refreshKey, setRefreshKey] = useState(0)
   const [error, setError] = useState<string | null>(null)
+  const [completedRequest, setCompletedRequest] = useState<string | null>(null)
   const flowIdKey = useMemo(() => Array.from(new Set(flowIds ?? [])).sort().join(','), [flowIds])
   const explicitlyEmpty = flowIds !== undefined && flowIds.length === 0
   const lod = chooseLOD(startMs, endMs)
+  const requestKey = JSON.stringify([sessionId, startMs, endMs, flowIdKey, lod, refreshKey])
 
   useEffect(() => {
     let cancelled = false
     if (!sessionId || endMs <= startMs || explicitlyEmpty) return
     const requestedFlowIDs = flowIdKey ? flowIdKey.split(',') : []
     const prefetchMs = 30_000
-    sessionController.ensureDetailRange(startMs - prefetchMs, endMs + prefetchMs, requestedFlowIDs, lod)
+    sessionController.ensureDetailRange(startMs - prefetchMs, endMs + prefetchMs, requestedFlowIDs, lod, owner)
       .then(() => {
-        if (!cancelled) setError(null)
+        if (!cancelled) { setError(null); setCompletedRequest(requestKey) }
       })
       .catch((loadError: unknown) => {
         if (!cancelled && !(loadError instanceof DOMException && loadError.name === 'AbortError')) {
           setError(loadError instanceof Error ? loadError.message : 'Detailed activity is unavailable.')
         }
       })
-    return () => { cancelled = true }
-  }, [endMs, explicitlyEmpty, flowIdKey, lod, refreshKey, sessionId, startMs])
+    return () => { cancelled = true; sessionController.releaseDetailRange(owner) }
+  }, [endMs, explicitlyEmpty, flowIdKey, lod, owner, refreshKey, requestKey, sessionId, startMs])
 
   const data = useMemo(
     () => {
@@ -101,6 +104,7 @@ export function useFlowActivityRange(
     dnsQueries: data.dnsQueries,
     gateEvents: data.gateEvents,
     loading: !explicitlyEmpty && loadingPageCount > 0,
+    loaded: Boolean(sessionId && !explicitlyEmpty && completedRequest === requestKey && loadingPageCount === 0 && !error),
     error,
     clear,
   }

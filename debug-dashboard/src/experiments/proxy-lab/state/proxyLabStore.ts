@@ -1,3 +1,4 @@
+import type { GraphNodeId } from '../model/graphLayout'
 import { createStore } from 'zustand/vanilla'
 import type {
   GateDecision,
@@ -22,6 +23,9 @@ export type ProxyLabFilters = {
 export type ProxyLabState = {
   sessionId: string | null
   mode: ProxyLabMode
+  observationMode: 'replay' | 'live-observe'
+  requestedGateMode: 'flow' | 'strict' | 'dns'
+  selectedNodeId: GraphNodeId | null
   filters: ProxyLabFilters
   selectedEventId: string | null
   selectedTraceId: string | null
@@ -47,6 +51,9 @@ function initialState(sessionId: string | null = null): ProxyLabState {
   return {
     sessionId,
     mode: 'replay',
+    observationMode: 'replay',
+    requestedGateMode: 'flow',
+    selectedNodeId: null,
     filters: { clientIps: [], protocols: [], kinds: [], directions: [] },
     selectedEventId: null,
     selectedTraceId: null,
@@ -86,7 +93,8 @@ export function clearProxyLabRoute() {
 }
 
 export function setProxyLabMode(mode: ProxyLabMode) {
-  proxyLabStore.setState({ mode, controlError: null })
+  // Legacy visualization callers remain compatible; view changes never alter armed status.
+  proxyLabStore.setState({ mode, observationMode: mode === 'replay' ? 'replay' : 'live-observe', controlError: null })
 }
 
 export function setProxyLabFilters(filters: Partial<ProxyLabFilters>) {
@@ -184,4 +192,14 @@ export function setControlError(controlError: string | null) {
 
 export function setOperatorToken(operatorToken: string) {
   proxyLabStore.setState({ operatorToken })
+}
+
+export function setLabObservationMode(observationMode: 'replay' | 'live-observe') {
+  proxyLabStore.setState({ observationMode, mode: observationMode })
+}
+export function setLabGateMode(requestedGateMode: 'flow' | 'strict' | 'dns') {
+  proxyLabStore.setState({ requestedGateMode })
+}
+export function selectLabNode(selectedNodeId: GraphNodeId | null) {
+  proxyLabStore.setState({ selectedNodeId })
 }

@@ -1,138 +1,98 @@
-import { Activity, ArrowRight, FlaskConical, Network, Radio, RefreshCw } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import type { ReactNode } from 'react'
+import { ArrowUpRight, FlaskConical, Folder, Radio, RefreshCw, Search } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getSessions } from '@infrareveal/session-state'
-import type { Session } from '@infrareveal/session-state'
-import { formatDateTime } from '../views/formatters'
-import { partitionSessions } from './sessionGroups'
+import { getSessions, type Session } from '@infrareveal/session-state'
+import { formatDateTime, formatDuration, displayTimeZone } from '../views/formatters'
+import { useElementSize } from '../shared/ui/useElementSize'
+import { usePreference } from '../shared/ui/preferences'
+import { CopyButton } from '../shared/ui/CopyButton'
+import { auditQuality, filterSessions, sessionDuration, summaryCount, type SessionCategory } from './sessions/sessionSummaries'
+import { useSessionSummaries } from './sessions/useSessionSummaries'
+import '../shared/ui/desktop.css'
 
-const SESSION_REFRESH_MS = 5_000
-
+const ROW_HEIGHT = 68
 export function ExperimentsPage() {
+  const requestScope = useRef<AbortController | null>(null)
+  const requestBusy = useRef(false)
   const [sessions, setSessions] = useState<Session[]>([])
   const [status, setStatus] = useState<'loading' | 'ready' | 'offline'>('loading')
   const [error, setError] = useState<string | null>(null)
-  const grouped = useMemo(() => partitionSessions(sessions), [sessions])
-
-  const loadSessions = useCallback(async (signal?: AbortSignal) => {
+  const [refresh, setRefresh] = useState(0)
+  const [now, setNow] = useState(Date.now)
+  const [query, setQuery] = useState('')
+  const [category, setCategory] = useState<SessionCategory>('all')
+  const [selectedId, setSelectedId] = usePreference('sessions.selection', '')
+  const [scrollTop, setScrollTop] = useState(0)
+  const { ref: listRef, height: listHeight } = useElementSize<HTMLDivElement>()
+  const visible = useMemo(() => filterSessions(sessions, category, query), [sessions, category, query])
+  const selected = sessions.find(session => session.id === selectedId) ?? (!selectedId ? sessions[0] : null)
+  const start = Math.max(0, Math.min(Math.floor(scrollTop / ROW_HEIGHT) - 3, Math.max(0, visible.length - 1)))
+  const end = Math.min(visible.length, start + Math.ceil((listHeight || 700) / ROW_HEIGHT) + 7)
+  const shown = visible.slice(start, end)
+  const summaries = useSessionSummaries([...shown.map(session => session.id), ...(selected ? [selected.id] : [])], refresh)
+  const entry = selected ? summaries[selected.id] : undefined
+  const selectedVisible = !selected || visible.some(session => session.id === selected.id)
+  useEffect(() => { if (!selectedId && sessions.length) setSelectedId(filterSessions(sessions, 'all', '')[0].id) }, [selectedId, sessions, setSelectedId])
+  const load = useCallback(async (providedSignal?: AbortSignal) => {
+    const signal = providedSignal || requestScope.current?.signal
+    if (!signal || signal.aborted || requestBusy.current) return
+    requestBusy.current = true
     try {
       const next = await getSessions(signal)
-      setSessions(next)
-      setStatus('ready')
-      setError(null)
-    } catch (loadError) {
       if (signal?.aborted) return
-      setStatus('offline')
-      setError(loadError instanceof Error ? loadError.message : 'Unable to load sessions.')
-    }
+      setSessions(next); setStatus('ready'); setError(null); setRefresh(value => value + 1)
+    } catch (caught) {
+      if (signal?.aborted) return
+      setStatus('offline'); setError(caught instanceof Error ? caught.message : 'Unable to load sessions')
+    } finally { requestBusy.current = false }
   }, [])
-
   useEffect(() => {
-    const controller = new AbortController()
-    const initialTimer = window.setTimeout(() => void loadSessions(controller.signal), 0)
-    const refreshTimer = window.setInterval(() => void loadSessions(controller.signal), SESSION_REFRESH_MS)
-    return () => {
-      controller.abort()
-      window.clearTimeout(initialTimer)
-      window.clearInterval(refreshTimer)
-    }
-  }, [loadSessions])
-
-  return (
-    <main className="min-h-screen bg-slate-950 text-slate-100">
-      <header className="border-b border-slate-800 bg-slate-950/95">
-        <div className="mx-auto flex max-w-7xl flex-col gap-5 px-5 py-7 md:flex-row md:items-end md:justify-between">
-          <div>
-            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-cyan-400">InfraReveal debug lab</p>
-            <h1 className="mt-2 text-4xl font-semibold tracking-tight">Choose an experiment</h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-400">
-              Inspect one shared session clock through the production timeline model or the proxy pipeline teaching view.
-            </p>
-          </div>
-          <button
-            className="inline-flex h-10 items-center justify-center gap-2 border border-slate-700 bg-slate-900 px-4 text-sm font-semibold hover:border-cyan-500 hover:text-cyan-300"
-            onClick={() => void loadSessions()}
-            type="button"
-          >
-            <RefreshCw size={16} /> Refresh
-          </button>
+    const controller = new AbortController(); requestScope.current = controller
+    const initial = setTimeout(() => void load(controller.signal), 0)
+    const poll = setInterval(() => void load(controller.signal), 5_000)
+    const clock = setInterval(() => setNow(Date.now()), 1_000)
+    return () => { controller.abort(); clearTimeout(initial); clearInterval(poll); clearInterval(clock) }
+  }, [load])
+  const resetScroll = () => { listRef.current?.scrollTo({ top: 0 }); setScrollTop(0) }
+  const duration = (session: Session) => {
+    const summary = summaries[session.id]
+    const value = sessionDuration(session, summary?.manifest, summary?.receivedAt, now)
+    return value === null ? 'Unknown' : formatDuration(value)
+  }
+  const count = (session: Session, key: string) => summaryCount(summaries[session.id]?.manifest, key)?.toLocaleString() ?? '—'
+  return <main className="desktop-ui sessions-workspace">
+    <header className="sessions-heading"><div><div className="app-wordmark">InfraReveal <span>/ session library</span></div><h1>Sessions</h1><p>Select a source, then open the tool you need.</p></div>
+      <div className="sessions-heading-actions"><label className="ui-search"><Search size={15} /><input type="search" aria-label="Search sessions" placeholder="Search sessions…" value={query} onChange={event => { setQuery(event.target.value); resetScroll() }} /></label><button type="button" title="Refresh sessions" aria-label="Refresh sessions" onClick={() => void load()}><RefreshCw size={16} /></button></div>
+    </header>
+    {error ? <div className="ui-notice warning" role="status">Gateway unavailable. {sessions.length ? 'Showing the last loaded sessions. ' : ''}{error}</div> : null}
+    <div className="sessions-layout">
+      <nav className="session-categories" aria-label="Session categories"><h2>Library</h2>{(['all', 'live', 'recorded'] as const).map(value => <button type="button" key={value} aria-pressed={category === value} onClick={() => { setCategory(value); resetScroll() }}><span>{value === 'live' ? <Radio size={15} /> : <Folder size={15} />}{value === 'all' ? 'All sessions' : value === 'live' ? 'Live' : 'Recordings'}</span><small>{sessions.filter(session => value === 'all' || session.active === (value === 'live')).length}</small></button>)}<div className="session-utilities"><span className={`connection-dot ${status}`} />{status === 'ready' ? 'Gateway connected' : status === 'loading' ? 'Connecting…' : 'Gateway offline'}<Link to="/controlled-client"><FlaskConical size={14} /> Controlled client</Link></div></nav>
+      <section className="session-list" aria-label="Session sources"><header><h2>{category === 'all' ? 'All sessions' : category === 'live' ? 'Live sessions' : 'Recordings'}</h2><span>Newest first</span></header>
+        <div className="session-list-scroll" ref={listRef} onScroll={event => setScrollTop(event.currentTarget.scrollTop)}>
+          <table className="session-table" aria-label="Sessions"><thead><tr><th scope="col">Session</th><th scope="col">Duration</th><th scope="col">Flows</th><th scope="col">Gate audit</th></tr></thead><tbody>
+            {start > 0 ? <tr aria-hidden="true" className="spacer-row"><td colSpan={4} style={{ height: start * ROW_HEIGHT }} /></tr> : null}
+            {shown.map((session, index) => <tr key={session.id} className={selected?.id === session.id ? 'selected' : ''}><td><button type="button" className="session-name" data-session-id={session.id} aria-pressed={selected?.id === session.id} onClick={() => setSelectedId(session.id)} onKeyDown={event => {
+              if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return
+              event.preventDefault(); const targetIndex = Math.max(0, Math.min(visible.length - 1, start + index + (event.key === 'ArrowDown' ? 1 : -1)))
+              const next = visible[targetIndex]; setSelectedId(next.id)
+              if (listRef.current && (targetIndex * ROW_HEIGHT < scrollTop || (targetIndex + 1) * ROW_HEIGHT > scrollTop + listHeight - 40)) listRef.current.scrollTo({ top: Math.max(0, targetIndex * ROW_HEIGHT - listHeight / 2) })
+              requestAnimationFrame(() => listRef.current?.querySelector<HTMLButtonElement>(`[data-session-id="${CSS.escape(next.id)}"]`)?.focus({ preventScroll: true }))
+            }}>{session.name || session.id}</button>{session.active ? <span className="live-label">● LIVE</span> : null}<span className="session-date">{formatDateTime(session.started_at || session.created)}</span></td><td className="numeric">{duration(session)}</td><td className="numeric" title={summaries[session.id]?.error || 'Session flow records'}>{count(session, 'flows')}</td><td><span className={`audit-label ${auditQuality(session, summaries[session.id]?.manifest).toLowerCase()}`}>{auditQuality(session, summaries[session.id]?.manifest)}</span></td></tr>)}
+            {end < visible.length ? <tr aria-hidden="true" className="spacer-row"><td colSpan={4} style={{ height: (visible.length - end) * ROW_HEIGHT }} /></tr> : null}
+          </tbody></table>
+          {visible.length === 0 ? <div className="ui-empty"><Folder size={25} /><h3>{status === 'loading' ? 'Loading sessions…' : sessions.length ? 'No matching sessions' : 'No sessions available'}</h3><p>{sessions.length ? 'Clear the search or choose another category.' : 'Start a gateway session, then refresh this library.'}</p></div> : null}
         </div>
-      </header>
-
-      <section className="mx-auto max-w-7xl space-y-9 px-5 py-8">
-        <Link className="flex items-center justify-between border border-violet-800 bg-violet-950/20 p-4 text-sm font-semibold text-violet-200 hover:border-violet-500" to="/controlled-client"><span className="flex items-center gap-3"><FlaskConical size={18} /> Open controlled network timeout client</span><ArrowRight size={16} /></Link>
-        {status === 'loading' ? <StatusPanel title="Loading sessions" detail="Connecting to the gateway timeline API…" /> : null}
-        {error ? <StatusPanel tone="error" title="Gateway unavailable" detail={error} /> : null}
-        {status === 'ready' && sessions.length === 0 ? (
-          <StatusPanel title="No sessions yet" detail="Start a gateway session; this page will discover it automatically." />
-        ) : null}
-
-        {grouped.active.length > 0 ? (
-          <SessionGroup icon={<Radio size={18} />} label="Active sessions" sessions={grouped.active} />
-        ) : null}
-        {grouped.recorded.length > 0 ? (
-          <SessionGroup icon={<Activity size={18} />} label="Recorded sessions" sessions={grouped.recorded} />
-        ) : null}
       </section>
-    </main>
-  )
-}
-
-function SessionGroup({ icon, label, sessions }: { icon: ReactNode; label: string; sessions: Session[] }) {
-  return (
-    <section>
-      <div className="mb-4 flex items-center gap-2 text-sm font-semibold uppercase tracking-[0.14em] text-slate-400">
-        {icon} {label} <span className="text-slate-600">{sessions.length}</span>
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        {sessions.map((session) => <SessionCard key={session.id} session={session} />)}
-      </div>
-    </section>
-  )
-}
-
-function SessionCard({ session }: { session: Session }) {
-  const title = session.name || `Session ${session.id.slice(0, 8)}`
-  const timestamp = session.started_at || session.created
-  return (
-    <article className="border border-slate-800 bg-slate-900/80 p-5 shadow-2xl shadow-black/10">
-      <div className="flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
-            {session.active ? <span className="h-2 w-2 rounded-full bg-emerald-400 shadow-[0_0_12px_#34d399]" /> : null}
-            <h2 className="truncate text-xl font-semibold">{title}</h2>
-          </div>
-          <p className="mt-1 font-mono text-xs text-slate-500">{session.id}</p>
-          <p className="mt-3 text-sm text-slate-400">{formatDateTime(timestamp)}</p>
-          {session.gate_audit_complete === false ? <p className="mt-2 text-xs font-semibold text-rose-300">Gate audit incomplete · {session.gate_audit_drops ?? 0} lost</p> : null}
-        </div>
-        <span className={`border px-2 py-1 text-xs font-semibold uppercase tracking-wider ${session.active ? 'border-emerald-800 bg-emerald-950 text-emerald-300' : 'border-slate-700 text-slate-400'}`}>
-          {session.active ? 'Live' : 'Recorded'}
-        </span>
-      </div>
-      <div className="mt-6 grid gap-2 sm:grid-cols-2">
-        <ExperimentLink icon={<Activity size={17} />} label="Session timeline" to={`/timeline/${session.id}`} />
-        <ExperimentLink icon={<Network size={17} />} label="Proxy pipeline" to={`/proxy-lab/${session.id}`} />
-      </div>
-    </article>
-  )
-}
-
-function ExperimentLink({ icon, label, to }: { icon: ReactNode; label: string; to: string }) {
-  return (
-    <Link className="group flex items-center justify-between border border-slate-700 bg-slate-950 px-3 py-3 text-sm font-semibold hover:border-cyan-500 hover:text-cyan-300" to={to}>
-      <span className="flex items-center gap-2">{icon}{label}</span>
-      <ArrowRight className="transition-transform group-hover:translate-x-1" size={16} />
-    </Link>
-  )
-}
-
-function StatusPanel({ detail, title, tone = 'neutral' }: { detail: string; title: string; tone?: 'neutral' | 'error' }) {
-  return (
-    <div className={`border px-5 py-8 ${tone === 'error' ? 'border-red-900 bg-red-950/40 text-red-100' : 'border-slate-800 bg-slate-900/70'}`}>
-      <h2 className="text-lg font-semibold">{title}</h2>
-      <p className="mt-2 text-sm text-slate-400">{detail}</p>
+      <aside className="session-details" aria-label="Selected session">
+        {selected ? <><div className="source-icon"><Folder size={24} /></div><span className="source-kind">{selected.active ? '● Live session' : 'Recorded session'}</span><h2>{selected.name || selected.id}</h2><div className="source-id">{selected.id}<CopyButton label="Copy session ID" value={selected.id} /></div>
+          {!selectedVisible ? <p className="ui-notice">Selected source is outside the current filter.</p> : null}
+          <dl><dt>Started</dt><dd>{formatDateTime(selected.started_at || selected.created)}</dd><dt>{selected.active ? 'Elapsed' : 'Duration'}</dt><dd>{duration(selected)}</dd><dt>Flow records</dt><dd>{count(selected, 'flows')}</dd><dt>DNS records</dt><dd>{count(selected, 'dns_queries')}</dd><dt>Gate audit</dt><dd>{auditQuality(selected, entry?.manifest)}{(entry?.manifest?.gateAuditDrops ?? selected.gate_audit_drops ?? 0) > 0 ? ` · ${entry?.manifest?.gateAuditDrops ?? selected.gate_audit_drops} lost` : ''}</dd></dl>
+          {entry?.error ? <p className="ui-notice warning">Summary unavailable. {entry.error}</p> : !entry?.manifest ? <p className="muted" role="status">Loading session summary…</p> : null}
+          <div className="source-launch"><Link className="ui-primary" to={`/timeline/${encodeURIComponent(selected.id)}`}>Open Traffic <ArrowUpRight size={16} /></Link><Link to={`/proxy-lab/${encodeURIComponent(selected.id)}`}>Open Lab <ArrowUpRight size={16} /></Link></div><p className="muted">Traffic explores the recording in time. Lab follows its path through gateway nodes.</p>
+          <details className="session-metadata"><summary>Source metadata</summary><CopyButton label="Copy session metadata" value={JSON.stringify({ session: selected, manifest: entry?.manifest }, null, 2)} /><pre>{JSON.stringify({ session: selected, manifest: entry?.manifest }, null, 2)}</pre></details>
+        </> : <div className="ui-empty"><h3>{selectedId ? 'Source no longer available' : 'Choose a session'}</h3><p>{selectedId ? 'Select another source from the library.' : 'Its details and tool launch actions will appear here.'}</p></div>}
+      </aside>
     </div>
-  )
+    <footer className="desktop-status"><span>{visible.length} of {sessions.length} sessions</span><span>Session summaries load on demand · {displayTimeZone}</span></footer>
+  </main>
 }

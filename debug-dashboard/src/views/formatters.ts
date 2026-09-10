@@ -1,3 +1,9 @@
+// Reuse ICU formatters: thousands of visible evidence labels must not allocate
+// a new locale formatter for every render. Source timestamps remain unchanged.
+const clockFormatter = new Intl.DateTimeFormat(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+const dateTimeFormatter = new Intl.DateTimeFormat(undefined, { year: 'numeric', month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+export const displayTimeZone = clockFormatter.resolvedOptions().timeZone
+
 export function formatBytes(bytes: number) {
   if (!Number.isFinite(bytes) || bytes <= 0) {
     return '0 B'
@@ -17,7 +23,7 @@ export function formatClock(value: number | string) {
   if (Number.isNaN(date.getTime())) {
     return 'n/a'
   }
-  return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
+  return clockFormatter.format(date)
 }
 
 export function formatDateTime(value: number | string) {
@@ -25,7 +31,7 @@ export function formatDateTime(value: number | string) {
   if (Number.isNaN(date.getTime())) {
     return 'n/a'
   }
-  return date.toLocaleString()
+  return dateTimeFormatter.format(date)
 }
 
 export function formatDuration(seconds: number) {

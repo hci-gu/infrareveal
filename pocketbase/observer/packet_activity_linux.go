@@ -4,7 +4,9 @@ package observer
 
 import (
 	"context"
+	"encoding/binary"
 	"errors"
+	"fmt"
 	"net"
 	"time"
 
@@ -12,6 +14,7 @@ import (
 )
 
 const packetCaptureHeaderBytes = 256
+const packetAuxdataBytes = 20
 
 func runPacketCapture(
 	ctx context.Context,
@@ -33,6 +36,11 @@ func runPacketCapture(
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_RCVBUF, 4*1024*1024); err != nil {
 		return err
 	}
+	// BPF trims the skb before recvmsg: MSG_TRUNC only reports the snapped
+	// length. AUXDATA preserves the original length without copying payload.
+	if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_AUXDATA, 1); err != nil {
+		return err
+	}
 	if err := attachPacketHeaderFilter(fd); err != nil {
 		return err
 	}
@@ -52,8 +60,9 @@ func runPacketCapture(
 	onReady()
 
 	buffer := make([]byte, packetCaptureHeaderBytes)
+	control := make([]byte, unix.CmsgSpace(packetAuxdataBytes))
 	for {
-		n, _, err := unix.Recvfrom(fd, buffer, unix.MSG_TRUNC)
+		n, controlLength, flags, _, err := unix.Recvmsg(fd, buffer, control, unix.MSG_TRUNC)
 		if err != nil {
 			if ctx.Err() != nil || errors.Is(err, unix.EBADF) {
 				return ctx.Err()
@@ -63,14 +72,44 @@ func runPacketCapture(
 			}
 			return err
 		}
+		wireLength, err := packetOriginalLength(control[:controlLength], n, flags)
+		if err != nil {
+			return err
+		}
 		capturedLength := n
 		if capturedLength > len(buffer) {
 			capturedLength = len(buffer)
 		}
-		if event, ok := ParsePacketActivityFrame(buffer[:capturedLength], n, time.Now().UTC(), scope); ok {
+		if event, ok := ParsePacketActivityFrame(buffer[:capturedLength], wireLength, time.Now().UTC(), scope); ok {
 			emit(event)
 		}
 	}
+}
+
+func packetOriginalLength(control []byte, received, flags int) (int, error) {
+	if flags&unix.MSG_CTRUNC != 0 {
+		return 0, errors.New("packet capture auxiliary data truncated")
+	}
+	messages, err := unix.ParseSocketControlMessage(control)
+	if err != nil {
+		return 0, fmt.Errorf("packet capture auxiliary data: %w", err)
+	}
+	for _, message := range messages {
+		if message.Header.Level != unix.SOL_PACKET || message.Header.Type != unix.PACKET_AUXDATA {
+			continue
+		}
+		if len(message.Data) < packetAuxdataBytes {
+			return 0, errors.New("packet capture auxiliary data too short")
+		}
+		// Linux tpacket_auxdata starts with native-endian status, len, snaplen.
+		original := int(binary.NativeEndian.Uint32(message.Data[4:8]))
+		snapped := int(binary.NativeEndian.Uint32(message.Data[8:12]))
+		if original < received || snapped != received || original < snapped || original <= 0 {
+			return 0, errors.New("packet capture auxiliary lengths invalid")
+		}
+		return original, nil
+	}
+	return 0, errors.New("packet capture original length unavailable")
 }
 
 func htons(value uint16) uint16 {

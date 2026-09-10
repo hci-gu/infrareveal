@@ -52,6 +52,7 @@ const subscriptions = [
 /** Owns bootstrap, realtime delivery, reconciliation, and bounded detail loading. */
 class SessionController {
   private generation = 0
+  private bootstrapController: AbortController | null = null
   private requestedSessionId: string | null = null
   private unsubscribers: Array<() => void> = []
   private reconcileTimer = 0
@@ -60,6 +61,7 @@ class SessionController {
   private buffering = false
   private queue = new Map<string, QueuedRealtimeEvent>()
   private pendingPages = new Map<string, PendingPage>()
+  private detailOwners = new Map<string, Set<string>>()
   private startPromise: Promise<void> | null = null
   private collectionTransport = false
 
@@ -71,7 +73,8 @@ class SessionController {
     this.collectionTransport = false
     this.queue.clear()
     this.buffering = false
-    this.startPromise = this.bootstrap(generation, requestedSessionId).finally(() => {
+    this.bootstrapController = new AbortController()
+    this.startPromise = this.bootstrap(generation, requestedSessionId, this.bootstrapController.signal).finally(() => {
       if (generation === this.generation) this.startPromise = null
     })
     return this.startPromise
@@ -82,7 +85,7 @@ class SessionController {
     return this.start(this.requestedSessionId)
   }
 
-  async ensureDetailRange(fromMs: number, toMs: number, flowIds: string[] = [], lod: TimelineLOD = chooseLOD(fromMs, toMs)) {
+  async ensureDetailRange(fromMs: number, toMs: number, flowIds: string[] = [], lod: TimelineLOD = chooseLOD(fromMs, toMs), owner = 'default') {
     const state = sessionTimelineStore.getState()
     const sessionId = state.selectedSessionId
     if (!sessionId || toMs <= fromMs) return
@@ -92,7 +95,8 @@ class SessionController {
       ...segment,
       key: `${sessionId}:${segment.fromMs}:${lod}:${flowKey}`,
     }))
-    const activeKeys = new Set(pageDescriptors.map((page) => page.key))
+    this.detailOwners.set(owner, new Set(pageDescriptors.map((page) => page.key)))
+    const activeKeys = new Set([...this.detailOwners.values()].flatMap(keys => [...keys]))
     for (const [key, pending] of this.pendingPages) {
       if (!activeKeys.has(key)) pending.controller.abort()
     }
@@ -101,18 +105,26 @@ class SessionController {
     const loads = pageDescriptors.map((page) => {
       if (hasDetailPage(page.key)) return Promise.resolve()
       const pending = this.pendingPages.get(page.key)
-      if (pending) return pending.promise
+      if (pending && !pending.controller.signal.aborted) return pending.promise
       const controller = new AbortController()
       setDetailPageLoading(page.key, true)
       const request = this.loadDetailPage(sessionId, page, normalizedFlowIDs, lod, controller.signal)
         .finally(() => {
-          this.pendingPages.delete(page.key)
-          setDetailPageLoading(page.key, false)
+          if (this.pendingPages.get(page.key)?.controller === controller) {
+            this.pendingPages.delete(page.key)
+            setDetailPageLoading(page.key, false)
+          }
         })
       this.pendingPages.set(page.key, { controller, promise: request })
       return request
     })
     await Promise.all(loads)
+  }
+
+  releaseDetailRange(owner: string) {
+    this.detailOwners.delete(owner)
+    const activeKeys = new Set([...this.detailOwners.values()].flatMap(keys => [...keys]))
+    for (const [key, pending] of this.pendingPages) if (!activeKeys.has(key)) pending.controller.abort()
   }
 
   clearDetail() {
@@ -127,10 +139,10 @@ class SessionController {
     this.startPromise = null
   }
 
-  private async bootstrap(generation: number, requestedSessionId: string | null) {
+  private async bootstrap(generation: number, requestedSessionId: string | null, signal: AbortSignal) {
     setTimelineConnection('loading')
     try {
-      const sessions = await getSessions()
+      const sessions = await getSessions(signal)
       if (generation !== this.generation) return
       const selected = selectSession(sessions, requestedSessionId)
       resetSessionTimeline(selected?.id ?? null, sessions)
@@ -143,7 +155,7 @@ class SessionController {
       const subscribed = await this.openSubscriptions(generation)
       if (generation !== this.generation) return
       const manifest = selected.started_at
-        ? await getSessionManifest(selected.id)
+        ? await getSessionManifest(selected.id, signal)
         : createCollectionSessionManifest(selected)
       if (generation !== this.generation) return
       this.collectionTransport = manifest.transport === 'collections'
@@ -155,6 +167,7 @@ class SessionController {
         fromMs,
         toMs,
         lod: 'overview',
+        signal,
       })
       if (generation !== this.generation) return
       applySessionWindow(overview)
@@ -295,7 +308,7 @@ class SessionController {
       })
       merged = merged ? mergeWindows(merged, window) : window
     }
-    if (!merged || sessionTimelineStore.getState().selectedSessionId !== sessionId) return
+    if (signal.aborted || !merged || sessionTimelineStore.getState().selectedSessionId !== sessionId) return
     applySessionWindow(merged, {
       key: page.key,
       fromMs: page.fromMs,
@@ -307,12 +320,15 @@ class SessionController {
   }
 
   private stopRuntime() {
+    this.bootstrapController?.abort()
+    this.bootstrapController = null
     this.stopTimers()
     if (this.batchTimer) window.clearTimeout(this.batchTimer)
     this.batchTimer = 0
     for (const unsubscribe of this.unsubscribers.splice(0)) void unsubscribe()
     for (const pending of this.pendingPages.values()) pending.controller.abort()
     this.pendingPages.clear()
+    this.detailOwners.clear()
   }
 
   private getWindow(options: Parameters<typeof getSessionWindow>[0]) {

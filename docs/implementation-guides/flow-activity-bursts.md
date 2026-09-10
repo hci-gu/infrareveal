@@ -95,6 +95,8 @@ Reasons:
 
 Attach a classic BPF filter where practical and cap captured data to the headers required for Ethernet, VLAN, IPv4/IPv6, TCP, and UDP parsing. The implementation may briefly receive a bounded prefix of a packet in memory, but it must discard it immediately after extracting metadata and must never persist payload bytes.
 
+The Linux collector keeps a 256-byte BPF snapshot and enables `PACKET_AUXDATA`. It reads the original wire length from `tpacket_auxdata.tp_len` using `recvmsg`; `MSG_TRUNC` alone returns the length **after** BPF truncation. Passing that truncated length to the parser rejects large packets and severely undercounts downloads. Missing or malformed auxiliary lengths fail capture visibly rather than silently dropping large packets. Recordings made with the former receive path retain their incomplete samples; cumulative flow counters cannot reconstruct the missing timing.
+
 Do not capture on the uplink interface for the first version. NAT changes the tuple there and makes correlation with the client-facing conntrack key harder.
 
 ### Packet metadata

@@ -10,7 +10,7 @@ export type FlowActivitySample = {
   complete: boolean
 }
 
-/** Strictly decodes the persisted sparse v1 activity format. */
+/** Decodes sparse v1 activity, including the timeline API's five-second summaries. */
 export function decodeActivityChunk(chunk: FlowActivityChunk): FlowActivitySample[] {
   const value = chunk.samples
   if (!value || typeof value !== 'object' || Array.isArray(value)) return []
@@ -23,7 +23,7 @@ export function decodeActivityChunk(chunk: FlowActivityChunk): FlowActivitySampl
     ? positiveInteger(chunk.chunk_ms)
     : positiveInteger(payload.chunk_ms)
   const chunkStartMs = Date.parse(chunk.chunk_start)
-  if (!bucketMs || !chunkMs || bucketMs < 20 || bucketMs > 1000 || chunkMs > 60_000 || bucketMs > chunkMs || !Number.isFinite(chunkStartMs)) return []
+  if (!bucketMs || !chunkMs || bucketMs < 20 || (bucketMs > 1000 && bucketMs !== 5000) || chunkMs > 60_000 || bucketMs > chunkMs || !Number.isFinite(chunkStartMs)) return []
   const samples: FlowActivitySample[] = []
   for (const row of payload.samples) {
     if (!Array.isArray(row) || row.length < 5) continue

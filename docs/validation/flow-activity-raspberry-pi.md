@@ -24,6 +24,20 @@ cd pocketbase
 go test -run '^$' -bench BenchmarkActivityAggregatorReplay -benchmem -count=5 ./observer
 ```
 
+The Linux socket regression must also run in an isolated network namespace with `CAP_NET_RAW`. It sends synthetic large TCP, UDP and IPv6 frames through the actual BPF filter, socket receive and parser, checking original wire and payload counts. From the repository root on an arm64 development host with Docker:
+
+```bash
+cd pocketbase
+GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go test -c -o /tmp/infrareveal-observer-linux.test ./observer
+docker run --rm --network none --cap-add NET_RAW \
+  -e INFRAREVEAL_PACKET_CAPTURE_TEST=1 \
+  --mount type=bind,src=/tmp/infrareveal-observer-linux.test,dst=/observer.test,readonly \
+  --entrypoint /observer.test node:22-slim \
+  -test.run 'TestPacket(Capture|Original)' -test.v -test.timeout 20s
+```
+
+On 2026-09-10, all three large-frame cases reproduced silent loss before the `PACKET_AUXDATA` fix and passed afterward on Linux arm64 in Docker. Malformed/missing auxiliary metadata checks passed as well. This verifies the kernel/socket boundary locally; deployment and fresh capture on the Pi remain required to validate the actual AP interface. The old recording cannot be repaired from cumulative counters.
+
 Development reference only—not a Raspberry Pi result: on an Apple M1 Max running arm64 Darwin on 2026-08-25, the replay took 1.67–1.71 ms per 10,000 events and allocated about 1.07 MB. Record target-Pi results below rather than treating this figure as an acceptance measurement.
 
 Also on 2026-08-25, a fresh local PocketBase data directory was migrated and served through the compiled application. HTTP list requests against `flow_activity_status`, `flow_activity_windows`, and a paginated/time-filtered `flow_activity_chunks` query succeeded. Repeated two-second status heartbeats updated one stable record per five-second capture window, and graceful shutdown produced no activity-observer database errors. This is a migration/API smoke check, not a substitute for raw capture or performance testing on the Pi.
