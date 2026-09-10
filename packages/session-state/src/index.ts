@@ -47,3 +47,6 @@ export type {
 export { chooseLOD } from './timeline/transport/sessionController'
 
 export { routeForFlowAt, routeAvailableAt, routeBindingKey, routeMatchesFlow, routeIsValidAt, compareRouteRevisions, routeStateLabel } from './data/routeEvidence'
+
+export { getRouteDiscoveryStatus } from './data/pocketbaseClient'
+export type { RouteDiscoveryStatus } from './data/pocketbaseClient'

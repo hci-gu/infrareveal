@@ -65,3 +65,19 @@ describe('traceroute geography', () => {
     expect(bundles[0].bytes).toBe(200)
   })
 })
+
+it('marks both sides of multiple responders as uncertain and keeps alternate paths separate', () => {
+  const route: Route = {
+    id: 'route', session: 'session', destination: '', destination_ip: '203.0.113.9', destination_port: 443, protocol: 'tcp', method: 'tcp:443', complete: true, error: '', completed_at: '2026-09-10T12:00:00Z',
+    hops: [
+      {ttl: 1, address: '192.0.2.1', missing: false, timings: [1], lat: 58, lon: 12, state: 'multipath', replies: [{address: '192.0.2.1', probe_id: 1, rtt_ms: 1}, {address: '192.0.2.2', probe_id: 2, rtt_ms: 2}]},
+      {ttl: 2, address: '203.0.113.9', missing: false, timings: [3], lat: 59, lon: 13},
+    ],
+    alternate_routes: [{method: 'icmp-paris', measured_at: '2026-09-10T12:00:00Z', destination_reached: false, responding_hops: 1, located_hops: 1, hops: [{ttl: 1, address: '198.51.100.1', missing: false, timings: [1], lat: 60, lon: 14}]}],
+  }
+  const destination: Destination = {id: '', ip: route.destination_ip, reverse_dns: '', asn: 0, organization: '', provider_label: '', city: '', country: '', lat: 59, lon: 13, last_seen: ''}
+  const path = mapRoutePath(route, {latitude: 57, longitude: 11, label: 'Gateway'}, destination)
+  expect(path.positions).toEqual([[11, 57], [12, 58], [13, 59]])
+  expect(path.gaps).toEqual([true, true])
+  expect(path.nodes.map(node => node.address)).not.toContain('198.51.100.1')
+})

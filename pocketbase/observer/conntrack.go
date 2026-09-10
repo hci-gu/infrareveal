@@ -14,6 +14,7 @@ import (
 
 	"myapp/debugtrace"
 	"myapp/netmeta"
+	"myapp/routing"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
@@ -34,11 +35,13 @@ type FlowSample struct {
 }
 
 type ConntrackSampler struct {
-	path       string
-	scope      ObservationScope
-	mu         sync.Mutex
-	suppressed map[string]struct{}
-	trace      debugtrace.Sink
+	path          string
+	scope         ObservationScope
+	mu            sync.Mutex
+	suppressed    map[string]struct{}
+	trace         debugtrace.Sink
+	routeSession  string
+	routeObserver func(routing.Flow)
 }
 
 func (f FlowSample) Key() string {
@@ -58,9 +61,12 @@ func NewConntrackSampler(path string, scope ObservationScope) *ConntrackSampler 
 	}
 }
 
-func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path string, scope ObservationScope, sessionID func() string, trace debugtrace.Sink) *ConntrackSampler {
+func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path string, scope ObservationScope, sessionID func() string, trace debugtrace.Sink, routeObservers ...func(routing.Flow)) *ConntrackSampler {
 	sampler := NewConntrackSampler(path, scope)
 	sampler.trace = usableTraceSink(trace)
+	if len(routeObservers) > 0 {
+		sampler.routeObserver = routeObservers[0]
+	}
 	accountingPath := os.Getenv("CONNTRACK_ACCOUNTING_PATH")
 	if accountingPath == "" {
 		accountingPath = "/proc/sys/net/netfilter/nf_conntrack_acct"
@@ -72,7 +78,7 @@ func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path
 	}
 
 	go func() {
-		ticker := time.NewTicker(2 * time.Second)
+		ticker := time.NewTicker(time.Duration(boundedEnvInt("CONNTRACK_SAMPLE_MS", 1000, 250, 5000)) * time.Millisecond)
 		defer ticker.Stop()
 
 		var loggedMissing bool
@@ -154,10 +160,15 @@ func (sampler *ConntrackSampler) sampleAndPersist(app *pocketbase.PocketBase, se
 	if err != nil {
 		return err
 	}
+	baselineSession := sampler.routeSession != sessionID
+	sampler.routeSession = sessionID
 	for _, sample := range samples {
 		result, err := upsertFlow(app, sessionID, sample)
 		if err != nil {
 			return err
+		}
+		if sampler.routeObserver != nil {
+			sampler.routeObserver(routing.Flow{Baseline: baselineSession, ID: result.RecordID, Session: sessionID, IP: sample.DestinationIP, Protocol: sample.Protocol, Port: sample.DestinationPort, Bytes: sample.BytesIn + sample.BytesOut, At: result.ObservedAt})
 		}
 		if result.Created {
 			wireBytes := traceCount(sample.BytesOut + sample.BytesIn)
@@ -324,6 +335,11 @@ func upsertFlow(app *pocketbase.PocketBase, sessionID string, sample FlowSample)
 		record.Set("source", "conntrack")
 	}
 
+	// Persist byte/state changes immediately; unchanged sockets only need a
+	// two-second lifetime heartbeat even when discovery samples every second.
+	if !created && record.GetString("state") == sample.State && record.GetInt("bytes_out") == int(sample.BytesOut) && record.GetInt("bytes_in") == int(sample.BytesIn) && record.GetInt("packets_out") == int(sample.PacketsOut) && record.GetInt("packets_in") == int(sample.PacketsIn) && observedAt.Sub(record.GetDateTime("last_seen").Time()) < 2*time.Second {
+		return flowUpsertResult{RecordID: record.Id, ObservedAt: observedAt}, nil
+	}
 	record.Set("state", sample.State)
 	record.Set("last_seen", now)
 	record.Set("bytes_out", sample.BytesOut)

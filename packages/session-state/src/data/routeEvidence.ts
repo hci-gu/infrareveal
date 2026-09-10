@@ -28,6 +28,6 @@ export function routeStateLabel(route: Route, cursorMs: number) {
   const gaps = route.hops?.some(h => h.missing || !h.address)
   const ageMs = cursorMs - parseEpoch(route.measured_at || route.completed_at, cursorMs)
   const age = ageMs < 60_000 ? `${Math.max(0, Math.floor(ageMs / 1000))}s` : `${Math.floor(ageMs / 60_000)}m`
-  const state = route.status === 'queued' ? 'Queued' : route.status === 'probing' ? 'Discovering' : route.status === 'refreshing' ? 'Refreshing' : reached ? (gaps ? 'Reached · gaps' : 'Reached') : replies ? 'Partial route' : 'Route unavailable'
+  const state = route.status === 'queued' ? 'Queued' : route.status === 'probing' ? 'Discovering' : route.status === 'refreshing' ? (route.probe_details?.latest_attempt?.profile === 'coverage' ? 'Improving coverage' : 'Refreshing') : reached ? (gaps ? 'Reached · gaps' : 'Reached') : replies ? 'Partial route' : 'Route unavailable'
   return `${state}${route.provenance === 'cache' || route.status === 'cached' ? ` · cached ${age} ago` : ''}`
 }

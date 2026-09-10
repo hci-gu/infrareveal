@@ -1,3 +1,4 @@
+import { compareRouteRevisions, routeAvailableAt, routeBindingKey, routeMatchesFlow } from '../../data/routeEvidence'
 import { createStore } from 'zustand/vanilla'
 import type {
   ActivityEpisode,
@@ -43,6 +44,7 @@ type EntityMaps = {
 }
 
 type EntityOwnership = {
+  routes: Set<string>
   dnsQueries: Set<string>
   flowActivityChunks: Set<string>
   flowActivityWindows: Set<string>
@@ -152,6 +154,7 @@ function createIndexes(): SessionIndexes {
 
 function createDetailRefCounts(): EntityReferenceCounts {
   return {
+    routes: new Map(),
     dnsQueries: new Map(),
     flowActivityChunks: new Map(),
     flowActivityWindows: new Map(),
@@ -310,6 +313,7 @@ export function applySessionWindow(
 
   if (page) {
     const ownership: EntityOwnership = {
+      routes: new Set(window.routes.map(record => record.id)),
       dnsQueries: new Set(window.dnsQueries.map((record) => record.id)),
       flowActivityChunks: new Set(window.flowActivityChunks.map((record) => record.id)),
       flowActivityWindows: new Set(window.flowActivityWindows.map((record) => record.id)),
@@ -322,6 +326,7 @@ export function applySessionWindow(
     evictDetailPages(state, new Set([page.key]))
   }
 
+  pruneRouteRevisions(state)
   const overview = window.lod === 'overview'
   const overviewChanged = forceOverviewChange || changes.overview || (overview && !state.overviewReady)
   const detailChanged = changes.detail || Boolean(page)
@@ -417,9 +422,11 @@ export function applyRealtimeBatch(events: QueuedRealtimeEvent[]) {
       if (event.action !== 'delete') attachRealtimeDetailOwnership(state, event.collection, record, touchedPages)
     } else {
       overviewChanged = true
+      if (event.collection === 'routes') { attachRealtimeDetailOwnership(state, 'routes', record, touchedPages); detailChanged = true }
       if (event.collection === 'flows') detailChanged = true
     }
   }
+  pruneRouteRevisions(state)
   evictDetailPages(state, touchedPages)
   sessionTimelineStore.setState({
     sessions: state.sessions,
@@ -483,10 +490,7 @@ export function isRealtimeRecordInWorkingSet(
   collection: keyof EntityMaps,
   record: { flow?: string; ip?: string; chunk_start?: string; window_start?: string; timestamp?: string; queued_at?: string },
 ) {
-  if (collection === 'destinations') {
-    if (!record.ip) return false
-    return Array.from(sessionTimelineStore.getState().entities.flows.values()).some((flow) => flow.destination_ip === record.ip)
-  }
+  if (collection === 'destinations') return Boolean(record.ip)
   if (collection !== 'flowActivityChunks' && collection !== 'flowActivityWindows' && collection !== 'dnsQueries' && collection !== 'gateEvents') return true
   const state = sessionTimelineStore.getState()
   const at = collection === 'flowActivityChunks'
@@ -640,6 +644,8 @@ function removePage(state: SessionTimelineState, page: DetailPage) {
   removeOwnedRecords(state, page.ownership.flowActivityChunks, 'flowActivityChunks')
   removeOwnedRecords(state, page.ownership.flowActivityWindows, 'flowActivityWindows')
   removeOwnedRecords(state, page.ownership.gateEvents, 'gateEvents')
+  removeOwnedRecords(state, page.ownership.routes, 'routes')
+  pruneRouteRevisions(state)
 }
 
 function removeOwnedRecords(state: SessionTimelineState, ids: Set<string>, collection: keyof EntityOwnership) {
@@ -648,7 +654,7 @@ function removeOwnedRecords(state: SessionTimelineState, ids: Set<string>, colle
     const next = Math.max(0, (counts.get(id) ?? 1) - 1)
     if (next === 0) {
       counts.delete(id)
-      removeEntity(state, collection, id)
+      if (collection !== 'routes') removeEntity(state, collection, id)
     } else {
       counts.set(id, next)
     }
@@ -656,7 +662,7 @@ function removeOwnedRecords(state: SessionTimelineState, ids: Set<string>, colle
 }
 
 function addOwnershipReferences(state: SessionTimelineState, ownership: EntityOwnership) {
-  for (const collection of ['dnsQueries', 'flowActivityChunks', 'flowActivityWindows', 'gateEvents'] as const) {
+  for (const collection of ['dnsQueries', 'flowActivityChunks', 'flowActivityWindows', 'gateEvents', 'routes'] as const) {
     const counts = state.detailRefCounts[collection]
     for (const id of ownership[collection]) counts.set(id, (counts.get(id) ?? 0) + 1)
   }
@@ -668,7 +674,7 @@ function attachRealtimeDetailOwnership(
   record: RecordBase,
   touchedPages: Set<string>,
 ) {
-  const at = collection === 'flowActivityChunks'
+  const at = collection === 'routes' ? routeAvailableAt(record as Route) : collection === 'flowActivityChunks'
     ? parseEpoch((record as FlowActivityChunk).chunk_start)
     : collection === 'flowActivityWindows'
       ? parseEpoch((record as FlowActivityWindow).window_start)
@@ -678,6 +684,18 @@ function attachRealtimeDetailOwnership(
   if (!at) return
   for (const page of state.pages.values()) {
     const fromMs = collection === 'dnsQueries' ? page.fromMs - 5 * 60_000 : collection === 'gateEvents' ? page.fromMs : page.fromMs - 60_000
+    if (collection === 'routes') {
+      const route = record as Route
+      if (at >= page.toMs || page.ownership.routes.has(route.id)) continue
+      if (page.flowIds.size && ![...page.flowIds].some(id => { const flow = state.entities.flows.get(id); return flow && routeMatchesFlow(route, flow) })) continue
+      if (at < page.fromMs) {
+        const anchors = [...page.ownership.routes].map(id => state.entities.routes.get(id)).filter((r): r is Route => Boolean(r) && routeBindingKey(r!) === routeBindingKey(route) && routeAvailableAt(r!) < page.fromMs)
+        if (anchors.some(r => compareRouteRevisions(r, route) >= 0)) continue
+        for (const anchor of anchors) { page.ownership.routes.delete(anchor.id); removeOwnedRecords(state, new Set([anchor.id]), 'routes'); const bytes = estimateRecordBytes(anchor); page.bytes = Math.max(0, page.bytes - bytes); state.cacheBytes = Math.max(0, state.cacheBytes - bytes) }
+      }
+      page.ownership.routes.add(route.id); state.detailRefCounts.routes.set(route.id, (state.detailRefCounts.routes.get(route.id) ?? 0) + 1)
+      const bytes = estimateRecordBytes(record); page.bytes += bytes; state.cacheBytes += bytes; touchedPages.add(page.key); continue
+    }
     const flowAccepted = collection !== 'flowActivityChunks' || page.flowIds.size === 0 || page.flowIds.has((record as FlowActivityChunk).flow)
     if (!flowAccepted || at < fromMs || at >= page.toMs || page.ownership[collection].has(record.id)) continue
     page.ownership[collection].add(record.id)
@@ -760,7 +778,7 @@ function entityRevision(collection: keyof EntityMaps, record: RecordBase) {
     case 'destinations':
       return parseEpoch((record as Destination).last_seen, 0)
     case 'routes':
-      return parseEpoch((record as Route).completed_at, 0)
+      return routeAvailableAt(record as Route)
     case 'gateEvents':
       return parseEpoch((record as GateEvent).decided_at || (record as GateEvent).queued_at, 0)
     case 'sessions':
@@ -779,4 +797,17 @@ function sortSessions(left: Session, right: Session) {
 
 export function emptySelectedGatewayData() {
   return emptyGatewayData()
+}
+
+function pruneRouteRevisions(state: SessionTimelineState) {
+  const ips = new Set([...state.entities.flows.values()].map(flow => flow.destination_ip))
+  const orphanDestinations = [...state.entities.destinations.values()].filter(d => !ips.has(d.ip))
+  for (const d of orphanDestinations.slice(0, Math.max(0, orphanDestinations.length - 256))) state.entities.destinations.delete(d.id)
+  const latest = new Map<string, Route>()
+  for (const route of state.entities.routes.values()) {
+    const key = routeBindingKey(route), previous = latest.get(key)
+    if (!previous || compareRouteRevisions(route, previous) > 0) latest.set(key, route)
+  }
+  const pins = new Set([...latest.values()].map(route => route.id))
+  for (const id of state.entities.routes.keys()) if (!pins.has(id) && !state.detailRefCounts.routes.has(id)) state.entities.routes.delete(id)
 }

@@ -691,3 +691,6 @@ class RealtimeClient {
 }
 
 const realtime = new RealtimeClient()
+
+export type RouteDiscoveryStatus = {coverage_running?: number; reached_byte_coverage?: number; located_byte_coverage?: number; hop_coverage?: number; pending: number; running: number; starts: number; cache_hits: number; failures: number; deferred: number; oldest_wait_ms: number; last_error: string; measured_byte_coverage: number; recent_bytes: number}
+export function getRouteDiscoveryStatus(signal?: AbortSignal) { return requestJSON<RouteDiscoveryStatus>('/api/infrareveal/routes/status', signal) }

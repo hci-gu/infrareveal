@@ -147,6 +147,26 @@ export type Destination = {
   last_seen: string
 }
 
+export type RouteProbeDetails = {
+  engine?: string
+  profile?: string
+  flow_id?: string
+  probe_count?: number
+  probed_ttl?: number
+  hop_coverage?: number
+  reply_count?: number
+  alternate_method?: boolean
+  latest_attempt?: { method: string; status: string; error: string; measured_at: string; responding_hops: number; located_hops: number; profile: string }
+}
+export type RouteAlternative = {
+  method: string
+  hops: Route['hops']
+  destination_reached: boolean
+  measured_at: string
+  responding_hops: number
+  located_hops: number
+  probe_details?: RouteProbeDetails
+}
 export type Route = {
   id: string
   created?: string
@@ -157,6 +177,8 @@ export type Route = {
   destination_port: number
   protocol: string
   method: string
+  probe_details?: RouteProbeDetails
+  alternate_routes?: RouteAlternative[]
   binding_key?: string
   network_context?: string
   attempt_id?: string
@@ -177,6 +199,7 @@ export type Route = {
     address: string
     missing: boolean
     state?: string
+    replies?: Array<{ address: string; rtt_ms?: number; reported_rtt_ms?: number; probe_id: number; icmp_type?: number; icmp_code?: number; tcp_flags?: number; seen_at?: string }>
     annotation?: string
     accuracy_km?: number
     geo_version?: string

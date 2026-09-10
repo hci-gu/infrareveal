@@ -39,7 +39,7 @@ export function mapRoutePath(route: Route, origin: GatewayOrigin, destination: D
     gaps.push(inferred)
   }
   for (const hop of hops) {
-    gap ||= hop.ttl > previousTTL + 1
+    gap ||= hop.ttl > previousTTL + 1 || hop.state === 'multipath'
     previousTTL = hop.ttl
     if (hop.missing || !hop.address || !hasMapCoordinates(hop.lat, hop.lon)) { gap = true; continue }
     const destinationHop = hop.address === route.destination_ip
@@ -50,7 +50,7 @@ export function mapRoutePath(route: Route, origin: GatewayOrigin, destination: D
       label: [hop.city, hop.country].filter(Boolean).join(', ') || hop.hostname || hop.address,
       rttMs: timings.length ? Math.min(...timings) : null,
     }, gap)
-    gap = false
+    gap = hop.state === 'multipath'
     if (destinationHop) break
   }
   if (nodes[nodes.length - 1].kind !== 'destination' && destinationLocated) {

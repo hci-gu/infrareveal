@@ -10,7 +10,6 @@ import (
 	"log"
 	"net"
 	"net/netip"
-	"os/exec"
 	"regexp"
 	"strconv"
 	"strings"
@@ -26,7 +25,6 @@ import (
 
 const (
 	destinationEnrichmentInterval = 3 * time.Second
-	routeDiscoveryInterval        = 30 * time.Second
 	destinationRefreshInterval    = 15 * time.Minute
 )
 
@@ -78,24 +76,6 @@ func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, g
 		}
 	}()
 
-	go func() {
-		ticker := time.NewTicker(routeDiscoveryInterval)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				activeSessionID := sessionID()
-				if activeSessionID == "" {
-					continue
-				}
-				if err := traceNextDestination(ctx, app, geoipDB, scope, activeSessionID, trace); err != nil {
-					log.Printf("route discovery error: %v", err)
-				}
-			}
-		}
-	}()
 }
 
 func sessionDestinationObservations(app *pocketbase.PocketBase, scope ObservationScope, sessionID string) ([]DestinationObservation, error) {
@@ -136,47 +116,6 @@ func uniqueDestinationIPs(observations []DestinationObservation) []DestinationOb
 		result = append(result, observation)
 	}
 	return result
-}
-
-func traceNextDestination(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID string, trace debugtrace.Sink) error {
-	observations, err := sessionDestinationObservations(app, scope, sessionID)
-	if err != nil {
-		return err
-	}
-	for _, observation := range observations {
-		exists, err := routeExists(app, observation)
-		if err != nil {
-			return err
-		}
-		if exists {
-			continue
-		}
-
-		destinationRecord, destinationChanged, err := upsertDestination(app, geoipDB, observation)
-		if err != nil {
-			return err
-		}
-		if destinationChanged {
-			emitDestinationTrace(trace, observation, destinationRecord)
-		}
-		result := TraceDestination(ctx, observation)
-		enrichRouteHops(result.Hops, geoipDB)
-		routeRecord, err := saveRoute(app, observation, destinationRecord.Id, result)
-		if err != nil {
-			return err
-		}
-		completedAt := routeRecord.GetDateTime("completed_at").Time()
-		trace.TryEmit(debugtrace.Event{
-			ID: "route-completed:" + routeRecord.Id, SessionID: observation.SessionID,
-			TraceID: "route:" + routeRecord.Id, Kind: debugtrace.KindRoute, Stage: debugtrace.StageRoute,
-			OccurredAtMs: completedAt.UnixMilli(), ProcessedAtMs: traceProcessedNow(), Timing: debugtrace.TimingObserved,
-			Summary: debugtrace.Summary{
-				Protocol: observation.Protocol, RemoteIP: observation.IP, RemotePort: tracePort(observation.DestinationPort),
-			},
-		})
-		return nil
-	}
-	return nil
 }
 
 func uniqueDestinationObservations(records []*core.Record, scope ObservationScope) []DestinationObservation {
@@ -297,90 +236,6 @@ func knownDestinationProvider(observation DestinationObservation) (organization,
 	return "", ""
 }
 
-func routeExists(app *pocketbase.PocketBase, observation DestinationObservation) (bool, error) {
-	_, err := app.FindFirstRecordByFilter(
-		"routes",
-		"session={:session} && destination_ip={:ip} && destination_port={:port} && method={:method}",
-		dbx.Params{
-			"session": observation.SessionID,
-			"ip":      observation.IP,
-			"port":    observation.DestinationPort,
-			"method":  routeMethod(observation),
-		},
-	)
-	if err == nil {
-		return true, nil
-	}
-	if errors.Is(err, sql.ErrNoRows) {
-		return false, nil
-	}
-	return false, err
-}
-
-func saveRoute(app *pocketbase.PocketBase, observation DestinationObservation, destinationID string, result RouteResult) (*core.Record, error) {
-	collection, err := app.FindCollectionByNameOrId("routes")
-	if err != nil {
-		return nil, err
-	}
-
-	now := time.Now().UTC().Format(time.RFC3339)
-	record := core.NewRecord(collection)
-	record.Set("session", observation.SessionID)
-	record.Set("destination", destinationID)
-	record.Set("destination_ip", observation.IP)
-	record.Set("destination_port", observation.DestinationPort)
-	record.Set("protocol", observation.Protocol)
-	record.Set("method", result.Method)
-	record.Set("hops", result.Hops)
-	record.Set("complete", result.Complete)
-	record.Set("error", result.Error)
-	record.Set("started_at", now)
-	record.Set("completed_at", now)
-	if err := app.Save(record); err != nil {
-		return nil, err
-	}
-	return record, nil
-}
-
-func TraceDestination(ctx context.Context, observation DestinationObservation) RouteResult {
-	method := routeMethod(observation)
-	args := routeArgs(observation)
-
-	traceCtx, cancel := context.WithTimeout(ctx, 25*time.Second)
-	defer cancel()
-
-	cmd := exec.CommandContext(traceCtx, "traceroute", args...)
-	output, err := cmd.CombinedOutput()
-
-	result := RouteResult{
-		Method: method,
-		Hops:   ParseTracerouteOutput(output),
-	}
-	result.Complete = routeComplete(result.Hops, observation.IP)
-	if err != nil {
-		result.Error = strings.TrimSpace(err.Error())
-	}
-	if traceCtx.Err() == context.DeadlineExceeded {
-		result.Error = "traceroute timed out"
-	}
-	return result
-}
-
-func routeMethod(observation DestinationObservation) string {
-	if strings.ToLower(observation.Protocol) == "tcp" && observation.DestinationPort > 0 {
-		return fmt.Sprintf("tcp:%d", observation.DestinationPort)
-	}
-	return "default"
-}
-
-func routeArgs(observation DestinationObservation) []string {
-	base := []string{"-n", "-w", "1", "-q", "1", "-m", "20"}
-	if strings.ToLower(observation.Protocol) == "tcp" && observation.DestinationPort > 0 {
-		base = append(base, "-T", "-p", strconv.Itoa(observation.DestinationPort))
-	}
-	return append(base, observation.IP)
-}
-
 func ParseTracerouteOutput(output []byte) []RouteHop {
 	scanner := bufio.NewScanner(bytes.NewReader(output))
 	hops := []RouteHop{}
@@ -425,29 +280,10 @@ func routeComplete(hops []RouteHop, destinationIP string) bool {
 	return last.Address == destinationIP
 }
 
-func enrichRouteHops(hops []RouteHop, geoipDB *geoip2.Reader) {
-	if geoipDB == nil {
-		return
-	}
-	for i := range hops {
-		if hops[i].Address == "" {
-			continue
-		}
-		ip := net.ParseIP(hops[i].Address)
-		if ip == nil {
-			continue
-		}
-		if city, err := geoipDB.City(ip); err == nil {
-			hops[i].City = city.City.Names["en"]
-			hops[i].Country = city.Country.Names["en"]
-			hops[i].Lat = city.Location.Latitude
-			hops[i].Lon = city.Location.Longitude
-		}
-	}
-}
-
 func lookupReverseDNS(ip string) string {
-	names, err := net.LookupAddr(ip)
+	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+	defer cancel()
+	names, err := net.DefaultResolver.LookupAddr(ctx, ip)
 	if err != nil || len(names) == 0 {
 		return ""
 	}

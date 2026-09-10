@@ -306,20 +306,9 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 	if err != nil {
 		return sessionTimelineWindow{}, http.StatusInternalServerError, err
 	}
-	routes := []*core.Record{}
-	if len(destinationIPs) > 0 {
-		routeExpressions, expressionErr := appendStringSetExpression(
-			[]dbx.Expression{dbx.HashExp{"session": sessionID}},
-			"destination_ip",
-			destinationIPs,
-		)
-		if expressionErr != nil {
-			return sessionTimelineWindow{}, http.StatusInternalServerError, expressionErr
-		}
-		routes, err = queryRecords(app, "routes", routeExpressions, "completed_at")
-		if err != nil {
-			return sessionTimelineWindow{}, http.StatusInternalServerError, err
-		}
+	routes, routeMore, err := queryRouteRevisions(app, sessionID, from, to, requestedFlowIDs, overview, limit, cursor["routes"])
+	if err != nil {
+		return sessionTimelineWindow{}, http.StatusInternalServerError, err
 	}
 	statuses, _, err := queryTimelinePage(app, "flow_activity_status", []dbx.Expression{
 		dbx.HashExp{"session": sessionID},
@@ -330,6 +319,7 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 
 	advanceTimelineCursor(cursor, "flows", flowMore, limit)
 	advanceTimelineCursor(cursor, "episodes", episodeMore, limit)
+	advanceTimelineCursor(cursor, "routes", routeMore, limit)
 	if !overview {
 		advanceTimelineCursor(cursor, "dns", dnsMore, limit)
 		advanceTimelineCursor(cursor, "chunks", chunkMore, limit)
@@ -541,7 +531,7 @@ func parseFlowIDs(value string) []string {
 }
 
 func decodeTimelineCursor(value string, overview bool) (timelineCursor, error) {
-	cursor := timelineCursor{"flows": 0, "episodes": 0, "dns": 0, "chunks": 0, "windows": 0, "gates": 0}
+	cursor := timelineCursor{"flows": 0, "episodes": 0, "dns": 0, "chunks": 0, "windows": 0, "gates": 0, "routes": 0}
 	if overview {
 		cursor["dns"] = -1
 		cursor["chunks"] = -1
@@ -555,7 +545,7 @@ func decodeTimelineCursor(value string, overview bool) (timelineCursor, error) {
 	if err != nil || json.Unmarshal(raw, &cursor) != nil {
 		return nil, fmt.Errorf("invalid cursor")
 	}
-	for _, key := range []string{"flows", "episodes", "dns", "chunks", "windows", "gates"} {
+	for _, key := range []string{"flows", "episodes", "dns", "chunks", "windows", "gates", "routes"} {
 		if _, ok := cursor[key]; !ok || cursor[key] < -1 {
 			return nil, fmt.Errorf("invalid cursor")
 		}

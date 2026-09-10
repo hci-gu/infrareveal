@@ -56,6 +56,8 @@ class SessionController {
   private requestedSessionId: string | null = null
   private unsubscribers: Array<() => void> = []
   private reconcileTimer = 0
+  private reconciling = false
+  private tailCursor = 0
   private clockTimer = 0
   private batchTimer = 0
   private buffering = false
@@ -244,13 +246,15 @@ class SessionController {
   private startTimers(generation: number) {
     this.stopTimers()
     this.clockTimer = window.setInterval(tickTimelineClock, 1000)
-    this.reconcileTimer = window.setInterval(() => this.reconcile(generation, false), 10_000)
+    this.reconcileTimer = window.setInterval(() => this.reconcile(generation, false), 2_000)
   }
 
   private async reconcile(generation: number, full: boolean) {
+    if (this.reconciling) return
     const state = sessionTimelineStore.getState()
     const sessionId = state.selectedSessionId
     if (!sessionId || generation !== this.generation) return
+    this.reconciling = true
     try {
       const sessions = await getSessions()
       if (generation !== this.generation) return
@@ -275,6 +279,23 @@ class SessionController {
       })
       if (generation !== this.generation) return
       reconcileOverviewWindow(overview)
+      // Open chunks can change after their page was cached. Reconcile the live
+      // tail even when SSE silently missed a record, without clearing history.
+      if (manifest.active) {
+        const pages = [...sessionTimelineStore.getState().pages.values()].filter(p => p.toMs >= edgeMs - 10_000 && p.fromMs < edgeMs)
+        const jobs = pages.flatMap(page => (page.flowIds.size > 0 ? chunk([...page.flowIds], 200) : [[]]).map(flowIds => ({page, flowIds})))
+        for (let offset = 0; offset < Math.min(4, jobs.length); offset += 1) {
+          const {page, flowIds} = jobs[(this.tailCursor + offset) % jobs.length]
+          const tail = await this.getWindow({sessionId, fromMs: Math.max(page.fromMs, edgeMs - 10_000), toMs: Math.min(page.toMs, edgeMs + 1), flowIds, lod: page.lod})
+          if (generation !== this.generation) return
+          applyRealtimeBatch([
+            ...tail.flowActivityChunks.map(record => ({collection: 'flowActivityChunks' as const, action: 'update', record})),
+            ...tail.flowActivityWindows.map(record => ({collection: 'flowActivityWindows' as const, action: 'update', record})),
+            ...tail.routes.map(record => ({collection: 'routes' as const, action: 'update', record})),
+          ])
+        }
+        this.tailCursor += Math.min(4, jobs.length)
+      }
       if (this.unsubscribers.length === 0) {
         const subscribed = await this.openSubscriptions(generation)
         setTimelineConnection(subscribed ? 'live' : 'polling')
@@ -285,7 +306,7 @@ class SessionController {
       if (generation !== this.generation) return
       const nextState: ConnectionState = navigator.onLine ? 'polling' : 'offline'
       setTimelineConnection(nextState, normalizeError(error))
-    }
+    } finally { this.reconciling = false }
   }
 
   private async loadDetailPage(

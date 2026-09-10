@@ -20,6 +20,8 @@ What you get
 - [Proxy Lab implementation and operations](docs/implementation-guides/proxy-lab.md): passive replay/live tracing plus the opt-in flow, strict-packet, and DNS gates.
 - [Proxy Lab Raspberry Pi validation](docs/validation/proxy-lab-raspberry-pi.md): namespace, failure, soak, client, and recovery procedures.
 - [Proxy Lab local validation results](docs/validation/proxy-lab-local-results.md): automated, migration, privileged Linux, and browser evidence from the implementation handoff.
+- [Live route discovery](docs/implementation-guides/live-route-discovery.md): priority scheduling, persistent reuse, progressive paths and diagnostics.
+- [Live route validation](docs/validation/live-route-discovery.md): timing targets, cache/replay checks and pending Pi measurements.
 
 ## Frontend workspace
 
@@ -88,6 +90,9 @@ Configuration knobs (via env in `docker-compose.yml`):
 - AP_IFACE: AP Wi‑Fi interface (default wlan0)
 - INTERNET_IFACE: uplink interface (default eth0)
 - SSID: Wi‑Fi network name (default Infrareveal)
+- ROUTE_WORKERS: concurrent route probes, validated to 1–8 (default 4)
+- ROUTE_QUALITY_SECONDS: background coverage deadline per method, validated to 15–90 seconds (default 45); fast discovery keeps its separate three-second budget
+- CONNTRACK_SAMPLE_MS: connection sampling interval, validated to 250–5000 ms (default 1000)
 - PACKET_ACTIVITY_ENABLED: enable header-only packet activity capture (default true)
 - PACKET_ACTIVITY_IFACE: capture interface (defaults to AP_IFACE)
 - PACKET_ACTIVITY_BUCKET_MS: activity resolution, validated to 20–1000 ms (default 50)

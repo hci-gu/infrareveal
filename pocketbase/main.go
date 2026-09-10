@@ -27,6 +27,7 @@ import (
 	"myapp/lib"
 	_ "myapp/migrations"
 	"myapp/observer"
+	"myapp/routing"
 )
 
 // Global pointer tracking active session
@@ -36,6 +37,7 @@ var active_session_id *string
 var sessionHostnames sync.Map // key=string (hostname), value=bool
 var observationClearMu sync.Mutex
 var conntrackSampler *observer.ConntrackSampler
+var routeDiscovery *routing.Coordinator
 
 func stripPort(hostPort string) string {
 	host, _, err := net.SplitHostPort(hostPort)
@@ -199,7 +201,9 @@ func main() {
 		observationScope := observer.NewObservationScope(clientPrefix, gatewayIP)
 
 		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, currentSessionID, traceSink)
-		conntrackSampler = observer.StartConntrackSampler(ctx, app, conntrackPath, observationScope, currentSessionID, traceSink)
+		routeDiscovery = routing.Start(ctx, app, geoipDB, currentSessionID, routing.ConfigFromEnv())
+		se.Router.GET("/api/infrareveal/routes/status", func(e *core.RequestEvent) error { return e.JSON(http.StatusOK, routeDiscovery.Status()) })
+		conntrackSampler = observer.StartConntrackSampler(ctx, app, conntrackPath, observationScope, currentSessionID, traceSink, routeDiscovery.Observe)
 		observer.StartPacketActivityObserver(
 			ctx,
 			app,
@@ -369,6 +373,9 @@ func clearObservationCollections(app *pocketbase.PocketBase) (clearObservationsR
 		}
 	}
 
+	if routeDiscovery != nil {
+		routeDiscovery.Reset()
+	}
 	result := clearObservationsResult{
 		Deleted: map[string]int{},
 		Skipped: []string{},
@@ -383,6 +390,8 @@ func clearObservationCollections(app *pocketbase.PocketBase) (clearObservationsR
 		"activity_episodes",
 		"flow_attributions",
 		"routes",
+		"route_cache",
+		"route_observations",
 		"traceroutes",
 		"packets",
 		"flows",

@@ -11,6 +11,8 @@ COPY pocketbase/*.go ./
 COPY pocketbase/lib ./lib
 COPY pocketbase/migrations ./migrations
 COPY pocketbase/observer ./observer
+COPY pocketbase/routing ./routing
+COPY pocketbase/cmd/route-diagnose ./cmd/route-diagnose
 COPY pocketbase/parser ./parser
 COPY pocketbase/debugtrace ./debugtrace
 COPY pocketbase/labgate ./labgate
@@ -21,6 +23,7 @@ ENV CGO_ENABLED=0
 ARG GOARCH=arm64
 ARG GOARM=7
 RUN GOOS=linux GOARCH=${GOARCH} GOARM=${GOARM} go build -trimpath -o /out/infra-reveal .
+RUN GOOS=linux GOARCH=${GOARCH} GOARM=${GOARM} go build -trimpath -o /out/route-diagnose ./cmd/route-diagnose
 
 # Use a multi-architecture runtime. The old rpi-raspbian tag resolves to
 # linux/arm/v6 and cannot produce the arm64 image built above.
@@ -38,6 +41,8 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
     macchanger \
     iproute2 \
     traceroute \
+    scamper \
+    tcpdump \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -56,6 +61,7 @@ COPY dnsmasq.conf /etc/dnsmasq.conf
 # Copy the built binary from the builder stage last, so PocketBase changes only
 # invalidate this small final layer after the builder has reused its caches.
 COPY --from=builder /out/infra-reveal /root/pb/infra-reveal
+COPY --from=builder /out/route-diagnose /usr/local/bin/route-diagnose
 
 RUN chmod +x /root/entrypoint.sh /root/pb/infra-reveal
 

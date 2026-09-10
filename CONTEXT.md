@@ -34,7 +34,11 @@ Milestone 3 derived conclusions are:
 Milestone 5 destination context is:
 
 - `destinations`: reverse DNS, provider label, and coarse GeoIP context keyed by observed destination IP.
-- `routes`: gateway-to-destination traceroute approximations keyed by observed destination IP and port.
+- `routes`: immutable session revisions of gateway-to-destination evidence, bound by IP, protocol, port, and availability time. A reached destination may still have unanswered hops.
+- `route_observations`: immutable snapshots emitted during individual probe attempts.
+- `route_cache`: persistent network-scoped reuse, freshness, best evidence, and last-attempt state.
+
+The `pocketbase/routing` module consumes committed flow counters, prioritizes recent byte volume, and owns bounded probes, cache reuse, retries, and publication. Destination enrichment cannot block discovery. Frontends share `routeForFlowAt` to select evidence known at the playback cursor; route discovery never intercepts client traffic.
 
 Attribution work consumes observations and writes separate derived records instead of overwriting raw observations.
 Website associations follow the same rule: endpoint identity remains intact, and only high- or medium-confidence first-party, CNAME, or fresh temporal evidence may add a parent activity. Provider-only, unresolved, pre-existing, DNS-less, and ambiguous traffic remains independent.
