@@ -3,7 +3,7 @@ import { Player } from '@remotion/player'
 import { setWorkerUrl } from 'maplibre-gl'
 import mapLibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?url'
 import 'maplibre-gl/dist/maplibre-gl.css'
-import { useCallback, useEffect, useMemo, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
   FPS,
@@ -12,14 +12,18 @@ import {
   setTimelinePlayback,
   timeForFrame,
   useGatewayData,
+  useFlowActivityRange,
 } from '@infrareveal/session-state'
 import { gatewayOrigin, mapStyleUrl } from '../config'
 import { buildMapTimelineScene } from '../map/mapModel'
 import { MapComposition } from '../remotion/MapComposition'
 import type { MapCompositionProps } from '../remotion/MapComposition'
+import { MapIcon } from '../map/MapIcon'
+import { MapTransport } from '../map/MapTransport'
+import { formatCursor } from '../map/format'
+import { indexMapTraffic } from '../map/mapTraffic'
+import '../map/map.css'
 
-const COMPOSITION_WIDTH = 1920
-const COMPOSITION_HEIGHT = 1080
 const LIVE_DURATION_HEADROOM_SECONDS = 30
 const LIVE_EDGE_TOLERANCE_MS = 2_000
 
@@ -27,13 +31,18 @@ setWorkerUrl(mapLibreWorkerUrl)
 
 export function MapPage() {
   const { sessionID = '' } = useParams()
+  const pageRef = useRef<HTMLElement>(null)
+  const mapContainerRef = useRef<HTMLDivElement>(null)
+  const [size, setSize] = useState(() => ({ width: Math.max(320, window.innerWidth), height: Math.max(240, window.innerHeight - 208) }))
+  const [currentFrame, setCurrentFrame] = useState(0)
+  const [fullscreenError, setFullscreenError] = useState('')
   const playerRef = useRef<PlayerRef>(null)
   const initializedSessionRef = useRef<string | null>(null)
   const programmaticSeekTargetRef = useRef<number | null>(null)
   const followingCommandRef = useRef(false)
   const followingCommandTimerRef = useRef(0)
   const lastCursorPublishRef = useRef(0)
-  const { connectionState, data, timeline } = useGatewayData(sessionID)
+  const { connectionState, data, timeline, error, refresh } = useGatewayData(sessionID)
   const scene = useMemo(
     () => buildMapTimelineScene(data, gatewayOrigin, timeline.epochMs),
     [data, timeline.epochMs],
@@ -43,6 +52,10 @@ export function MapPage() {
   const durationInFrames = timeline.mode === 'live'
     ? roundLiveDuration(contentDurationInFrames)
     : contentDurationInFrames
+  // Request a bounded 90-second window at 500 ms LOD, moving every 30 seconds.
+  const activityStartMs = scene.startMs + Math.floor(currentFrame / FPS / 30) * 30_000 - 30_000
+  const activity = useFlowActivityRange(scene.sessionId, activityStartMs, activityStartMs + 90_000)
+  const trafficIndex = useMemo(() => indexMapTraffic(activity.chunks), [activity.chunks])
   const timelineRef = useRef({
     epochMs: scene.startMs,
     liveEdgeMs: timeline.liveEdgeMs,
@@ -60,11 +73,23 @@ export function MapPage() {
   const inputProps = useMemo<MapCompositionProps>(() => ({
     scene,
     fps: FPS,
-    connectionState,
-    timelineMode: timeline.mode,
-    playbackState: timeline.playback,
     mapStyleUrl,
-  }), [connectionState, scene, timeline.mode, timeline.playback])
+    unavailable: connectionState === 'error' || connectionState === 'offline',
+    loading: !scene.sessionId && connectionState !== 'error' && connectionState !== 'offline',
+    trafficIndex,
+    trafficLoading: activity.loading,
+  }), [activity.loading, connectionState, scene, trafficIndex])
+
+  useEffect(() => {
+    const container = mapContainerRef.current
+    if (!container) return
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect
+      if (width > 0 && height > 0) setSize({ width: Math.round(width), height: Math.round(height) })
+    })
+    observer.observe(container)
+    return () => observer.disconnect()
+  }, [])
 
   const followLiveEdge = useCallback((forceSeek = false) => {
     const player = playerRef.current
@@ -90,21 +115,42 @@ export function MapPage() {
     })
   }, [contentDurationInFrames, scene.startMs, timeline.liveEdgeMs, timeline.mode])
 
-  const renderLiveControls = useCallback(() => timeline.mode === 'live' ? (
-    <button
-      type="button"
-      onClick={() => followLiveEdge(true)}
-      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-bold transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white ${
-        timeline.playback === 'following'
-          ? 'border-red-400 bg-red-600 text-white hover:bg-red-500'
-          : 'border-slate-500 bg-slate-900 text-white hover:bg-slate-700'
-      }`}
-      aria-label={timeline.playback === 'following' ? 'Following live; resync to live edge' : 'Go live'}
-    >
-      <span className={`h-2 w-2 rounded-full bg-current ${timeline.playback === 'following' ? 'animate-pulse' : ''}`} />
-      {timeline.playback === 'following' ? 'Live' : 'Go live'}
-    </button>
-  ) : null, [followLiveEdge, timeline.mode, timeline.playback])
+  const seek = useCallback((frame: number) => {
+    const target = Math.max(0, Math.min(contentDurationInFrames - 1, frame))
+    programmaticSeekTargetRef.current = null
+    playerRef.current?.seekTo(target)
+    setCurrentFrame(target)
+  }, [contentDurationInFrames])
+
+  const togglePlayback = useCallback(() => {
+    const player = playerRef.current
+    if (!player) return
+    if (player.isPlaying()) player.pause()
+    else {
+      if (player.getCurrentFrame() >= contentDurationInFrames - 1) player.seekTo(0)
+      player.play()
+    }
+  }, [contentDurationInFrames])
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement | null
+      if (event.altKey || event.ctrlKey || event.metaKey || target?.closest('input, select, button, a, textarea, [contenteditable="true"]')) return
+      if (event.code === 'Space') { event.preventDefault(); togglePlayback() }
+      if (event.code === 'ArrowLeft') { event.preventDefault(); seek((playerRef.current?.getCurrentFrame() ?? 0) - FPS * 10) }
+      if (event.code === 'ArrowRight') { event.preventDefault(); seek((playerRef.current?.getCurrentFrame() ?? 0) + FPS * 10) }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [seek, togglePlayback])
+
+  async function toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen()
+      else if (pageRef.current?.requestFullscreen) await pageRef.current.requestFullscreen()
+      else setFullscreenError('Fullscreen is not available in this browser.')
+    } catch { setFullscreenError('Fullscreen is not available in this browser.') }
+  }
 
   useEffect(() => () => window.clearTimeout(followingCommandTimerRef.current), [])
 
@@ -116,10 +162,12 @@ export function MapPage() {
       const now = performance.now()
       if (now - lastCursorPublishRef.current < 100) return
       lastCursorPublishRef.current = now
+      setCurrentFrame(event.detail.frame)
       const current = timelineRef.current
       setTimelinePlayback({ cursorMs: timeForFrame(current.epochMs, event.detail.frame, FPS) })
     }
     const handleSeeked: CallbackListener<'seeked'> = (event) => {
+      setCurrentFrame(event.detail.frame)
       const expected = programmaticSeekTargetRef.current
       if (expected !== null && Math.abs(expected - event.detail.frame) <= 1) {
         programmaticSeekTargetRef.current = null
@@ -191,18 +239,21 @@ export function MapPage() {
 
   return (
     <main
-      className="relative h-screen w-screen overflow-hidden bg-white"
+      ref={pageRef}
+      className="atlas-page"
       data-session-id={scene.sessionId ?? ''}
       data-session-state={connectionState}
       data-timeline-mode={timeline.mode}
       data-playback-state={timeline.playback}
     >
-      <Link
-        to="/"
-        className="absolute left-1/2 top-3 z-50 -translate-x-1/2 rounded-full border border-slate-700 bg-slate-950/90 px-4 py-2 text-sm font-semibold text-white shadow-lg backdrop-blur transition hover:bg-slate-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-white"
-      >
-        ← All sessions
-      </Link>
+      <header className="atlas-header">
+        <Link to="/" className="atlas-brand" aria-label="InfraReveal — all sessions"><span className="atlas-brand-mark"><MapIcon name="globe" size={23} /></span><span>infra<span>reveal</span><small>NETWORK OBSERVABILITY</small></span></Link>
+        <div className="atlas-header-divider" />
+        <nav className="atlas-breadcrumb" aria-label="Breadcrumb"><Link to="/" aria-label="All sessions"><MapIcon name="back" size={15} /><span>Sessions</span></Link><span className="atlas-breadcrumb-slash">/</span><span className="atlas-session-name" title={scene.sessionName}>{scene.sessionName}</span></nav>
+        <div className="atlas-header-right"><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(timeForFrame(scene.startMs, currentFrame, FPS))}</strong><span>UTC</span></div></div>
+      </header>
+      {(error || fullscreenError) && <div className="atlas-connection-notice" role="status"><span>{error || fullscreenError}</span>{error ? <button type="button" onClick={() => void refresh()}>Retry connection</button> : <button type="button" onClick={() => setFullscreenError('')}>Dismiss</button>}</div>}
+      <div ref={mapContainerRef} className="atlas-map-container">
       <Player
         ref={playerRef}
         acknowledgeRemotionLicense
@@ -210,20 +261,24 @@ export function MapPage() {
         inputProps={inputProps}
         durationInFrames={durationInFrames}
         fps={FPS}
-        compositionWidth={COMPOSITION_WIDTH}
-        compositionHeight={COMPOSITION_HEIGHT}
-        controls
+        compositionWidth={size.width}
+        compositionHeight={size.height}
+        controls={false}
         autoPlay
         initiallyMuted
-        alwaysShowControls
         clickToPlay={false}
-        spaceKeyToPlayOrPause
+        doubleClickToFullscreen={false}
+        spaceKeyToPlayOrPause={false}
         showVolumeControls={false}
-        renderCustomControls={renderLiveControls}
-        showPlaybackRateControl={[0.5, 1, 2, 4]}
         playbackRate={timeline.rate}
         style={{ height: '100%', width: '100%' }}
       />
+      </div>
+      <MapTransport scene={scene} endMs={contentEndMs} frame={currentFrame} fps={FPS}
+        playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}
+        live={timeline.mode === 'live'} following={timeline.playback === 'following'}
+        onToggle={togglePlayback} onSeek={seek} onRate={(rate) => setTimelinePlayback({ rate })}
+        onLive={() => followLiveEdge(true)} onFullscreen={() => void toggleFullscreen()} />
     </main>
   )
 }

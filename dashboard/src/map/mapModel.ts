@@ -62,6 +62,7 @@ export type MapPoint = {
 
 export type MapArc = {
   id: string
+  endpointId: string
   sourcePosition: MapPosition
   targetPosition: MapPosition
   activeFlowCount: number
@@ -162,7 +163,7 @@ export function projectMapFrame(
   maximumArcSegments = MAX_ARC_SEGMENTS,
 ): MapFrame {
   const points: MapPoint[] = []
-  const activeEndpoints: Array<{ endpoint: MapEndpoint; point: MapPoint; route: MapPosition[] }> = []
+  const connectedEndpoints: Array<{ endpoint: MapEndpoint; point: MapPoint; route: MapPosition[] }> = []
   let seenFlowCount = 0
   let activeFlowCount = 0
   let byteCount = 0
@@ -197,27 +198,27 @@ export function projectMapFrame(
     activeFlowCount += endpointActiveFlows
     byteCount += endpointBytes
 
-    if (endpointActiveFlows > 0) {
-      activeEndpoints.push({
-        endpoint,
-        point,
-        route: latestAvailableRoute(endpoint.routes, cursorMs)
-          ?? [originPosition(scene.origin), endpoint.position],
-      })
-    }
+    // Keep the connection visible while its volume can swell or fall back to zero.
+    connectedEndpoints.push({
+      endpoint,
+      point,
+      route: latestAvailableRoute(endpoint.routes, cursorMs)
+        ?? [originPosition(scene.origin), endpoint.position],
+    })
   }
 
-  activeEndpoints.sort((left, right) =>
+  connectedEndpoints.sort((left, right) =>
     right.point.activeFlowCount - left.point.activeFlowCount
     || right.point.bytes - left.point.bytes
     || left.endpoint.ip.localeCompare(right.endpoint.ip),
   )
 
   const arcs: MapArc[] = []
-  for (const { endpoint, point, route } of activeEndpoints) {
+  for (const { endpoint, point, route } of connectedEndpoints) {
     for (let index = 1; index < route.length && arcs.length < maximumArcSegments; index += 1) {
       arcs.push({
         id: `${endpoint.id}:${index}`,
+        endpointId: endpoint.id,
         sourcePosition: route[index - 1],
         targetPosition: route[index],
         activeFlowCount: point.activeFlowCount,
