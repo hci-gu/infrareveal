@@ -20,15 +20,40 @@ subtle borders, geographic grid lines, and labels that reveal detail as you zoom
 Copy `.env.example`
 to `.env.local` only when overriding the gateway position, label, or map style.
 
-The map fills the viewport, with a compact mobile layout. The destination panel
-can filter active endpoints and focus the map on an individual destination. Map
+The map fills the viewport, with a compact mobile layout. The overview lists
+activity tracks using the same shared grouping as the debug dashboard: supported
+high/medium-confidence associations to an activity episode for the same client.
+Site activities such as svt.se and youtube.com keep their connections together;
+unsupported connections remain in that client's Independent traffic track.
+Hostnames and network providers do not imply an activity association. Infrastructure
+traffic uses the debug dashboard's existing exclusion rules.
+
+Every track retains its assigned color through playback, sorting and live updates.
+Select a track to dim other routes and destination markers, and open the right-hand
+inspector; select it again, close the panel, or press Escape inside it to clear focus.
+The inspector includes all observed member connections, including unmapped ones,
+with searchable/paginated sockets, hostnames, locations, counters, attribution,
+activity-association evidence and completed route probes. Linked DNS is shown for
+the loaded activity window. Connection totals are the reported flow counters;
+recent payload rate covers mapped connections and marks partial/estimated values.
+Replay only reveals flows and grouping evidence observed by the playhead.
+On mobile, scroll the horizontal track list and open details as a sheet.
+
+The track list supports site/client search and an active-only filter. Map
 controls switch perspective, toggle traffic, zoom, fit the currently visible
-network, and return to the gateway.
+network or selected track, and return to the gateway. The final frame is retained
+when a recording ends, so track selection and inspection remain available.
+The **Routes** toggle switches between traceroute paths (on by default) and a
+simplified direct connection to each destination. Both views retain track colors,
+selection, traffic volume and playback position; route details remain available
+in the inspector. The separate **Traffic** toggle hides or shows flowing traffic.
 
 Connections remain thin one-pixel strips, including after traffic becomes idle.
 Round, shaded 3D bulges travel along them; their radius uses a fixed compressed
 scale of recent payload bytes per second, so small exchanges and sustained streams
-remain visually distinct. Co-located endpoints are summed before sizing.
+remain visually distinct. Co-located endpoints within a track are summed before
+sizing. Different tracks sharing a location retain separate paths and volumes;
+slightly different arc heights make these shared routes distinguishable.
 
 The map requests a bounded 90-second activity window at 500 ms LOD. Fine samples
 are integrated into half-second display buckets, retaining short bursts; overlapping
@@ -37,10 +62,48 @@ Complete sparse buckets mean silence. Missing/partial coverage is marked, and
 older sessions without samples use explicitly labeled average flow-byte estimates.
 The inspector shows recent payload rate or the estimated average as appropriate.
 
+Final destinations also accumulate **sent + received bytes** in shaded 3D columns.
+IPs sharing the same geolocation form one column, stacked in track colors. Track
+selection dims the other sections without rescaling the stack. Labels show totals
+at prominent locations; hover a section for the location's received/sent breakdown,
+destination and connection counts, and the track's share. Columns remain when
+flowing traffic or traceroute paths are hidden, and retain their totals after a
+connection ends. The active-only filter limits the visible locations while keeping
+all historical bytes for each visible destination IP.
+
+Column height uses a fixed logarithmic scale, so tiny exchanges remain distinct
+from large streams and a newly appearing stream cannot shrink other columns.
+Compact `flow_activity_chunks` wire-byte summaries are loaded for the whole session,
+separately from the sliding rate window. Completed chunk totals are exact capture
+counters; growth within a chunk is interpolated up to its last observed packet.
+Live totals refresh every five seconds using storage revisions, including late
+writes to earlier chunks. Seeking recomputes totals at the playhead rather than
+incrementing animation state. Missing capture history uses explicitly marked `≈`
+flow-counter estimates interpolated over the connection lifetime; partial capture
+is identified in the hover details. Captured wire totals include headers and can
+differ from the conntrack counters in the overview/inspector. Router hops never
+contribute to destination totals, and route splits cannot count a flow twice.
+
 Bulge movement is illustrative, not measured packet travel speed or direction.
 The GPU mesh uses the Remotion frame clock and freezes when paused; reduced-motion
 preferences hold the geometry still while allowing traffic measurements to update.
-Traceroute paths remain approximate, and location is coarse IP geolocation.
+Saved traceroutes shape each connection's path using the responding, geolocated
+hops in TTL order. Small hollow markers identify intermediate routers. Unknown
+`0,0` positions are omitted; dashed spans bridge unanswered or unlocated hops.
+Consecutive hops sharing a location collapse to one map point, but every recorded
+hop remains in the connection inspector with its address and gateway round-trip
+time. Reaching the destination does not mean every intermediate hop is known.
+
+Routes match the selected session, destination IP, port and protocol, and appear
+only once their probe completes on the timeline. Connections without a matching
+probe retain an approximate direct arc. A traced connection renders exclusively
+as one ordered itinerary: gateway → router → router → destination. The strip and
+3D volume share the same sampled geometry; neighboring tube rings join at routers
+and taper only at the gateway and final destination. Traffic advances on one clock
+with equal illustrative travel time per leg, so even a short local hop is visible
+before the long-haul leg. Only complete matching itineraries share a volume bundle.
+Paths remain
+approximate: probes are gateway observations and locations use coarse IP geolocation.
 
 The activity histogram counts overlapping geolocated flows, not throughput.
 The custom player controls preserve seeking through the shared timeline cursor.

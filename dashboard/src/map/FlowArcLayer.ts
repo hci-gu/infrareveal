@@ -2,11 +2,10 @@ import { ArcLayer } from '@deck.gl/layers'
 import type { Accessor } from '@deck.gl/core'
 import { Geometry, Model } from '@luma.gl/engine'
 import type { ShaderModule } from '@luma.gl/shadertools'
-import { TRAFFIC_TRAVEL_SECONDS } from './mapTraffic'
 
 const SEGMENTS = 160
 const SIDES = 12
-const trafficUniforms = {
+export const trafficUniforms = {
   name: 'traffic',
   vs: `layout(std140) uniform trafficUniforms {
     float phase;
@@ -23,6 +22,8 @@ type VolumeProps<T> = {
   getRadii0: Accessor<T, number[]>
   getRadii1: Accessor<T, number[]>
   getRadii2: Accessor<T, number[]>
+  getDirection: Accessor<T, number>
+  getProgress: Accessor<T, number[]>
 }
 
 const vertexShader = `#version 300 es
@@ -38,6 +39,8 @@ in float instanceHeights;
 in vec4 instanceRadii0;
 in vec4 instanceRadii1;
 in vec4 instanceRadii2;
+in vec2 instanceProgress;
+in float instanceDirection;
 out vec4 vColor;
 out vec3 vNormal;
 out vec3 vEye;
@@ -70,11 +73,12 @@ float historyValue(int i) {
   return instanceRadii2[clamp(i - 8, 0, 3)];
 }
 float radiusAt(float t) {
-  // A sample travels from origin to destination in four illustrative seconds.
-  float age = mix(0.0, t * ${TRAFFIC_TRAVEL_SECONDS * 2}.0 - traffic.phase, traffic.motion);
+  // Accent motion is illustrative; it never delays the measured volume.
+  float pathProgress = mix(instanceProgress.x, instanceProgress.y, t);
+  float age = 0.0;
   float index = clamp(age, 0.0, 10.999);
   float amount = mix(historyValue(int(floor(index))), historyValue(int(floor(index)) + 1), smoothstep(0.0, 1.0, fract(index)));
-  float phase = t * 2.0 - traffic.clock * traffic.motion * 0.5;
+  float phase = pathProgress * instanceDirection * 2.0 - traffic.clock * traffic.motion * 0.5;
   float wave = pow(0.5 + 0.5 * cos(phase * 2.0 * PI), 2.0);
   float envelope = 0.12 + 0.88 * wave;
   float ends = smoothstep(0.0, 0.018, t) * (1.0 - smoothstep(0.982, 1.0, t));
@@ -100,7 +104,7 @@ void main() {
   float slope = (radiusAt(min(1.0, t + dt)) - radiusAt(max(0.0, t - dt))) / max(0.00001, length(after - before) * project.scale);
   vNormal = normalize(radial - tangent * slope);
   vRadius = radius;
-  vec3 position = center + radial * project_pixel_size(radius);
+  vec3 position = center + side * project_pixel_size(instanceDirection * (radius + 1.0)) + radial * project_pixel_size(radius);
   vEye = project.cameraPosition - position;
   geometry.worldPosition = world;
   geometry.position = vec4(position, 1.0);
@@ -110,7 +114,7 @@ void main() {
 }
 `
 
-const fragmentShader = `#version 300 es
+export const trafficFragmentShader = `#version 300 es
 #define SHADER_NAME traffic-volume-fragment
 precision highp float;
 in vec4 vColor;
@@ -126,7 +130,7 @@ void main() {
   vec3 eye = normalize(vEye);
   float diffuse = max(0.0, dot(normal, light));
   float shine = pow(max(0.0, dot(normalize(light + eye), normal)), 36.0);
-  vec3 color = vColor.rgb * (0.3 + diffuse * 0.7) + vec3(0.65, 0.95, 0.92) * shine * 0.65;
+  vec3 color = vColor.rgb * (0.3 + diffuse * 0.7) + mix(vColor.rgb, vec3(1.0), 0.7) * shine * 0.65;
   fragColor = vec4(color, vColor.a * smoothstep(0.18, 0.65, vRadius));
   DECKGL_FILTER_COLOR(fragColor, geometry);
 }
@@ -140,6 +144,8 @@ export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
     getRadii0: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii1: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii2: { type: 'accessor', value: [0, 0, 0, 0] },
+    getProgress: { type: 'accessor', value: [0, 1] },
+    getDirection: { type: 'accessor', value: 1 },
   }
 
   initializeState() {
@@ -148,12 +154,14 @@ export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
       instanceRadii0: { size: 4, accessor: 'getRadii0' },
       instanceRadii1: { size: 4, accessor: 'getRadii1' },
       instanceRadii2: { size: 4, accessor: 'getRadii2' },
+      instanceProgress: { size: 2, accessor: 'getProgress' },
+      instanceDirection: { size: 1, accessor: 'getDirection' },
     })
   }
 
   getShaders() {
     const shaders = super.getShaders()
-    return { ...shaders, vs: vertexShader, fs: fragmentShader, modules: [...shaders.modules, trafficUniforms] }
+    return { ...shaders, vs: vertexShader, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
   }
 
   protected _getModel(): Model {

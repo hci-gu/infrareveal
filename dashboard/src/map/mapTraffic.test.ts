@@ -3,7 +3,7 @@ import type { FlowActivityChunk } from '@infrareveal/session-state'
 import type { MapTimelineScene } from './mapModel'
 import { bundleMapArcs } from './bundleMapArcs'
 import { projectMapFrame } from './mapModel'
-import { indexMapTraffic, projectTrafficProfiles, trafficRadius, volumeArcs } from './mapTraffic'
+import { indexMapTraffic, projectTrafficProfiles, trafficRadius, volumeArcs, directionalVolumeArcs } from './mapTraffic'
 
 const start = Date.parse('2026-09-10T12:00:00Z')
 const scene: MapTimelineScene = {
@@ -35,6 +35,19 @@ describe('traffic volume profiles', () => {
 
   it('uses current payload rate rather than the lifetime total', () => {
     expect(profile([chunk([[1500, 200, 300, 1, 1]])])).toMatchObject({ rates: [1000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0], source: 'sampled' })
+  })
+
+  it('keeps incoming and outgoing volume separate on every path segment', () => {
+    const profiles = projectTrafficProfiles(scene, indexMapTraffic([chunk([[1500, 1000, 10_000, 2, 20]])]), start + 2000)
+    const routes = [{id: 'first-hop', endpointIds: ['a']}, {id: 'second-hop', endpointIds: ['a']}]
+    const lanes = directionalVolumeArcs(routes, profiles)
+    expect(lanes).toHaveLength(4)
+    for (const id of ['first-hop', 'second-hop']) {
+      expect(lanes.find(lane => lane.id === id && lane.direction === 1)?.radii[0]).toBe(trafficRadius(2000, 4))
+      expect(lanes.find(lane => lane.id === id && lane.direction === -1)?.radii[0]).toBe(trafficRadius(20_000, 40))
+    }
+    const incomingOnly = projectTrafficProfiles(scene, indexMapTraffic([chunk([[1500, 0, 10_000, 0, 20]])]), start + 2000)
+    expect(directionalVolumeArcs(routes, incomingOnly).every(lane => lane.direction === -1)).toBe(true)
   })
 
   it('retains short 50 ms bursts anywhere inside the 500 ms display bucket', () => {

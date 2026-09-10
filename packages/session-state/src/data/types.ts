@@ -157,10 +157,29 @@ export type Route = {
   destination_port: number
   protocol: string
   method: string
+  binding_key?: string
+  network_context?: string
+  attempt_id?: string
+  revision?: number
+  observation_id?: string
+  status?: string
+  provenance?: string
+  available_at?: string
+  measured_at?: string
+  fresh_until?: string
+  valid_until?: string
+  destination_reached?: boolean
+  responding_hops?: number
+  located_hops?: number
+  destination_location?: { lat: number; lon: number; city?: string; country?: string; accuracy_km?: number; geo_version?: string } | null
   hops: Array<{
     ttl: number
     address: string
     missing: boolean
+    state?: string
+    annotation?: string
+    accuracy_km?: number
+    geo_version?: string
     timings: number[]
     city?: string
     country?: string

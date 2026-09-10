@@ -27,8 +27,40 @@ describe('map timeline projection', () => {
     const afterRoute = projectMapFrame(scene, start + 4_000)
 
     expect(beforeRoute.arcs).toHaveLength(1)
+    expect(beforeRoute.arcs[0].gap).toBe(true)
+    expect(beforeRoute.hops).toHaveLength(0)
     expect(afterRoute.arcs).toHaveLength(2)
     expect(afterRoute.arcs[0].targetPosition).toEqual([13.2, 55.6])
+    expect(afterRoute.hops).toHaveLength(1)
+    expect(afterRoute.arcs[0].progressStart).toBe(0)
+    expect(afterRoute.arcs[0].progressEnd).toBe(afterRoute.arcs[1].progressStart)
+    expect(afterRoute.arcs[1].progressEnd).toBe(1)
+    expect(projectMapFrame(scene, start + 2_000)).toEqual(beforeRoute)
+    expect(projectMapFrame(scene, start + 4_000, 5000, 1).arcs).toHaveLength(0)
+  })
+
+  it('reveals a partial prefix before destination enrichment and honors timed invalidation', () => {
+    const data = fixture()
+    data.destinations = []
+    const partial = {...data.routes[0], complete: false, completed_at: '', available_at: new Date(start + 2000).toISOString(), valid_until: new Date(start + 60_000).toISOString(), status: 'probing' as const}
+    data.routes = [partial, {...partial, id: 'invalidated', hops: [], status: 'invalidated', available_at: new Date(start + 4000).toISOString()}]
+    const scene = buildMapTimelineScene(data, origin)
+    expect(projectMapFrame(scene, start + 1500).arcs).toHaveLength(0)
+    const progressive = projectMapFrame(scene, start + 3000)
+    expect(progressive.points).toHaveLength(0)
+    expect(progressive.arcs).toHaveLength(1)
+    expect(progressive.arcs[0].targetPosition).toEqual([13.2, 55.6])
+    expect(projectMapFrame(scene, start + 5000).arcs).toHaveLength(0)
+    expect(projectMapFrame(scene, start + 3000)).toEqual(progressive)
+  })
+
+  it('does not reuse a probe from another session' , () => {
+    const data = fixture()
+    data.routes[0].session = 'other-session'
+    const frame = projectMapFrame(buildMapTimelineScene(data, origin), start + 4_000)
+    expect(frame.hops).toHaveLength(0)
+    expect(frame.arcs).toHaveLength(1)
+    expect(frame.arcs[0].routeId).toBeUndefined()
   })
 
   it('aggregates flows by destination and ignores ungeolocated destinations', () => {

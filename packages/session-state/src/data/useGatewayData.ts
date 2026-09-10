@@ -99,6 +99,7 @@ export function useFlowActivityRange(
   }, [])
 
   return {
+    routes: data.routes,
     chunks: data.flowActivityChunks,
     windows: data.flowActivityWindows,
     dnsQueries: data.dnsQueries,

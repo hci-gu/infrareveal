@@ -1,4 +1,5 @@
 import type { DNSQuery, Flow, FlowActivityChunk, FlowAssociation, FlowAttribution, GatewayData } from '@infrareveal/session-state'
+import { flowTrackAt, indexFlowTracks } from '@infrareveal/session-state'
 import type { SessionComposition, SessionCompositionProjector, TimelineClip } from '../../model/sessionModel'
 import { decodeActivityChunk } from '../../shared/activity/decodeActivityChunk'
 import { captureCoverage } from '../../shared/activity/captureCoverage'
@@ -34,17 +35,11 @@ export function buildTrafficModel(data: GatewayData, projector: SessionCompositi
   const chunks = preferredActivityChunks(data.flowActivityChunks)
   const projected = projector.project({ ...data, flowActivityChunks: chunks }, { sessionStartMs: fromMs, sessionEndMs: toMs })
   const flows = new Map(data.flows.map(flow => [flow.id, flow]))
-  const attributions = new Map([...data.attributions].sort((a, b) => Date.parse(a.observed_at) - Date.parse(b.observed_at)).map(record => [record.flow, record]))
-  const episodes = new Map(data.activityEpisodes.map(episode => [episode.id, episode]))
-  const associations = new Map([...data.flowAssociations].filter(record => {
-    const episode = episodes.get(record.episode), flow = flows.get(record.flow)
-    return (record.confidence === 'high' || record.confidence === 'medium') && episode?.client_ip === flow?.client_ip
-  }).sort((a, b) => Date.parse(a.observed_at) - Date.parse(b.observed_at)).map(record => [record.flow, record]))
+  const trackIndex = indexFlowTracks(data)
   const groups = new Map<string, TrafficGroup>()
   const clips = projected.clips.map(clip => {
-    const flow = flows.get(clip.flowId)!, attribution = attributions.get(flow.id), association = associations.get(flow.id)
-    const groupId = `${flow.client_ip}:${association ? 'activity:' + association.episode : 'independent'}`
-    const label = association ? episodes.get(association.episode)?.label || association.parent_label : 'Independent traffic'
+    const flow = flows.get(clip.flowId)!
+    const { attribution, association, id: groupId, label } = flowTrackAt(trackIndex, flow)
     const next: TimelineClip = { ...clip, serviceGroupId: groupId, serviceGroupLabel: label, label: attribution?.confidence !== 'hidden' && attribution?.candidate_hostname ? attribution.candidate_hostname : flow.destination_ip, confidence: attribution?.confidence ?? 'pending', explanation: attribution?.explanation || 'No supported hostname attribution', sourceSignal: attribution?.source_signal || 'Observed socket', associationRelationship: association?.relationship ?? null, associationConfidence: association?.confidence ?? null, associationExplanation: association?.explanation || '', associationScore: association?.score ?? null }
     const group = groups.get(groupId) ?? { id: groupId, label, client: flow.client_ip, clips: [], dns: [], attributions: [], associations: [] }
     group.clips.push(next); groups.set(groupId, group)

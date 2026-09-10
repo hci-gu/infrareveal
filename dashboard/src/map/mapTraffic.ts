@@ -7,7 +7,7 @@ export const TRAFFIC_BUCKET_MS = 500
 export const TRAFFIC_HISTORY_LENGTH = 12
 export const TRAFFIC_TRAVEL_SECONDS = 4
 
-type Sample = { bytesPerSecond: number; packetsPerSecond: number }
+type Sample = { bytesPerSecond: number; packetsPerSecond: number; inRate: number; outRate: number; inPackets: number; outPackets: number }
 type ActivityChunk = {
   startMs: number
   endMs: number
@@ -22,8 +22,12 @@ export type TrafficProfile = {
   rates: number[]
   packets: number[]
   source: TrafficSource
+  inRates?: number[]
+  outRates?: number[]
+  inPackets?: number[]
+  outPackets?: number[]
 }
-export type TrafficArc = BundledMapArc & { radii: number[]; peakBytesPerSecond: number }
+export type TrafficArc = BundledMapArc & { radii: number[]; peakBytesPerSecond: number; direction?: number }
 
 /** Decode once per detail revision; sparse complete buckets are measured silence. */
 export function indexMapTraffic(chunks: readonly FlowActivityChunk[]): MapTrafficIndex {
@@ -43,7 +47,7 @@ export function indexMapTraffic(chunks: readonly FlowActivityChunk[]): MapTraffi
       if (!Array.isArray(row) || row.length < 5 || !row.slice(0, 5).every(validInteger)) { malformed = true; continue }
       const [offset, bytesOut, bytesIn, packetsOut, packetsIn] = row as number[]
       if (offset >= durationMs || offset % bucketMs !== 0 || samples.has(offset)) { malformed = true; continue }
-      samples.set(offset, { bytesPerSecond: (bytesOut + bytesIn) * 1000 / bucketMs, packetsPerSecond: (packetsOut + packetsIn) * 1000 / bucketMs })
+      samples.set(offset, { bytesPerSecond: (bytesOut + bytesIn) * 1000 / bucketMs, packetsPerSecond: (packetsOut + packetsIn) * 1000 / bucketMs, inRate: bytesIn * 1000 / bucketMs, outRate: bytesOut * 1000 / bucketMs, inPackets: packetsIn * 1000 / bucketMs, outPackets: packetsOut * 1000 / bucketMs })
     }
     const siblings = index.get(chunk.flow) ?? []
     siblings.push({ startMs, endMs: startMs + durationMs, bucketMs, updatedMs: parseEpoch(chunk.updated_at_source, 0), complete: !malformed && chunk.capture_complete && chunk.dropped_events === 0, samples })
@@ -60,6 +64,7 @@ export function projectTrafficProfiles(scene: MapTimelineScene, index: MapTraffi
     if (endpoint.availableFromMs > anchorMs) continue
     const rates = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0)
     const packets = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0)
+    const inRates = rates.slice(), outRates = rates.slice(), inPackets = rates.slice(), outPackets = rates.slice()
     const sources = new Set<TrafficSource>()
     for (const flow of endpoint.flows) {
       if (flow.startMs > anchorMs || flow.endMs < anchorMs - TRAFFIC_HISTORY_LENGTH * TRAFFIC_BUCKET_MS) continue
@@ -71,16 +76,18 @@ export function projectTrafficProfiles(scene: MapTimelineScene, index: MapTraffi
         const observation = trafficInBin(flow, index.get(flow.id), start, boundedEnd)
         rates[i] += observation.bytesPerSecond
         packets[i] += observation.packetsPerSecond
+        inRates[i] += observation.inRate; outRates[i] += observation.outRate
+        inPackets[i] += observation.inPackets; outPackets[i] += observation.outPackets
         sources.add(observation.source)
       }
     }
     const source = sources.has('estimated') ? 'estimated' : sources.has('partial') || sources.has('unavailable') ? 'partial' : sources.has('sampled') ? 'sampled' : 'unavailable'
-    profiles.set(endpoint.id, { rates, packets, source })
+    profiles.set(endpoint.id, { rates, packets, source, inRates, outRates, inPackets, outPackets })
   }
   return profiles
 }
 
-export function volumeArcs(routes: BundledMapArc[], profiles: Map<string, TrafficProfile>): TrafficArc[] {
+export function volumeArcs<T extends { endpointIds: string[] }>(routes: T[], profiles: Map<string, TrafficProfile>): (T & { radii: number[]; peakBytesPerSecond: number })[] {
   return routes.map((arc) => {
     const rates = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0)
     const packets = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0)
@@ -107,11 +114,12 @@ function trafficInBin(flow: MapFlowInterval, chunks: ActivityChunk[] | undefined
   if (!chunks?.length) {
     const seconds = Math.max(1, (flow.endMs - flow.startMs) / 1000)
     const fraction = (end - start) / TRAFFIC_BUCKET_MS
-    return { bytesPerSecond: flow.bytes / seconds * fraction, packetsPerSecond: flow.packets / seconds * fraction, source: 'estimated' }
+    return { bytesPerSecond: flow.bytes / seconds * fraction, packetsPerSecond: flow.packets / seconds * fraction, inRate: (flow.bytesIn ?? 0) / seconds * fraction, outRate: (flow.bytesOut ?? flow.bytes) / seconds * fraction, inPackets: (flow.packetsIn ?? 0) / seconds * fraction, outPackets: (flow.packetsOut ?? flow.packets) / seconds * fraction, source: 'estimated' }
   }
   let cursor = start
   let bytesPerSecond = 0
   let packetsPerSecond = 0
+  let inRate = 0, outRate = 0, inPackets = 0, outPackets = 0
   let partial = false
   while (cursor < end) {
     const chunk = chunks.find((chunk) => chunk.startMs <= cursor && chunk.endMs > cursor)
@@ -123,13 +131,23 @@ function trafficInBin(flow: MapFlowInterval, chunks: ActivityChunk[] | undefined
       const fraction = (next - cursor) / TRAFFIC_BUCKET_MS
       bytesPerSecond += (sample?.bytesPerSecond ?? 0) * fraction
       packetsPerSecond += (sample?.packetsPerSecond ?? 0) * fraction
+      inRate += (sample?.inRate ?? 0) * fraction; outRate += (sample?.outRate ?? 0) * fraction
+      inPackets += (sample?.inPackets ?? 0) * fraction; outPackets += (sample?.outPackets ?? 0) * fraction
       partial ||= !chunk.complete
     } else partial = true
     cursor = next
   }
-  return { bytesPerSecond, packetsPerSecond, source: partial ? 'partial' : 'sampled' }
+  return { bytesPerSecond, packetsPerSecond, inRate, outRate, inPackets, outPackets, source: partial ? 'partial' : 'sampled' }
 }
 
 function validInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+}
+
+/** Two independent volume lanes; incoming follows the same approximate geometry. */
+export function directionalVolumeArcs<T extends { endpointIds: string[] }>(routes: T[], profiles: Map<string, TrafficProfile>) {
+  return [1, -1].flatMap(direction => {
+    const directional = new Map([...profiles].map(([key, value]) => [key, {...value, rates: direction === 1 ? (value.outRates ?? value.rates) : (value.inRates ?? value.rates.map(() => 0)), packets: direction === 1 ? (value.outPackets ?? value.packets) : (value.inPackets ?? value.packets.map(() => 0))}]))
+    return volumeArcs(routes, directional).map(arc => ({...arc, direction}))
+  })
 }

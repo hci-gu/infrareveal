@@ -1,3 +1,4 @@
+import { isTrafficConnection } from '@infrareveal/session-state'
 import type { DNSQuery, Destination, Flow, FlowActivityChunk, FlowAssociation, FlowAttribution, GatewayData, Route } from '@infrareveal/session-state'
 import { decodeActivityChunk, type FlowActivitySample } from '../shared/activity/decodeActivityChunk'
 
@@ -12,7 +13,6 @@ const MIN_SESSION_SECONDS = 60
 const MIN_CLIP_SECONDS = 1.5
 const DNS_ATTRIBUTION_WINDOW_MS = 5 * 60 * 1000
 const DNS_FUTURE_TOLERANCE_MS = 10 * 1000
-const DEFAULT_GATEWAY_IP = '10.0.0.1'
 
 type DNSHostnameCandidate = {
   hostname: string
@@ -149,7 +149,7 @@ export function buildSessionComposition(
   bounds: SessionCompositionBounds = {},
   projectionCache?: CompositionProjectionCache,
 ): SessionComposition {
-  const flows = data.flows.filter(isDisplayableClientFlow)
+  const flows = data.flows.filter(isTrafficConnection)
   const flowIDs = new Set(flows.map((flow) => flow.id))
   const flowsByID = new Map(flows.map((flow) => [flow.id, flow]))
   const observableRouteKeys = new Set(flows.map((flow) => routeKey(flow.destination_ip, flow.destination_port)))
@@ -734,50 +734,6 @@ function unresolvedActivity(flow: Flow) {
     label: `Unresolved ${protocol}/${port}`,
     explanation: 'No hostname or provider evidence was available for this remote client flow.',
   }
-}
-
-function isDisplayableClientFlow(flow: Flow) {
-  if (flow.client_ip === DEFAULT_GATEWAY_IP) {
-    return false
-  }
-  if (!isPublicDestinationIP(flow.destination_ip)) {
-    return false
-  }
-  return !isInfrastructureFlow(flow.protocol, flow.destination_port)
-}
-
-function isInfrastructureFlow(protocol: string, port: number) {
-  const normalizedProtocol = protocol.toLowerCase()
-  if (port === 53 && (normalizedProtocol === 'udp' || normalizedProtocol === 'tcp')) {
-    return true
-  }
-  if (normalizedProtocol !== 'udp') {
-    return false
-  }
-  return [67, 68, 123, 5350, 5351, 5353].includes(port) || (port >= 33434 && port <= 33534)
-}
-
-function isPublicDestinationIP(value: string) {
-  const ipv4 = value.split('.').map(Number)
-  if (ipv4.length === 4 && ipv4.every((part) => Number.isInteger(part) && part >= 0 && part <= 255)) {
-    const [first, second] = ipv4
-    return !(
-      first === 0 || first === 10 || first === 127 || first >= 224 ||
-      (first === 169 && second === 254) ||
-      (first === 172 && second >= 16 && second <= 31) ||
-      (first === 192 && second === 168)
-    )
-  }
-
-  const normalized = value.toLowerCase()
-  if (!normalized.includes(':')) {
-    return false
-  }
-  return normalized !== '::' && normalized !== '::1' &&
-    !normalized.startsWith('fc') && !normalized.startsWith('fd') &&
-    !normalized.startsWith('fe8') && !normalized.startsWith('fe9') &&
-    !normalized.startsWith('fea') && !normalized.startsWith('feb') &&
-    !normalized.startsWith('ff')
 }
 
 function normalizeHostname(hostname: string) {

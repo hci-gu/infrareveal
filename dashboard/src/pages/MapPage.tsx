@@ -22,6 +22,8 @@ import { MapIcon } from '../map/MapIcon'
 import { MapTransport } from '../map/MapTransport'
 import { formatCursor } from '../map/format'
 import { indexMapTraffic } from '../map/mapTraffic'
+import { buildMapTrackCatalog, TrackColors } from '../map/mapTracks'
+import { useDestinationVolumes } from '../map/useDestinationVolumes'
 import '../map/map.css'
 
 const LIVE_DURATION_HEADROOM_SECONDS = 30
@@ -43,9 +45,13 @@ export function MapPage() {
   const followingCommandTimerRef = useRef(0)
   const lastCursorPublishRef = useRef(0)
   const { connectionState, data, timeline, error, refresh } = useGatewayData(sessionID)
+  const trackPalette = useMemo(() => ({ sessionID, colors: new TrackColors() }), [sessionID])
+  const activityStartMs = timeline.epochMs + Math.floor(currentFrame / FPS / 30) * 30_000 - 30_000
+  const activity = useFlowActivityRange(data.selectedSession?.id ?? null, activityStartMs, activityStartMs + 90_000)
+  const routeData = useMemo(() => ({...data, routes: [...new Map([...data.routes, ...activity.routes].map(route => [route.id, route])).values()]}), [data, activity.routes])
   const scene = useMemo(
-    () => buildMapTimelineScene(data, gatewayOrigin, timeline.epochMs),
-    [data, timeline.epochMs],
+    () => buildMapTimelineScene(routeData, gatewayOrigin, timeline.epochMs),
+    [routeData, timeline.epochMs],
   )
   const contentEndMs = Math.max(scene.startMs + 1_000, scene.endMs, timeline.liveEdgeMs)
   const contentDurationInFrames = Math.max(FPS, frameForTime(scene.startMs, contentEndMs, FPS) + 1)
@@ -53,9 +59,9 @@ export function MapPage() {
     ? roundLiveDuration(contentDurationInFrames)
     : contentDurationInFrames
   // Request a bounded 90-second window at 500 ms LOD, moving every 30 seconds.
-  const activityStartMs = scene.startMs + Math.floor(currentFrame / FPS / 30) * 30_000 - 30_000
-  const activity = useFlowActivityRange(scene.sessionId, activityStartMs, activityStartMs + 90_000)
+  const trackCatalog = useMemo(() => buildMapTrackCatalog({ ...routeData, dnsQueries: activity.dnsQueries }, trackPalette.colors), [activity.dnsQueries, routeData, trackPalette])
   const trafficIndex = useMemo(() => indexMapTraffic(activity.chunks), [activity.chunks])
+  const destinationVolumes = useDestinationVolumes(scene.sessionId, timeline.mode === 'live')
   const timelineRef = useRef({
     epochMs: scene.startMs,
     liveEdgeMs: timeline.liveEdgeMs,
@@ -72,13 +78,17 @@ export function MapPage() {
 
   const inputProps = useMemo<MapCompositionProps>(() => ({
     scene,
+    trackCatalog,
     fps: FPS,
     mapStyleUrl,
     unavailable: connectionState === 'error' || connectionState === 'offline',
     loading: !scene.sessionId && connectionState !== 'error' && connectionState !== 'offline',
     trafficIndex,
     trafficLoading: activity.loading,
-  }), [activity.loading, connectionState, scene, trafficIndex])
+    destinationIndex: destinationVolumes.index,
+    destinationLoading: destinationVolumes.loading,
+    destinationError: destinationVolumes.error,
+  }), [activity.loading, connectionState, scene, trackCatalog, trafficIndex, destinationVolumes.index, destinationVolumes.loading, destinationVolumes.error])
 
   useEffect(() => {
     const container = mapContainerRef.current
@@ -191,7 +201,11 @@ export function MapPage() {
     const handlePause = () => {
       if (!followingCommandRef.current) setTimelinePlayback({ playback: 'paused' })
     }
-    const handleEnded = () => setTimelinePlayback({ playback: 'paused' })
+    const handleEnded = () => {
+      const frame = player.getCurrentFrame()
+      setCurrentFrame(frame)
+      setTimelinePlayback({ cursorMs: timeForFrame(timelineRef.current.epochMs, frame, FPS), playback: 'paused' })
+    }
     const handleRateChange: CallbackListener<'ratechange'> = (event) => {
       setTimelinePlayback({ rate: event.detail.playbackRate })
     }
@@ -265,6 +279,7 @@ export function MapPage() {
         compositionHeight={size.height}
         controls={false}
         autoPlay
+        moveToBeginningWhenEnded={false}
         initiallyMuted
         clickToPlay={false}
         doubleClickToFullscreen={false}

@@ -1,4 +1,6 @@
 export type * from './data/types'
+export { indexFlowTracks, flowTrackAt, isTrafficConnection } from './data/flowTracks'
+export type { FlowTrackIdentity, FlowTrackIndex } from './data/flowTracks'
 
 export {
   clearGatewayData,
@@ -43,3 +45,5 @@ export type {
   TimelineUIState,
 } from './timeline/store/sessionStore'
 export { chooseLOD } from './timeline/transport/sessionController'
+
+export { routeForFlowAt, routeAvailableAt, routeBindingKey, routeMatchesFlow, routeIsValidAt, compareRouteRevisions, routeStateLabel } from './data/routeEvidence'
