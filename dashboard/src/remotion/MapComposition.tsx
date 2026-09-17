@@ -24,6 +24,9 @@ import { projectMapTracks, sceneForTracks, trackOpacity, trackTraffic } from '..
 import type { MapTrackCatalog } from '../map/mapTracks'
 import { MapTrackList } from '../map/MapTrackList'
 import { MapTrackInspector } from '../map/MapTrackInspector'
+import { CountryLabels } from '../map/CountryLabels'
+import { CountryArcLayer, CountryFlowArcLayer, CountryFootprintLayer } from '../map/CountryLayers'
+import { countryFitPositions, countryFootprint } from '../map/countryFootprints'
 import { columnMetersPerPixel, projectDestinationVolumes } from '../map/destinationVolumes'
 import type { DestinationColumn, DestinationVolume, DestinationVolumeIndex } from '../map/destinationVolumes'
 
@@ -64,6 +67,7 @@ export function MapComposition({ scene, trackCatalog, fps, mapStyleUrl, unavaila
     longitude: scene.origin.longitude - (width > 760 ? 42 : 0), latitude: Math.max(-55, Math.min(55, scene.origin.latitude - 16)),
     zoom: width > 760 ? 1.55 : 1.4, minZoom: -1, maxZoom: 16, pitch: 35, bearing: 0,
   }))
+  const [selectedCountry, setSelectedCountry] = useState<string | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [activeOnly, setActiveOnly] = useState(false)
   const [showTraffic, setShowTraffic] = useState(true)
@@ -74,7 +78,15 @@ export function MapComposition({ scene, trackCatalog, fps, mapStyleUrl, unavaila
   const visiblePoints = useMemo(() => activeOnly ? mapFrame.points.filter((point) => point.activeFlowCount > 0) : mapFrame.points, [activeOnly, mapFrame.points])
   const visibleIPs = useMemo(() => activeOnly ? new Set(visiblePoints.map(point => point.ip)) : undefined, [activeOnly, visiblePoints])
   const destinations = useMemo(() => destinationLoading ? [] : projectDestinationVolumes(scene, trackFrame.byFlow, destinationIndex, cursorMs, visibleIPs), [destinationLoading, scene, trackFrame.byFlow, destinationIndex, cursorMs, visibleIPs])
-  const columns = useMemo(() => destinations.flatMap(destination => destination.tracks), [destinations])
+  const countryDestinations = useMemo(() => destinations.filter(destination => destination.country), [destinations])
+  const countryVolumes = useMemo(() => new Map(countryDestinations.map(destination => [destination.country!.code, destination])), [countryDestinations])
+  const cityPoints = useMemo(() => visiblePoints.filter(point => !point.country), [visiblePoints])
+  // Geometry changes only with the country set, not on each animation frame.
+  const countryGeometry = useMemo(() => [...new Map(scene.endpoints.map(endpoint => countryFootprint(endpoint)).filter(country => country !== null).map(country => [country.code, country])).values()].flatMap(country => country.polygons.map(polygon => ({ countryCode: country.code, polygon }))), [scene])
+  const countryCodes = [...countryVolumes.keys()].sort().join('|')
+  const countryPolygons = useMemo(() => countryGeometry.filter(polygon => countryCodes.split('|').includes(polygon.countryCode)), [countryGeometry, countryCodes])
+  const countryBorders = useMemo(() => countryPolygons.flatMap(polygon => polygon.polygon.map(path => ({ countryCode: polygon.countryCode, path }))), [countryPolygons])
+  const columns = useMemo(() => destinations.filter(destination => !destination.country).flatMap(destination => destination.tracks), [destinations])
   const columnLayers = useMemo(() => [
     { focused: false, data: selection ? columns.filter(column => column.trackId !== selection) : [] },
     { focused: true, data: selection ? columns.filter(column => column.trackId === selection) : columns },
@@ -83,6 +95,7 @@ export function MapComposition({ scene, trackCatalog, fps, mapStyleUrl, unavaila
     const viewport = new WebMercatorViewport({ ...viewState, width, height })
     const occupied: number[][] = []
     return destinations.filter(destination => {
+      if (destination.country) return false
       if (selection && !destination.tracks.some(track => track.trackId === selection)) return false
       const [x, y] = viewport.project([...destination.position, destination.height * columnMetersPerPixel(destination.position[1], viewState.zoom)])
       if (x < 35 || x > width - 55 || y < 90 || y > height - 90 || (width > 760 && x < 330 && y < height - 130)
@@ -95,8 +108,9 @@ export function MapComposition({ scene, trackCatalog, fps, mapStyleUrl, unavaila
   const destinationPartial = destinations.some(destination => destination.partial)
   const visibleArcs = useMemo(() => activeOnly ? mapFrame.arcs.filter(arc => arc.activeFlowCount > 0) : mapFrame.arcs, [activeOnly, mapFrame.arcs])
   // A traced connection belongs exclusively to its itinerary, never to the direct-arc renderer.
-  const routes = useMemo(() => bundleMapArcs(visibleArcs.filter(arc => !arc.routeId)), [visibleArcs])
-  const tracedPaths = useMemo(() => buildTrafficPaths(visibleArcs), [visibleArcs])
+  const routes = useMemo(() => bundleMapArcs(visibleArcs.filter(arc => !arc.routeId && !arc.country)), [visibleArcs])
+  const countryRoutes = useMemo(() => bundleMapArcs(visibleArcs.filter(arc => arc.country)), [visibleArcs])
+  const tracedPaths = useMemo(() => buildTrafficPaths(visibleArcs.filter(arc => !arc.country)), [visibleArcs])
   const tracedStrips = useMemo(() => trafficPathStrips(tracedPaths), [tracedPaths])
   const measuredSpans = useMemo(() => routes.filter(arc => !showRoutes || !arc.gap), [routes, showRoutes])
   const unknownSpans = useMemo(() => showRoutes ? routes.filter(arc => arc.gap) : [], [routes, showRoutes])
@@ -109,6 +123,7 @@ export function MapComposition({ scene, trackCatalog, fps, mapStyleUrl, unavaila
   const trafficAnchorMs = Math.floor(cursorMs / TRAFFIC_BUCKET_MS) * TRAFFIC_BUCKET_MS
   const trafficProfiles = useMemo(() => projectTrafficProfiles(trackScene, trafficIndex, trafficAnchorMs), [trackScene, trafficIndex, trafficAnchorMs])
   const trafficArcs = useMemo(() => directionalVolumeArcs(routes, trafficProfiles), [routes, trafficProfiles])
+  const countryTraffic = useMemo(() => directionalVolumeArcs(countryRoutes, trafficProfiles), [countryRoutes, trafficProfiles])
   const tracedTraffic = useMemo(() => trafficPathEdges(directionalVolumeArcs(tracedPaths, trafficProfiles)), [tracedPaths, trafficProfiles])
   const volumeLayers = useMemo(() => [
     { focused: false, data: selection ? trafficArcs.filter(arc => arc.trackId !== selection) : [] },
@@ -149,7 +164,35 @@ export function MapComposition({ scene, trackCatalog, fps, mapStyleUrl, unavaila
       visible: showTraffic, parameters: { depthCompare: 'always' as const, depthWriteEnabled: false },
       updateTriggers: { getSourceColor: selection, getTargetColor: selection },
     }
+    const countryColor = (code: string): Color => {
+      const destination = countryVolumes.get(code)
+      return selection && destination?.tracks.some(track => track.trackId === selection) ? trackColor(selection) : TEAL
+    }
+    const countryOpacity = (code: string) => !selection || countryVolumes.get(code)?.tracks.some(track => track.trackId === selection) ? 1 : 0.12
     return [
+      new CountryFootprintLayer({
+        id: 'country-footprints', data: countryPolygons, getPolygon: shape => shape.polygon, pickable: true,
+        getFillColor: shape => alpha(countryColor(shape.countryCode), (0.16 + Math.min(0.2, Math.log2(1 + (countryVolumes.get(shape.countryCode)?.bytes ?? 0) / 4096) * 0.015)) * countryOpacity(shape.countryCode)),
+        updateTriggers: { getFillColor: [selection, countryVolumes] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+      }),
+      new PathLayer({
+        id: 'country-outlines', data: countryBorders, getPath: border => border.path, getWidth: 1, widthUnits: 'pixels',
+        getColor: border => alpha(countryColor(border.countryCode), 0.55 * countryOpacity(border.countryCode)),
+        updateTriggers: { getColor: [selection, countryVolumes] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+      }),
+      new CountryArcLayer<BundledMapArc>({
+        ...arcProps, id: 'country-connections', data: countryRoutes, getWidth: 1.5,
+        getSourceColor: arc => alpha(trackColor(arc.trackId), 0.5 * routeOpacity(arc)),
+        getTargetColor: arc => alpha(trackColor(arc.trackId), 0.4 * routeOpacity(arc)),
+      }),
+      new CountryFlowArcLayer<TrafficArc>({
+        ...arcProps, id: 'country-traffic', data: countryTraffic, time: frame / fps, motion: reducedMotion ? 0 : 1,
+        phase: (cursorMs - trafficAnchorMs) / TRAFFIC_BUCKET_MS,
+        getRadii0: arc => arc.radii.slice(0, 4), getRadii1: arc => arc.radii.slice(4, 8), getRadii2: arc => arc.radii.slice(8, 12),
+        getDirection: arc => arc.direction ?? 1,
+        getSourceColor: arc => alpha(trackColor(arc.trackId), routeOpacity(arc)),
+        getTargetColor: arc => alpha(trackColor(arc.trackId), routeOpacity(arc)),
+      }),
       new PathLayer<MapPosition[]>({
         id: 'atlas-grid', data: GRATICULE, getPath: (path) => path,
         getColor: [69, 102, 118, 27], getWidth: 1, widthUnits: 'pixels', pickable: false,
@@ -216,13 +259,13 @@ export function MapComposition({ scene, trackCatalog, fps, mapStyleUrl, unavaila
         parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
       new ScatterplotLayer<MapPoint>({
-        id: 'destination-halos', data: visiblePoints, getPosition: (point) => point.position,
+        id: 'destination-halos', data: cityPoints, getPosition: (point) => point.position,
         radiusUnits: 'pixels', getRadius: (point) => point.trackId === selection ? 17 : 10,
         getFillColor: (point) => alpha(trackColor(point.trackId), (point.activeFlowCount > 0 ? 0.08 : 0.04) * trackOpacity(point.trackId, selection)),
         updateTriggers: { getRadius: selection, getFillColor: selection }, parameters: { depthCompare: 'always' },
       }),
       new ScatterplotLayer<MapPoint>({
-        id: 'destinations', data: visiblePoints, pickable: true, radiusUnits: 'pixels', stroked: true,
+        id: 'destinations', data: cityPoints, pickable: true, radiusUnits: 'pixels', stroked: true,
         getPosition: (point) => point.position, getRadius: (point) => point.trackId === selection ? 5.5 : 3.5,
         getFillColor: (point) => alpha(trackColor(point.trackId), (point.activeFlowCount > 0 ? 1 : 0.55) * trackOpacity(point.trackId, selection)),
         getLineColor: (point) => point.trackId === selection ? [230, 255, 248, 255] : [11, 24, 34, 230 * trackOpacity(point.trackId, selection)],
@@ -268,14 +311,14 @@ export function MapComposition({ scene, trackCatalog, fps, mapStyleUrl, unavaila
         getTextAnchor: 'middle', getAlignmentBaseline: 'center', parameters: { depthCompare: 'always' },
       }),
     ]
-  }, [cursorMs, fps, frame, routes, measuredSpans, unknownSpans, tracedStrips, pathVolumeLayers, origin, reducedMotion, selection, showTraffic, trafficAnchorMs, trackCatalog, visibleHops, visiblePoints, viewState.zoom, volumeLayers, columnLayers, destinationLabels])
+  }, [cursorMs, fps, frame, routes, measuredSpans, unknownSpans, tracedStrips, pathVolumeLayers, origin, reducedMotion, selection, showTraffic, trafficAnchorMs, trackCatalog, visibleHops, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryRoutes, countryTraffic, cityPoints])
 
   function moveTo(next: Partial<MapViewState>) {
     setViewState((current) => ({ ...current, ...next, transitionDuration: reducedMotion ? 0 : 700, transitionInterpolator: new FlyToInterpolator() }))
   }
 
   function fitNetwork(trackId?: string) {
-    const positions = [origin[0].position, ...[...visiblePoints, ...visibleHops].filter(point => !trackId || point.trackId === trackId).map((point) => point.position)]
+    const positions = [origin[0].position, ...[...visiblePoints, ...visibleHops].filter(point => !trackId || point.trackId === trackId).flatMap(point => 'country' in point && point.country ? countryFitPositions(point.country) : [point.position])]
     // Unwrap around the gateway so dateline routes take the short way around.
     const longitudes = positions.map(([lon]) => scene.origin.longitude + ((lon - scene.origin.longitude + 540) % 360) - 180)
     const latitudes = positions.map(([, lat]) => Math.max(-80, Math.min(80, lat)))
@@ -300,18 +343,27 @@ export function MapComposition({ scene, trackCatalog, fps, mapStyleUrl, unavaila
   }
 
   return (
-    <AbsoluteFill className="atlas-composition" data-map-zoom={viewState.zoom.toFixed(2)} data-map-pitch={viewState.pitch} data-route-mode={showRoutes ? 'traceroute' : 'direct'} data-selected-track={selection || undefined} data-track-count={trackFrame.tracks.length} data-destination-count={destinations.length} data-destination-bytes={Math.round(destinations.reduce((sum, destination) => sum + destination.bytes, 0))}>
+    <AbsoluteFill className="atlas-composition" data-map-zoom={viewState.zoom.toFixed(2)} data-map-pitch={viewState.pitch} data-route-mode={showRoutes ? 'traceroute' : 'direct'} data-selected-track={selection || undefined} data-track-count={trackFrame.tracks.length} data-destination-count={destinations.length} data-country-count={countryDestinations.length} data-city-column-count={columns.length} data-destination-bytes={Math.round(destinations.reduce((sum, destination) => sum + destination.bytes, 0))}>
       <DeckGL
         controller={{ dragRotate: true, touchRotate: true }} viewState={viewState}
         onViewStateChange={({ viewState: next }) => setViewState(next as MapViewState)}
-        layers={layers} getTooltip={tooltipForPoint}
-        onClick={({ object, layer }) => { if (['destinations', 'route-hops', 'destination-columns', 'muted-destination-columns'].includes(layer?.id ?? '') && object) selectTrack((object as MapPoint | MapHopPoint | DestinationColumn).trackId ?? null) }}
+        layers={layers} getTooltip={info => {
+          if (info.layer?.id === 'country-footprints' && info.object) {
+            const destination = countryVolumes.get(info.object.countryCode)
+            return destination ? { text: `${destination.location} · Country estimate\nCity unknown\n${formatBytes(destination.bytes)} accumulated (sent + received)\nClick for country totals and tracks` } : null
+          }
+          return tooltipForPoint(info)
+        }}
+        onClick={({ object, layer }) => {
+          if (layer?.id === 'country-footprints' && object) { setSelectedCountry(countryVolumes.get(object.countryCode)?.id ?? null); return }
+          if (['destinations', 'route-hops', 'destination-columns', 'muted-destination-columns'].includes(layer?.id ?? '') && object) selectTrack((object as MapPoint | MapHopPoint | DestinationColumn).trackId ?? null) }}
         getCursor={({ isDragging, isHovering }) => isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'}
       >
         <MapLibre reuseMaps mapStyle={mapStyleUrl} minZoom={-1} attributionControl={{ compact: true }}
           onError={() => setMapError(true)} onIdle={() => setMapError(false)} />
       </DeckGL>
       <div className="atlas-vignette" />
+      <CountryLabels destinations={countryDestinations} viewState={viewState} width={width} height={height} selection={selection} selectedCountry={selectedCountry} colors={trackCatalog.colors} onCountry={setSelectedCountry} onTrack={selectTrack} />
 
       <aside className="atlas-overview" aria-label="Traffic overview">
         <div className="atlas-eyebrow"><span className="atlas-tiny-line" /> SESSION INTELLIGENCE</div>
@@ -348,7 +400,7 @@ export function MapComposition({ scene, trackCatalog, fps, mapStyleUrl, unavaila
         <button type="button" className="atlas-icon-button" onClick={() => fitNetwork()} aria-label="Fit network" title="Fit network"><MapIcon name="expand" size={17} /></button>
         <button type="button" className="atlas-icon-button" onClick={() => moveTo({ longitude: scene.origin.longitude, latitude: scene.origin.latitude, zoom: 5, bearing: 0 })} aria-label="Center on gateway" title="Center on gateway"><MapIcon name="target" /></button>
       </div>
-      <div className="atlas-map-footer"><div className="atlas-legend"><span><i className="atlas-route-swatch" />Connection</span><span><i className="atlas-volume-swatch" />Traffic / sec</span><span><i className="atlas-column-swatch" />Accumulated data</span>{visibleHops.length > 0 && <span><i className="atlas-hop-swatch" />Router</span>}<span><i className="atlas-gateway-swatch" />Gateway</span></div><p className="atlas-column-scale" data-volume-source={destinationLoading ? 'loading' : destinationError ? 'unavailable' : destinationEstimated ? 'estimated' : destinationPartial ? 'partial' : 'captured'}>Columns = sent + received · Log scale{destinationLoading ? ' · Loading totals…' : destinationError ? ' · Capture history unavailable' : destinationEstimated ? ' · ≈ includes estimates' : destinationPartial ? ' · Partial capture' : ''}</p><p className="atlas-traffic-scale" data-traffic-source={estimatedTraffic ? 'estimated' : partialTraffic ? 'partial' : 'sampled'}>Track colors{trafficLoading ? ' · Loading samples' : estimatedTraffic ? ' · Estimated rates' : partialTraffic ? ' · Partial measurements' : ''}</p><p>{!showRoutes ? 'Simplified connections · ' : hasUnknownSpans ? 'Dashed spans = unknown path · ' : 'Approximate routes · '}Coarse IP locations</p></div>
+      <div className="atlas-map-footer"><div className="atlas-legend"><span><i className="atlas-route-swatch" />Connection</span><span><i className="atlas-volume-swatch" />Traffic / sec</span><span><i className="atlas-column-swatch" />City accumulation</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}{visibleHops.length > 0 && <span><i className="atlas-hop-swatch" />Router</span>}<span><i className="atlas-gateway-swatch" />Gateway</span></div><p className="atlas-column-scale" data-volume-source={destinationLoading ? 'loading' : destinationError ? 'unavailable' : destinationEstimated ? 'estimated' : destinationPartial ? 'partial' : 'captured'}>Totals = sent + received · Columns use log scale{destinationLoading ? ' · Loading totals…' : destinationError ? ' · Capture history unavailable' : destinationEstimated ? ' · ≈ includes estimates' : destinationPartial ? ' · Partial capture' : ''}</p><p className="atlas-traffic-scale" data-traffic-source={estimatedTraffic ? 'estimated' : partialTraffic ? 'partial' : 'sampled'}>Track colors{trafficLoading ? ' · Loading samples' : estimatedTraffic ? ' · Estimated rates' : partialTraffic ? ' · Partial measurements' : ''}</p><p>{!showRoutes ? 'Simplified connections · ' : hasUnknownSpans ? 'Dashed spans = unknown path · ' : 'Approximate routes · '}Coarse IP locations</p></div>
     </AbsoluteFill>
   )
 }

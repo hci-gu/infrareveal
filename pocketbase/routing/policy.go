@@ -62,7 +62,10 @@ func classifyRouteEvidence(s snapshot, t target, access []accessPosition) eviden
 			}
 		}
 	}
-	if (s.Reached && intermediate > 0) || publicBeyond {
+	if publicBeyond {
+		if needsMethodComparison(s, t) {
+			return evidenceClass{"access_only", "Only an initial segment and possibly the destination responded; remote path unknown"}
+		}
 		return evidenceClass{"useful_path", "Responding intermediate interfaces describe a gateway route approximation"}
 	}
 	if intermediate > 0 {
@@ -75,6 +78,29 @@ func classifyRouteEvidence(s snapshot, t target, access []accessPosition) eviden
 		return evidenceClass{"indeterminate", "Measurement unfinished or locally unavailable"}
 	}
 	return evidenceClass{"no_path", "Path not observable with these probes"}
+}
+
+// A responding endpoint behind a silent span does not establish visibility of
+// the remote path. Allow the one bounded method comparison even before three
+// destinations establish an access consensus; retain this only as an outcome.
+func needsMethodComparison(s snapshot, t target) bool {
+	lastLeading := 0
+	gap := false
+	for _, h := range s.Hops {
+		aa := addresses(h)
+		if len(aa) == 0 || h.TTL != lastLeading+1 {
+			gap = true
+		}
+		for _, a := range aa {
+			if gap && a != t.IP && netmeta.PublicAddress(a) {
+				return false
+			}
+		}
+		if !gap {
+			lastLeading = h.TTL
+		}
+	}
+	return gap
 }
 
 // Only responding positions participate. Missing spans between those positions

@@ -1,6 +1,7 @@
 import type { Destination, Route } from '@infrareveal/session-state'
 import { routeAvailableAt } from '@infrareveal/session-state'
 import type { GatewayOrigin, MapPosition, MapRoutePath } from './mapModel'
+import { isCountryLocation } from './countryFootprints'
 
 export type RouteNode = {
   position: MapPosition
@@ -42,6 +43,7 @@ export function mapRoutePath(route: Route, origin: GatewayOrigin, destination: D
     gap ||= hop.ttl > previousTTL + 1 || hop.state === 'multipath'
     previousTTL = hop.ttl
     if (hop.missing || !hop.address || !hasMapCoordinates(hop.lat, hop.lon)) { gap = true; continue }
+    if (isCountryLocation(hop) && hop.address !== route.destination_ip) { gap = true; continue }
     const destinationHop = hop.address === route.destination_ip
     const timings = (hop.timings ?? []).filter(value => Number.isFinite(value) && value >= 0)
     add({

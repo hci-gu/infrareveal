@@ -58,12 +58,28 @@ slightly different arc heights make these shared routes distinguishable.
 
 The map requests a bounded 90-second activity window at 500 ms LOD. Fine samples
 are integrated into half-second display buckets, retaining short bursts; overlapping
-LODs are not counted twice. Six seconds of history carry volume along the arcs.
+LODs are not counted twice. Tube width smoothly interpolates the two latest
+completed buckets over 500 ms, including burst onset and decay to silence. This
+visual smoothing adds up to one bucket of latency; numeric rates and totals are
+unchanged. The travelling accent uses a continuous timeline clock independent
+of bucket rollover.
 Complete sparse buckets mean silence. Missing/partial coverage is marked, and
 older sessions without samples use explicitly labeled average flow-byte estimates.
 The inspector shows recent payload rate or the estimated average as appropriate.
 
-Final destinations also accumulate **sent + received bytes** in shaded 3D columns.
+Country-only GeoIP estimates use a hatched country footprint and a labeled country
+total instead of a pin or column at the provider's centroid. Missing city names
+(including whitespace-only names) identify country-level estimates. Their final
+connection span fades into the footprint in both route modes. The country total
+includes only destinations without a city estimate, grouped by country rather
+than coordinates; it uses the same replay, capture and active-only filtering as
+city columns. Click the footprint or country label for sent/received totals and
+per-track inspection. City-level traffic in that country remains separate.
+Country-only intermediate router estimates are omitted from the located hop
+chain, with a gap marking the uncertain span. Country polygons are bundled locally
+from Natural Earth; missing small territories retain a country label without a pin.
+
+City-level destinations accumulate **sent + received bytes** in shaded 3D columns.
 IPs sharing the same geolocation form one column, stacked in track colors. Track
 selection dims the other sections without rescaling the stack. Labels show totals
 at prominent locations; hover a section for the location's received/sent breakdown,
@@ -111,7 +127,23 @@ The custom player controls preserve seeking through the shared timeline cursor.
 Space plays/pauses, left/right arrows move ten seconds, and the timeline slider
 retains its native keyboard behavior. Playback supports 0.5×, 1×, 2×, and 4× speed.
 For a live session, playback follows the live edge until the viewer pauses or
-seeks backwards. The status changes to `Behind live`, and the `Go live` control
-seeks to the moving edge and resumes playback. The shared transport also supports
+seeks backwards or selects a speed other than 1×. The status changes to `Behind live`, and the `Go live` control
+seeks to the moving edge and resumes playback at 1×. Map data updates arrive
+through a separate React context, keeping Remotion’s video configuration stable
+so refreshing observations does not restart its playback scheduler. The shared transport also supports
 gateways that still expose only PocketBase collection routes; those compatibility
 queries remain bounded to the requested timeline window.
+
+Animation regression checks use the actual WebGL shaders for direct and traceroute
+paths in both directions. Additional layer classes can be passed to the check. With the Vite dev server running, execute
+`await (await import('/scripts/check-traffic-animation.js')).checkTrafficAnimation()`
+in its browser console. `passed` must be `true`. The full live/playback check can
+also run through Playwright CLI with an active session open:
+
+```sh
+playwright-cli run-code "$(cat dashboard/scripts/check-map-playback.js)"
+```
+
+Run that command from the repository root. It checks live speed restoration,
+clock continuity while following and replaying, pause behavior, and GPU bucket
+boundaries. It changes only the local playback controls and returns to Live.

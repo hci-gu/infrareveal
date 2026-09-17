@@ -396,11 +396,23 @@ func (c *Coordinator) run(ctx context.Context) {
 				}
 			}
 			ranked := []*demand{}
+			// Qualification selects a bounded comparison, not just its first
+			// process. Do not require another traffic burst after a slow attempt.
+			admissionBudget := sessionBudget{}
+			if active != "" {
+				_, loaded, budgetErr := loadSessionBudget(c.repo.app, active)
+				if budgetErr != nil {
+					lastError = budgetErr.Error()
+				} else {
+					admissionBudget = loaded
+				}
+			}
 			for key, d := range demands {
+				comparisonPending := admissionBudget.Targets[key].comparisonPending(d.target)
 				if d.pending != nil && !now.Before(d.retryPublication) {
 					apply(d, *d.pending, now)
 				}
-				if now.Sub(d.last) > time.Minute && !d.running && !d.manual && d.pending == nil {
+				if now.Sub(d.last) > time.Minute && !d.running && !d.manual && !comparisonPending && d.pending == nil {
 					delete(demands, key)
 					continue
 				}
@@ -411,6 +423,11 @@ func (c *Coordinator) run(ctx context.Context) {
 						continue
 					}
 					d.cache = e
+					// Old v2 cache entries can contain only an initial segment plus
+					// an endpoint. Reapply today's evidence gate before reuse/counting.
+					if classifyRouteEvidence(d.cache.Best, d.target, nil).Class != "useful_path" {
+						d.cache = cacheEntry{}
+					}
 					d.loaded = true
 				}
 				if !d.bound && d.cache.Best.Attempt != "" && now.Before(d.cache.ValidUntil) {
@@ -422,16 +439,28 @@ func (c *Coordinator) run(ctx context.Context) {
 					d.bound = true
 					hits++
 				}
-				if !d.running && d.pending == nil && (d.manual || d.qualified(now, c.config.MinBytes)) {
+				if !d.running && d.pending == nil && (d.manual || comparisonPending || d.qualified(now, c.config.MinBytes)) {
 					ranked = append(ranked, d)
 				} else if !d.running {
-					d.state = "low_activity"
+					v := admissionBudget.Targets[key]
+					switch {
+					case v.Useful:
+						d.state = "useful_path_saved"
+					case v.Attempts >= len(qualityMethods(d.target)):
+						d.state = "comparison_finished"
+					default:
+						d.state = "low_activity"
+					}
 				}
 			}
 			sort.Slice(ranked, func(i, j int) bool {
 				a, b := ranked[i], ranked[j]
 				if a.manual != b.manual {
 					return a.manual
+				}
+				ac, bc := admissionBudget.Targets[a.key].comparisonPending(a.target), admissionBudget.Targets[b.key].comparisonPending(b.target)
+				if ac != bc {
+					return ac
 				}
 				wa, wb := a.weight(now), b.weight(now)
 				if wa != wb {

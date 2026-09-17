@@ -32,6 +32,16 @@ describe('traceroute geography', () => {
     expect(path.nodes[path.nodes.length - 1]).toMatchObject({ kind: 'destination', rttMs: null })
   })
 
+  it('does not draw a country-only router estimate as a precise hop', () => {
+    const path = mapRoutePath(route([
+      hop(1, '198.51.100.1', 56, 11),
+      { ...hop(2, '198.51.100.2', 37.751, -97.822), country: 'United States', city: '' },
+      hop(3, destination.ip, destination.lat, destination.lon),
+    ]), origin, destination)
+    expect(path.nodes.map(node => node.address)).not.toContain('198.51.100.2')
+    expect(path.gaps).toEqual([false, true])
+  })
+
   it('retains a direct approximate connection when no hop can be located', () => {
     const path = mapRoutePath(route([hop(1, '192.168.10.1'), hop(2, ''), hop(3, '198.51.100.3', NaN, 12), hop(4, destination.ip)], { complete: true }), origin, destination)
     expect(path.positions).toEqual([[origin.longitude, origin.latitude], [destination.lon, destination.lat]])

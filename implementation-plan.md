@@ -22,14 +22,14 @@ Implement the waste controls first. A new engine, richer schema or more diagnost
 | Destination response only | Useful endpoint-response fact, but no discovered intermediate path. | Outcome/endpoint summary; zero route snapshots. |
 | Only the same local/access prefix, destination not reached | Show a compact access-prefix explanation; remote path remains unknown. | Reuse a bounded access-context summary; do not keep duplicating it as destination routes. |
 | At least one public intermediate responder beyond an established shared access prefix | Useful partial route, even without geography or destination response. | Retain one path snapshot with its measured TTLs and explicit unknown spans. |
-| Destination response plus at least one intermediate responder | Useful sparse approximation, even with unanswered intermediate TTLs. | Retain one path snapshot; gaps remain explicit. |
+| Initial segment, silent middle and destination response | Endpoint reachability and initial-network context; no useful remote path yet. | Outcome only; allow the bounded alternate method. |
 | Same path with additional timeout rows, another timestamp or small RTT changes | No new route information. | Update bounded summary statistics; zero new route snapshots. |
 | Additional responding segment, newly reached destination, or changed interface sequence | Potentially useful new evidence. | Publish a new snapshot if materially different and within the session budget. |
 | Coordinates/ASN added to an existing interface | Improve its explanation/rendering. | Version the changed enrichment once; do not duplicate the whole route. |
 
 - [x] Implement a pure `classifyRouteEvidence` policy with fixture tests for every row above, returning `useful_path`, `access_only`, `endpoint_only`, `no_path`, or `indeterminate` and a reason.
 - [x] Define an access prefix conservatively: matching leading responding TTL/address positions in at least three independent destination measurements in the same network context. Do not guess it from ASN, geography or address ownership alone.
-- [x] Before an access prefix is established, permit a public intermediate reply as provisional useful evidence; subsequent matching prefixes add no new path evidence. Historical records need not be rewritten to reflect later classification.
+- [x] Before access consensus, reject an initial segment followed only by silence/the endpoint; a public responder beyond that segment can establish useful evidence. Historical records need not be rewritten to reflect later classification.
 - [x] Keep supporting measurement IDs and times for access-context summaries. Display shared context as context, never splice it into an unmeasured destination's route.
 - [x] Define a material path fingerprint from canonical target binding, source/network context, actual method/port, TTL-indexed responder sets, terminal evidence and meaningful unknown spans. Exclude attempt IDs, wall-clock timestamps, raw RTT values, queue state and timeout-only tail growth.
 - [x] Preserve measurement identity separately from that fingerprint. Identical topology does not make two attempts the same observation.
@@ -38,7 +38,7 @@ Implement the waste controls first. A new engine, richer schema or more diagnost
 Acceptance:
 
 - [x] Replaying 1,000 identical all-silent or access-only results creates **zero per-destination route snapshots after classification**, with bounded summaries rather than 1,000 replacement diagnostic rows.
-- [x] A destination replying after a long silent middle produces a useful approximation when an intermediate interface also replied.
+- [x] A destination replying after a long silent middle does not promote initial-only replies to a useful route; retain a sparse approximation only when intermediate evidence adds more than that initial segment.
 - [x] A useful unlocated route is retained and visible in a topology strip; lack of GeoIP never makes it useless.
 
 ## 2. Set hard automatic-work budgets
@@ -55,7 +55,7 @@ These are initial implementation defaults, intentionally smaller than the existi
 | Automatic attempts per gateway/network/family | 40 per rolling hour, persisted across process restart and session changes |
 | Concurrent automatic traces | One |
 | Probe rate | Five measurement probes/second globally; record engine-generated control traffic separately |
-| One trace | Maximum 32 TTLs, two probes per TTL, 64 transmitted probes, 45-second wall deadline |
+| One trace | Maximum 32 TTLs/64 probes; fit serial waits within the 45-second deadline: default 20 TTLs/two probes each, with an explicit unprobed tail |
 | Persisted path snapshots | Maximum 100 new v2 `routes` snapshots per session, including useful cached bindings and material revisions |
 | Snapshots per attempt | At most two: first useful result and materially different final result; no per-hop history |
 | Detailed unsuccessful attempt retention | One compact current outcome per admitted binding; no append-only automatic failure/progress log |
@@ -68,6 +68,7 @@ These are initial implementation defaults, intentionally smaller than the existi
 - [x] After visibility suppression expires, permit one bounded trial on renewed qualified demand. Reopen discovery only if it adds useful evidence; otherwise suppress again.
 - [x] Treat a shared sparse prefix as no information gain for this stopping rule. Label the result “no additional path visibility under tested methods,” not “ISP blocks traceroute.”
 - [x] Once a target has a useful result, stop automatic probing of that binding for the rest of the session. Freshness expiry may change its label, but must not restart a repair/refresh loop. A network-context change may make it eligible again only within the remaining session/hour budgets; explicit manual requests use their own allowance.
+- [x] An admitted primary/alternate comparison survives expiry of its original activity window; finish the remaining method within existing limits without requiring another browsing burst.
 - [x] Cancel queued work when its demand disappears; do not trace every hostname, IP, DNS answer or flow just because it exists.
 - [x] Select fairly among qualifying targets, without using fairness to grant unconditional probes to every background connection.
 - [x] Allow an explicit “Measure this destination” action to prioritize a selected observed binding even below the traffic threshold. Give manual work a separate small allowance of ten attempts per session; retain global rate, concurrency, storage and capability limits.

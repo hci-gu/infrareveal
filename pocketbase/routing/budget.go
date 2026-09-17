@@ -19,6 +19,11 @@ type bindingBudget struct {
 	LastAttempt string `json:"last_attempt"`
 	Finished    string `json:"finished"`
 }
+
+func (v bindingBudget) comparisonPending(t target) bool {
+	return v.Attempts > 0 && v.Attempts < len(qualityMethods(t)) && !v.Useful
+}
+
 type sessionBudget struct {
 	Targets       map[string]bindingBudget `json:"targets"`
 	Attempts      int                      `json:"attempts"`

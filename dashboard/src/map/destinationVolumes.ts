@@ -3,6 +3,8 @@ import type { FlowActivityChunk } from '@infrareveal/session-state'
 import type { MapPosition, MapTimelineScene } from './mapModel'
 import type { MapConnection } from './mapTracks'
 import { hasMapCoordinates } from './mapRoutes'
+import { countryFootprint } from './countryFootprints'
+import type { CountryFootprint } from './countryFootprints'
 
 export type VolumeChunk = Pick<FlowActivityChunk, 'id' | 'session' | 'flow' | 'chunk_start' | 'chunk_ms' | 'wire_bytes_in' | 'wire_bytes_out' | 'capture_complete' | 'dropped_events' | 'updated_at_source' | 'updated'>
 type Interval = { start: number; end: number; received: number; sent: number; partial: boolean }
@@ -12,6 +14,7 @@ export type ByteTotals = { received: number; sent: number; estimated: boolean; p
 export type DestinationVolume = ByteTotals & {
   id: string; position: MapPosition; location: string; bytes: number; height: number
   ips: string[]; flowCount: number; tracks: DestinationColumn[]
+  country?: CountryFootprint | null
 }
 export type DestinationColumn = ByteTotals & {
   trackId: string; label: string; bytes: number; base: number; height: number; destination: DestinationVolume
@@ -78,9 +81,11 @@ export function projectDestinationVolumes(scene: MapTimelineScene, connections: 
   const groups = new Map<string, DestinationVolume>()
   const seenFlows = new Set<string>()
   for (const endpoint of scene.endpoints) {
-    if (!hasMapCoordinates(endpoint.position[1], endpoint.position[0])) continue
+    const country = countryFootprint(endpoint)
+    const position = country?.position ?? endpoint.position
+    if (!hasMapCoordinates(position[1], position[0])) continue
     if (endpoint.availableFromMs > cursorMs || (visibleIPs && !visibleIPs.has(endpoint.ip))) continue
-    const id = endpoint.position.join(',')
+    const id = country ? `country:${country.code}` : endpoint.position.join(',')
     for (const flow of endpoint.flows) {
       const connection = connections.get(flow.id)
       if (!connection || seenFlows.has(flow.id) || connection.startMs > cursorMs) continue
@@ -89,7 +94,7 @@ export function projectDestinationVolumes(scene: MapTimelineScene, connections: 
       const bytes = volume.received + volume.sent
       if (bytes <= 0) continue
       const group = groups.get(id) ?? {
-        id, position: endpoint.position, location: [endpoint.city, endpoint.country].filter(Boolean).join(', ') || endpoint.label,
+        id, position, country, location: country?.name ?? ([endpoint.city, endpoint.country].filter(Boolean).join(', ') || endpoint.label),
         received: 0, sent: 0, bytes: 0, height: 0, estimated: false, partial: false, ips: [], flowCount: 0, tracks: [],
       }
       group.received += volume.received; group.sent += volume.sent; group.bytes += bytes
@@ -107,7 +112,7 @@ export function projectDestinationVolumes(scene: MapTimelineScene, connections: 
     }
   }
   for (const group of groups.values()) {
-    group.height = destinationHeight(group.bytes)
+    group.height = group.country ? 0 : destinationHeight(group.bytes)
     group.tracks.sort((a, b) => a.trackId.localeCompare(b.trackId))
     let base = 0
     for (const track of group.tracks) {

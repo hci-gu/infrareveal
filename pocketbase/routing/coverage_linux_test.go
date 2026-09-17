@@ -13,6 +13,18 @@ import (
 	"time"
 )
 
+func TestLinuxSilentTraceFinishesWithinBudget(t *testing.T) {
+	if os.Getenv("IR_ROUTE_NETNS_CASE") != "silent-budget" {
+		t.Skip("isolated namespace fixture only")
+	}
+	// The router still answers TTL 1, but forwards to a silent destination.
+	// The production command must flush that evidence before its deadline.
+	result := (coverageProbe{deadline: 45 * time.Second}).Run(context.Background(), target{"10.249.2.2", "udp", 49999}, probePlan{Method: "udp-paris"}, func(snapshot) {})
+	if result.Error != "" || result.replies() != 1 || result.ProbedTTL < 16 || result.StopReason != "HOPLIMIT" {
+		t.Fatalf("silent trace lost its initial reply at the deadline: %+v", result)
+	}
+}
+
 func TestLinuxWholeTaskBoundaries(t *testing.T) {
 	mode := os.Getenv("IR_ROUTE_NETNS_CASE")
 	if mode != "nat" && mode != "cancel" && !strings.HasPrefix(mode, "v6-") {

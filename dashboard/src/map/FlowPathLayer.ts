@@ -41,9 +41,9 @@ float historyValue(int i) {
   return instanceRadii2[clamp(i - 8, 0, 3)];
 }
 float radiusAt(float progress) {
-  float age = 0.0; // Apply the newest observed volume across every hop immediately.
-  float index = clamp(age, 0.0, 10.999);
-  float amount = mix(historyValue(int(floor(index))), historyValue(int(floor(index)) + 1), smoothstep(0.0, 1.0, fract(index)));
+  // Interpolate completed buckets; the previous newest sample becomes history[1].
+  // This keeps onset, rate changes, and silence continuous across bucket rollover.
+  float amount = mix(historyValue(1), historyValue(0), smoothstep(0.0, 1.0, traffic.phase));
   float phase = progress * instanceDirection - traffic.clock * traffic.motion / ${TRAFFIC_TRAVEL_SECONDS}.0;
   float wave = pow(0.5 + 0.5 * cos(phase * 2.0 * PI), 4.0);
   // Only the two ends of the entire itinerary taper. Routers retain the passing volume.

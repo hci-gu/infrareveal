@@ -2,6 +2,36 @@
 
 Candidate: working tree, 17 September 2026. The [implementation guide](../implementation-guides/live-route-discovery.md) documents current semantics. The older investigation below is retained as historical context, not validation of this rewrite.
 
+## Affected Pi investigation — 17 September, 12:31–12:38 UTC
+
+Read-only inspection of live session `g5el86tarhbn1ny` (`testing`) found six attempts: four automatic and two manual. Three UDP attempts ended at the 45-second deadline without a complete record. The three saved TCP paths all contained `192.168.10.1` at TTL 1, `130.241.190.9` at TTL 2, a silent middle, and the destination at TTL 10 or 11. All six outcomes were primary methods; no alternate completed.
+
+The shipped diagnostic ran on the ARMv7 Pi against observed destination `162.159.130.234:443`, on `eth0`, with a 45-second/profile deadline and 20-hop maximum. It wrote temporary header summaries only; production binaries, session records and firewall rules were unchanged.
+
+| Profile | Responding TTLs | Duration | Result |
+| --- | --- | --- | --- |
+| Linux traceroute TCP baseline | 1, 2, 10 | 1.2 s | Destination reached |
+| Paced TCP | 1, 2, 11 | 25.9 s | Destination reached |
+| Paced ICMP | 1, 2, 11 | 25.8 s | Destination reached |
+| Paced UDP | 1, 2 | 45.2 s | Deadline; partial text retained |
+| Scamper TCP | 1, 2, 11 | 17.0 s | Destination reached |
+| Scamper UDP Paris | 1, 2 | 36.8 s | Hop limit; complete structured output |
+| Scamper ICMP Paris | 1, 2, 11 | 16.8 s | Destination reached |
+
+Capture reported zero kernel drops in every profile. No remote intermediate responder appeared in capture but disappeared from decoding. The diagnostic's coarse TCP accounting included locally generated resets (`192.168.10.120`) as an unmatched candidate; these are outgoing control packets, not missing router replies. This is a responder-level comparison, not exhaustive packet matching. INPUT and OUTPUT policy were ACCEPT with no listed rules.
+
+A separate ICMP Paris check against observed UDP destination `151.101.3.6` reached it at TTL 9 with only TTLs 1 and 2 answering in between. A broader ICMP capture, without a quoted-target filter, likewise showed only those initial routers and the endpoint, with zero kernel drops. Therefore changing among the tested methods did not expose the remote middle on this uplink. The evidence cannot distinguish upstream filtering from routers declining to answer, or identify exactly where replies are lost.
+
+Three implementation defects were reproduced and corrected locally:
+
+- Initial segment + silent middle + endpoint was accepted as useful and stopped comparison. A regression using the captured route shape now produces zero useful routes and allows the alternate.
+- Comparison eligibility incorrectly depended on the recent-activity window after the first attempt. A persisted timed-out primary plus an idle baseline now runs its remaining alternate automatically, and never a third method.
+- Two serial one-second waits across 32 TTLs exceeded the 45-second process budget. An actual pinned-engine namespace regression lost its first-hop evidence at 45.04 seconds before the fix; fitting the task to 20 TTLs returned it at 38.48 seconds, with an explicit unprobed tail. Retries, pacing and the wall deadline are unchanged. Deeper destinations can remain unprobed under this budget.
+
+The Go package suite, focused routing race checks, ARMv7 cross-build and ARM64 test-binary build pass for these corrections. The isolated engine matrix rechecks loss recovery, IPv6 fallback, NAT and cancellation. Run the new silent-tail regression with `IR_ROUTE_NETNS_ONLY=silent-budget scripts/test-route-coverage-netns.sh /path/to/routing.test` inside the same disposable Linux fixture.
+
+These corrections address wasted work and false useful-path counts. They do not recover the intermediate routers absent from the actual captures. They have not been deployed to the Pi as part of this investigation. The larger workload/storage and rollback acceptance items below remain outstanding.
+
 ## Local results
 
 | Check | Result |

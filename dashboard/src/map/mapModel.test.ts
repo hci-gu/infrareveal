@@ -63,6 +63,32 @@ describe('map timeline projection', () => {
     expect(frame.arcs[0].routeId).toBeUndefined()
   })
 
+  it('marks only the final country span as approximate and retains preceding city hops on replay', () => {
+    const data = fixture()
+    data.destinations[0] = { ...data.destinations[0], city: '', country: 'United States', lon: -97.822, lat: 37.751 }
+    const scene = buildMapTimelineScene(data, origin)
+    const direct = projectMapFrame(scene, start + 2000)
+    expect(direct.points[0].country?.code).toBe('US')
+    expect(direct.points[0].position).not.toEqual([-97.822, 37.751])
+    expect(direct.arcs[0].country?.code).toBe('US')
+    const traced = projectMapFrame(scene, start + 4000)
+    expect(traced.arcs).toHaveLength(2)
+    expect(traced.arcs[0].country).toBeNull()
+    expect(traced.arcs[0].targetPosition).toEqual([13.2, 55.6])
+    expect(traced.arcs[1].country?.code).toBe('US')
+    expect(traced.hops).toHaveLength(1)
+    expect(projectMapFrame(scene, start + 2000)).toEqual(direct)
+  })
+
+  it('maps a known country even when GeoIP supplies no coordinates', () => {
+    const data = fixture()
+    data.routes = []
+    data.destinations[0] = { ...data.destinations[0], city: '', country: 'US', lon: 0, lat: 0 }
+    const scene = buildMapTimelineScene(data, origin)
+    expect(scene.endpoints).toHaveLength(1)
+    expect(projectMapFrame(scene, start + 2000).arcs[0].country?.code).toBe('US')
+  })
+
   it('aggregates flows by destination and ignores ungeolocated destinations', () => {
     const data = fixture()
     data.flows.push({ ...data.flows[0], id: 'flow-2', source_port: 50001 })

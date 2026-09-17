@@ -80,6 +80,20 @@ func TestCoverageUsesSingleTaskAndPreservesOutputOnCancellation(t *testing.T) {
 	}
 }
 
+func TestCoverageFitsSilentWaitsAndReportsUnprobedTail(t *testing.T) {
+	p := coverageProbe{deadline: 45 * time.Second, run: func(_ context.Context, args []string) ([]byte, error) {
+		if !strings.Contains(strings.Join(args, " "), "-m 20") {
+			t.Fatalf("unfinishable whole task: %v", args)
+		}
+		return []byte(`{"type":"trace","dst":"9.9.9.9","firsthop":1,"hop_count":20,"probe_count":39,"stop_reason":"HOPLIMIT","hops":[{"addr":"1.1.1.1","probe_ttl":1,"rtt":1,"icmp_type":11,"icmp_code":0}]}`), nil
+	}}
+	s := p.Run(context.Background(), target{"9.9.9.9", "udp", 443}, probePlan{Method: "udp-paris"}, func(snapshot) { t.Fatal("whole-task result published before its final probe extent") })
+	tail := s.Hops[len(s.Hops)-1]
+	if s.Error != "" || s.ProbedTTL != 20 || tail.TTL != 21 || tail.EndTTL != 32 || tail.State != "not_probed" {
+		t.Fatalf("probe extent misreported: %+v", s)
+	}
+}
+
 func TestCoverageCannotReplaceRichEvidenceWithSparseRefresh(t *testing.T) {
 	now := time.Now()
 	old := snapshot{Attempt: "rich", Reached: true, Measured: now.Add(-time.Minute), ProbedTTL: 10, Hops: []Hop{{TTL: 1, Address: "192.0.2.1"}, {TTL: 2, Address: "192.0.2.2"}, {TTL: 10, Address: "203.0.113.9"}}}
@@ -101,7 +115,7 @@ func TestAlternateMethodsRemainSeparateUsefulPaths(t *testing.T) {
 	now := time.Now()
 	tgt := target{"9.9.9.9", "tcp", 443}
 	for i, method := range []string{"tcp:443", "icmp-paris"} {
-		s := snapshot{Attempt: method, Revision: 1, Method: method, Measured: now, Finished: now, Reached: true, Hops: []Hop{{TTL: 1, Address: []string{"1.1.1.1", "8.8.8.8"}[i]}, {TTL: 3, Address: tgt.IP}}}
+		s := snapshot{Attempt: method, Revision: 1, Method: method, Measured: now, Finished: now, Reached: true, Hops: []Hop{{TTL: 5, Address: []string{"1.1.1.1", "8.8.8.8"}[i]}, {TTL: 8, Address: tgt.IP}}}
 		if _, err := repo.publish(tgt.key("network"), "network", session, tgt, cacheEntry{}, s, "reached", "measured", now.Add(time.Duration(i)*time.Second)); err != nil {
 			t.Fatal(err)
 		}

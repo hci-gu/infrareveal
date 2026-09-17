@@ -16,7 +16,7 @@ import {
 } from '@infrareveal/session-state'
 import { gatewayOrigin, mapStyleUrl } from '../config'
 import { buildMapTimelineScene } from '../map/mapModel'
-import { MapComposition } from '../remotion/MapComposition'
+import { MapCompositionFromContext, MapCompositionProvider } from '../remotion/MapCompositionProvider'
 import type { MapCompositionProps } from '../remotion/MapComposition'
 import { MapIcon } from '../map/MapIcon'
 import { MapTransport } from '../map/MapTransport'
@@ -122,6 +122,7 @@ export function MapPage() {
     setTimelinePlayback({
       cursorMs: timeForFrame(scene.startMs, targetFrame, FPS),
       playback: 'following',
+      rate: 1,
     })
   }, [contentDurationInFrames, scene.startMs, timeline.liveEdgeMs, timeline.mode])
 
@@ -185,7 +186,7 @@ export function MapPage() {
       }
       const current = timelineRef.current
       const cursorMs = timeForFrame(current.epochMs, event.detail.frame, FPS)
-      const atLiveEdge = current.mode === 'live' && cursorMs >= current.liveEdgeMs - LIVE_EDGE_TOLERANCE_MS
+      const atLiveEdge = current.mode === 'live' && sessionTimelineStore.getState().rate === 1 && cursorMs >= current.liveEdgeMs - LIVE_EDGE_TOLERANCE_MS
       setTimelinePlayback({
         cursorMs,
         playback: atLiveEdge ? 'following' : player.isPlaying() ? 'playing' : 'paused',
@@ -195,7 +196,7 @@ export function MapPage() {
       const current = timelineRef.current
       const cursorMs = timeForFrame(current.epochMs, player.getCurrentFrame(), FPS)
       const alreadyFollowing = sessionTimelineStore.getState().playback === 'following'
-      const atLiveEdge = current.mode === 'live' && cursorMs >= current.liveEdgeMs - LIVE_EDGE_TOLERANCE_MS
+      const atLiveEdge = current.mode === 'live' && sessionTimelineStore.getState().rate === 1 && cursorMs >= current.liveEdgeMs - LIVE_EDGE_TOLERANCE_MS
       setTimelinePlayback({ playback: alreadyFollowing || atLiveEdge ? 'following' : 'playing' })
     }
     const handlePause = () => {
@@ -268,11 +269,11 @@ export function MapPage() {
       </header>
       {(error || fullscreenError) && <div className="atlas-connection-notice" role="status"><span>{error || fullscreenError}</span>{error ? <button type="button" onClick={() => void refresh()}>Retry connection</button> : <button type="button" onClick={() => setFullscreenError('')}>Dismiss</button>}</div>}
       <div ref={mapContainerRef} className="atlas-map-container">
+      <MapCompositionProvider value={inputProps}>
       <Player
         ref={playerRef}
         acknowledgeRemotionLicense
-        component={MapComposition}
-        inputProps={inputProps}
+        component={MapCompositionFromContext}
         durationInFrames={durationInFrames}
         fps={FPS}
         compositionWidth={size.width}
@@ -288,11 +289,16 @@ export function MapPage() {
         playbackRate={timeline.rate}
         style={{ height: '100%', width: '100%' }}
       />
+      </MapCompositionProvider>
       </div>
       <MapTransport scene={scene} endMs={contentEndMs} frame={currentFrame} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}
         live={timeline.mode === 'live'} following={timeline.playback === 'following'}
-        onToggle={togglePlayback} onSeek={seek} onRate={(rate) => setTimelinePlayback({ rate })}
+        onToggle={togglePlayback} onSeek={seek} onRate={(rate) => setTimelinePlayback({
+          rate,
+          // A faster/slower clock is playback; live following must run at real time.
+          ...(rate !== 1 && timeline.playback === 'following' ? { playback: 'playing' } : {}),
+        })}
         onLive={() => followLiveEdge(true)} onFullscreen={() => void toggleFullscreen()} />
     </main>
   )

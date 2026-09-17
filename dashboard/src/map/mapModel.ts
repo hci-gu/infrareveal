@@ -2,6 +2,8 @@ import type { Destination, Flow, GatewayData, Route } from '@infrareveal/session
 import { isTrafficConnection, parseEpoch, routeForFlowAt } from '@infrareveal/session-state'
 import { hasMapCoordinates, mapRoutePath, routeProgress } from './mapRoutes'
 import type { RouteNode } from './mapRoutes'
+import { countryFootprint } from './countryFootprints'
+import type { CountryFootprint } from './countryFootprints'
 
 export type MapPosition = [longitude: number, latitude: number]
 
@@ -73,6 +75,7 @@ export type MapPoint = {
   flowCount: number
   activeFlowCount: number
   bytes: number
+  country?: CountryFootprint | null
 }
 
 export type MapArc = {
@@ -88,6 +91,7 @@ export type MapArc = {
   gap?: boolean
   progressStart?: number
   progressEnd?: number
+  country?: CountryFootprint | null
 }
 
 export type MapFrame = {
@@ -125,7 +129,7 @@ export function buildMapTimelineScene(data: GatewayData, origin: GatewayOrigin, 
     if (!interval) continue
     const paths = routesBySocket.get(socketKey(flow.destination_ip, flow.destination_port, flow.protocol)) ?? []
     const location = destinationsByIP.get(flow.destination_ip)!
-    if (!hasMapCoordinates(location.lat, location.lon) && !paths.some(path => path.positions.length > 1)) continue
+    if (!hasMapCoordinates(location.lat, location.lon) && !countryFootprint({ ...location, position: [location.lon, location.lat] })?.polygons.length && !paths.some(path => path.positions.length > 1)) continue
     const flows = flowsByDestination.get(flow.destination_ip)
     if (flows) flows.push(interval)
     else flowsByDestination.set(flow.destination_ip, [interval])
@@ -210,6 +214,7 @@ export function projectMapFrame(
 
     const route = latestAvailableRoute(endpoint.routes, cursorMs)
     const location = route?.evidence?.destination_location
+    const country = countryFootprint(endpoint)
     const point: MapPoint = {
       id: endpoint.id,
       trackId: endpoint.trackId,
@@ -217,7 +222,8 @@ export function projectMapFrame(
       label: endpoint.label,
       provider: endpoint.provider,
       location: [endpoint.city, endpoint.country].filter(Boolean).join(', '),
-      position: location ? [location.lon, location.lat] : endpoint.position,
+      position: country?.position ?? (location ? [location.lon, location.lat] : endpoint.position),
+      country,
       flowCount: endpointSeenFlows,
       activeFlowCount: endpointActiveFlows,
       bytes: endpointBytes,
@@ -244,7 +250,13 @@ export function projectMapFrame(
   const arcs: MapArc[] = []
   const hops = new Map<string, MapHopPoint>()
   for (const { endpoint, point, route } of connectedEndpoints) {
-    const positions = route?.positions ?? (hasMapCoordinates(endpoint.position[1], endpoint.position[0]) ? [originPosition(scene.origin), endpoint.position] : [])
+    let positions = route?.positions ?? (hasMapCoordinates(point.position[1], point.position[0]) ? [originPosition(scene.origin), point.position] : [])
+    if (point.country) {
+      // Retain located route evidence, but never route into a country centroid as a city.
+      positions = route
+        ? [...positions.slice(0, route.nodes[route.nodes.length - 1]?.kind === 'destination' ? -1 : undefined), point.country.position]
+        : [originPosition(scene.origin), point.country.position]
+    }
     // Keep complete paths when the display budget is exhausted.
     if (arcs.length + positions.length - 1 > maximumArcSegments) continue
     const progress = routeProgress(positions)
@@ -262,6 +274,7 @@ export function projectMapFrame(
         gap: route?.gaps[index - 1] ?? true,
         progressStart: progress[index - 1],
         progressEnd: progress[index],
+        country: index === positions.length - 1 ? point.country : null,
       })
       const hop = route?.nodes[index]
       if (hop?.kind === 'hop') {

@@ -73,11 +73,10 @@ float historyValue(int i) {
   return instanceRadii2[clamp(i - 8, 0, 3)];
 }
 float radiusAt(float t) {
-  // Accent motion is illustrative; it never delays the measured volume.
+  // Accent motion stays on the timeline clock, independent of sample updates.
   float pathProgress = mix(instanceProgress.x, instanceProgress.y, t);
-  float age = 0.0;
-  float index = clamp(age, 0.0, 10.999);
-  float amount = mix(historyValue(int(floor(index))), historyValue(int(floor(index)) + 1), smoothstep(0.0, 1.0, fract(index)));
+  // Smooth width over one bucket without resetting the travelling accent.
+  float amount = mix(historyValue(1), historyValue(0), smoothstep(0.0, 1.0, traffic.phase));
   float phase = pathProgress * instanceDirection * 2.0 - traffic.clock * traffic.motion * 0.5;
   float wave = pow(0.5 + 0.5 * cos(phase * 2.0 * PI), 2.0);
   float envelope = 0.12 + 0.88 * wave;

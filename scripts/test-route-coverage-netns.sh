@@ -48,6 +48,12 @@ ip netns exec "$ROUTER" sh -c 'echo 1 > /proc/sys/net/ipv6/conf/all/forwarding'
 ip netns exec "$ROUTER" sh -c 'echo 1 > /proc/sys/net/ipv4/ip_forward; echo 0 > /proc/sys/net/ipv4/icmp_ratelimit'
 ip netns exec "$DESTINATION" sh -c 'echo 0 > /proc/sys/net/ipv4/icmp_ratelimit'
 
+if [ "${IR_ROUTE_NETNS_ONLY:-}" = silent-budget ]; then
+  ip netns exec "$ROUTER" iptables -A FORWARD -j DROP
+  ip netns exec "$SENDER" env IR_ROUTE_NETNS_CASE=silent-budget "$ROUTING_TEST_BINARY" -test.run '^TestLinuxSilentTraceFinishesWithinBudget$' -test.v
+  exit 0
+fi
+
 reset_loss() {
   ip netns exec "$ROUTER" iptables -F OUTPUT
   # Drop the first and then every other Time Exceeded reply. A one-query

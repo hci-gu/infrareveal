@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="A visual explanation of how InfraReveal forwards traffic, observes metadata, and runs background lookups when a phone opens svt.se.">
+  <link rel="icon" href="data:,">
+  <title>How InfraReveal works — from Wi-Fi to svt.se</title>
+  <style>
+    :root { color-scheme: light; --ink:#182c37; --muted:#526570; --paper:#f6f7f3; --line:#d9e1df; --green:#17634c; --green-bg:#e7f2eb; --blue:#245bb1; --blue-bg:#edf3ff; --amber:#81500b; --amber-bg:#fff3d9; --purple:#6d4795; --purple-bg:#f3edfb; }
+    * { box-sizing:border-box; }
+    html { scroll-behavior:smooth; }
+    body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
+    a { color:var(--blue); text-underline-offset:3px; }
+    a:focus-visible, summary:focus-visible { outline:3px solid var(--blue); outline-offset:5px; }
+    .wrap { max-width:1120px; margin:auto; padding:0 40px; }
+    header.wrap { padding-block:34px 40px; }
+    .masthead { display:flex; justify-content:space-between; align-items:center; gap:16px; font-size:12px; letter-spacing:.11em; text-transform:uppercase; font-weight:700; color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:20px; }
+    .brand { color:var(--green); }
+    .eyebrow { font-size:12px; font-weight:750; letter-spacing:.12em; text-transform:uppercase; color:var(--green); margin:36px 0 12px; }
+    h1 { font-size:clamp(36px,5.6vw,62px); line-height:1.07; letter-spacing:-.055em; max-width:830px; margin:0 0 24px; font-weight:750; }
+    h2 { font-size:28px; line-height:1.2; letter-spacing:-.035em; margin:0 0 12px; }
+    h3 { font-size:19px; line-height:1.3; letter-spacing:-.02em; margin:0 0 10px; }
+    p { margin:0 0 14px; }
+    p:last-child { margin-bottom:0; }
+    .lead { font-size:20px; max-width:850px; color:var(--muted); }
+    .lead strong { color:var(--ink); }
+    .small { font-size:13px; color:var(--muted); }
+    .sub { color:var(--muted); max-width:790px; }
+    nav { display:flex; flex-wrap:wrap; gap:8px 22px; margin-top:24px; font-size:14px; }
+    nav a { color:var(--ink); }
+    section { margin-bottom:52px; scroll-margin-top:24px; }
+    .panel { background:white; border:1px solid var(--line); border-radius:20px; padding:28px; }
+    .legend { display:flex; gap:10px 24px; flex-wrap:wrap; font-size:12px; font-weight:650; margin:22px 0; }
+    .legend span { display:flex; align-items:center; gap:8px; }
+    .swatch { width:24px; height:0; border-top:3px solid; }
+    .green { color:var(--green); } .blue { color:var(--blue); } .amber { color:var(--amber); } .purple { color:var(--purple); }
+    .dashed { border-top-style:dashed; }
+    .map { display:grid; grid-template-columns:1fr 96px 1.6fr 96px 1fr; align-items:start; margin:26px 0 22px; }
+    .endpoint { text-align:center; padding-top:35px; }
+    .icon { width:44px; height:44px; display:block; margin:0 auto 14px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
+    .endpoint strong { display:block; font-size:18px; }
+    .endpoint small { display:block; font-size:12px; color:var(--muted); margin-top:4px; }
+    .pi { background:#f5f8f6; border:1px solid #bed3c6; padding:16px; border-radius:16px; text-align:center; }
+    .pi-title { font-size:11px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; margin-bottom:14px; color:var(--green); }
+    .kernel { background:var(--green-bg); border:1px solid #a7cbb8; padding:14px 8px; border-radius:10px; }
+    .kernel strong, .backend strong { display:block; font-size:16px; }
+    .kernel small, .backend small { display:block; font-size:12px; }
+    .backend { background:var(--amber-bg); border:1px solid #e6ce97; border-radius:10px; padding:13px 8px; color:#684208; }
+    .tap { color:var(--amber); font-size:12px; padding:9px 0; line-height:1.4; }
+    .tap b { display:block; font-size:23px; line-height:1; }
+    .lane { padding-top:71px; text-align:center; font-size:10px; font-weight:700; }
+    .lane div { margin-bottom:12px; }
+    .arrow { display:block; height:2px; background:currentColor; position:relative; margin:7px 2px; }
+    .arrow::after { content:""; position:absolute; right:-1px; top:-4px; border-left:7px solid currentColor; border-top:5px solid transparent; border-bottom:5px solid transparent; }
+    .arrow.back::after { right:auto; left:-1px; border-left:0; border-right:7px solid currentColor; }
+    .takeaway { background:var(--green-bg); border-left:3px solid var(--green); border-radius:0 8px 8px 0; padding:16px 20px; font-size:15px; }
+    .twocol { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
+    .fact { border-top:1px solid var(--line); padding-top:20px; }
+    .fact p { color:var(--muted); font-size:14px; }
+    .step { display:grid; grid-template-columns:46px 1fr; gap:18px; margin:0 0 18px; padding:24px; border:1px solid var(--line); border-radius:16px; background:white; }
+    .num { width:36px; height:36px; border-radius:50%; background:var(--ink); color:white; display:grid; place-items:center; font-size:14px; font-weight:700; }
+    .step p { max-width:840px; }
+    .flowline { display:flex; flex-wrap:wrap; align-items:center; gap:9px; margin:18px 0 14px; font-size:13px; }
+    .node { padding:7px 11px; border-radius:7px; border:1px solid currentColor; font-weight:650; }
+    .node.green { background:var(--green-bg); } .node.blue { background:var(--blue-bg); } .node.amber { background:var(--amber-bg); } .node.purple { background:var(--purple-bg); }
+    .flow-arrow { font-size:20px; font-weight:600; }
+    .note { color:var(--muted); font-size:14px; }
+    .tag { display:inline-block; font-size:10px; font-weight:750; text-transform:uppercase; letter-spacing:.07em; border-radius:4px; padding:3px 6px; margin-right:5px; vertical-align:1px; background:var(--amber-bg); color:var(--amber); }
+    .tag.local { background:var(--blue-bg); color:var(--blue); }
+    .tag.net { background:var(--purple-bg); color:var(--purple); }
+    code { font-size:.88em; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
+    .lookup-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:24px 0; }
+    .lookup { background:white; border:1px solid var(--line); border-radius:12px; padding:22px; }
+    .lookup h3 { margin-top:12px; }
+    .lookup p { font-size:14px; color:var(--muted); }
+    .lookup .path { font-size:13px; font-weight:650; color:var(--purple); margin-bottom:12px; }
+    .logmap { display:grid; grid-template-columns:1fr 36px 1fr 36px 1fr; align-items:center; margin:22px 0; }
+    .logbox { background:var(--amber-bg); padding:16px; border-radius:10px; text-align:center; font-size:14px; }
+    .logbox b { display:block; margin-bottom:5px; }
+    .logbox small { display:block; font-size:12px; color:var(--muted); }
+    .logmap > span { text-align:center; font-size:22px; color:var(--amber); }
+    .table-wrap { overflow-x:auto; margin:22px 0; border:1px solid var(--line); border-radius:12px; background:white; }
+    table { width:100%; border-collapse:collapse; text-align:left; font-size:14px; }
+    th { font-weight:700; background:#eaf0ed; color:#294338; padding:14px 16px; }
+    td { padding:16px; vertical-align:top; border-top:1px solid var(--line); }
+    td:first-child { width:23%; font-weight:650; }
+    td:last-child { width:29%; color:var(--muted); }
+    td small { display:block; font-weight:400; color:var(--muted); margin-top:4px; }
+    details { background:white; border:1px solid var(--line); border-radius:12px; margin:12px 0; }
+    summary { cursor:pointer; font-weight:650; padding:18px 20px; }
+    .detail-body { padding:0 20px 20px; font-size:14px; }
+    .detail-body p { margin:10px 0; }
+    .detail-body ul { padding-left:22px; }
+    .detail-body li { margin:8px 0; }
+    .record { font:12px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; background:#f4f6f5; padding:18px; border-radius:8px; }
+    .limits { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:22px; }
+    .limit { border-left:3px solid var(--line); padding:4px 18px; }
+    .limit h3 { font-size:16px; }
+    .limit p { font-size:14px; color:var(--muted); }
+    .answer { font-size:21px; line-height:1.5; margin-bottom:18px; }
+    footer.wrap { padding-block:0 42px; font-size:12px; color:var(--muted); }
+    .source-list { display:grid; grid-template-columns:1fr 1fr; gap:14px; padding-top:12px; }
+    .source-list a { font-size:13px; }
+    .source-list span { display:block; color:var(--muted); font-size:12px; margin-top:3px; }
+    @media(max-width:760px) {
+      .wrap { padding:0 20px; } header.wrap { padding-top:22px; } h2 { font-size:25px; }
+      .lead { font-size:18px; } .panel { padding:22px 18px; }
+      .map { grid-template-columns:1fr; margin-top:20px; gap:12px; }
+      .endpoint { padding:5px 0; } .endpoint .icon { width:32px; height:32px; margin-bottom:8px; }
+      .lane { display:flex; gap:22px; justify-content:center; padding:0; font-size:12px; }
+      .lane div { margin:0; } .lane .arrow { display:none; }
+      .lane .green::before { content:"↓ "; } .lane .blue::before { content:"↑ "; }
+      .pi { max-width:420px; width:100%; margin:auto; }
+      .twocol, .lookup-grid, .limits, .source-list { grid-template-columns:1fr; }
+      .step { padding:20px 16px; grid-template-columns:30px 1fr; gap:12px; }
+      .num { width:28px; height:28px; font-size:12px; }
+      .flowline { gap:7px; } .node { padding:5px 8px; font-size:12px; }
+      .logmap { grid-template-columns:1fr; gap:8px; } .logmap > span { transform:rotate(90deg); }
+      table { font-size:12px; } th, td { padding:10px; }
+      .masthead { font-size:10px; letter-spacing:.06em; }
+      section { margin-bottom:38px; }
+    }
+    @media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
+    @media print {
+      body { background:white; font-size:11px; } .wrap { max-width:none; padding:0; }
+      header.wrap { padding-top:0; } h1 { font-size:38px; } h2 { font-size:22px; } h3 { font-size:16px; }
+      nav { display:none; } section { margin-bottom:25px; } .step, .lookup, .limit { break-inside:avoid; }
+      .panel, .step, .lookup { padding:16px; } .lead { font-size:16px; }
+      .table-wrap { overflow:visible; } table { font-size:11px; } th, td { padding:9px; }
+      a { color:inherit; } .small, .note { font-size:11px; }
+      * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+    }
+  </style>
+</head>
+<body>
+<header class="wrap">
+  <div class="masthead"><span class="brand">InfraReveal / Explained</span><span>Code walkthrough · 17 Sep 2026</span></div>
+  <p class="eyebrow">Your phone → svt.se → your phone</p>
+  <h1>What actually happens<br>when you open a website?</h1>
+  <p class="lead"><strong>The Pi carries the traffic in both directions.</strong> Linux forwards the website’s encrypted packets. Our Go/PocketBase backend watches metadata alongside that traffic and builds the dashboard.</p>
+  <nav aria-label="Report sections"><a href="#picture">The big picture</a><a href="#journey">The page load</a><a href="#lookups">Extra lookups</a><a href="#logging">What gets logged</a><a href="#limits">What we cannot tell</a></nav>
+</header>
+<main class="wrap">
+  <section id="picture" class="panel" aria-labelledby="picture-title">
+    <h2 id="picture-title">One box. Two different jobs.</h2>
+    <p class="sub">The Docker service is named <code>proxy</code>. In normal operation it is a Wi-Fi gateway: a network forwarder plus a metadata observer.</p>
+    <div class="legend" aria-label="Diagram legend"><span class="green"><i class="swatch"></i>Website request</span><span class="blue"><i class="swatch"></i>Website reply</span><span class="amber"><i class="swatch dashed"></i>Metadata observation</span></div>
+    <div class="map" role="img" aria-label="Phone sends encrypted website traffic through the Pi's Linux forwarding and NAT to the internet. Replies return through the Pi to the phone. On the Pi, a separate Go and PocketBase backend receives metadata observations; it does not relay the website connection.">
+      <div class="endpoint"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><rect x="13" y="3" width="22" height="42" rx="5"/><path d="M21 8h6M22 39h4"/></svg><strong>Your phone</strong><small>Browser / HTTPS endpoint</small><small>Example: 10.0.0.50</small></div>
+      <div class="lane"><div class="green">Request<i class="arrow"></i></div><div class="blue"><i class="arrow back"></i>Reply</div></div>
+      <div class="pi"><div class="pi-title">Our Raspberry Pi · 10.0.0.1</div><div class="kernel"><strong>Linux forwarding + NAT</strong><small>Packets pass through here, both ways</small></div><div class="tap"><b>┆<br>↓</b>Observations of headers &amp; counters</div><div class="backend"><strong>Go observers + PocketBase</strong><small>Store metadata → show dashboard</small></div></div>
+      <div class="lane"><div class="green">Request<i class="arrow"></i></div><div class="blue"><i class="arrow back"></i>Reply</div></div>
+      <div class="endpoint"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="20"/><ellipse cx="24" cy="24" rx="9" ry="20"/><path d="M4 24h40M8 12h32M8 36h32"/></svg><strong>SVT / CDN</strong><small>Website / HTTPS endpoint</small><small>Through the upstream network</small></div>
+    </div>
+    <div class="takeaway"><strong>Does the reply go “directly” to the phone?</strong> It goes directly to the phone’s browser connection, <em>through the Pi’s network stack</em>. It does not bypass the Pi, and it does not need Go/PocketBase to read, store, or relay the page.</div>
+    <div class="twocol" style="margin-top:24px"><div class="fact"><h3>Gateway = the whole Pi</h3><p>Runs Wi-Fi, DHCP, DNS, Linux routing/NAT, the observers and PocketBase. Website packets physically traverse this machine.</p></div><div class="fact"><h3>Backend = the Go application</h3><p>Reads observations, derives labels, runs background probes and serves the dashboard API. Normal web connections are not opened or terminated by this application.</p></div></div>
+  </section>
+
+  <section id="journey" aria-labelledby="journey-title">
+    <p class="eyebrow">Follow a single visit</p><h2 id="journey-title">From joining Wi-Fi to seeing the page</h2>
+    <p class="sub" style="margin-bottom:24px">Example: a phone uses the default IPv4 gateway, classic DNS, and HTTPS. The lab gate is off. This explains the checked-out code; it is not a captured SVT visit. Actual SVT IPs, redirects and resources can vary.</p>
+    <article class="step"><span class="num">1</span><div><h3>The phone joins “Infrareveal”</h3><p><code>hostapd</code> provides Wi-Fi. <code>dnsmasq</code> gives the phone a local IP, for example <code>10.0.0.50</code>, with the Pi at <code>10.0.0.1</code> as its gateway and DNS server.</p><div class="flowline"><span class="node blue">Phone</span><span class="flow-arrow blue">⇄</span><span class="node blue">Pi: Wi-Fi + DHCP</span></div><p class="note">The configured address pool is <code>10.0.0.50–150</code>, with 12-hour leases. DHCP is local setup traffic; it is not saved as a website flow. dnsmasq also writes DHCP service logs.</p></div></article>
+    <article class="step"><span class="num">2</span><div><h3>The phone asks: “What IP is svt.se?”</h3><p>If it needs a DNS lookup, the phone asks the Pi. IPv4 TCP/UDP port 53 traffic from the Wi-Fi interface is redirected to local <code>dnsmasq</code>, even if the phone addresses another classic DNS server.</p><div class="flowline"><span class="node blue">Phone</span><span class="flow-arrow blue">⇄</span><span class="node blue">Pi: dnsmasq</span><span class="flow-arrow blue">⇄</span><span class="node blue">Upstream DNS, if uncached</span></div><p>dnsmasq answers from its cache or asks upstream. The config adds Google DNS at <code>8.8.8.8</code>; it does not disable system-configured resolvers. The answer returns to dnsmasq, then to the phone.</p><p class="note"><span class="tag">Logged</span>Go tails <code>/var/log/dnsmasq.log</code> and saves the client IP, queried name/type, observed time, answers and alias information in <code>dns_queries</code>. Saving the record is not a prerequisite for returning the DNS answer.</p><details><summary>If the name is already cached, or DNS is encrypted</summary><div class="detail-body"><p>A phone/browser cache hit can skip DNS entirely. A dnsmasq cache hit skips only the upstream query; the local query can still be logged.</p><p>DNS-over-HTTPS or DNS-over-TLS does not use this plain port-53 path. It is forwarded as encrypted traffic. The backend may see the resolver connection, but not the names requested inside it.</p><p>A DNS request can ask for IPv4 addresses (A), IPv6 addresses (AAAA), or other record types. Receiving an AAAA answer does not mean this deployment provides IPv6 internet routing; the supplied forwarding rules and default observation scope are IPv4.</p></div></details></div></article>
+    <article class="step"><span class="num">3</span><div><h3>The phone connects to the returned IP</h3><p>The phone starts an HTTPS connection: commonly TCP port 443 + TLS, or QUIC over UDP port 443. Linux forwards the packets from <code>wlan0</code> to <code>eth0</code>.</p><div class="flowline"><span class="node green">Phone → destination IP:443</span><span class="flow-arrow green">→</span><span class="node green">Pi: NAT</span><span class="flow-arrow green">→</span><span class="node green">SVT / CDN</span></div><p>NAT replaces the phone’s private source address with the Pi’s uplink address and remembers the mapping. The upstream router may perform another NAT. The server replies toward that outward-facing address; Linux uses the mapping to deliver replies to the right phone.</p><p class="note"><span class="tag">Logged</span>The backend samples Linux’s connection table (<code>conntrack</code>) about once per second: who connected to which IP and port, protocol, state, packet counts and byte totals in both directions.</p></div></article>
+    <article class="step"><span class="num">4</span><div><h3>The browser requests the page inside encryption</h3><p>The phone and the website establish the secure connection. The browser sends the HTTPS request through it. The Pi forwards encrypted packets; it does not install a client certificate, decrypt TLS, or choose an upstream server using the TLS hostname (SNI).</p><div class="flowline"><span class="node green">Phone: encrypt request</span><span class="flow-arrow green">→</span><span class="node green">Pi: forward packets</span><span class="flow-arrow green">→</span><span class="node green">Server: decrypt request</span></div><p class="note">The URL path, query string, HTTP headers, cookies and request body stay inside HTTPS. DNS may reveal <code>svt.se</code>; it does not reveal which article the user requests.</p></div></article>
+    <article class="step"><span class="num">5</span><div><h3>The page comes back through the Pi</h3><p>The server sends the encrypted response. The Pi forwards it to the phone using the connection/NAT mapping. <strong>The phone decrypts the response and renders the page.</strong></p><div class="flowline"><span class="node blue">SVT / CDN</span><span class="flow-arrow blue">→</span><span class="node blue">Pi: reverse NAT + forward</span><span class="flow-arrow blue">→</span><span class="node blue">Phone: decrypt + render</span></div><p class="note"><span class="tag">Logged</span>A passive packet observer on <code>wlan0</code> also counts traffic in both directions, grouped into 50 ms time buckets. It stores lengths, counts and flags, not the returned HTML or images.</p></div></article>
+    <article class="step"><span class="num">6</span><div><h3>The browser fetches the rest of the page</h3><p>Images, scripts, fonts and video can need more requests, DNS lookups and connections. Some reuse the existing connection; some contact other hosts; some come from the phone’s cache. These actions can overlap while the page is already appearing.</p><div class="flowline"><span class="node blue">HTML</span><span class="flow-arrow">+</span><span class="node blue">Images / styles / scripts</span><span class="flow-arrow">→</span><span class="node blue">Page on your phone</span></div><p class="note">One recorded flow is a network connection, not one page or one file. Several resources can share a connection. InfraReveal cannot determine the browser’s exact “page finished loading” moment from this metadata.</p></div></article>
+  </section>
+
+  <section id="lookups" aria-labelledby="lookups-title">
+    <p class="eyebrow">Alongside the page load</p><h2 id="lookups-title">What else does our backend look up?</h2><p class="sub">These tasks enrich the dashboard after observations arrive. The phone does not wait for their results. Some create separate network traffic from the Pi.</p>
+    <div class="lookup-grid">
+      <article class="lookup"><span class="tag local">Local database match</span><h3>“Which hostname fits this IP?”</h3><p class="path">Saved DNS answers + saved flow → candidate name</p><p>About every 3 seconds, the correlator checks the same client’s DNS answers against the flow’s destination IP. It chooses the closest qualifying answer around the flow’s observed start, normally within the preceding 5 minutes.</p><p>A match becomes a <strong>medium-confidence</strong> hostname such as <code>svt.se</code>. No new DNS request is needed. Shared IPs and caching make this an inference.</p></article>
+      <article class="lookup"><span class="tag net">Separate network lookup</span><h3>“Does this IP have a reverse name?”</h3><p class="path">Pi ⇄ its configured DNS resolver</p><p>A reverse-DNS (PTR) lookup asks for a name attached to the destination IP. It uses Go’s default/system resolver, has a 500 ms timeout, and is eligible for refresh after 15 minutes.</p><p>The reply belongs to the Pi’s own lookup. It enriches <code>destinations</code>; it is not the website response and is not delivered to the phone.</p></article>
+      <article class="lookup"><span class="tag local">Local data lookup</span><h3>“Where is this IP, and who runs it?”</h3><p class="path">IP → local GeoIP database + provider rules</p><p>If available, the local GeoIP database supplies approximate city, country and coordinates. Provider labels come from reverse-name heuristics or known-network rules.</p><p>This code does not call an external GeoIP or WHOIS API. A label or map location is context, not proof of the website owner or a server’s exact physical location.</p></article>
+      <article class="lookup"><span class="tag net">Separate probe traffic</span><h3>“Which routers answer on the way?”</h3><p class="path">Pi ⇄ routers / destination</p><p>The route worker checks its cache, then sends bounded traceroute probes if needed. Fast probes use the observed destination IP, protocol and port; later coverage attempts can use other probe methods.</p><p>Probe replies terminate at the Pi. They never become the phone’s page data. A trace approximates a route from the gateway; it does not prove the website packets’ exact path or measure their return path.</p></article>
+    </div>
+    <div class="takeaway"><strong>The two DNS lookups answer different questions.</strong> The phone’s forward lookup asks “where is svt.se?” so it can connect. The Pi’s optional reverse lookup asks “what name is attached to this IP?” to label the dashboard.</div>
+  </section>
+
+  <section id="logging" aria-labelledby="logging-title">
+    <p class="eyebrow">Observation → storage → display</p><h2 id="logging-title">How the logging works</h2><p class="sub">The default observers collect metadata alongside normal forwarding. Recording is associated with an active session; the application ensures a default active session on startup.</p>
+    <div class="logmap" role="img" aria-label="dnsmasq logs, conntrack and packet observations feed Go observers, which save metadata in PocketBase. Dashboards read the API and realtime updates."><div class="logbox"><b>Three observation sources</b><small>DNS log · connection table · packet headers</small></div><span>→</span><div class="logbox"><b>Go → PocketBase</b><small>Raw metadata + separate inferred records</small></div><span>→</span><div class="logbox"><b>Dashboard</b><small>API + realtime metadata updates</small></div></div>
+    <div class="table-wrap"><table><caption class="small" style="text-align:left;padding:14px 16px">Default collection behavior in this checkout</caption><thead><tr><th scope="col">Source / stored record</th><th scope="col">What is saved</th><th scope="col">How to interpret it</th></tr></thead><tbody>
+      <tr><td>DNS log<small><code>dns_queries</code></small></td><td>Session, client IP, queried name and record type, observation time, answers, aliases and source.</td><td>The observer follows dnsmasq’s text log, checking for more lines roughly every 300 ms. Cached answers can be observed too.</td></tr>
+      <tr><td>Connection table<small><code>flows</code></small></td><td>Client and destination IPs, ports where applicable, protocol (TCP, UDP or ICMP), state, first/last observation, cumulative bytes and packets in/out.</td><td>Sampled about every 1 second. The first observation is not an exact connection-start timestamp. Very short-lived entries can be missed.</td></tr>
+      <tr><td>Passive packet observer<small><code>flow_activity_chunks</code></small></td><td>Directional byte and packet counts in 50 ms buckets, saved in 5-second chunks; chunk totals, TCP flags and capture-quality information.</td><td>Lengths and timings, not HTTP requests. “Payload bytes” is a calculated length, not saved payload content.</td></tr>
+      <tr><td>DNS-to-flow match<small><code>flow_attributions</code></small></td><td>Candidate hostname, evidence source, confidence, explanation, linked DNS record and observation time.</td><td>Separate inference. A local DNS match is medium confidence; missing evidence stays IP-only or reduced-visibility.</td></tr>
+      <tr><td>Domain grouping<small><code>activity_episodes</code><br><code>flow_associations</code></small></td><td>Groups per session/client/domain and links from flows to groups, including relationship, confidence and explanation.</td><td><code>svtstatic.se</code> and <code>svtplay.se</code> explicitly map to <code>svt.se</code> in the current alias table. This is grouping policy, not proof of a visit.</td></tr>
+      <tr><td>Destination + route enrichment<small><code>destinations</code>, <code>routes</code>, <code>route_observations</code>, <code>route_cache</code></small></td><td>IP context, reverse name, provider/location fields, responding hops, probe timings, missing hops, provenance and cache state.</td><td>Background evidence from the Pi. A cached route can predate the current visit. Missing hops remain unknown.</td></tr>
+    </tbody></table></div>
+    <details><summary>See one illustrative record, and how “svt.se” is attached</summary><div class="detail-body"><p>These are explanatory values, not a real capture. <code>203.0.113.10</code> is a documentation address, not an asserted SVT IP.</p><div class="record">DNS observation
+  client_ip: 10.0.0.50
+  query_name: svt.se
+  query_type: A
+  answers: [203.0.113.10]
+
+Flow observation
+  client_ip: 10.0.0.50
+  source_port: 52144
+  destination_ip: 203.0.113.10
+  destination_port: 443
+  protocol: tcp
+  bytes_out / bytes_in: cumulative counts
+
+Separate attribution
+  candidate_hostname: svt.se
+  source_signal: dns_answer
+  confidence: medium
+  explanation: same client recently resolved this name to this IP</div><p>The raw flow keeps its IP identity. The label is added in a separate record; it does not replace the original observation.</p></div></details>
+    <details><summary>Exactly what the packet observer touches, stores and misses</summary><div class="detail-body"><p>Linux <code>AF_PACKET</code> provides a passive copy of a bounded packet prefix on the Wi-Fi interface. A BPF filter caps each captured prefix at <strong>256 bytes</strong>. That prefix can include some payload bytes beyond the headers; the parser reads network/transport headers and retains only derived metadata. It does not save packet bodies or a packet capture file.</p><p>The observer uses the original frame length and header lengths to calculate traffic sizes. The web payload itself is encrypted in this example. It does not extract URLs, cookies, HTML or TLS hostnames.</p><p>Activity is attached to a matching stored flow. Packets that cannot be parsed or matched do not produce a complete resource-level history. Capture windows/status records track availability, drops, errors and unmatched events. A gap does not prove that the phone was idle.</p><p>Default detailed-activity retention is 24 hours for inactive sessions; this is not a blanket 24-hour deletion policy for every metadata collection. PocketBase data persists through the Compose <code>./data</code> volume. The dnsmasq text log is a separate service log.</p><p>Only client-initiated public-destination traffic within the configured observation scope becomes a website flow. Gateway-generated probes and local/infrastructure traffic such as classic DNS, DHCP, NTP, mDNS and the conventional UDP traceroute range are excluded. DNS has its own collection.</p></div></details>
+    <details><summary>Exact hostname-matching and grouping rules</summary><div class="detail-body"><p>The matcher considers DNS records in the same session, requires the same client IP and a matching destination IP in the answers, and chooses the nearest eligible timestamp to the flow’s observed start. The window is 5 minutes, with up to 10 seconds of later DNS timing tolerated. This is a fixed matching window, not a stored DNS-TTL check.</p><p>Without a DNS match, known reduced-visibility ports produce a <code>hidden</code> label; other flows remain <code>low</code> confidence with only their destination IP. A port-based label is a heuristic, not confirmation of a specific VPN or encrypted DNS product.</p><p>Usable high/medium-confidence names group by registered domain and the explicit alias table. The same client’s <code>www.svt.se</code> and <code>svtstatic.se</code> can therefore appear under <code>svt.se</code>. Original endpoint names remain visible. Timing, shared providers and CNAME chains do not by themselves merge different domain groups. Unresolved traffic remains independent.</p></div></details>
+  </section>
+
+  <section aria-labelledby="paths-title"><h2 id="paths-title">Which traffic goes where?</h2><div class="table-wrap"><table><thead><tr><th scope="col">Traffic</th><th scope="col">Path</th><th scope="col">Who handles the answer?</th></tr></thead><tbody>
+    <tr><td>Phone’s website traffic</td><td>Phone ⇄ Pi’s Linux forwarding/NAT ⇄ upstream network ⇄ website</td><td>The phone’s browser. Go observes metadata; it does not relay the content.</td></tr>
+    <tr><td>Phone’s classic DNS</td><td>Phone ⇄ Pi’s dnsmasq ⇄ upstream DNS if needed</td><td>dnsmasq handles the lookup and responds to the phone. Go reads the log.</td></tr>
+    <tr><td>Pi’s reverse DNS</td><td>Backend ⇄ configured resolver, unless locally answered</td><td>The backend. The phone is not part of this lookup.</td></tr>
+    <tr><td>Pi’s route probes</td><td>Pi’s probe process ⇄ routers / destination</td><td>The probe process and backend. Replies are not forwarded to the phone.</td></tr>
+    <tr><td>Dashboard data</td><td>Dashboard browser ⇄ PocketBase API on port 8090</td><td>The dashboard. This is a separate metadata connection, not the SVT page.</td></tr>
+  </tbody></table></div></section>
+
+  <section id="limits" aria-labelledby="limits-title"><p class="eyebrow">What the picture can and cannot say</p><h2 id="limits-title">We can show connections. We cannot replay the webpage.</h2><div class="limits">
+    <article class="limit"><h3>Visible: endpoints, timing and volume</h3><p>We observe IPs, ports, protocols, counts and timings. Local DNS can supply candidate hostnames. The flow list includes other apps’ traffic too, not just the browser.</p></article>
+    <article class="limit"><h3>Hidden inside HTTPS: the content</h3><p>We do not decrypt or store article paths, query strings, cookies, form contents, HTML, images or video. The phone and the remote HTTPS endpoint handle that content.</p></article>
+    <article class="limit"><h3>Encrypted DNS / VPN / Private Relay</h3><p>Hostname evidence can disappear. A tunnel can leave us seeing only the tunnel or relay endpoint and its traffic volume, not the websites inside.</p></article>
+    <article class="limit"><h3>The map is an approximation</h3><p>Route probes are separate packets; internet routes can differ in each direction. Drawing incoming traffic along a measured route does not mean we measured the return route.</p></article>
+  </div></section>
+
+  <section class="panel" aria-labelledby="exception-title"><h2 id="exception-title">The exception: explicitly armed Proxy Lab</h2><p>Everything above describes the default passive mode. <code>LAB_GATE_ENABLED</code> is <code>false</code> by default. Enabling support alone still does not hold client traffic.</p><details><summary>What changes when an operator arms the gate?</summary><div class="detail-body"><p>An authenticated operator selects IPv4 clients in an active session. Linux <code>NFQUEUE</code> then holds selected packets while the Go gate decides when to accept or drop them. Here, selected traffic really does wait for a backend verdict before forwarding or local DNS delivery.</p><ul><li><strong>Flow mode:</strong> holds admission of new TCP/UDP flows.</li><li><strong>Strict mode:</strong> steps packets for one exact connection tuple in both directions.</li><li><strong>DNS mode:</strong> gates selected traffic going to local dnsmasq.</li></ul><p>Accepted traffic continues through the normal network path. This still does not decrypt HTTPS. Timeouts and fail-open behavior limit stalls. Gate decisions have a separate audit trail in <code>gate_events</code>.</p><p><code>DEBUG_TRACE_ENABLED</code> is another, independent option: bounded in-memory metadata events streamed to the debug dashboard. Passive tracing alone does not hold packets.</p></div></details></section>
+
+  <section aria-labelledby="last-title"><h2 id="last-title">The shortest explanation</h2><p class="answer">The phone asks for an address, then talks securely to the website through our Pi. The Pi forwards both directions. Our backend records connection metadata and visible DNS, then adds inferred names and approximate routes. The phone receives, decrypts and displays the page.</p><p class="small">Scope: default Compose configuration and current working-tree code, reviewed 17 September 2026. No live Pi or SVT capture was used. This report is self-contained and makes no external network requests.</p>
+    <details><summary>Code behind this explanation</summary><div class="detail-body"><p>These links point to the repository files next to this report. Source code takes precedence where older prose describes earlier behavior.</p><div class="source-list">
+      <div><a href="entrypoint.sh">entrypoint.sh</a><span>NAT, forwarding, DNS redirect, removal of old web-proxy redirects.</span></div>
+      <div><a href="dnsmasq.conf">dnsmasq.conf</a> · <a href="docker-compose.yml">docker-compose.yml</a><span>DHCP, upstream DNS, logging, interfaces and default options.</span></div>
+      <div><a href="pocketbase/main.go">pocketbase/main.go</a><span>Observer startup; the old handleConnection function is not wired to a listener.</span></div>
+      <div><a href="pocketbase/observer/dnsmasq.go">observer/dnsmasq.go</a> · <a href="pocketbase/observer/conntrack.go">conntrack.go</a><span>DNS ingestion and sampled flow fields.</span></div>
+      <div><a href="pocketbase/observer/packet_activity_linux.go">observer/packet_activity_linux.go</a> · <a href="pocketbase/netmeta/packet.go">netmeta/packet.go</a><span>256-byte capture cap and header-derived metadata.</span></div>
+      <div><a href="pocketbase/observer/activity_chunks.go">observer/activity_chunks.go</a> · <a href="pocketbase/observer/scope.go">scope.go</a><span>Activity storage, retention and observation exclusions.</span></div>
+      <div><a href="pocketbase/observer/correlator.go">observer/correlator.go</a> · <a href="pocketbase/observer/domain_groups.json">domain_groups.json</a><span>Hostname inference and the SVT grouping aliases.</span></div>
+      <div><a href="pocketbase/observer/destination.go">observer/destination.go</a> · <a href="pocketbase/routing/probe.go">routing/probe.go</a><span>Reverse DNS, local location/provider context and separate probes.</span></div>
+      <div><a href="docs/implementation-guides/live-route-discovery.md">Live route discovery guide</a><span>Probe budgets, cache behavior and evidence boundaries.</span></div>
+      <div><a href="docs/implementation-guides/proxy-lab.md">Proxy Lab guide</a> · <a href="docs/implementation-guides/domain-grouping.md">Domain grouping guide</a><span>Opt-in traffic gates and current grouping semantics.</span></div>
+    </div></div></details>
+  </section>
+</main>
+<footer class="wrap">InfraReveal · A plain-language guide to the current gateway implementation</footer>
+</body>
+</html>

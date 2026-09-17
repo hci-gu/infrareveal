@@ -86,6 +86,37 @@ describe('accumulated destination traffic', () => {
     expect(columnMetersPerPixel(0, 3)).toBeCloseTo(columnMetersPerPixel(0, 2) / 2)
   })
 
+  it('accumulates country-only IPs by country rather than centroid, retaining replay and active filtering', () => {
+    const { scene, connections } = fixture()
+    scene.endpoints[0] = { ...scene.endpoints[0], city: '', country: 'United States', position: [-97.8, 37.7] }
+    scene.endpoints[1] = { ...scene.endpoints[1], city: '  ', country: 'US', position: [-100, 40] }
+    const index = indexDestinationVolumes([chunk(), chunk({ id: 'c2', flow: 'f2', wire_bytes_in: 8000 })])
+    const split = sceneForTracks(scene, connections)
+    const project = (cursor: number) => projectDestinationVolumes({ ...split, endpoints: [...split.endpoints, split.endpoints[0]] }, connections, index, cursor)
+    expect(project(epoch + 10_000)).toHaveLength(1)
+    expect(project(epoch + 10_000)[0]).toMatchObject({ id: 'country:US', bytes: 14000, height: 0, country: { code: 'US' }, flowCount: 2 })
+    expect(project(epoch + 2500)[0].bytes).toBe(7000)
+    expect(project(epoch - 1)).toEqual([])
+    expect(projectDestinationVolumes(scene, connections, index, epoch + 10_000, new Set(['203.0.113.1']))[0].bytes).toBe(5000)
+  })
+
+  it('keeps city estimates separate even when a city shares the country centroid', () => {
+    const { scene, connections } = fixture()
+    scene.endpoints[0] = { ...scene.endpoints[0], city: '', country: 'US', position: [-97.8, 37.7] }
+    scene.endpoints[1] = { ...scene.endpoints[1], city: 'Example city', country: 'US', position: [-97.8, 37.7] }
+    const result = projectDestinationVolumes(scene, connections, new Map(), epoch + 10_000)
+    expect(result).toHaveLength(2)
+    expect(result.reduce((sum, destination) => sum + destination.bytes, 0)).toBe(20_000)
+    expect(result.find(destination => destination.country)?.height).toBe(0)
+    expect(result.find(destination => !destination.country)?.height).toBeGreaterThan(0)
+  })
+
+  it('uses a country footprint without requiring fabricated coordinates', () => {
+    const { scene, connections } = fixture()
+    scene.endpoints[0] = { ...scene.endpoints[0], city: '', country: 'US', position: [0, 0] }
+    expect(projectDestinationVolumes(scene, connections, new Map(), epoch + 10_000).find(destination => destination.country)?.bytes).toBe(10_000)
+  })
+
   it.each([[0, 0], [NaN, 59], [18, Infinity], [181, 59], [18, -91], [undefined, 59], [18, null]])('omits columns with invalid longitude/latitude %s, %s', (lon, lat) => {
     const { scene, connections } = fixture()
     // Partial traceroutes can retain an endpoint whose final location is unknown.

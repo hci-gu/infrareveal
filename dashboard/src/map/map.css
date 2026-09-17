@@ -24,6 +24,26 @@
 .atlas-page button:disabled { opacity: .4; cursor: default; }
 .atlas-page a { text-decoration: none; color: inherit; }
 .atlas-page svg { flex-shrink: 0; }
+.atlas-country-labels { position: absolute; inset: 0; pointer-events: none; }
+.atlas-country-label { position: absolute; pointer-events: auto; border: 1px solid #42675f; border-radius: 8px; background: #10212cf2; box-shadow: 0 5px 20px #020c1433; }
+.atlas-country-label.is-dimmed { opacity: .35; }
+.atlas-country-label.is-dimmed:hover, .atlas-country-label:focus-within { opacity: 1; }
+.atlas-country-summary { display: flex; flex-direction: column; gap: 7px; width: 100%; border: 0; background: transparent; color: #e3eeef; padding: 11px 12px; text-align: left; border-radius: 8px; }
+.atlas-country-summary:hover { background: #1a333bb3; }
+.atlas-country-name { display: flex; align-items: center; gap: 8px; font-size: 12px; font-weight: 550; }
+.atlas-country-precision { font-size: 10px; color: #a4bac4; }
+.atlas-country-total { display: flex; align-items: baseline; justify-content: space-between; gap: 6px; font-size: 20px; font-variant-numeric: tabular-nums; }
+.atlas-country-total small { font-size: 9px; color: #a4bac4; }
+.atlas-country-tracks { display: flex; height: 3px; width: 100%; overflow: hidden; border-radius: 2px; }
+.atlas-country-tracks i { height: 100%; }
+.atlas-country-swatch { display: inline-block; width: 13px; height: 10px; border: 1px solid #68dec180; background: repeating-linear-gradient(135deg, #68dec140 0 1px, transparent 1px 4px); flex-shrink: 0; }
+.atlas-country-details { padding: 0 12px 12px; max-height: 240px; overflow-y: auto; font-size: 10px; color: #a4bac4; line-height: 1.5; }
+.atlas-country-details p { margin: 9px 0; }
+.atlas-country-details button { display: flex; align-items: center; gap: 7px; width: 100%; border: 0; border-top: 1px solid #344a55; background: transparent; color: #e3eeef; padding: 8px 0; text-align: left; font-size: 10px; }
+.atlas-country-details button span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+.atlas-country-details button strong { font-weight: 450; white-space: nowrap; }
+.atlas-country-details button i { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.atlas-country-details button:hover { color: #68dec1; }
 .atlas-header { height: 76px; flex-shrink: 0; display: flex; align-items: center; gap: 27px; padding: 0 28px; background: #0e1b24; border-bottom: 1px solid var(--atlas-border); z-index: 3; }
 .atlas-brand { display: flex; align-items: center; gap: 11px; flex-shrink: 0; }
 .atlas-brand-mark { display: grid; place-items: center; width: 37px; height: 37px; border: 1px solid #365750; border-radius: 10px; color: var(--atlas-teal); background: #172e30; }

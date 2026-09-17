@@ -56,10 +56,14 @@ func (p coverageProbe) Run(parent context.Context, t target, plan probePlan, pub
 		run = p.execute
 	}
 	// A single task retains its flow and reply matching state across all TTLs.
-	command := fmt.Sprintf("trace -T -P %s -d %d -s %d -q 2 -w 1 -W 20 -g 32 -N 1 -f 1 -m 32", method, t.Port, sourcePort)
+	// Two serial one-second waits at each of 32 silent TTLs cannot finish in
+	// 45 seconds. Reserve five seconds for startup, pacing and output flushing;
+	// bound the whole task's depth instead of killing it and losing all replies.
+	maxTTL := max(2, min(32, int((budget-5*time.Second)/(2*time.Second))))
+	command := fmt.Sprintf("trace -T -P %s -d %d -s %d -q 2 -w 1 -W 20 -g 32 -N 1 -f 1 -m %d", method, t.Port, sourcePort, maxTTL)
 	command += fmt.Sprintf(" -U %d", plan.Sequence)
 	data, runErr := run(ctx, []string{"-O", "json", "-O", "rawtcp", "-p", "5", "-c", command, "-i", t.IP})
-	result, decodeErr := decodeScamperTrace(data, t, 1, 32, probeIdentity{plan.Sequence, sourcePort, method})
+	result, decodeErr := decodeScamperTrace(data, t, 1, maxTTL, probeIdentity{plan.Sequence, sourcePort, method})
 	if decodeErr == nil {
 		s.Hops = result.Hops
 		s.ProbeCount = result.ProbeCount
@@ -75,10 +79,9 @@ func (p coverageProbe) Run(parent context.Context, t target, plan probePlan, pub
 	if runErr != nil {
 		s.Error = runErr.Error()
 	}
-	if len(s.Hops) > 0 {
-		s.Revision++
-		publish(s)
-	}
+	// This engine returns only a whole-task record. Let the coordinator publish
+	// the final snapshot after the unprobed/unknown tail has been attached;
+	// otherwise an initial-only response can slip through as useful progress.
 	s.Revision++
 	s.Finished = time.Now().UTC()
 	if ctx.Err() != nil {

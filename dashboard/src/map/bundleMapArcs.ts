@@ -6,7 +6,7 @@ export type BundledMapArc = MapArc & { endpointIds: string[]; height: number }
 export function bundleMapArcs(arcs: MapArc[]): BundledMapArc[] {
   const bundles = new Map<string, BundledMapArc>()
   for (const arc of arcs) {
-    const key = `${arc.trackId ?? ''}/${arc.sourcePosition.join(',')}/${arc.targetPosition.join(',')}/${Boolean(arc.routeId)}/${Boolean(arc.gap)}/${(arc.progressStart ?? 0).toFixed(6)}/${(arc.progressEnd ?? 1).toFixed(6)}`
+    const key = `${arc.trackId ?? ''}/${arc.sourcePosition.join(',')}/${arc.targetPosition.join(',')}/${Boolean(arc.routeId)}/${Boolean(arc.gap)}/${(arc.progressStart ?? 0).toFixed(6)}/${(arc.progressEnd ?? 1).toFixed(6)}/${arc.country?.code ?? ''}`
     const bundle = bundles.get(key)
     if (bundle) {
       bundle.activeFlowCount += arc.activeFlowCount

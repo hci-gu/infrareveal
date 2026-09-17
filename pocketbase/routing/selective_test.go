@@ -21,7 +21,7 @@ func startTestCoordinator(t *testing.T, app core.App, session string, p prober) 
 	return c
 }
 func useful(at time.Time, attempt string) snapshot {
-	return snapshot{Attempt: attempt, Revision: 1, Method: "tcp:443", Measured: at, Started: at, Finished: at, Status: "reached", Reached: true, ProbedTTL: 13, Hops: []Hop{{TTL: 1, Address: "192.168.1.1", State: "reply"}, {TTL: 2, Address: "1.1.1.1", State: "reply"}, {TTL: 13, Address: "9.9.9.9", State: "reply"}}}
+	return snapshot{Attempt: attempt, Revision: 1, Method: "tcp:443", Measured: at, Started: at, Finished: at, Status: "reached", Reached: true, ProbedTTL: 13, Hops: []Hop{{TTL: 1, Address: "192.168.1.1", State: "reply"}, {TTL: 2, Address: "1.1.1.1", State: "reply"}, {TTL: 8, Address: "8.8.4.4", State: "reply"}, {TTL: 13, Address: "9.9.9.9", State: "reply"}}}
 }
 func TestEvidenceClassificationAndFingerprint(t *testing.T) {
 	tgt := target{"9.9.9.9", "tcp", 443}
@@ -29,7 +29,7 @@ func TestEvidenceClassificationAndFingerprint(t *testing.T) {
 	if got := classifyRouteEvidence(s, tgt, nil).Class; got != "useful_path" {
 		t.Fatal(got)
 	}
-	s.Hops = s.Hops[2:]
+	s.Hops = s.Hops[3:]
 	if got := classifyRouteEvidence(s, tgt, nil).Class; got != "endpoint_only" {
 		t.Fatal(got)
 	}
@@ -64,7 +64,7 @@ func TestEvidencePolicyTable(t *testing.T) {
 		{"silent", snapshot{Status: "unavailable"}, "no_path"},
 		{"local", snapshot{Hops: []Hop{{TTL: 1, Address: "192.168.1.1"}}}, "access_only"},
 		{"endpoint", snapshot{Reached: true, Hops: []Hop{{TTL: 13, Address: tgt.IP}}}, "endpoint_only"},
-		{"reached after silent middle", snapshot{Reached: true, Hops: []Hop{{TTL: 1, Address: "192.168.1.1"}, {TTL: 13, Address: tgt.IP}}}, "useful_path"},
+		{"reached after silent middle", snapshot{Reached: true, Hops: []Hop{{TTL: 1, Address: "192.168.1.1"}, {TTL: 13, Address: tgt.IP}}}, "access_only"},
 		{"unlocated public", snapshot{Hops: []Hop{{TTL: 5, Address: "1.1.1.1"}}}, "useful_path"},
 		{"cancelled", snapshot{Status: "cancelled"}, "indeterminate"},
 		{"local failure", snapshot{Status: "failed"}, "indeterminate"},
@@ -74,6 +74,79 @@ func TestEvidencePolicyTable(t *testing.T) {
 				t.Fatal(got)
 			}
 		})
+	}
+}
+
+// Replays the shape captured in the Pi's 17 September "testing" session:
+// two shared access hops, a long silent span, then a responding TCP endpoint.
+func TestReachedAccessPrefixDoesNotEndMethodComparison(t *testing.T) {
+	app := testApp(t)
+	session := testSession(t, app)
+	repo := repository{app: app}
+	config := ConfigFromEnv()
+	tgt := target{"162.159.130.234", "tcp", 443}
+	now := time.Now()
+	a, err := repo.reserve(session, "network", tgt, config, false, now)
+	if err != nil || a.Reason != "" {
+		t.Fatalf("first admission: %+v %v", a, err)
+	}
+	s := snapshot{Attempt: a.Attempt, Method: "tcp:443", Started: now, Measured: now, Finished: now, Status: "reached", Reached: true, ProbedTTL: 11,
+		Hops: []Hop{{TTL: 1, Address: "192.168.10.1"}, {TTL: 2, Address: "130.241.190.9"}, {TTL: 3, EndTTL: 10, Missing: true, State: "no_reply"}, {TTL: 11, Address: tgt.IP}}}
+	if _, err = repo.publish(tgt.key("network"), "network", session, tgt, cacheEntry{}, s, s.Status, "measured", now); err != nil {
+		t.Fatal(err)
+	}
+	if rows, err := app.FindAllRecords("routes"); err != nil || len(rows) != 0 {
+		t.Fatalf("access plus endpoint created useful routes: %d %v", len(rows), err)
+	}
+	second, err := repo.reserve(session, "network", tgt, config, false, now.Add(time.Second))
+	if err != nil || second.Reason != "" || second.Method != "icmp-paris" {
+		t.Fatalf("sparse endpoint stopped the alternate: %+v %v", second, err)
+	}
+	access := []accessPosition{{1, []string{"192.168.10.1"}}, {2, []string{"130.241.190.9"}}}
+	if got := classifyRouteEvidence(s, tgt, access); got.Class != "access_only" {
+		t.Fatalf("endpoint promoted known access to useful: %+v", got)
+	}
+}
+
+type idleComparisonProbe struct{ methods chan string }
+
+func (p idleComparisonProbe) Run(_ context.Context, _ target, plan probePlan, _ func(snapshot)) snapshot {
+	p.methods <- plan.Method
+	now := time.Now()
+	return snapshot{Method: plan.Method, Started: now, Measured: now, Finished: now, Status: "failed", Error: "context deadline exceeded"}
+}
+func TestAdmittedComparisonContinuesAfterActivityExpires(t *testing.T) {
+	app := testApp(t)
+	session := testSession(t, app)
+	tgt := target{"151.101.3.6", "udp", 443}
+	repo := repository{app: app}
+	// Persist a first attempt as if the process restarted after its 45-second
+	// timeout. The remaining method must not require another browsing burst.
+	now := time.Now()
+	a, err := repo.reserve(session, "network", tgt, ConfigFromEnv(), false, now.Add(-time.Minute))
+	if err != nil || a.Reason != "" {
+		t.Fatalf("first admission: %+v %v", a, err)
+	}
+	s := snapshot{Attempt: a.Attempt, Method: a.Method, Finished: now, Measured: now, Status: "failed", Error: "context deadline exceeded"}
+	if _, err = repo.publish(tgt.key("network"), "network", session, tgt, cacheEntry{}, s, s.Status, "measured", now); err != nil {
+		t.Fatal(err)
+	}
+	p := idleComparisonProbe{make(chan string, 3)}
+	c := startTestCoordinator(t, app, session, p)
+	c.Observe(Flow{ID: "idle-flow", Session: session, IP: tgt.IP, Protocol: tgt.Protocol, Port: tgt.Port, At: now, Bytes: 100, Baseline: true})
+	select {
+	case method := <-p.methods:
+		if method != "icmp-paris" {
+			t.Fatal(method)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("admitted alternate required fresh qualifying activity")
+	}
+	eventually(t, func() bool { return c.Status().Running == 0 })
+	select {
+	case method := <-p.methods:
+		t.Fatalf("comparison exceeded two methods: %s", method)
+	case <-time.After(300 * time.Millisecond):
 	}
 }
 
