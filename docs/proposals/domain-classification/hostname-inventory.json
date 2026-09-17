@@ -1,0 +1,5909 @@
+{
+  "snapshot": {
+    "session": "my1bgf2pm80rytf",
+    "name": "testing",
+    "cutoff": "2026-09-17 07:03:25.000Z"
+  },
+  "hostnames": [
+    {
+      "hostname": "11846-ipv4v6e.clump.dprodmgd104.aa-rt.sharepoint.com",
+      "domain": "sharepoint.com",
+      "current_group": "sharepoint.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "gunet-my.sharepoint.com"
+      ]
+    },
+    {
+      "hostname": "189133-ipv4v6e.farm.dprodmgd104.aa-rt.sharepoint.com",
+      "domain": "sharepoint.com",
+      "current_group": "sharepoint.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "lappeenranta.sharepoint.com"
+      ]
+    },
+    {
+      "hostname": "189133-ipv4v6w.farm.dprodmgd104.sharepointonline.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "lappeenranta.sharepoint.com"
+      ]
+    },
+    {
+      "hostname": "189813-ipv4v6e.farm.dprodmgd104.aa-rt.sharepoint.com",
+      "domain": "sharepoint.com",
+      "current_group": "sharepoint.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "gunet-my.sharepoint.com"
+      ]
+    },
+    {
+      "hostname": "189813-ipv4v6w.farm.dprodmgd104.sharepointonline.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "gunet-my.sharepoint.com"
+      ]
+    },
+    {
+      "hostname": "20150-ipv4v6e.clump.dprodmgd104.aa-rt.sharepoint.com",
+      "domain": "sharepoint.com",
+      "current_group": "sharepoint.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "lappeenranta.sharepoint.com"
+      ]
+    },
+    {
+      "hostname": "27e1187c-9a74-49b3-a94a-06e258588b81.resources.office.net",
+      "domain": "office.net",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 2462199,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "6-courier2.push.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 153124,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "6.courier2-push-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "6-courier2.push.apple.com"
+      ]
+    },
+    {
+      "hostname": "_dns.resolver.arpa",
+      "domain": "resolver.arpa",
+      "current_group": "resolver.arpa",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "a-tr-teamsc-euwe-04.westeurope.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "gateway-eu.az.relay.teams.cloud.microsoft"
+      ]
+    },
+    {
+      "hostname": "a1366.dscapi6.akamai.net",
+      "domain": "akamai.net",
+      "current_group": "dscapi6.akamai.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "gspe1-ssl.ls.apple.com"
+      ]
+    },
+    {
+      "hostname": "a1520.dscc.akamai.net",
+      "domain": "akamai.net",
+      "current_group": "dscc.akamai.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "i.scdn.co"
+      ]
+    },
+    {
+      "hostname": "a1744.dscw154.akamai.net",
+      "domain": "akamai.net",
+      "current_group": "dscw154.akamai.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "netcts.cdn-apple.com"
+      ]
+    },
+    {
+      "hostname": "a2030.dscapi9.akamai.net",
+      "domain": "akamai.net",
+      "current_group": "dscapi9.akamai.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "entitlements-edge.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "ab.chatgpt.com",
+      "domain": "chatgpt.com",
+      "current_group": "chatgpt.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 535146,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "accountcapabilities-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "accountcapabilities-pa.googleapis.com",
+      "accounted": false,
+      "flows": 7,
+      "bytes": 132263,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "accounts.google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 25307,
+      "dns_queries": 3,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "acdcatm.outlook.mira.tm.svc.cloud.microsoft",
+      "domain": "cloud.microsoft",
+      "current_group": "cloud.microsoft",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 24636,
+      "dns_queries": 2,
+      "cname_mentions": 16,
+      "cname_sources": [
+        "outlook.office.com",
+        "outlook.office365.com",
+        "substrate.office.com"
+      ]
+    },
+    {
+      "hostname": "ad.doubleclick.net",
+      "domain": "doubleclick.net",
+      "current_group": "doubleclick.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "addons-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "addons-pa.googleapis.com",
+      "accounted": false,
+      "flows": 6,
+      "bytes": 81267,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "aet.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 3,
+      "bytes": 49423,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ags.privatelink.msidentity.com",
+      "domain": "msidentity.com",
+      "current_group": "msidentity.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "graph.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "ak.privatelink.msidentity.com",
+      "domain": "msidentity.com",
+      "current_group": "msidentity.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "login.microsoftonline.com",
+        "login.mso.msidentity.com"
+      ]
+    },
+    {
+      "hostname": "alb.reddit.com",
+      "domain": "reddit.com",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "amp-api-apps-akam.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "amp-api.apps.apple.com"
+      ]
+    },
+    {
+      "hostname": "amp-api-edge-cdn-lb.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 14,
+      "bytes": 221687,
+      "dns_queries": 6,
+      "cname_mentions": 8,
+      "cname_sources": [
+        "amp-api-edge-lb.itunes-apple.com.akadns.net",
+        "amp-api-edge.apps.apple.com"
+      ]
+    },
+    {
+      "hostname": "amp-api-edge-lb.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 15287,
+      "dns_queries": 6,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "amp-api-edge.apps.apple.com"
+      ]
+    },
+    {
+      "hostname": "amp-api-edge.apps.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 3,
+      "bytes": 49480,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "amp-api-media-akam.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "amp-api.media.apple.com"
+      ]
+    },
+    {
+      "hostname": "amp-api-podcasts-akam.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "amp-api.podcasts.apple.com"
+      ]
+    },
+    {
+      "hostname": "amp-api-search-edge-apps-akam.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "amp-api-search-edge.apps.apple.com"
+      ]
+    },
+    {
+      "hostname": "amp-api-search-edge.apps-lb.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "amp-api-search-edge.apps.apple.com"
+      ]
+    },
+    {
+      "hostname": "amp-api-search-edge.apps.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "amp-api.apps-lb.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "amp-api.apps.apple.com"
+      ]
+    },
+    {
+      "hostname": "amp-api.apps.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "amp-api.media-lb.apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "amp-api.media.apple.com"
+      ]
+    },
+    {
+      "hostname": "amp-api.media.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 6,
+      "bytes": 998368,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "amp-api.podcasts-lb.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "amp-api.podcasts.apple.com"
+      ]
+    },
+    {
+      "hostname": "amp-api.podcasts.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 12,
+      "bytes": 1375659,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api-emea.flightproxy.teams.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 15615,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api-spotlight-aeun1a.smoot.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 32188,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api.bitcointicker.co",
+      "domain": "bitcointicker.co",
+      "current_group": "bitcointicker.co",
+      "accounted": false,
+      "flows": 6,
+      "bytes": 107594,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api.home-design.ikea.com",
+      "domain": "ikea.com",
+      "current_group": "ikea.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 227260,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api.ipify.org",
+      "domain": "ipify.org",
+      "current_group": "ipify.org",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 7784,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api.magic.link",
+      "domain": "magic.link",
+      "current_group": "magic.link",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 15251,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api.perpetuals.polymarket.com",
+      "domain": "polymarket.com",
+      "current_group": "polymarket.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 47583,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api.revenuecat.com",
+      "domain": "revenuecat.com",
+      "current_group": "revenuecat.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 9862,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api.sunbreak.com",
+      "domain": "sunbreak.com",
+      "current_group": "sunbreak.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 19834,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api.svt.se",
+      "domain": "svt.se",
+      "current_group": "svt.se",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api.svt.se.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "se.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "api.svt.se"
+      ]
+    },
+    {
+      "hostname": "api.toaster.magic.link",
+      "domain": "magic.link",
+      "current_group": "magic.link",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "api.whatsapp.net",
+      "domain": "whatsapp.net",
+      "current_group": "whatsapp.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 37005,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "app-analytics-services.com",
+      "domain": "app-analytics-services.com",
+      "current_group": "app-analytics-services.com",
+      "accounted": false,
+      "flows": 4,
+      "bytes": 50127,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "app-measurement.com",
+      "domain": "app-measurement.com",
+      "current_group": "app-measurement.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 3,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "apresolve.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "asm-api-golocal-geo-se-teams.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "asm-api-golocal-geo-se-teams.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "se-prod.asyncgw.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "asyncgw-teams-microsoft-com.s-0005.dual-s-msedge.net",
+      "domain": "dual-s-msedge.net",
+      "current_group": "dual-s-msedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "se-prod.asyncgw.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "atm.office.mira.tm.svc.cloud.microsoft",
+      "domain": "cloud.microsoft",
+      "current_group": "cloud.microsoft",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 12,
+      "cname_sources": [
+        "eur.roaming1.live.com.akadns.net",
+        "mrodevicemgr.officeapps.live.com",
+        "odc.officeapps.live.com",
+        "officeclient.microsoft.com",
+        "prod.roaming1.live.com.akadns.net",
+        "roaming.officeapps.live.com"
+      ]
+    },
+    {
+      "hostname": "atm.outlook.mira.tm.svc.cloud.microsoft",
+      "domain": "cloud.microsoft",
+      "current_group": "cloud.microsoft",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 65921,
+      "dns_queries": 4,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "acdcatm.outlook.mira.tm.svc.cloud.microsoft",
+        "outlook.office.com",
+        "outlook.office365.com",
+        "substrate.office.com"
+      ]
+    },
+    {
+      "hostname": "att-104451-prod.approovr.io",
+      "domain": "approovr.io",
+      "current_group": "approovr.io",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "attest.approovr.io",
+      "domain": "approovr.io",
+      "current_group": "approovr.io",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 56806,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "australis.svt.se",
+      "domain": "svt.se",
+      "current_group": "svt.se",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "australis.svt.se.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "se.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "australis.svt.se"
+      ]
+    },
+    {
+      "hostname": "auth.magic.link",
+      "domain": "magic.link",
+      "current_group": "magic.link",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 27441,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "azurefd-t54-prod.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "azurefd-t54-prod.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "mamservice.manage.microsoft.com",
+        "mamwelsprodsharedtm.trafficmanager.net",
+        "pins.manage.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "bag-cdn-lb.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 9,
+      "bytes": 155299,
+      "dns_queries": 2,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "bag-cdn.itunes-apple.com.akadns.net",
+        "bag.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "bag-cdn.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "bag.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "bag.itunes.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 22436,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "bcdn.se",
+      "domain": "bcdn.se",
+      "current_group": "bcdn.se",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "bitcointicker.co",
+      "domain": "bitcointicker.co",
+      "current_group": "bitcointicker.co",
+      "accounted": false,
+      "flows": 11,
+      "bytes": 227315,
+      "dns_queries": 6,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "bookkeeper-itunes.g.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "bookkeeper.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "bookkeeper.itunes.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 4,
+      "bytes": 69239,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "booli.containers.piwik.pro",
+      "domain": "piwik.pro",
+      "current_group": "piwik.pro",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 35781,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "booli.piwik.pro",
+      "domain": "piwik.pro",
+      "current_group": "piwik.pro",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "br-trk.smadex.com",
+      "domain": "smadex.com",
+      "current_group": "smadex.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 15470,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "buy-eu.itunes.v.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 50858,
+      "dns_queries": 4,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "buy.itunes-apple.com.akadns.net",
+        "inappcheck-lb.itunes-apple.com.akadns.net",
+        "inappcheck.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "buy.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 25602,
+      "dns_queries": 2,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "inappcheck-lb.itunes-apple.com.akadns.net",
+        "inappcheck.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "buy.itunes.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "inappcheck-lb.itunes-apple.com.akadns.net",
+        "inappcheck.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "c6thn4.launches.appsflyersdk.com",
+      "domain": "appsflyersdk.com",
+      "current_group": "appsflyersdk.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 12576,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "callcontroller.euwe-02.ic3-calling-callcontroller.westeurope-prod.cosmic.office.net",
+      "domain": "office.net",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "emea.cc.skype.com"
+      ]
+    },
+    {
+      "hostname": "callcontroller.swce-05.ic3-calling-callcontroller.swedencentral-prod.cosmic.office.net",
+      "domain": "office.net",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "emea.cc.skype.com"
+      ]
+    },
+    {
+      "hostname": "captive.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 12636,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "captive.g.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "captive.apple.com"
+      ]
+    },
+    {
+      "hostname": "cc-emea-skype.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "cc-emea-skype.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "emea.cc.skype.com"
+      ]
+    },
+    {
+      "hostname": "cc-euwe-02-prod-aks.cc.skype.com",
+      "domain": "skype.com",
+      "current_group": "skype.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "emea.cc.skype.com"
+      ]
+    },
+    {
+      "hostname": "cc-swce-05-prod-aks.cc.skype.com",
+      "domain": "skype.com",
+      "current_group": "skype.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "emea.cc.skype.com"
+      ]
+    },
+    {
+      "hostname": "cdn-h3.g.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "cdn.cookielaw.org",
+      "domain": "cookielaw.org",
+      "current_group": "cookielaw.org",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 15476,
+      "dns_queries": 3,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "cdn.debugbear.com",
+      "domain": "debugbear.com",
+      "current_group": "debugbear.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 16953,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "cdn.discordapp.com",
+      "domain": "discordapp.com",
+      "current_group": "discord.com",
+      "accounted": true,
+      "flows": 3,
+      "bytes": 112816,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "cdn.optimizely.com",
+      "domain": "optimizely.com",
+      "current_group": "optimizely.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 30067,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "cdnjs.cloudflare.com",
+      "domain": "cloudflare.com",
+      "current_group": "cloudflare.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 5,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "cdp-east-edge.customer.io",
+      "domain": "customer.io",
+      "current_group": "customer.io",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "cdp.customer.io"
+      ]
+    },
+    {
+      "hostname": "cdp-east.customer.io",
+      "domain": "customer.io",
+      "current_group": "customer.io",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "cdp.customer.io"
+      ]
+    },
+    {
+      "hostname": "cdp.customer.io",
+      "domain": "customer.io",
+      "current_group": "customer.io",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 12741,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "cf.bcdn.se",
+      "domain": "bcdn.se",
+      "current_group": "bcdn.se",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 2292530,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "challenges.cloudflare.com",
+      "domain": "cloudflare.com",
+      "current_group": "cloudflare.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "chat.cdn.whatsapp.net",
+      "domain": "whatsapp.net",
+      "current_group": "whatsapp.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 9814,
+      "dns_queries": 1,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "g.whatsapp.net"
+      ]
+    },
+    {
+      "hostname": "chatgpt.com",
+      "domain": "chatgpt.com",
+      "current_group": "chatgpt.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 2707719,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "clients.l.google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 6,
+      "cname_mentions": 12,
+      "cname_sources": [
+        "clients1.google.com",
+        "clients3.google.com"
+      ]
+    },
+    {
+      "hostname": "clients1.google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 27829,
+      "dns_queries": 6,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "clients3.google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 9,
+      "bytes": 116947,
+      "dns_queries": 6,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "clob.polymarket.com",
+      "domain": "polymarket.com",
+      "current_group": "polymarket.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "commerce.itunes.apple.com.edgesuite.net",
+      "domain": "edgesuite.net",
+      "current_group": "com.edgesuite.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "entitlements-edge.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "common-eipb-ak.spotifycdn.com.edgesuite.net",
+      "domain": "edgesuite.net",
+      "current_group": "com.edgesuite.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "i.scdn.co"
+      ]
+    },
+    {
+      "hostname": "config-edge-skype.ln-0007.ln-msedge.net",
+      "domain": "ln-msedge.net",
+      "current_group": "ln-msedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 3,
+      "cname_sources": [
+        "config.edge.skype.com.trafficmanager.net"
+      ]
+    },
+    {
+      "hostname": "config-prod-weightedww.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "config-prod-weightedww.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "officeclient.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "config-teams.s-0005.dual-s-msedge.net",
+      "domain": "dual-s-msedge.net",
+      "current_group": "dual-s-msedge.net",
+      "accounted": false,
+      "flows": 6,
+      "bytes": 441209,
+      "dns_queries": 2,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "config.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "config.edge.skype.com",
+      "domain": "skype.com",
+      "current_group": "skype.com",
+      "accounted": false,
+      "flows": 3,
+      "bytes": 35951,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "config.edge.skype.com.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "com.trafficmanager.net",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 20155,
+      "dns_queries": 4,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "config.edge.skype.com"
+      ]
+    },
+    {
+      "hostname": "config.officeapps.live.com",
+      "domain": "live.com",
+      "current_group": "live.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "officeclient.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "config.teams.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "config.teams.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "teams.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "config.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "configuration-lb.ls-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "configuration.ls.apple.com"
+      ]
+    },
+    {
+      "hostname": "configuration.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "configuration.g.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "configuration.apple.com"
+      ]
+    },
+    {
+      "hostname": "configuration.ls.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 9623,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "configuration.ls.v.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "configuration.ls.apple.com"
+      ]
+    },
+    {
+      "hostname": "cosmic-northeurope-ns-d0028eed4e72.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "cosmic-northeurope-ns-d0028eed4e72.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "api-emea.flightproxy.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "cosmic-swedencentral-ns-13df3b2d3e37.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "cosmic-swedencentral-ns-13df3b2d3e37.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "api-emea.flightproxy.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "cosmic-swedencentral-ns-40b23d81ff36.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "cosmic-swedencentral-ns-40b23d81ff36.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "emea.cc.skype.com"
+      ]
+    },
+    {
+      "hostname": "cosmic-westeurope-ns-7ed735f79620.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "cosmic-westeurope-ns-7ed735f79620.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "pub-ent-euwe-10-t.trouter.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "cosmic-westeurope-ns-8689919f5ead.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "cosmic-westeurope-ns-8689919f5ead.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "emea.cc.skype.com"
+      ]
+    },
+    {
+      "hostname": "creatives.smadex.com",
+      "domain": "smadex.com",
+      "current_group": "smadex.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 21265,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "d2g2thc544wttl.cloudfront.net",
+      "domain": "cloudfront.net",
+      "current_group": "d2g2thc544wttl.cloudfront.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "mobile-production.content-square.net"
+      ]
+    },
+    {
+      "hostname": "d2o6gho7ir91cx.cloudfront.net",
+      "domain": "cloudfront.net",
+      "current_group": "d2o6gho7ir91cx.cloudfront.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "api.perpetuals.polymarket.com"
+      ]
+    },
+    {
+      "hostname": "device-provisioning.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "device-provisioning.googleapis.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 23045,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "discord.com",
+      "domain": "discord.com",
+      "current_group": "discord.com",
+      "accounted": true,
+      "flows": 4,
+      "bytes": 3759958,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "discovery-prod-weightedww.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "discovery-prod-weightedww.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "odc.officeapps.live.com"
+      ]
+    },
+    {
+      "hostname": "dit.whatsapp.net",
+      "domain": "whatsapp.net",
+      "current_group": "whatsapp.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 8740,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "dual-s-0005-teams.config.skype.com",
+      "domain": "skype.com",
+      "current_group": "skype.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "config.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "dual-spo-0005.spo-msedge.net",
+      "domain": "spo-msedge.net",
+      "current_group": "spo-msedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "gunet-my.sharepoint.com",
+        "lappeenranta.sharepoint.com"
+      ]
+    },
+    {
+      "hostname": "dualstack.reddit.map.fastly.net",
+      "domain": "fastly.net",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 11,
+      "bytes": 3400034,
+      "dns_queries": 4,
+      "cname_mentions": 15,
+      "cname_sources": [
+        "alb.reddit.com",
+        "external-preview.redd.it",
+        "pixel-config.reddit.com",
+        "preview.redd.it",
+        "styles.redditmedia.com",
+        "v.redd.it",
+        "www.redditstatic.com"
+      ]
+    },
+    {
+      "hostname": "e.svt.se.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "se.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "mms-panel-ping.e.svt.se"
+      ]
+    },
+    {
+      "hostname": "e11271.dscg.akamaiedge.net",
+      "domain": "akamaiedge.net",
+      "current_group": "dscg.akamaiedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "27e1187c-9a74-49b3-a94a-06e258588b81.resources.office.net"
+      ]
+    },
+    {
+      "hostname": "e114760.dscb.akamaiedge.net",
+      "domain": "akamaiedge.net",
+      "current_group": "dscb.akamaiedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "mms-panel-ping.e.svt.se"
+      ]
+    },
+    {
+      "hostname": "e1329.g.akamaiedge.net",
+      "domain": "akamaiedge.net",
+      "current_group": "g.akamaiedge.net",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 11126,
+      "dns_queries": 2,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "mesu.apple.com"
+      ]
+    },
+    {
+      "hostname": "e13678.dscb.akamaiedge.net",
+      "domain": "akamaiedge.net",
+      "current_group": "dscb.akamaiedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "www.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "e4805.dsca.akamaiedge.net",
+      "domain": "akamaiedge.net",
+      "current_group": "dsca.akamaiedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "iadsdk.apple.com"
+      ]
+    },
+    {
+      "hostname": "e6703.dscb.akamaiedge.net",
+      "domain": "akamaiedge.net",
+      "current_group": "dscb.akamaiedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 10,
+      "cname_sources": [
+        "api.svt.se",
+        "australis.svt.se",
+        "valresultat.svt.se",
+        "www.svt.se",
+        "www.svtstatic.se"
+      ]
+    },
+    {
+      "hostname": "e673.dsce9.akamaiedge.net",
+      "domain": "akamaiedge.net",
+      "current_group": "dsce9.akamaiedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "pd.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "e74567.dscb.akamaiedge.net",
+      "domain": "akamaiedge.net",
+      "current_group": "dscb.akamaiedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "helix.svt.se"
+      ]
+    },
+    {
+      "hostname": "edge-web-gew4.dual-gslb.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "gew4-spclient.spotify.com"
+      ]
+    },
+    {
+      "hostname": "edge-web.dual-gslb.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "aet.spotify.com",
+        "login5.spotify.com",
+        "spclient.wg.spotify.com"
+      ]
+    },
+    {
+      "hostname": "edgeapi.slack.com",
+      "domain": "slack.com",
+      "current_group": "slack.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 22271,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "emea.cc.skype.com",
+      "domain": "skype.com",
+      "current_group": "skype.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "encrypted-tbn0.gstatic.com",
+      "domain": "gstatic.com",
+      "current_group": "gstatic.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "encrypted-tbn2.gstatic.com",
+      "domain": "gstatic.com",
+      "current_group": "gstatic.com",
+      "accounted": false,
+      "flows": 4,
+      "bytes": 76387,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "entitlements-cdn-row.edge-itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "entitlements.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "entitlements-edge-eu.edge-itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "entitlements-edge.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "entitlements-edge.edge-itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "entitlements-edge.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "entitlements-edge.itunes.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 16209,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "entitlements-itunes.g.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "entitlements.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "entitlements.edge-itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "entitlements.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "entitlements.itunes.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 13489,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ep-euno-03-prod-aks.flightproxy.teams.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "api-emea.flightproxy.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "ep-swce-03-prod-aks.flightproxy.teams.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "api-emea.flightproxy.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "ep1.adtrafficquality.google",
+      "domain": "adtrafficquality.google",
+      "current_group": "adtrafficquality.google",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 56549,
+      "dns_queries": 5,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ep2.adtrafficquality.google",
+      "domain": "adtrafficquality.google",
+      "current_group": "adtrafficquality.google",
+      "accounted": false,
+      "flows": 4,
+      "bytes": 69436,
+      "dns_queries": 7,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "epx-enterpriseproxy-1.d03-035.ic3-calling-enterpriseproxy.01-northeurope-prod.cosmic.office.net",
+      "domain": "office.net",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "api-emea.flightproxy.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "epx-enterpriseproxy-2.d03-014.ic3-calling-enterpriseproxy.01-swedencentral-prod.cosmic.office.net",
+      "domain": "office.net",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "api-emea.flightproxy.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "epx.euno-03.ic3-calling-enterpriseproxy.northeurope-prod.cosmic.office.net",
+      "domain": "office.net",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "api-emea.flightproxy.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "epx.swce-03.ic3-calling-enterpriseproxy.swedencentral-prod.cosmic.office.net",
+      "domain": "office.net",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "api-emea.flightproxy.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "eu-central-courier-vs.push-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "6-courier2.push.apple.com"
+      ]
+    },
+    {
+      "hostname": "eu-mobile.events.data.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "eu-teams.events.data.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "eu.events.data.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "data.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "eu-mobile.events.data.microsoft.com",
+        "eu-teams.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "euaz.relay.teams.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "teams.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "gateway-eu.az.relay.teams.cloud.microsoft"
+      ]
+    },
+    {
+      "hostname": "euc1-wps-prod.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "wps.apple.com"
+      ]
+    },
+    {
+      "hostname": "eur.roaming1.live.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 34879,
+      "dns_queries": 2,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "prod.roaming1.live.com.akadns.net",
+        "roaming.officeapps.live.com"
+      ]
+    },
+    {
+      "hostname": "europe.configsvc1.live.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "officeclient.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "europe.odcsm1.live.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "odc.officeapps.live.com"
+      ]
+    },
+    {
+      "hostname": "external-preview.redd.it",
+      "domain": "redd.it",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 7,
+      "bytes": 3837196,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "fblite-p1.c10r.facebook.com",
+      "domain": "facebook.com",
+      "current_group": "facebook.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 71637,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "kaios-d.facebook.com"
+      ]
+    },
+    {
+      "hostname": "fblite-p1.fallback.c10r.facebook.com",
+      "domain": "facebook.com",
+      "current_group": "facebook.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "feedback-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "feedback-pa.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "files.tested.com",
+      "domain": "tested.com",
+      "current_group": "tested.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "firebase-settings.crashlytics.com",
+      "domain": "crashlytics.com",
+      "current_group": "crashlytics.com",
+      "accounted": false,
+      "flows": 3,
+      "bytes": 43487,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "firebaseinappmessaging.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "firebaseinappmessaging.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "firebaseinstallations.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "firebaseinstallations.googleapis.com",
+      "accounted": false,
+      "flows": 7,
+      "bytes": 225736,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "firebaselogging-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "firebaselogging-pa.googleapis.com",
+      "accounted": false,
+      "flows": 6,
+      "bytes": 84143,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "flightproxy-emea-teams.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "flightproxy-emea-teams.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "api-emea.flightproxy.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "fonts.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "fonts.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "fonts.gstatic.com",
+      "domain": "gstatic.com",
+      "current_group": "gstatic.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 22560,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "fpinit-eu.edge-itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "fpinit.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "fpinit-itunes.g.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "fpinit-eu.edge-itunes-apple.com.akadns.net",
+        "fpinit.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "fpinit.edge-itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "fpinit.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "fpinit.itunes.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 16965,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "fundingchoicesmessages.google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 13862,
+      "dns_queries": 6,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "g.whatsapp.net",
+      "domain": "whatsapp.net",
+      "current_group": "whatsapp.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 25743,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gamma-api.polymarket.com",
+      "domain": "polymarket.com",
+      "current_group": "polymarket.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 1976550,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gateway-eu.az.relay.teams.cloud.microsoft",
+      "domain": "cloud.microsoft",
+      "current_group": "cloud.microsoft",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gateway.discord.gg",
+      "domain": "discord.gg",
+      "current_group": "discord.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 155398,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gcp.api.sc-gw.com",
+      "domain": "sc-gw.com",
+      "current_group": "snapchat.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "tr.snapchat.com"
+      ]
+    },
+    {
+      "hostname": "gcp.api.snapchat.com",
+      "domain": "snapchat.com",
+      "current_group": "snapchat.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "tr.snapchat.com"
+      ]
+    },
+    {
+      "hostname": "geller-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "geller-pa.googleapis.com",
+      "accounted": false,
+      "flows": 7,
+      "bytes": 114691,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gew4-dealer-ssl.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "gew4-dealer.g2.spotify.com"
+      ]
+    },
+    {
+      "hostname": "gew4-dealer.g2.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 4,
+      "bytes": 51659,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gew4-spclient.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 41,
+      "bytes": 3145736,
+      "dns_queries": 6,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 3,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "googleads.g.doubleclick.net",
+      "domain": "doubleclick.net",
+      "current_group": "doubleclick.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 6,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "googlehosted.l.googleusercontent.com",
+      "domain": "googleusercontent.com",
+      "current_group": "googleusercontent.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "lh3.googleusercontent.com"
+      ]
+    },
+    {
+      "hostname": "gql-fed.reddit.com",
+      "domain": "reddit.com",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 490887,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gql-realtime.reddit.com",
+      "domain": "reddit.com",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 482171,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "graph.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 42802,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "graph.whatsapp.com",
+      "domain": "whatsapp.com",
+      "current_group": "whatsapp.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "growth-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "growth-pa.googleapis.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 15718,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gs-loc-new.ls-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "gs-loc.apple.com"
+      ]
+    },
+    {
+      "hostname": "gs-loc.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 10,
+      "bytes": 163922,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gs-loc.ls-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "gs-loc.apple.com"
+      ]
+    },
+    {
+      "hostname": "gsp85-ssl.ls.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 8674,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gsp85-ssl.ls2-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "gsp85-ssl.ls.apple.com"
+      ]
+    },
+    {
+      "hostname": "gspe1-ssl.ls.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 7689,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gspe1-ssl.ls.apple.com.edgesuite.net",
+      "domain": "edgesuite.net",
+      "current_group": "com.edgesuite.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "gspe1-ssl.ls.apple.com"
+      ]
+    },
+    {
+      "hostname": "gunet-my.sharepoint.com",
+      "domain": "sharepoint.com",
+      "current_group": "sharepoint.com",
+      "accounted": false,
+      "flows": 3,
+      "bytes": 257618,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gunet.sharepoint.com",
+      "domain": "sharepoint.com",
+      "current_group": "sharepoint.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "gunet-my.sharepoint.com"
+      ]
+    },
+    {
+      "hostname": "gz.gstatic.com",
+      "domain": "gstatic.com",
+      "current_group": "gstatic.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "gz0.googleusercontent.com",
+      "domain": "googleusercontent.com",
+      "current_group": "googleusercontent.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 711131,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "h3.apis.apple.map.fastly.net",
+      "domain": "fastly.net",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 15466,
+      "dns_queries": 1,
+      "cname_mentions": 32,
+      "cname_sources": [
+        "amp-api-edge-cdn-lb.itunes-apple.com.akadns.net",
+        "amp-api-edge-lb.itunes-apple.com.akadns.net",
+        "amp-api-edge.apps.apple.com",
+        "amp-api-search-edge.apps.apple.com",
+        "amp-api.apps.apple.com",
+        "amp-api.media.apple.com",
+        "amp-api.podcasts.apple.com",
+        "bag-cdn-lb.itunes-apple.com.akadns.net",
+        "bag-cdn.itunes-apple.com.akadns.net",
+        "bag.itunes.apple.com",
+        "is-ssl-cdn.itunes-apple.com.akadns.net",
+        "is1-ssl.mzstatic.com"
+      ]
+    },
+    {
+      "hostname": "helix.svt.se",
+      "domain": "svt.se",
+      "current_group": "svt.se",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 12241,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "helix.svt.se.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "se.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "helix.svt.se"
+      ]
+    },
+    {
+      "hostname": "i.scdn.co",
+      "domain": "scdn.co",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 146292,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "i.scdn.co-noeip.akamaized.net",
+      "domain": "akamaized.net",
+      "current_group": "co-noeip.akamaized.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "i.scdn.co"
+      ]
+    },
+    {
+      "hostname": "i.ytimg.com",
+      "domain": "ytimg.com",
+      "current_group": "youtube.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 907812,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "iadsdk.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 13467,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "iadsdk.apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "iadsdk.apple.com"
+      ]
+    },
+    {
+      "hostname": "iadsdk.apple.com.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "com.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "iadsdk.apple.com"
+      ]
+    },
+    {
+      "hostname": "image-cdn-fa.spotifycdn.com",
+      "domain": "spotifycdn.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "image-scdn.cdn-gslb.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "i.scdn.co"
+      ]
+    },
+    {
+      "hostname": "in-prod-pme-eastus2-ingestion-66ddb56a.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "in-prod-pme-eastus2-ingestion-66ddb56a.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "in.appcenter.ms",
+        "ingest.appcenter.ms"
+      ]
+    },
+    {
+      "hostname": "in.appcenter.ms",
+      "domain": "appcenter.ms",
+      "current_group": "appcenter.ms",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "in1-gw2-04-3d6c3051.eastus2.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 3,
+      "cname_sources": [
+        "in.appcenter.ms",
+        "ingest.appcenter.ms"
+      ]
+    },
+    {
+      "hostname": "in1-gw2-05-3d6c3051.eastus2.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 29760,
+      "dns_queries": 4,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "in.appcenter.ms"
+      ]
+    },
+    {
+      "hostname": "in2-gw2-03-3d6c3051.eastus2.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "in.appcenter.ms"
+      ]
+    },
+    {
+      "hostname": "in2-gw2-04-3d6c3051.eastus2.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "ingest.appcenter.ms"
+      ]
+    },
+    {
+      "hostname": "inappcheck-ak.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "inappcheck-lb.itunes-apple.com.akadns.net",
+        "inappcheck.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "inappcheck-lb.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 25735,
+      "dns_queries": 2,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "inappcheck.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "inappcheck.itunes.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 50931,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "inbox.google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 47591,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ingest.appcenter.ms",
+      "domain": "appcenter.ms",
+      "current_group": "appcenter.ms",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ios.chat.openai.com",
+      "domain": "openai.com",
+      "current_group": "openai.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 825090,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ios.chat.openai.com.cdn.cloudflare.net",
+      "domain": "cloudflare.net",
+      "current_group": "com.cdn.cloudflare.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "ios.chat.openai.com"
+      ]
+    },
+    {
+      "hostname": "iosantiabuse-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "iosantiabuse-pa.googleapis.com",
+      "accounted": false,
+      "flows": 7,
+      "bytes": 86517,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "is-ssl-cdn.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "is1-ssl.mzstatic.com"
+      ]
+    },
+    {
+      "hostname": "is-ssl.mzstatic.com.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "is1-ssl.mzstatic.com"
+      ]
+    },
+    {
+      "hostname": "is1-ssl.mzstatic.com",
+      "domain": "mzstatic.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 42058,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "itunes.apple.com.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "com.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "pd.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "kaios-d.facebook.com",
+      "domain": "facebook.com",
+      "current_group": "facebook.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 166387,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "keen-dcv2-we-oddu-prod.westeurope.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "se-svt-endpoint.2cnt.net"
+      ]
+    },
+    {
+      "hostname": "keendcv2neodduprodtm.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "keendcv2neodduprodtm.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "se-svt-endpoint.2cnt.net"
+      ]
+    },
+    {
+      "hostname": "lappeenranta.sharepoint.com",
+      "domain": "sharepoint.com",
+      "current_group": "sharepoint.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "latency.discord.media",
+      "domain": "discord.media",
+      "current_group": "discord.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 8804,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "lb._dns-sd._udp.0.0.0.10.in-addr.arpa",
+      "domain": "10.in-addr.arpa",
+      "current_group": "10.in-addr.arpa",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "lb._dns-sd._udp.115.229.125.100.in-addr.arpa",
+      "domain": "100.in-addr.arpa",
+      "current_group": "100.in-addr.arpa",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "lb._dns-sd._udp.6.0.0.192.in-addr.arpa",
+      "domain": "192.in-addr.arpa",
+      "current_group": "192.in-addr.arpa",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "lcdn-locator-usuqo.apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "lcdn-locator.apple.com"
+      ]
+    },
+    {
+      "hostname": "lcdn-locator.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 12483,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "lcdn-locator.apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "lcdn-locator.apple.com"
+      ]
+    },
+    {
+      "hostname": "lh3.googleusercontent.com",
+      "domain": "googleusercontent.com",
+      "current_group": "googleusercontent.com",
+      "accounted": false,
+      "flows": 3,
+      "bytes": 558738,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ln-0007.config.skype.com",
+      "domain": "skype.com",
+      "current_group": "skype.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 3,
+      "cname_sources": [
+        "config.edge.skype.com.trafficmanager.net"
+      ]
+    },
+    {
+      "hostname": "ln-0007.ln-msedge.net",
+      "domain": "ln-msedge.net",
+      "current_group": "ln-msedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 3,
+      "cname_sources": [
+        "config-edge-skype.ln-0007.ln-msedge.net",
+        "config.edge.skype.com.trafficmanager.net"
+      ]
+    },
+    {
+      "hostname": "locationhistory-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "locationhistory-pa.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "locationhistoryplacedetails-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "locationhistoryplacedetails-pa.googleapis.com",
+      "accounted": false,
+      "flows": 7,
+      "bytes": 96062,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "log.tailscale.com",
+      "domain": "tailscale.com",
+      "current_group": "tailscale.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 23380,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "logger.booli.se",
+      "domain": "booli.se",
+      "current_group": "booli.se",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 546782,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "login.microsoftonline.com",
+      "domain": "microsoftonline.com",
+      "current_group": "microsoftonline.com",
+      "accounted": false,
+      "flows": 28,
+      "bytes": 585477,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "login.mso.msidentity.com",
+      "domain": "msidentity.com",
+      "current_group": "msidentity.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 19373,
+      "dns_queries": 4,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "login.microsoftonline.com"
+      ]
+    },
+    {
+      "hostname": "login5.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "logx.optimizely.com",
+      "domain": "optimizely.com",
+      "current_group": "optimizely.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mail.google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 173434,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mamservice.manage.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 4,
+      "bytes": 81887,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mamwelsprodsharedtm.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "mamwelsprodsharedtm.trafficmanager.net",
+      "accounted": false,
+      "flows": 6,
+      "bytes": 111082,
+      "dns_queries": 2,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "mamservice.manage.microsoft.com",
+        "pins.manage.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "maps.gstatic.com",
+      "domain": "gstatic.com",
+      "current_group": "gstatic.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 18956,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mask.apple-dns.net",
+      "domain": "apple-dns.net",
+      "current_group": "icloud.com",
+      "accounted": true,
+      "flows": 3,
+      "bytes": 43763,
+      "dns_queries": 7,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "mask.icloud.com"
+      ]
+    },
+    {
+      "hostname": "mask.icloud.com",
+      "domain": "icloud.com",
+      "current_group": "icloud.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 16239,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "measure.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "measure.trafficmanager.net",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 10918,
+      "dns_queries": 2,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "trafficgateway.research-int.se"
+      ]
+    },
+    {
+      "hostname": "mesu-cdn.apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "mesu.apple.com"
+      ]
+    },
+    {
+      "hostname": "mesu-cdn.origin-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "mesu.apple.com"
+      ]
+    },
+    {
+      "hostname": "mesu.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mesu.apple.com.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "com.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "mesu.apple.com"
+      ]
+    },
+    {
+      "hostname": "mesu.g.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "mesu.apple.com"
+      ]
+    },
+    {
+      "hostname": "mira.config.skype.com",
+      "domain": "skype.com",
+      "current_group": "skype.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "config.edge.skype.com",
+        "config.edge.skype.com.trafficmanager.net",
+        "config.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "mms-panel-ping.e.svt.se",
+      "domain": "svt.se",
+      "current_group": "svt.se",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 16963,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mmx-ds.cdn.whatsapp.net",
+      "domain": "whatsapp.net",
+      "current_group": "whatsapp.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "api.whatsapp.net",
+        "dit.whatsapp.net",
+        "static.whatsapp.net"
+      ]
+    },
+    {
+      "hostname": "mobile-data.onetrust.io",
+      "domain": "onetrust.io",
+      "current_group": "onetrust.io",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 23650,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mobile-production.content-square.net",
+      "domain": "content-square.net",
+      "current_group": "content-square.net",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 14959,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mobilemaps-pa-gz.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "mobilemaps-pa-gz.googleapis.com",
+      "accounted": false,
+      "flows": 4,
+      "bytes": 3556896,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mobilemaps.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "mobilemaps.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mrodevicemgr-prod-defaultgeo.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "mrodevicemgr-prod-defaultgeo.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "mrodevicemgr.officeapps.live.com"
+      ]
+    },
+    {
+      "hostname": "mrodevicemgr.officeapps.live.com",
+      "domain": "live.com",
+      "current_group": "live.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mzstorekit.g.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 3,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "mzstorekit.itunes.apple.com",
+        "mzstorekit.lb-apple.com.akadns.net"
+      ]
+    },
+    {
+      "hostname": "mzstorekit.itunes.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 13366,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "mzstorekit.lb-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 4,
+      "bytes": 47791,
+      "dns_queries": 4,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "mzstorekit.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "nebius.com",
+      "domain": "nebius.com",
+      "current_group": "nebius.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 9346,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "netcts.cdn-apple.com",
+      "domain": "cdn-apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 942,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "netcts.cdn-apple.com.edgesuite.net",
+      "domain": "edgesuite.net",
+      "current_group": "com.edgesuite.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "netcts.cdn-apple.com"
+      ]
+    },
+    {
+      "hostname": "notifications-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "notifications-pa.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "o33249.ingest.us.sentry.io",
+      "domain": "sentry.io",
+      "current_group": "sentry.io",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 9945,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "o64374.ingest.sentry.io",
+      "domain": "sentry.io",
+      "current_group": "sentry.io",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 10213,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "o98317.ingest.us.sentry.io",
+      "domain": "sentry.io",
+      "current_group": "sentry.io",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 10124,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "oauth2.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "oauth2.googleapis.com",
+      "accounted": false,
+      "flows": 3,
+      "bytes": 36095,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "oauthaccountmanager.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "oauthaccountmanager.googleapis.com",
+      "accounted": false,
+      "flows": 3,
+      "bytes": 1407285,
+      "dns_queries": 3,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ocsp2.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 23102,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ocsp2.g.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "ocsp2.apple.com"
+      ]
+    },
+    {
+      "hostname": "odc.officeapps.live.com",
+      "domain": "live.com",
+      "current_group": "live.com",
+      "accounted": false,
+      "flows": 4,
+      "bytes": 88006,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "officeclient.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ogads-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "ogads-pa.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "one.one.one.one",
+      "domain": "one.one",
+      "current_group": "one.one",
+      "accounted": false,
+      "flows": 4,
+      "bytes": 32793,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "onedscolprdaus53.australiasoutheast.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 16357,
+      "dns_queries": 2,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "self.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdcus51.centralus.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "self.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdcus55.centralus.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "self.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdcus59.centralus.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 14746,
+      "dns_queries": 4,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "self.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdcus72.centralus.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 17394,
+      "dns_queries": 2,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "teams.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdeus08.eastus.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "self.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdeus15.eastus.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 15131,
+      "dns_queries": 2,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "self.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdfrc05.francecentral.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 18116,
+      "dns_queries": 2,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "eu-mobile.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdfrc10.francecentral.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "eu-mobile.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdgwc52.germanywestcentral.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "self.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdjpe52.japaneast.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "teams.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdneu50.northeurope.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 57109,
+      "dns_queries": 3,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "eu-teams.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdneu68.northeurope.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "eu-teams.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdneu69.northeurope.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "eu-mobile.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdweu01.westeurope.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "eu.events.data.trafficmanager.net"
+      ]
+    },
+    {
+      "hostname": "onedscolprdweu13.westeurope.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "eu-mobile.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "onedscolprdweu19.westeurope.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 33775,
+      "dns_queries": 2,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "eu.events.data.trafficmanager.net"
+      ]
+    },
+    {
+      "hostname": "outlook.cloud.microsoft",
+      "domain": "cloud.microsoft",
+      "current_group": "cloud.microsoft",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 16,
+      "cname_sources": [
+        "outlook.office.com",
+        "outlook.office365.com",
+        "substrate.office.com"
+      ]
+    },
+    {
+      "hostname": "outlook.office.com",
+      "domain": "office.com",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 6,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "outlook.office365.com",
+      "domain": "office365.com",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 65664,
+      "dns_queries": 6,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "p158-quota.icloud.com",
+      "domain": "icloud.com",
+      "current_group": "icloud.com",
+      "accounted": true,
+      "flows": 3,
+      "bytes": 52538,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "pagead2.googlesyndication.com",
+      "domain": "googlesyndication.com",
+      "current_group": "googlesyndication.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 31794,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "partition-cname-trouter-ic3-edf-trouter-service-trouter-1.d02-070.ic3-edf-trouter.01-westeurope-prod.cosmic.office.net",
+      "domain": "office.net",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "pub-ent-euwe-10-t.trouter.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "partition-cname-trouter-ic3-edf-trouter-service-trouter-2.d02-070.ic3-edf-trouter.01-westeurope-prod.cosmic.office.net",
+      "domain": "office.net",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 57901,
+      "dns_queries": 1,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "pub-ent-euwe-10-t.trouter.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "partition-cname-trouter.pub-ent-euwe-10.ic3-edf-trouter.westeurope-prod.cosmic.office.net",
+      "domain": "office.net",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "pub-ent-euwe-10-t.trouter.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "passbox-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "passbox-pa.googleapis.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 15480,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "pbs.twimg.com",
+      "domain": "twimg.com",
+      "current_group": "x.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 357188,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "pbs.twimg.com.cdn.cloudflare.net",
+      "domain": "cloudflare.net",
+      "current_group": "com.cdn.cloudflare.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "pbs.twimg.com"
+      ]
+    },
+    {
+      "hostname": "pd-cdn.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "pd.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "pd-lb.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "pd.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "pd.itunes.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 33710,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "pemam-aaamd9e8fmaeaqh8.b02.azurefd.net",
+      "domain": "azurefd.net",
+      "current_group": "b02.azurefd.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "mamservice.manage.microsoft.com",
+        "mamwelsprodsharedtm.trafficmanager.net",
+        "pins.manage.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "people-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "people-pa.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "peoplestack-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "peoplestack-pa.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "persistent.oaistatic.com",
+      "domain": "oaistatic.com",
+      "current_group": "chatgpt.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 2921120,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "pi.reddit.com",
+      "domain": "reddit.com",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 4,
+      "bytes": 46254,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "pi.reddit.com.cdn.cloudflare.net",
+      "domain": "cloudflare.net",
+      "current_group": "com.cdn.cloudflare.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "pi.reddit.com"
+      ]
+    },
+    {
+      "hostname": "pickasso.spotifycdn.com",
+      "domain": "spotifycdn.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 136357,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "pins.manage.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 16582,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "pixel-config.reddit.com",
+      "domain": "reddit.com",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "pixel-ed.smadex.com",
+      "domain": "smadex.com",
+      "current_group": "smadex.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 17029,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "platform.twitter.map.fastly.net",
+      "domain": "fastly.net",
+      "current_group": "x.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "static.ads-twitter.com"
+      ]
+    },
+    {
+      "hostname": "play.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "play.googleapis.com",
+      "accounted": false,
+      "flows": 4,
+      "bytes": 32895,
+      "dns_queries": 3,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "pnapp-backoffice.aws.postnord.com",
+      "domain": "postnord.com",
+      "current_group": "postnord.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 8204,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "podcasts.g.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "podcasts.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "podcasts.itunes.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 4426412,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "polymarket.com",
+      "domain": "polymarket.com",
+      "current_group": "polymarket.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 2316219,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "pp-public-p-sweb.piwik.pro",
+      "domain": "piwik.pro",
+      "current_group": "piwik.pro",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "booli.containers.piwik.pro",
+        "booli.piwik.pro"
+      ]
+    },
+    {
+      "hostname": "preview.redd.it",
+      "domain": "redd.it",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "prod-3-realtime-lb-840806869.us-east-1.elb.amazonaws.com",
+      "domain": "amazonaws.com",
+      "current_group": "prod-3-realtime-lb-840806869.us-east-1.elb.amazonaws.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 3,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "gql-realtime.reddit.com"
+      ]
+    },
+    {
+      "hostname": "prod.configsvc1.live.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "officeclient.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "prod.odcsm1.live.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "odc.officeapps.live.com"
+      ]
+    },
+    {
+      "hostname": "prod.roaming1.live.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "roaming.officeapps.live.com"
+      ]
+    },
+    {
+      "hostname": "prod.taos-platsvcs.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "taos-platsvcs.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "titles.prod.mos.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "production-creatives-1592163757.us-east-1.elb.amazonaws.com",
+      "domain": "amazonaws.com",
+      "current_group": "production-creatives-1592163757.us-east-1.elb.amazonaws.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "creatives.smadex.com"
+      ]
+    },
+    {
+      "hostname": "pub-ent-euwe-10-t.trouter.teams.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "query.ess-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "query.ess.apple.com"
+      ]
+    },
+    {
+      "hostname": "query.ess.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 40153,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "quota.fe2.apple-dns.net",
+      "domain": "apple-dns.net",
+      "current_group": "icloud.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "p158-quota.icloud.com"
+      ]
+    },
+    {
+      "hostname": "reddit.map.fastly.net",
+      "domain": "fastly.net",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 3,
+      "cname_mentions": 3,
+      "cname_sources": [
+        "gql-fed.reddit.com",
+        "pixel-config.reddit.com"
+      ]
+    },
+    {
+      "hostname": "redirector.googlevideo.com",
+      "domain": "googlevideo.com",
+      "current_group": "youtube.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "region-eng-scdn.cdn-gslb.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "video-fa.scdn.co"
+      ]
+    },
+    {
+      "hostname": "region-eng-spotifycdn.cdn-gslb.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "image-cdn-fa.spotifycdn.com",
+        "pickasso.spotifycdn.com"
+      ]
+    },
+    {
+      "hostname": "region1.app-analytics-services.com",
+      "domain": "app-analytics-services.com",
+      "current_group": "app-analytics-services.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 39623,
+      "dns_queries": 3,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "region1.app-measurement.com",
+      "domain": "app-measurement.com",
+      "current_group": "app-measurement.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 38917,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "region1.google-analytics.com",
+      "domain": "google-analytics.com",
+      "current_group": "google-analytics.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 8,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "resources.office.net.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "net.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "27e1187c-9a74-49b3-a94a-06e258588b81.resources.office.net"
+      ]
+    },
+    {
+      "hostname": "roaming-prod-weightedww.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "roaming-prod-weightedww.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "eur.roaming1.live.com.akadns.net",
+        "prod.roaming1.live.com.akadns.net",
+        "roaming.officeapps.live.com"
+      ]
+    },
+    {
+      "hostname": "roaming.officeapps.live.com",
+      "domain": "live.com",
+      "current_group": "live.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 34365,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "robinfrontend-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "robinfrontend-pa.googleapis.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 22005,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "rr1---sn-ovgq0oxu-j2ie.googlevideo.com",
+      "domain": "googlevideo.com",
+      "current_group": "youtube.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 2320019,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "rr1.sn-ovgq0oxu-j2ie.googlevideo.com",
+      "domain": "googlevideo.com",
+      "current_group": "youtube.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "rr1---sn-ovgq0oxu-j2ie.googlevideo.com"
+      ]
+    },
+    {
+      "hostname": "rr2---sn-ovgq0oxu-j2ie.googlevideo.com",
+      "domain": "googlevideo.com",
+      "current_group": "youtube.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 1367448,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "rr2.sn-ovgq0oxu-j2ie.googlevideo.com",
+      "domain": "googlevideo.com",
+      "current_group": "youtube.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "rr2---sn-ovgq0oxu-j2ie.googlevideo.com"
+      ]
+    },
+    {
+      "hostname": "rr3---sn-ovgq0oxu-j2ie.googlevideo.com",
+      "domain": "googlevideo.com",
+      "current_group": "youtube.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 25559,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "rr3.sn-ovgq0oxu-j2ie.googlevideo.com",
+      "domain": "googlevideo.com",
+      "current_group": "youtube.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "rr3---sn-ovgq0oxu-j2ie.googlevideo.com"
+      ]
+    },
+    {
+      "hostname": "s-0005.dual-s-msedge.net",
+      "domain": "dual-s-msedge.net",
+      "current_group": "dual-s-msedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 5,
+      "cname_sources": [
+        "config-teams.s-0005.dual-s-msedge.net",
+        "se-prod.asyncgw.teams.microsoft.com",
+        "teams-office-com.s-0005.dual-s-msedge.net",
+        "teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "s-mzstatic-applak.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "s.mzstatic.com"
+      ]
+    },
+    {
+      "hostname": "s-part-0016.t-0009.t-s1-msedge.net",
+      "domain": "t-s1-msedge.net",
+      "current_group": "t-s1-msedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "mamservice.manage.microsoft.com",
+        "mamwelsprodsharedtm.trafficmanager.net"
+      ]
+    },
+    {
+      "hostname": "s-part-0025.t-0009.t-s1-msedge.net",
+      "domain": "t-s1-msedge.net",
+      "current_group": "t-s1-msedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "pins.manage.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "s.mzstatic.com",
+      "domain": "mzstatic.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 33326,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "s.mzstatic.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "s.mzstatic.com"
+      ]
+    },
+    {
+      "hostname": "s.mzstatic.v.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "s.mzstatic.com"
+      ]
+    },
+    {
+      "hostname": "s.youtube.com",
+      "domain": "youtube.com",
+      "current_group": "youtube.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 40149,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "sc-static.net",
+      "domain": "sc-static.net",
+      "current_group": "snapchat.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "scdnco.spotify.map.fastly.net",
+      "domain": "fastly.net",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "video-fa.scdn.co"
+      ]
+    },
+    {
+      "hostname": "scontent-arn2-1.xx.fbcdn.net",
+      "domain": "fbcdn.net",
+      "current_group": "facebook.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 6629308,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "scontent-fra3-1.xx.fbcdn.net",
+      "domain": "fbcdn.net",
+      "current_group": "facebook.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 39891,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "scontent.fallback.xx.fbcdn.net",
+      "domain": "fbcdn.net",
+      "current_group": "facebook.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "scontent.whatsapp.net",
+      "domain": "whatsapp.net",
+      "current_group": "whatsapp.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "dit.whatsapp.net"
+      ]
+    },
+    {
+      "hostname": "scontent.xx.fbcdn.net",
+      "domain": "fbcdn.net",
+      "current_group": "facebook.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "static.xx.fbcdn.net"
+      ]
+    },
+    {
+      "hostname": "sdk.privacy-center.org",
+      "domain": "privacy-center.org",
+      "current_group": "privacy-center.org",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 168797,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "se-prod.asyncgw.teams.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "se-svt-endpoint.2cnt.net",
+      "domain": "2cnt.net",
+      "current_group": "2cnt.net",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 12772,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "securepubads.g.doubleclick.net",
+      "domain": "doubleclick.net",
+      "current_group": "doubleclick.net",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 38410,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "securitydomain-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "securitydomain-pa.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "seg1.spo.mira.tm.svc.cloud.microsoft.dual-spo-0005.spo-msedge.net",
+      "domain": "spo-msedge.net",
+      "current_group": "spo-msedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "gunet-my.sharepoint.com",
+        "lappeenranta.sharepoint.com"
+      ]
+    },
+    {
+      "hostname": "self-events-data.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "self-events-data.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 8,
+      "cname_sources": [
+        "self.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "self.events.data.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 8,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "sentry.io",
+      "domain": "sentry.io",
+      "current_group": "sentry.io",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "sf-api-token-service-lb.itunes-apple.com.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "com.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "sf-api-token-service.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "sf-api-token-service.itunes.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 3,
+      "bytes": 71415,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "sf-api-token-service.itunes.apple.com.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "com.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "sf-api-token-service.itunes.apple.com"
+      ]
+    },
+    {
+      "hostname": "shed.dual-low.s-part-0016.t-0009.t-s1-msedge.net",
+      "domain": "t-s1-msedge.net",
+      "current_group": "t-s1-msedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "mamservice.manage.microsoft.com",
+        "mamwelsprodsharedtm.trafficmanager.net",
+        "pins.manage.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "shed.dual-low.s-part-0025.t-0009.t-s1-msedge.net",
+      "domain": "t-s1-msedge.net",
+      "current_group": "t-s1-msedge.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "mamservice.manage.microsoft.com",
+        "pins.manage.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "shed.outlook.acdc.tm.svc.cloud.microsoft",
+      "domain": "cloud.microsoft",
+      "current_group": "cloud.microsoft",
+      "accounted": false,
+      "flows": 4,
+      "bytes": 213407,
+      "dns_queries": 7,
+      "cname_mentions": 12,
+      "cname_sources": [
+        "acdcatm.outlook.mira.tm.svc.cloud.microsoft",
+        "outlook.office.com",
+        "outlook.office365.com",
+        "substrate.office.com"
+      ]
+    },
+    {
+      "hostname": "shop.api.ingka.ikea.com",
+      "domain": "ikea.com",
+      "current_group": "ikea.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 79469,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "shop.api.ingka.ikea.com.cdn.cloudflare.net",
+      "domain": "cloudflare.net",
+      "current_group": "com.cdn.cloudflare.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "shop.api.ingka.ikea.com"
+      ]
+    },
+    {
+      "hostname": "shop.static.ingka.ikea.com",
+      "domain": "ikea.com",
+      "current_group": "ikea.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 416988,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "shop.static.ingka.ikea.com.cdn.cloudflare.net",
+      "domain": "cloudflare.net",
+      "current_group": "com.cdn.cloudflare.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "shop.static.ingka.ikea.com"
+      ]
+    },
+    {
+      "hostname": "slack.com",
+      "domain": "slack.com",
+      "current_group": "slack.com",
+      "accounted": true,
+      "flows": 3,
+      "bytes": 155516,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "slackb.com",
+      "domain": "slackb.com",
+      "current_group": "slack.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 71937,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "smoot-api-spotlight-aeun1a.v.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 3,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "api-spotlight-aeun1a.smoot.apple.com"
+      ]
+    },
+    {
+      "hostname": "spclient.wg.spotify.com",
+      "domain": "spotify.com",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 5,
+      "bytes": 69628,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "sphinx.acast.com",
+      "domain": "acast.com",
+      "current_group": "acast.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 11838,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "squadcdn.scdn.co.splitter-eip.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "splitter-eip.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "i.scdn.co"
+      ]
+    },
+    {
+      "hostname": "sr-client-cfg.amplitude.com",
+      "domain": "amplitude.com",
+      "current_group": "amplitude.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ssl.gstatic.com",
+      "domain": "gstatic.com",
+      "current_group": "gstatic.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 12436,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ssl.streamreceiver7.azurewebsites.net",
+      "domain": "azurewebsites.net",
+      "current_group": "streamreceiver7.azurewebsites.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "measure.trafficmanager.net",
+        "trafficgateway.research-int.se"
+      ]
+    },
+    {
+      "hostname": "star-mini.c10r.facebook.com",
+      "domain": "facebook.com",
+      "current_group": "facebook.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 104491,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "www.facebook.com"
+      ]
+    },
+    {
+      "hostname": "star-mini.fallback.c10r.facebook.com",
+      "domain": "facebook.com",
+      "current_group": "facebook.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 24108,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "static-content-1.smadex.com",
+      "domain": "smadex.com",
+      "current_group": "smadex.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 10896,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "static.ads-twitter.com",
+      "domain": "ads-twitter.com",
+      "current_group": "x.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 9668,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "static.whatsapp.net",
+      "domain": "whatsapp.net",
+      "current_group": "whatsapp.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 37208,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "static.xx.fbcdn.net",
+      "domain": "fbcdn.net",
+      "current_group": "facebook.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "statics.prd.cdn.g.smadex.com",
+      "domain": "smadex.com",
+      "current_group": "smadex.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "static-content-1.smadex.com"
+      ]
+    },
+    {
+      "hostname": "stitcher.prod.ateam.acast.cloud",
+      "domain": "acast.cloud",
+      "current_group": "acast.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "stitcher2.acast.com"
+      ]
+    },
+    {
+      "hostname": "stitcher2.acast.com",
+      "domain": "acast.com",
+      "current_group": "acast.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 23385,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "storage.liveshopping.bambuser.com",
+      "domain": "bambuser.com",
+      "current_group": "bambuser.com",
+      "accounted": false,
+      "flows": 3,
+      "bytes": 1938381,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "streamreceiver7.azurewebsites.net",
+      "domain": "azurewebsites.net",
+      "current_group": "streamreceiver7.azurewebsites.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "measure.trafficmanager.net",
+        "trafficgateway.research-int.se"
+      ]
+    },
+    {
+      "hostname": "streetviewpixels-pa.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "streetviewpixels-pa.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "styles.redditmedia.com",
+      "domain": "redditmedia.com",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "substrate.office.com",
+      "domain": "office.com",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "suggestqueries.google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 6,
+      "bytes": 66284,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "suggestqueries.l.google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "suggestqueries.google.com"
+      ]
+    },
+    {
+      "hostname": "svc.ha-teams.office.com",
+      "domain": "office.com",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "config.edge.skype.com",
+        "config.edge.skype.com.trafficmanager.net",
+        "config.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "svc.ms-acdc-teams.office.com",
+      "domain": "office.com",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 3,
+      "cname_mentions": 3,
+      "cname_sources": [
+        "config.edge.skype.com",
+        "config.edge.skype.com.trafficmanager.net"
+      ]
+    },
+    {
+      "hostname": "t1.gstatic.com",
+      "domain": "gstatic.com",
+      "current_group": "gstatic.com",
+      "accounted": false,
+      "flows": 3,
+      "bytes": 38902,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "taos-platsvcs-wwprod-apim-norwayeast-01.regional.azure-api.net",
+      "domain": "azure-api.net",
+      "current_group": "regional.azure-api.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "titles.prod.mos.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "taos-platsvcs-wwprod-apim-norwayeast.norwayeast.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "titles.prod.mos.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "taos-platsvcs-wwprod-apim-westeurope-01.regional.azure-api.net",
+      "domain": "azure-api.net",
+      "current_group": "regional.azure-api.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "titles.prod.mos.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "taos-platsvcs-wwprod-apim-westeurope.westeurope.cloudapp.azure.com",
+      "domain": "azure.com",
+      "current_group": "azure.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "titles.prod.mos.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "teams-events-data.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "teams-events-data.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "teams.events.data.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "teams-mrc-ww-acdcatm.trafficmanager.net",
+      "domain": "trafficmanager.net",
+      "current_group": "teams-mrc-ww-acdcatm.trafficmanager.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "config.edge.skype.com",
+        "config.edge.skype.com.trafficmanager.net",
+        "config.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "teams-mrc-ww-perf.tm-4.office.com",
+      "domain": "office.com",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "config.teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "teams-office-com.s-0005.dual-s-msedge.net",
+      "domain": "dual-s-msedge.net",
+      "current_group": "dual-s-msedge.net",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 62520,
+      "dns_queries": 3,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "teams.events.data.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "teams.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 498306,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "teams.office.com",
+      "domain": "office.com",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "tee.express.magiclabs.com",
+      "domain": "magiclabs.com",
+      "current_group": "magiclabs.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 7756,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "titles.prod.mos.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "tls13.spotifycdn.map.fastly.net",
+      "domain": "fastly.net",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "image-cdn-fa.spotifycdn.com",
+        "pickasso.spotifycdn.com"
+      ]
+    },
+    {
+      "hostname": "tmc-g2.tm-4.office.com",
+      "domain": "office.com",
+      "current_group": "office.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "teams.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "tpc.googlesyndication.com",
+      "domain": "googlesyndication.com",
+      "current_group": "googlesyndication.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "tpr0m7.cdn-settings.appsflyersdk.com",
+      "domain": "appsflyersdk.com",
+      "current_group": "appsflyersdk.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 10027,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "tr.snapchat.com",
+      "domain": "snapchat.com",
+      "current_group": "snapchat.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "tr6.snapchat.com",
+      "domain": "snapchat.com",
+      "current_group": "snapchat.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "trafficgateway.research-int.se",
+      "domain": "research-int.se",
+      "current_group": "research-int.se",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 9546,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "updates3.bitcointicker.co",
+      "domain": "bitcointicker.co",
+      "current_group": "bitcointicker.co",
+      "accounted": false,
+      "flows": 4,
+      "bytes": 75726,
+      "dns_queries": 3,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "usc1-gcp-v61.api.sc-gw.com",
+      "domain": "sc-gw.com",
+      "current_group": "snapchat.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4,
+      "cname_sources": [
+        "tr6.snapchat.com"
+      ]
+    },
+    {
+      "hostname": "v.redd.it",
+      "domain": "redd.it",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 9,
+      "bytes": 41338863,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "valresultat.svt.se",
+      "domain": "svt.se",
+      "current_group": "svt.se",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "valresultat.svt.se.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "se.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "valresultat.svt.se"
+      ]
+    },
+    {
+      "hostname": "video-fa.scdn.co",
+      "domain": "scdn.co",
+      "current_group": "spotify.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 615842,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "w3-reporting.reddit.com",
+      "domain": "reddit.com",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 2,
+      "bytes": 67489,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "w3-reporting.reddit.com.cdn.cloudflare.net",
+      "domain": "cloudflare.net",
+      "current_group": "com.cdn.cloudflare.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "w3-reporting.reddit.com"
+      ]
+    },
+    {
+      "hostname": "whatsapp.com",
+      "domain": "whatsapp.com",
+      "current_group": "whatsapp.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 1,
+      "cname_sources": [
+        "graph.whatsapp.com"
+      ]
+    },
+    {
+      "hostname": "wps.apple.com",
+      "domain": "apple.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 73504,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "wps.v.aaplimg.com",
+      "domain": "aaplimg.com",
+      "current_group": "apple.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "wps.apple.com"
+      ]
+    },
+    {
+      "hostname": "ws-live-data.polymarket.com",
+      "domain": "polymarket.com",
+      "current_group": "polymarket.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "ws.chatgpt.com",
+      "domain": "chatgpt.com",
+      "current_group": "chatgpt.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 28640,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "wss-mobile.slack.com",
+      "domain": "slack.com",
+      "current_group": "slack.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 10952,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "wss-primary.slack.com",
+      "domain": "slack.com",
+      "current_group": "slack.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "wss-mobile.slack.com"
+      ]
+    },
+    {
+      "hostname": "www.backblaze.com",
+      "domain": "backblaze.com",
+      "current_group": "backblaze.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 17317,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.booli.se",
+      "domain": "booli.se",
+      "current_group": "booli.se",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.facebook.com",
+      "domain": "facebook.com",
+      "current_group": "facebook.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 25492,
+      "dns_queries": 5,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.google.se",
+      "domain": "google.se",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 20184,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "www.googleapis.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 31044,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.googletagmanager.com",
+      "domain": "googletagmanager.com",
+      "current_group": "googletagmanager.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 5,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.gstatic.com",
+      "domain": "gstatic.com",
+      "current_group": "gstatic.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 25096,
+      "dns_queries": 3,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.ikea.com",
+      "domain": "ikea.com",
+      "current_group": "ikea.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 4348234,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.ikea.com.cdn.cloudflare.net",
+      "domain": "cloudflare.net",
+      "current_group": "com.cdn.cloudflare.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "www.ikea.com"
+      ]
+    },
+    {
+      "hostname": "www.microsoft.com",
+      "domain": "microsoft.com",
+      "current_group": "microsoft.com",
+      "accounted": false,
+      "flows": 1,
+      "bytes": 3751,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.microsoft.com-c-3.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "com-c-3.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "www.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "www.recaptcha.net",
+      "domain": "recaptcha.net",
+      "current_group": "recaptcha.net",
+      "accounted": false,
+      "flows": 3,
+      "bytes": 117792,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.redditstatic.com",
+      "domain": "redditstatic.com",
+      "current_group": "reddit.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.svt.se",
+      "domain": "svt.se",
+      "current_group": "svt.se",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 374507,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.svt.se.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "se.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "www.svt.se"
+      ]
+    },
+    {
+      "hostname": "www.svtstatic.se",
+      "domain": "svtstatic.se",
+      "current_group": "svt.se",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www.svtstatic.se.edgekey.net",
+      "domain": "edgekey.net",
+      "current_group": "se.edgekey.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "www.svtstatic.se"
+      ]
+    },
+    {
+      "hostname": "www.tm.a.prd.aadg.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "aadg.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "login.microsoftonline.com",
+        "login.mso.msidentity.com"
+      ]
+    },
+    {
+      "hostname": "www.tm.prd.ags.akadns.net",
+      "domain": "akadns.net",
+      "current_group": "ags.akadns.net",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 2,
+      "cname_sources": [
+        "graph.microsoft.com"
+      ]
+    },
+    {
+      "hostname": "www.youtube.com",
+      "domain": "youtube.com",
+      "current_group": "youtube.com",
+      "accounted": true,
+      "flows": 1,
+      "bytes": 69363,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "www3.l.google.com",
+      "domain": "google.com",
+      "current_group": "google.com",
+      "accounted": true,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 6,
+      "cname_sources": [
+        "fundingchoicesmessages.google.com"
+      ]
+    },
+    {
+      "hostname": "youtubei.googleapis.com",
+      "domain": "googleapis.com",
+      "current_group": "youtubei.googleapis.com",
+      "accounted": false,
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "hostname": "yt3.ggpht.com",
+      "domain": "ggpht.com",
+      "current_group": "ggpht.com",
+      "accounted": false,
+      "flows": 2,
+      "bytes": 76149,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    }
+  ]
+}

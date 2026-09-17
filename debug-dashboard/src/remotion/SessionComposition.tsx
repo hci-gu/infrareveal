@@ -460,10 +460,12 @@ function formatActivityTimestamp(milliseconds: number) {
   return `${formatClock(milliseconds)}.${String(new Date(milliseconds).getMilliseconds()).padStart(3, '0')}`
 }
 
-function associationLabel(relationship: 'first_party' | 'cname_related' | 'temporally_associated') {
+function associationLabel(relationship: 'first_party' | 'domain_alias' | 'cname_related' | 'temporally_associated') {
   switch (relationship) {
     case 'first_party':
-      return 'first-party'
+      return 'same domain'
+    case 'domain_alias':
+      return 'domain mapping'
     case 'cname_related':
       return 'CNAME-linked'
     case 'temporally_associated':

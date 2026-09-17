@@ -21,12 +21,13 @@ Copy `.env.example`
 to `.env.local` only when overriding the gateway position, label, or map style.
 
 The map fills the viewport, with a compact mobile layout. The overview lists
-activity tracks using the same shared grouping as the debug dashboard: supported
-high/medium-confidence associations to an activity episode for the same client.
-Site activities such as svt.se and youtube.com keep their connections together;
-unsupported connections remain in that client's Independent traffic track.
-Hostnames and network providers do not imply an activity association. Infrastructure
-traffic uses the debug dashboard's existing exclusion rules.
+domain tracks using the same shared grouping as the debug dashboard. Every
+supported hostname belongs to its registered-domain group for that client and
+session. Explicit aliases in `pocketbase/observer/domain_groups.json` merge related
+domains, such as oaistatic.com into chatgpt.com. Connections without usable hostname
+evidence remain in Independent traffic. Timing and shared providers do not imply
+membership, and idle gaps do not split groups. Infrastructure traffic uses the
+debug dashboard's existing exclusion rules.
 
 Every track retains its assigned color through playback, sorting and live updates.
 Select a track to dim other routes and destination markers, and open the right-hand

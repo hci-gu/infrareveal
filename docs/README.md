@@ -20,6 +20,10 @@ Start with the [project README](../README.md) for setup and deployment, [CONTEXT
 - [Proxy Lab on Raspberry Pi](validation/proxy-lab-raspberry-pi.md): namespace, failure, soak, client and recovery checks.
 - [Live route discovery](validation/live-route-discovery.md): timing targets, cache/replay scenarios and pending Pi measurements.
 
+## Domain grouping
+
+- [Domain grouping](implementation-guides/domain-grouping.md): automatic registered-domain groups, explicit JSON aliases, and session lifecycle.
+
 ## Keeping this folder useful
 
 Keep current contracts, decisions, operator instructions and repeatable validation procedures here. Update the relevant guide when an implementation changes. Identify proposed behavior and pending hardware acceptance explicitly.

@@ -1,109 +1,88 @@
 package observer
 
 import (
+	"reflect"
 	"testing"
 	"time"
 )
 
-func TestInferActivityAssociationsGroupsFirstPartyAndFreshThirdParty(t *testing.T) {
-	start := time.Date(2026, 8, 25, 10, 0, 0, 0, time.UTC)
+func TestInferActivityAssociationsGroupsEveryDomain(t *testing.T) {
+	start := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
 	flows := []AttributedFlowObservation{
-		activityFlow("svt", "www.svt.se", "dns-svt", start),
-		activityFlow("cdn", "wm0.cdn.svt.se", "dns-cdn", start.Add(time.Second)),
-		activityFlow("tracker", "tracker.example", "dns-tracker", start.Add(2*time.Second)),
-		activityFlow("tracker-2", "tracker.example", "dns-tracker-2", start.Add(4*time.Second)),
+		activityFlow("spotify", "api.spotify.com", start),
+		activityFlow("discord", "discord.com", start),
+		activityFlow("gateway", "gateway.discord.gg", start.Add(8*time.Second)),
+		activityFlow("discord-cdn", "cdn.discordapp.com", start.Add(time.Hour)),
+		activityFlow("chat", "chatgpt.com", start),
+		activityFlow("chat-cdn", "cdn.oaistatic.com", start.Add(2*time.Hour)),
+		activityFlow("facebook", "scontent-arn2-1.xx.fbcdn.net", start),
+		activityFlow("svt", "www.svt.se", start),
+		activityFlow("unknown", "api.new-service.co.uk", start),
+		activityFlow("google", "clients3.google.com", start),
 	}
-	dns := []DNSObservation{
-		{ID: "dns-svt", ClientIP: "10.0.0.50", QueryName: "www.svt.se", Timestamp: start.Add(-time.Second)},
-		{ID: "dns-cdn", ClientIP: "10.0.0.50", QueryName: "wm0.cdn.svt.se", Timestamp: start, Aliases: []string{"svt.akamaized.net"}},
-		{ID: "dns-tracker", ClientIP: "10.0.0.50", QueryName: "tracker.example", Timestamp: start.Add(time.Second)},
-		{ID: "dns-tracker-2", ClientIP: "10.0.0.50", QueryName: "tracker.example", Timestamp: start.Add(3 * time.Second)},
-	}
-
-	episodes, associations := InferActivityAssociations(flows, dns)
-	if len(episodes) != 1 || episodes[0].SiteKey != "svt.se" {
-		t.Fatalf("expected one SVT episode, got %#v", episodes)
-	}
+	episodes, associations := InferActivityAssociations(flows)
 	byFlow := associationsByFlow(associations)
-	if byFlow["svt"].Relationship != "first_party" || byFlow["svt"].Confidence != "high" {
-		t.Fatalf("expected direct SVT traffic to be high-confidence first party, got %#v", byFlow["svt"])
+	want := map[string]string{"spotify": "spotify.com", "discord": "discord.com", "gateway": "discord.com", "discord-cdn": "discord.com", "chat": "chatgpt.com", "chat-cdn": "chatgpt.com", "facebook": "facebook.com", "svt": "svt.se", "unknown": "new-service.co.uk", "google": "google.com"}
+	for id, domain := range want {
+		if got := byFlow[id].ParentSiteKey; got != domain {
+			t.Errorf("%s: got %q, want %q", id, got, domain)
+		}
 	}
-	if byFlow["cdn"].Relationship != "cname_related" || byFlow["cdn"].Confidence != "high" {
-		t.Fatalf("expected CDN traffic to use CNAME evidence, got %#v", byFlow["cdn"])
+	if len(episodes) != 7 {
+		t.Errorf("got %d groups, want 7", len(episodes))
 	}
-	if byFlow["tracker"].Relationship != "temporally_associated" || byFlow["tracker"].Confidence != "medium" {
-		t.Fatalf("expected fresh tracker traffic to be medium-confidence associated, got %#v", byFlow["tracker"])
+	if byFlow["gateway"].Relationship != "domain_alias" {
+		t.Errorf("expected explicit domain alias: %#v", byFlow["gateway"])
 	}
-	if byFlow["tracker-2"].Relationship != "temporally_associated" {
-		t.Fatalf("expected subsequent fresh tracker requests in the episode to remain associated, got %#v", byFlow["tracker-2"])
+	if byFlow["discord"].EpisodeKey != byFlow["discord-cdn"].EpisodeKey {
+		t.Error("time gaps must not split a domain group")
 	}
-}
-
-func TestInferActivityAssociationsLeavesPreexistingHostnameIndependent(t *testing.T) {
-	start := time.Date(2026, 8, 25, 10, 0, 0, 0, time.UTC)
-	flows := []AttributedFlowObservation{
-		activityFlow("background", "tracker.example", "dns-old", start.Add(-20*time.Second)),
-		activityFlow("svt", "www.svt.se", "dns-svt", start),
-		activityFlow("tracker", "tracker.example", "dns-new", start.Add(2*time.Second)),
+	// Sorting and stable group keys must not depend on input order or the earliest flow.
+	for i, j := 0, len(flows)-1; i < j; i, j = i+1, j-1 {
+		flows[i], flows[j] = flows[j], flows[i]
 	}
-	dns := []DNSObservation{
-		{ID: "dns-old", ClientIP: "10.0.0.50", QueryName: "tracker.example", Timestamp: start.Add(-21 * time.Second)},
-		{ID: "dns-svt", ClientIP: "10.0.0.50", QueryName: "www.svt.se", Timestamp: start.Add(-time.Second)},
-		{ID: "dns-new", ClientIP: "10.0.0.50", QueryName: "tracker.example", Timestamp: start.Add(time.Second)},
+	again, links := InferActivityAssociations(flows)
+	if !reflect.DeepEqual(episodes, again) || !reflect.DeepEqual(associations, links) {
+		t.Error("grouping depends on input order")
 	}
-
-	_, associations := InferActivityAssociations(flows, dns)
-	if _, exists := associationsByFlow(associations)["tracker"]; exists {
-		t.Fatal("expected a hostname already active before the visit to remain independent")
+	_, single := InferActivityAssociations([]AttributedFlowObservation{activityFlow("discord-cdn", "cdn.discordapp.com", start.Add(time.Hour))})
+	if len(single) != 1 {
+		t.Fatalf("expected one domain association, got %d", len(single))
 	}
-}
-
-func TestInferActivityAssociationsRejectsAmbiguousParent(t *testing.T) {
-	start := time.Date(2026, 8, 25, 10, 0, 0, 0, time.UTC)
-	flows := []AttributedFlowObservation{
-		activityFlow("svt", "www.svt.se", "dns-svt", start),
-		activityFlow("youtube", "www.youtube.com", "dns-youtube", start),
-		activityFlow("tracker", "tracker.example", "dns-tracker", start.Add(2*time.Second)),
-	}
-	dns := []DNSObservation{
-		{ID: "dns-svt", ClientIP: "10.0.0.50", QueryName: "www.svt.se", Timestamp: start.Add(-time.Second)},
-		{ID: "dns-youtube", ClientIP: "10.0.0.50", QueryName: "www.youtube.com", Timestamp: start.Add(-time.Second)},
-		{ID: "dns-tracker", ClientIP: "10.0.0.50", QueryName: "tracker.example", Timestamp: start.Add(time.Second)},
-	}
-
-	_, associations := InferActivityAssociations(flows, dns)
-	if _, exists := associationsByFlow(associations)["tracker"]; exists {
-		t.Fatal("expected equally close competing website anchors to leave the request independent")
+	if single[0].EpisodeKey != byFlow["discord-cdn"].EpisodeKey {
+		t.Error("group identity depends on first observation")
 	}
 }
 
-func TestInferActivityAssociationsRequiresHostnameAndDNSForThirdParty(t *testing.T) {
-	start := time.Date(2026, 8, 25, 10, 0, 0, 0, time.UTC)
-	flows := []AttributedFlowObservation{
-		activityFlow("svt", "www.svt.se", "dns-svt", start),
-		{Flow: FlowObservation{ID: "unresolved", SessionID: "session", ClientIP: "10.0.0.50", DestinationIP: "1.1.1.1", DestinationPort: 443, Protocol: "udp", Start: start.Add(time.Second)}},
-		activityFlow("missing-dns", "tracker.example", "", start.Add(2*time.Second)),
+func TestInferActivityAssociationsSeparatesClientsSessionsAndUnknownTraffic(t *testing.T) {
+	start := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	first := activityFlow("first", "api.example.com", start)
+	otherClient := activityFlow("client", "example.com", start)
+	otherClient.Flow.ClientIP = "10.0.0.61"
+	otherSession := activityFlow("session", "example.com", start)
+	otherSession.Flow.SessionID = "another-session"
+	flows := []AttributedFlowObservation{first, otherClient, otherSession}
+	for i, hostname := range []string{"", "192.0.2.1", "::1", "localhost", "co.uk", "bad..com"} {
+		flows = append(flows, activityFlow(string(rune('a'+i)), hostname, start))
 	}
-
-	_, associations := InferActivityAssociations(flows, []DNSObservation{
-		{ID: "dns-svt", ClientIP: "10.0.0.50", QueryName: "www.svt.se", Timestamp: start.Add(-time.Second)},
-	})
-	byFlow := associationsByFlow(associations)
-	if _, exists := byFlow["unresolved"]; exists {
-		t.Fatal("expected unresolved traffic to remain independent")
-	}
-	if _, exists := byFlow["missing-dns"]; exists {
-		t.Fatal("expected third-party traffic without transaction-linked DNS to remain independent")
+	low := activityFlow("low", "example.com", start)
+	low.Confidence = "low"
+	hidden := activityFlow("hidden", "example.com", start)
+	hidden.Confidence = "hidden"
+	flows = append(flows, low, hidden)
+	episodes, associations := InferActivityAssociations(flows)
+	if len(episodes) != 3 || len(associations) != 3 {
+		t.Fatalf("expected 3 isolated groups and links, got %d/%d", len(episodes), len(associations))
 	}
 }
 
-func activityFlow(id, hostname, dnsID string, start time.Time) AttributedFlowObservation {
+func activityFlow(id, hostname string, start time.Time) AttributedFlowObservation {
 	return AttributedFlowObservation{
 		Flow: FlowObservation{
 			ID: id, SessionID: "session", ClientIP: "10.0.0.50", DestinationIP: "93.184.216.34",
 			DestinationPort: 443, Protocol: "tcp", Start: start, LastSeen: start.Add(3 * time.Second),
 		},
-		Hostname: hostname, Confidence: "medium", DNSQueryID: dnsID,
+		Hostname: hostname, Confidence: "medium",
 	}
 }
 
@@ -113,4 +92,67 @@ func associationsByFlow(associations []FlowAssociationConclusion) map[string]Flo
 		result[association.FlowID] = association
 	}
 	return result
+}
+
+// Exercise the live correlator's storage seam: replace an existing temporal
+// association, remove its stale group, and keep IDs stable on the next tick.
+func TestCorrelateActivitySessionReplacesTemporalGroups(t *testing.T) {
+	app := newActivityTestApp(t)
+	session := createActivityTestSession(t, app, true)
+	record := createActivityTestFlow(t, app, session.Id, "tcp|10.0.0.50|53000|93.184.216.34|443")
+	flow := flowObservationFromRecord(record)
+	_, err := upsertAttribution(app, flow, AttributionConclusion{CandidateHostname: "gateway.discord.gg", SourceSignal: "dns_answer", Confidence: "medium", ObservedAt: flow.Start})
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := ActivityEpisodeConclusion{Key: "old-timing-group", SessionID: session.Id, ClientIP: flow.ClientIP, SiteKey: "spotify", Label: "Spotify", AnchorHostname: "api.spotify.com", Start: flow.Start, LastSeen: flow.Start, Confidence: "high"}
+	ids, err := syncActivityEpisodes(app, session.Id, []ActivityEpisodeConclusion{old})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = syncFlowAssociations(app, session.Id, []FlowAssociationConclusion{{FlowID: flow.ID, EpisodeKey: old.Key, ParentSiteKey: "spotify", ParentLabel: "Spotify", Relationship: "temporally_associated", Confidence: "medium", Score: 90, ObservedAt: flow.Start}}, ids)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var groupID, linkID string
+	for tick := 0; tick < 2; tick++ {
+		if err := correlateActivitySession(app, session.Id); err != nil {
+			t.Fatal(err)
+		}
+		groups, err := app.FindAllRecords("activity_episodes")
+		if err != nil || len(groups) != 1 {
+			t.Fatalf("groups: count=%d err=%v", len(groups), err)
+		}
+		links, err := app.FindAllRecords("flow_associations")
+		if err != nil || len(links) != 1 {
+			t.Fatalf("links: count=%d err=%v", len(links), err)
+		}
+		if groups[0].GetString("site_key") != "discord.com" || links[0].GetString("relationship") != "domain_alias" || links[0].GetString("episode") != groups[0].Id {
+			t.Fatal("old temporal grouping was not replaced")
+		}
+		if tick > 0 && (groupID != groups[0].Id || linkID != links[0].Id) {
+			t.Fatal("IDs changed on repeated correlation")
+		}
+		groupID, linkID = groups[0].Id, links[0].Id
+	}
+}
+
+func TestInferActivityAssociationsExactHostnameOverride(t *testing.T) {
+	start := time.Date(2026, 9, 17, 10, 0, 0, 0, time.UTC)
+	cases := map[string]string{
+		"ios.chat.openai.com":             "chatgpt.com",
+		" IOS.CHAT.OPENAI.COM. ":          "chatgpt.com",
+		"api.openai.com":                  "openai.com",
+		"chat.openai.com":                 "openai.com",
+		"other.ios.chat.openai.com":       "openai.com",
+		"ios.chat.openai.com.example.org": "example.org",
+	}
+	for hostname, want := range cases {
+		t.Run(hostname, func(t *testing.T) {
+			_, links := InferActivityAssociations([]AttributedFlowObservation{activityFlow("flow", hostname, start)})
+			if len(links) != 1 || links[0].ParentSiteKey != want {
+				t.Fatalf("got %#v; want %s", links, want)
+			}
+		})
+	}
 }

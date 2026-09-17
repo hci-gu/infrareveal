@@ -70,7 +70,7 @@ export type FlowAssociation = {
   episode: string
   parent_site_key: string
   parent_label: string
-  relationship: 'first_party' | 'cname_related' | 'temporally_associated'
+  relationship: 'first_party' | 'domain_alias' | 'cname_related' | 'temporally_associated'
   confidence: 'high' | 'medium' | 'low'
   score: number
   explanation: string

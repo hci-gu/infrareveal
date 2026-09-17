@@ -5,7 +5,6 @@ import (
 	"errors"
 	"fmt"
 	"sort"
-	"strings"
 	"time"
 
 	"github.com/pocketbase/dbx"
@@ -13,17 +12,10 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-const (
-	activityEpisodeGap        = 30 * time.Second
-	temporalAssociationWindow = 8 * time.Second
-	dnsAssociationTolerance   = 2 * time.Second
-)
-
 type AttributedFlowObservation struct {
 	Flow       FlowObservation
 	Hostname   string
 	Confidence string
-	DNSQueryID string
 }
 
 type ActivityEpisodeConclusion struct {
@@ -37,7 +29,6 @@ type ActivityEpisodeConclusion struct {
 	LastSeen       time.Time
 	Confidence     string
 	Explanation    string
-	AnchorTimes    []time.Time
 }
 
 type FlowAssociationConclusion struct {
@@ -52,19 +43,6 @@ type FlowAssociationConclusion struct {
 	ObservedAt    time.Time
 }
 
-type siteFamily struct {
-	Key     string
-	Label   string
-	Domains []string
-}
-
-var anchorSiteFamilies = []siteFamily{
-	{Key: "svt.se", Label: "svt.se", Domains: []string{"svt.se", "svtstatic.se", "svtplay.se"}},
-	{Key: "spotify", Label: "Spotify", Domains: []string{"spotify.com", "spotifycdn.com", "spotifycdn.net", "scdn.co", "pscdn.co"}},
-	{Key: "youtube", Label: "YouTube", Domains: []string{"youtube.com", "youtu.be", "ytimg.com", "googlevideo.com"}},
-	{Key: "netflix", Label: "Netflix", Domains: []string{"netflix.com", "nflxvideo.net", "nflximg.net", "nflxext.com"}},
-}
-
 func correlateActivitySession(app *pocketbase.PocketBase, sessionID string) error {
 	flowRecords, err := app.FindAllRecords("flows", dbx.HashExp{"session": sessionID})
 	if err != nil {
@@ -74,11 +52,6 @@ func correlateActivitySession(app *pocketbase.PocketBase, sessionID string) erro
 	if err != nil {
 		return err
 	}
-	dnsRecords, err := app.FindAllRecords("dns_queries", dbx.HashExp{"session": sessionID})
-	if err != nil {
-		return err
-	}
-
 	attributions := make(map[string]*core.Record, len(attributionRecords))
 	for _, record := range attributionRecords {
 		attributions[record.GetString("flow")] = record
@@ -93,15 +66,10 @@ func correlateActivitySession(app *pocketbase.PocketBase, sessionID string) erro
 		}
 		flows = append(flows, AttributedFlowObservation{
 			Flow: flow, Hostname: attribution.GetString("candidate_hostname"),
-			Confidence: attribution.GetString("confidence"), DNSQueryID: attribution.GetString("dns_query"),
+			Confidence: attribution.GetString("confidence"),
 		})
 	}
-	dns := make([]DNSObservation, 0, len(dnsRecords))
-	for _, record := range dnsRecords {
-		dns = append(dns, dnsObservationFromRecord(record))
-	}
-
-	episodes, associations := InferActivityAssociations(flows, dns)
+	episodes, associations := InferActivityAssociations(flows)
 	episodeIDs, err := syncActivityEpisodes(app, sessionID, episodes)
 	if err != nil {
 		return err
@@ -112,110 +80,66 @@ func correlateActivitySession(app *pocketbase.PocketBase, sessionID string) erro
 	return removeStaleActivityEpisodes(app, sessionID, episodes)
 }
 
-func InferActivityAssociations(flows []AttributedFlowObservation, dns []DNSObservation) ([]ActivityEpisodeConclusion, []FlowAssociationConclusion) {
+// InferActivityAssociations groups attributed hostnames by registered domain and
+// explicit aliases. DNS timing and connection gaps never establish membership.
+func InferActivityAssociations(flows []AttributedFlowObservation) ([]ActivityEpisodeConclusion, []FlowAssociationConclusion) {
 	sortedFlows := append([]AttributedFlowObservation(nil), flows...)
-	sort.Slice(sortedFlows, func(i, j int) bool { return sortedFlows[i].Flow.Start.Before(sortedFlows[j].Flow.Start) })
-	dnsByID := make(map[string]DNSObservation, len(dns))
-	for _, observation := range dns {
-		dnsByID[observation.ID] = observation
-	}
-
-	var episodes []ActivityEpisodeConclusion
-	for _, family := range anchorSiteFamilies {
-		byClient := make(map[string][]AttributedFlowObservation)
-		for _, flow := range sortedFlows {
-			if usableHostnameEvidence(flow) && familyMatchesHostname(family, flow.Hostname) {
-				byClient[flow.Flow.ClientIP] = append(byClient[flow.Flow.ClientIP], flow)
-			}
+	sort.Slice(sortedFlows, func(i, j int) bool {
+		if sortedFlows[i].Flow.Start.Equal(sortedFlows[j].Flow.Start) {
+			return sortedFlows[i].Flow.ID < sortedFlows[j].Flow.ID
 		}
-		for clientIP, anchors := range byClient {
-			var current *ActivityEpisodeConclusion
-			for _, anchor := range anchors {
-				if current == nil || anchor.Flow.Start.Sub(current.AnchorTimes[len(current.AnchorTimes)-1]) > activityEpisodeGap {
-					episodes = append(episodes, ActivityEpisodeConclusion{
-						SessionID: anchor.Flow.SessionID, ClientIP: clientIP, SiteKey: family.Key,
-						Label: family.Label, AnchorHostname: normalizeActivityHostname(anchor.Hostname),
-						Start: anchor.Flow.Start, LastSeen: flowEnd(anchor.Flow), Confidence: "high",
-						Explanation: fmt.Sprintf("Started from DNS-attributed first-party traffic to %s.", normalizeActivityHostname(anchor.Hostname)),
-						AnchorTimes: []time.Time{anchor.Flow.Start},
-					})
-					current = &episodes[len(episodes)-1]
-					current.Key = episodeKey(*current)
-				} else {
-					current.AnchorTimes = append(current.AnchorTimes, anchor.Flow.Start)
-					if end := flowEnd(anchor.Flow); end.After(current.LastSeen) {
-						current.LastSeen = end
-					}
-				}
-			}
-		}
-	}
-	sort.Slice(episodes, func(i, j int) bool { return episodes[i].Start.Before(episodes[j].Start) })
-
-	associations := make(map[string]FlowAssociationConclusion)
-	for _, episode := range episodes {
-		family, _ := familyByKey(episode.SiteKey)
-		for _, flow := range sortedFlows {
-			if flow.Flow.ClientIP != episode.ClientIP || !usableHostnameEvidence(flow) || !familyMatchesHostname(family, flow.Hostname) {
-				continue
-			}
-			if !withinEpisodeAnchors(flow.Flow.Start, episode.AnchorTimes, activityEpisodeGap) {
-				continue
-			}
-			relationship := "first_party"
-			explanation := fmt.Sprintf("%s belongs to the confirmed %s site family.", normalizeActivityHostname(flow.Hostname), episode.Label)
-			if query, ok := dnsByID[flow.DNSQueryID]; ok && hasExternalAlias(query, family) {
-				relationship = "cname_related"
-				explanation = fmt.Sprintf("A DNS CNAME chain connects %s to infrastructure serving the confirmed %s site family.", normalizeActivityHostname(flow.Hostname), episode.Label)
-			}
-			associations[flow.Flow.ID] = FlowAssociationConclusion{
-				FlowID: flow.Flow.ID, EpisodeKey: episode.Key, ParentSiteKey: episode.SiteKey, ParentLabel: episode.Label,
-				Relationship: relationship, Confidence: "high", Score: 100, Explanation: explanation, ObservedAt: flow.Flow.Start,
-			}
-		}
-	}
-
-	for _, candidate := range sortedFlows {
-		if _, exists := associations[candidate.Flow.ID]; exists || !usableHostnameEvidence(candidate) || isKnownAnchorHostname(candidate.Hostname) {
+		return sortedFlows[i].Flow.Start.Before(sortedFlows[j].Flow.Start)
+	})
+	episodes := []ActivityEpisodeConclusion{}
+	associations := []FlowAssociationConclusion{}
+	byKey := make(map[string]int)
+	for _, observed := range sortedFlows {
+		if !usableHostnameEvidence(observed) {
 			continue
 		}
-		query, hasDNS := dnsByID[candidate.DNSQueryID]
-		if !hasDNS || normalizeActivityHostname(query.QueryName) != normalizeActivityHostname(candidate.Hostname) {
+		domain := registeredActivityDomain(observed.Hostname)
+		if domain == "" {
 			continue
 		}
-		bestIndex, bestDistance, ambiguous := nearestEpisodeAnchor(episodes, candidate)
-		if bestIndex < 0 || ambiguous {
-			continue
+		site := domain
+		relationship := "first_party"
+		explanation := fmt.Sprintf("%s groups under its registered domain %s.", normalizeActivityHostname(observed.Hostname), domain)
+		if canonical, matched, ok := activityGroupAlias(observed.Hostname, domain); ok {
+			site = canonical
+			relationship = "domain_alias"
+			explanation = fmt.Sprintf("%s groups under %s through the explicit domain mapping %s → %s.", normalizeActivityHostname(observed.Hostname), site, matched, site)
 		}
-		episode := episodes[bestIndex]
-		if hostnameSeenBefore(sortedFlows, candidate, episode.Start.Add(-dnsAssociationTolerance)) {
-			continue
+		flow := observed.Flow
+		key := fmt.Sprintf("%s|%s|domain:%s", flow.SessionID, flow.ClientIP, site)
+		index, exists := byKey[key]
+		if !exists {
+			index = len(episodes)
+			byKey[key] = index
+			episodes = append(episodes, ActivityEpisodeConclusion{
+				Key: key, SessionID: flow.SessionID, ClientIP: flow.ClientIP,
+				SiteKey: site, Label: site, AnchorHostname: normalizeActivityHostname(observed.Hostname),
+				Start: flow.Start, LastSeen: flowEnd(flow), Confidence: observed.Confidence,
+				Explanation: fmt.Sprintf("Connections grouped by registered domain %s and explicit domain aliases for this client and session.", site),
+			})
+		} else {
+			if end := flowEnd(flow); end.After(episodes[index].LastSeen) {
+				episodes[index].LastSeen = end
+			}
+			if confidenceRank(observed.Confidence) > confidenceRank(episodes[index].Confidence) {
+				episodes[index].Confidence = observed.Confidence
+			}
 		}
-		anchorTime := candidate.Flow.Start.Add(-bestDistance)
-		if query.Timestamp.Before(anchorTime.Add(-dnsAssociationTolerance)) || query.Timestamp.After(candidate.Flow.Start.Add(dnsAssociationTolerance)) {
-			continue
+		score := 80
+		if observed.Confidence == "high" {
+			score = 100
 		}
-		score := 85
-		if bestDistance <= 3*time.Second {
-			score += 10
-		}
-		if !flowEnd(candidate.Flow).Before(anchorTime) {
-			score += 5
-		}
-		associations[candidate.Flow.ID] = FlowAssociationConclusion{
-			FlowID: candidate.Flow.ID, EpisodeKey: episode.Key, ParentSiteKey: episode.SiteKey, ParentLabel: episode.Label,
-			Relationship: "temporally_associated", Confidence: "medium", Score: score,
-			Explanation: fmt.Sprintf("%s was freshly resolved by the same client and opened %s after confirmed %s traffic. This is an association, not proof that the site initiated it.", normalizeActivityHostname(candidate.Hostname), formatApproxDuration(bestDistance), episode.Label),
-			ObservedAt:  candidate.Flow.Start,
-		}
+		associations = append(associations, FlowAssociationConclusion{
+			FlowID: flow.ID, EpisodeKey: key, ParentSiteKey: site, ParentLabel: site,
+			Relationship: relationship, Confidence: observed.Confidence, Score: score,
+			Explanation: explanation, ObservedAt: flow.Start,
+		})
 	}
-
-	result := make([]FlowAssociationConclusion, 0, len(associations))
-	for _, association := range associations {
-		result = append(result, association)
-	}
-	sort.Slice(result, func(i, j int) bool { return result[i].ObservedAt.Before(result[j].ObservedAt) })
-	return episodes, result
+	return episodes, associations
 }
 
 func usableHostnameEvidence(flow AttributedFlowObservation) bool {
@@ -227,94 +151,6 @@ func flowEnd(flow FlowObservation) time.Time {
 		return flow.LastSeen
 	}
 	return flow.Start
-}
-
-func familyMatchesHostname(family siteFamily, hostname string) bool {
-	hostname = normalizeActivityHostname(hostname)
-	for _, domain := range family.Domains {
-		if hostname == domain || strings.HasSuffix(hostname, "."+domain) {
-			return true
-		}
-	}
-	return false
-}
-
-func isKnownAnchorHostname(hostname string) bool {
-	for _, family := range anchorSiteFamilies {
-		if familyMatchesHostname(family, hostname) {
-			return true
-		}
-	}
-	return false
-}
-
-func familyByKey(key string) (siteFamily, bool) {
-	for _, family := range anchorSiteFamilies {
-		if family.Key == key {
-			return family, true
-		}
-	}
-	return siteFamily{}, false
-}
-
-func normalizeActivityHostname(hostname string) string {
-	return strings.TrimSuffix(strings.ToLower(strings.TrimSpace(hostname)), ".")
-}
-
-func episodeKey(episode ActivityEpisodeConclusion) string {
-	return fmt.Sprintf("%s|%s|%s|%d", episode.SessionID, episode.ClientIP, episode.SiteKey, episode.Start.Unix())
-}
-
-func withinEpisodeAnchors(at time.Time, anchors []time.Time, window time.Duration) bool {
-	for _, anchor := range anchors {
-		if distance := at.Sub(anchor); distance >= 0 && distance <= window {
-			return true
-		}
-	}
-	return false
-}
-
-func hasExternalAlias(query DNSObservation, family siteFamily) bool {
-	for _, alias := range query.Aliases {
-		if !familyMatchesHostname(family, alias) {
-			return true
-		}
-	}
-	return false
-}
-
-func hostnameSeenBefore(flows []AttributedFlowObservation, candidate AttributedFlowObservation, cutoff time.Time) bool {
-	hostname := normalizeActivityHostname(candidate.Hostname)
-	for _, flow := range flows {
-		if flow.Flow.ID != candidate.Flow.ID && flow.Flow.ClientIP == candidate.Flow.ClientIP &&
-			normalizeActivityHostname(flow.Hostname) == hostname && flow.Flow.Start.Before(cutoff) {
-			return true
-		}
-	}
-	return false
-}
-
-func nearestEpisodeAnchor(episodes []ActivityEpisodeConclusion, candidate AttributedFlowObservation) (int, time.Duration, bool) {
-	bestIndex := -1
-	bestDistance := temporalAssociationWindow + time.Second
-	ambiguous := false
-	for index, episode := range episodes {
-		if episode.ClientIP != candidate.Flow.ClientIP {
-			continue
-		}
-		for _, anchor := range episode.AnchorTimes {
-			distance := candidate.Flow.Start.Sub(anchor)
-			if distance < 0 || distance > temporalAssociationWindow {
-				continue
-			}
-			if distance < bestDistance {
-				bestIndex, bestDistance, ambiguous = index, distance, false
-			} else if bestIndex >= 0 && distance == bestDistance && episodes[bestIndex].SiteKey != episode.SiteKey {
-				ambiguous = true
-			}
-		}
-	}
-	return bestIndex, bestDistance, ambiguous
 }
 
 func syncActivityEpisodes(app *pocketbase.PocketBase, sessionID string, episodes []ActivityEpisodeConclusion) (map[string]string, error) {

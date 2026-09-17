@@ -21,7 +21,7 @@ Summaries load for visible and selected rows with at most three concurrent reque
 
 ## Traffic
 
-The timeline is the main working surface. Client-specific activity groups require supported associations; independent traffic preserves its socket identity. DNS, hostname attribution and activity association keep separate source records.
+The timeline is the main working surface. Each client has one group per registered domain for the session. Explicit aliases in `pocketbase/observer/domain_groups.json` combine related domains. Timing does not establish membership; connections without usable hostname evidence remain independent. DNS, hostname attribution and activity association keep separate source records.
 
 **Track importance** starts with **Session data**: groups and their connections sort by received + sent lifetime bytes, and larger connections get taller, more prominent tracks. **Recent data · 30s** instead ranks captured payload in the 30 seconds before the playhead; replay and scrubbing update it once per second. Recent ranking loads all flows in that bounded interval, independently of visible rows. Incomplete capture is marked with `+`; unknown values stay unknown. **Size contrast** adjusts the height difference (0–100%); a square-root scale preserves small connections. **Equal tracks** restores uniform heights and the original order. The time axis continues to represent connection duration. These preferences are saved with the session layout.
 

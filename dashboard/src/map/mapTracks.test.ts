@@ -62,6 +62,18 @@ describe('shared activity tracks on the map', () => {
     expect(arcs.find(arc => !arc.routeId)?.peakBytesPerSecond).toBe(11000)
   })
 
+  it('groups explicit domain aliases without replacing the endpoint hostname', () => {
+    const data = fixture()
+    data.activityEpisodes = [episode('chat', 'chatgpt.com')]
+    data.flowAssociations = data.flows.map(f => association(`alias-${f.id}`, f.id, 'chat', { relationship: 'domain_alias', confidence: 'medium' }))
+    data.attributions = [{ id: 'host', session: 's', flow: 'svt', candidate_hostname: 'cdn.oaistatic.com', source_signal: 'dns_answer', confidence: 'medium', explanation: 'DNS match', dns_query: '', observed_at: iso(1000) }]
+    const { frame, catalog } = project(data)
+    expect(frame.tracks).toHaveLength(1)
+    expect(frame.tracks[0].label).toBe('chatgpt.com')
+    expect(frame.tracks[0].connections).toHaveLength(2)
+    expect(flowTrackAt(catalog.index, data.flows[0], epoch + 5000).hostname).toBe('cdn.oaistatic.com')
+  })
+
   it('waits for association evidence and keeps replay deterministic', () => {
     const data = fixture()
     expect(project(data, -1).frame.tracks).toHaveLength(0)

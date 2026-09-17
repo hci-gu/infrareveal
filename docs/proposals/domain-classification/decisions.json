@@ -1,0 +1,5923 @@
+{
+  "snapshot": {
+    "session": "my1bgf2pm80rytf",
+    "name": "testing",
+    "cutoff": "2026-09-17 07:03:25.000Z"
+  },
+  "summary": {
+    "flows": 661,
+    "attributions": 628,
+    "dns_records": 814,
+    "all_hostnames": 507,
+    "unmatched_hostnames": 328,
+    "unmatched_domain_families": 77,
+    "unmatched_attributed_flows": 305,
+    "usable_hostname_flows": 558,
+    "low_or_hidden_attributions": 70,
+    "flows_without_attribution_at_snapshot": 33
+  },
+  "definition": "Outside aliases and canonical targets at extraction time; automatic own-domain groups are still valid. Domain families use ICANN registration boundaries for review, while current_group preserves the full PSL including private suffixes.",
+  "policy_proposal": {
+    "status": "proposal_not_loaded_by_gateway",
+    "rule_precedence": [
+      "exact_hostname",
+      "longest_explicit_hostname_suffix",
+      "domain_category",
+      "explicit_same_dns_chain_dependency",
+      "timing_for_reviewed_external_category",
+      "own_registered_domain_group"
+    ],
+    "defaults": {
+      "association_window_ms": 10000,
+      "ambiguity_window_ms": 2000,
+      "activation_quiet_period_ms": 30000,
+      "timing_confidence": "low",
+      "allow_after_parent_only": true,
+      "require_same_client_and_session": true,
+      "allow_tracker_to_activate_parent": false,
+      "allow_reparenting_entire_existing_flow": false,
+      "diagnostics_timing_enabled": false
+    },
+    "note": "Thresholds are starting hypotheses for replay calibration, not measured probabilities. A cached/reused tracker connection needs burst-level evidence before assigning another parent."
+  },
+  "domain_decisions": [
+    {
+      "domain": "10.in-addr.arpa",
+      "category": "network_housekeeping",
+      "proposed_action": "exclude_from_app_tracks",
+      "confidence": "high",
+      "rationale": "Reverse-DNS/service discovery or encrypted resolver discovery; no app parent.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "lb._dns-sd._udp.0.0.0.10.in-addr.arpa",
+          "domain": "10.in-addr.arpa",
+          "current_group": "10.in-addr.arpa",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "100.in-addr.arpa",
+      "category": "network_housekeeping",
+      "proposed_action": "exclude_from_app_tracks",
+      "confidence": "high",
+      "rationale": "Reverse-DNS/service discovery or encrypted resolver discovery; no app parent.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "lb._dns-sd._udp.115.229.125.100.in-addr.arpa",
+          "domain": "100.in-addr.arpa",
+          "current_group": "100.in-addr.arpa",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "192.in-addr.arpa",
+      "category": "network_housekeeping",
+      "proposed_action": "exclude_from_app_tracks",
+      "confidence": "high",
+      "rationale": "Reverse-DNS/service discovery or encrypted resolver discovery; no app parent.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "lb._dns-sd._udp.6.0.0.192.in-addr.arpa",
+          "domain": "192.in-addr.arpa",
+          "current_group": "192.in-addr.arpa",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 1,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "2cnt.net",
+      "category": "audience_measurement",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Kantar/BARB audience measurement. se-svt-endpoint suggests an SVT-specific tenant, but the whole domain serves other publishers.",
+      "sources": [
+        "https://bbc.github.io/echo-docs/pages/reporting-barb.html"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "se-svt-endpoint.2cnt.net",
+          "domain": "2cnt.net",
+          "current_group": "2cnt.net",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 12772,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 12772,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "adtrafficquality.google",
+      "category": "ad_measurement",
+      "proposed_action": "review_before_timing",
+      "confidence": "medium",
+      "rationale": "Likely Google ad-quality/invalid-traffic measurement, inferred from the observed ep1/ep2 hostname family; do not equate it with search navigation.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "ep1.adtrafficquality.google",
+          "domain": "adtrafficquality.google",
+          "current_group": "adtrafficquality.google",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 56549,
+          "dns_queries": 5,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "ep2.adtrafficquality.google",
+          "domain": "adtrafficquality.google",
+          "current_group": "adtrafficquality.google",
+          "accounted": false,
+          "flows": 4,
+          "bytes": 69436,
+          "dns_queries": 7,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 6,
+      "bytes": 125985,
+      "dns_queries": 12,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "akadns.net",
+      "category": "shared_cdn_dns",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Akamai DNS/CDN infrastructure. Preserve the endpoint and use the original same-client DNS chain when it uniquely supports a service; never map the whole provider to one app.",
+      "sources": [
+        "https://www.akamai.com/products/edge-dns"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "189133-ipv4v6w.farm.dprodmgd104.sharepointonline.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "lappeenranta.sharepoint.com"
+          ]
+        },
+        {
+          "hostname": "189813-ipv4v6w.farm.dprodmgd104.sharepointonline.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "gunet-my.sharepoint.com"
+          ]
+        },
+        {
+          "hostname": "6.courier2-push-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "6-courier2.push.apple.com"
+          ]
+        },
+        {
+          "hostname": "amp-api-apps-akam.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "amp-api.apps.apple.com"
+          ]
+        },
+        {
+          "hostname": "amp-api-edge-cdn-lb.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 14,
+          "bytes": 221687,
+          "dns_queries": 6,
+          "cname_mentions": 8,
+          "cname_sources": [
+            "amp-api-edge-lb.itunes-apple.com.akadns.net",
+            "amp-api-edge.apps.apple.com"
+          ]
+        },
+        {
+          "hostname": "amp-api-edge-lb.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 15287,
+          "dns_queries": 6,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "amp-api-edge.apps.apple.com"
+          ]
+        },
+        {
+          "hostname": "amp-api-media-akam.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "amp-api.media.apple.com"
+          ]
+        },
+        {
+          "hostname": "amp-api-podcasts-akam.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "amp-api.podcasts.apple.com"
+          ]
+        },
+        {
+          "hostname": "amp-api-search-edge-apps-akam.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "amp-api-search-edge.apps.apple.com"
+          ]
+        },
+        {
+          "hostname": "amp-api-search-edge.apps-lb.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "amp-api-search-edge.apps.apple.com"
+          ]
+        },
+        {
+          "hostname": "amp-api.apps-lb.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "amp-api.apps.apple.com"
+          ]
+        },
+        {
+          "hostname": "amp-api.media-lb.apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "amp-api.media.apple.com"
+          ]
+        },
+        {
+          "hostname": "amp-api.podcasts-lb.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "amp-api.podcasts.apple.com"
+          ]
+        },
+        {
+          "hostname": "bag-cdn-lb.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 9,
+          "bytes": 155299,
+          "dns_queries": 2,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "bag-cdn.itunes-apple.com.akadns.net",
+            "bag.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "bag-cdn.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "bag.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "buy.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 25602,
+          "dns_queries": 2,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "inappcheck-lb.itunes-apple.com.akadns.net",
+            "inappcheck.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "configuration-lb.ls-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "configuration.ls.apple.com"
+          ]
+        },
+        {
+          "hostname": "entitlements-cdn-row.edge-itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "entitlements.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "entitlements-edge-eu.edge-itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "entitlements-edge.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "entitlements-edge.edge-itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "entitlements-edge.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "entitlements.edge-itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "entitlements.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "eu-central-courier-vs.push-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "6-courier2.push.apple.com"
+          ]
+        },
+        {
+          "hostname": "eur.roaming1.live.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 34879,
+          "dns_queries": 2,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "prod.roaming1.live.com.akadns.net",
+            "roaming.officeapps.live.com"
+          ]
+        },
+        {
+          "hostname": "europe.configsvc1.live.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "officeclient.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "europe.odcsm1.live.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "odc.officeapps.live.com"
+          ]
+        },
+        {
+          "hostname": "fpinit-eu.edge-itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "fpinit.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "fpinit.edge-itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "fpinit.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "gs-loc-new.ls-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "gs-loc.apple.com"
+          ]
+        },
+        {
+          "hostname": "gs-loc.ls-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "gs-loc.apple.com"
+          ]
+        },
+        {
+          "hostname": "gsp85-ssl.ls2-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "gsp85-ssl.ls.apple.com"
+          ]
+        },
+        {
+          "hostname": "iadsdk.apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "iadsdk.apple.com"
+          ]
+        },
+        {
+          "hostname": "inappcheck-ak.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "inappcheck-lb.itunes-apple.com.akadns.net",
+            "inappcheck.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "inappcheck-lb.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 25735,
+          "dns_queries": 2,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "inappcheck.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "is-ssl-cdn.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "is1-ssl.mzstatic.com"
+          ]
+        },
+        {
+          "hostname": "is-ssl.mzstatic.com.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "is1-ssl.mzstatic.com"
+          ]
+        },
+        {
+          "hostname": "lcdn-locator-usuqo.apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "lcdn-locator.apple.com"
+          ]
+        },
+        {
+          "hostname": "lcdn-locator.apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "lcdn-locator.apple.com"
+          ]
+        },
+        {
+          "hostname": "mesu-cdn.apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "mesu.apple.com"
+          ]
+        },
+        {
+          "hostname": "mesu-cdn.origin-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "mesu.apple.com"
+          ]
+        },
+        {
+          "hostname": "mzstorekit.lb-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 4,
+          "bytes": 47791,
+          "dns_queries": 4,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "mzstorekit.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "pd-cdn.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "pd.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "pd-lb.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "pd.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "prod.configsvc1.live.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "officeclient.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "prod.odcsm1.live.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "odc.officeapps.live.com"
+          ]
+        },
+        {
+          "hostname": "prod.roaming1.live.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "roaming.officeapps.live.com"
+          ]
+        },
+        {
+          "hostname": "query.ess-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "query.ess.apple.com"
+          ]
+        },
+        {
+          "hostname": "s-mzstatic-applak.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "s.mzstatic.com"
+          ]
+        },
+        {
+          "hostname": "s.mzstatic.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "s.mzstatic.com"
+          ]
+        },
+        {
+          "hostname": "sf-api-token-service-lb.itunes-apple.com.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "com.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "sf-api-token-service.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "squadcdn.scdn.co.splitter-eip.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "splitter-eip.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "i.scdn.co"
+          ]
+        },
+        {
+          "hostname": "www.tm.a.prd.aadg.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "aadg.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 4,
+          "cname_mentions": 6,
+          "cname_sources": [
+            "login.microsoftonline.com",
+            "login.mso.msidentity.com"
+          ]
+        },
+        {
+          "hostname": "www.tm.prd.ags.akadns.net",
+          "domain": "akadns.net",
+          "current_group": "ags.akadns.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "graph.microsoft.com"
+          ]
+        }
+      ],
+      "flows": 31,
+      "bytes": 526280,
+      "dns_queries": 41,
+      "cname_mentions": 126
+    },
+    {
+      "domain": "akamai.net",
+      "category": "shared_cdn_dns",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Akamai DNS/CDN infrastructure. Preserve the endpoint and use the original same-client DNS chain when it uniquely supports a service; never map the whole provider to one app.",
+      "sources": [
+        "https://www.akamai.com/products/edge-dns"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "a1366.dscapi6.akamai.net",
+          "domain": "akamai.net",
+          "current_group": "dscapi6.akamai.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "gspe1-ssl.ls.apple.com"
+          ]
+        },
+        {
+          "hostname": "a1520.dscc.akamai.net",
+          "domain": "akamai.net",
+          "current_group": "dscc.akamai.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "i.scdn.co"
+          ]
+        },
+        {
+          "hostname": "a1744.dscw154.akamai.net",
+          "domain": "akamai.net",
+          "current_group": "dscw154.akamai.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "netcts.cdn-apple.com"
+          ]
+        },
+        {
+          "hostname": "a2030.dscapi9.akamai.net",
+          "domain": "akamai.net",
+          "current_group": "dscapi9.akamai.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "entitlements-edge.itunes.apple.com"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 8
+    },
+    {
+      "domain": "akamaiedge.net",
+      "category": "shared_cdn_dns",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Akamai DNS/CDN infrastructure. Preserve the endpoint and use the original same-client DNS chain when it uniquely supports a service; never map the whole provider to one app.",
+      "sources": [
+        "https://www.akamai.com/products/edge-dns"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "e11271.dscg.akamaiedge.net",
+          "domain": "akamaiedge.net",
+          "current_group": "dscg.akamaiedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "27e1187c-9a74-49b3-a94a-06e258588b81.resources.office.net"
+          ]
+        },
+        {
+          "hostname": "e114760.dscb.akamaiedge.net",
+          "domain": "akamaiedge.net",
+          "current_group": "dscb.akamaiedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "mms-panel-ping.e.svt.se"
+          ]
+        },
+        {
+          "hostname": "e1329.g.akamaiedge.net",
+          "domain": "akamaiedge.net",
+          "current_group": "g.akamaiedge.net",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 11126,
+          "dns_queries": 2,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "mesu.apple.com"
+          ]
+        },
+        {
+          "hostname": "e13678.dscb.akamaiedge.net",
+          "domain": "akamaiedge.net",
+          "current_group": "dscb.akamaiedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "www.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "e4805.dsca.akamaiedge.net",
+          "domain": "akamaiedge.net",
+          "current_group": "dsca.akamaiedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "iadsdk.apple.com"
+          ]
+        },
+        {
+          "hostname": "e6703.dscb.akamaiedge.net",
+          "domain": "akamaiedge.net",
+          "current_group": "dscb.akamaiedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 10,
+          "cname_sources": [
+            "api.svt.se",
+            "australis.svt.se",
+            "valresultat.svt.se",
+            "www.svt.se",
+            "www.svtstatic.se"
+          ]
+        },
+        {
+          "hostname": "e673.dsce9.akamaiedge.net",
+          "domain": "akamaiedge.net",
+          "current_group": "dsce9.akamaiedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "pd.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "e74567.dscb.akamaiedge.net",
+          "domain": "akamaiedge.net",
+          "current_group": "dscb.akamaiedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "helix.svt.se"
+          ]
+        }
+      ],
+      "flows": 1,
+      "bytes": 11126,
+      "dns_queries": 9,
+      "cname_mentions": 23
+    },
+    {
+      "domain": "akamaized.net",
+      "category": "shared_cdn_dns",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Akamai DNS/CDN infrastructure. Preserve the endpoint and use the original same-client DNS chain when it uniquely supports a service; never map the whole provider to one app.",
+      "sources": [
+        "https://www.akamai.com/products/edge-dns"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "i.scdn.co-noeip.akamaized.net",
+          "domain": "akamaized.net",
+          "current_group": "co-noeip.akamaized.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "i.scdn.co"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2
+    },
+    {
+      "domain": "amazonaws.com",
+      "category": "shared_cloud_cdn",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "AWS hosting/CDN used by unrelated customers; this session includes Reddit, Smadex, Polymarket and Contentsquare-related chains.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "prod-3-realtime-lb-840806869.us-east-1.elb.amazonaws.com",
+          "domain": "amazonaws.com",
+          "current_group": "prod-3-realtime-lb-840806869.us-east-1.elb.amazonaws.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 3,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "gql-realtime.reddit.com"
+          ]
+        },
+        {
+          "hostname": "production-creatives-1592163757.us-east-1.elb.amazonaws.com",
+          "domain": "amazonaws.com",
+          "current_group": "production-creatives-1592163757.us-east-1.elb.amazonaws.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "creatives.smadex.com"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 3,
+      "cname_mentions": 4
+    },
+    {
+      "domain": "amplitude.com",
+      "category": "product_analytics",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Product analytics SDK/configuration; eligible for a tentative caller link, not a main activity anchor. A config download does not prove an analytics event was sent.",
+      "sources": [
+        "https://amplitude.com/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "sr-client-cfg.amplitude.com",
+          "domain": "amplitude.com",
+          "current_group": "amplitude.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "app-analytics-services.com",
+      "category": "app_analytics",
+      "proposed_action": "timing_candidate",
+      "confidence": "medium",
+      "rationale": "Likely Google/Firebase app analytics. A live TLS certificate contains this domain together with google-analytics.com and app-measurement.com. Service-role classification is inferred, not a claim about payload or ATT state.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "app-analytics-services.com",
+          "domain": "app-analytics-services.com",
+          "current_group": "app-analytics-services.com",
+          "accounted": false,
+          "flows": 4,
+          "bytes": 50127,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "region1.app-analytics-services.com",
+          "domain": "app-analytics-services.com",
+          "current_group": "app-analytics-services.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 39623,
+          "dns_queries": 3,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 6,
+      "bytes": 89750,
+      "dns_queries": 5,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "app-measurement.com",
+      "category": "app_analytics",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Google/Firebase measurement endpoint. Keep provider identity distinct from the app that may have triggered it.",
+      "sources": [
+        "https://github.com/firebase/firebase-ios-sdk/issues/5837"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "app-measurement.com",
+          "domain": "app-measurement.com",
+          "current_group": "app-measurement.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 3,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "region1.app-measurement.com",
+          "domain": "app-measurement.com",
+          "current_group": "app-measurement.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 38917,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 2,
+      "bytes": 38917,
+      "dns_queries": 5,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "appcenter.ms",
+      "category": "app_diagnostics",
+      "proposed_action": "optional_timing",
+      "confidence": "high",
+      "rationale": "App Center analytics/diagnostics ingestion, not advertising. Mixed telemetry warrants a separate diagnostic badge.",
+      "sources": [
+        "https://learn.microsoft.com/en-us/appcenter/analytics/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "in.appcenter.ms",
+          "domain": "appcenter.ms",
+          "current_group": "appcenter.ms",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 4,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "ingest.appcenter.ms",
+          "domain": "appcenter.ms",
+          "current_group": "appcenter.ms",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 6,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "approovr.io",
+      "category": "app_security",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Approov API/app-security infrastructure; observed attest hostname suggests attestation. No ad/tracker classification.",
+      "sources": [
+        "https://approov.io/blog/strengthen-tls-in-react-native-through-certificate-pinning-ios-edition"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "att-104451-prod.approovr.io",
+          "domain": "approovr.io",
+          "current_group": "approovr.io",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "attest.approovr.io",
+          "domain": "approovr.io",
+          "current_group": "approovr.io",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 56806,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 2,
+      "bytes": 56806,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "appsflyersdk.com",
+      "category": "marketing_attribution",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "AppsFlyer launch/configuration and marketing attribution SDK. May batch events from an earlier activity.",
+      "sources": [
+        "https://dev.appsflyer.com/hc/docs/testing-ios"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "c6thn4.launches.appsflyersdk.com",
+          "domain": "appsflyersdk.com",
+          "current_group": "appsflyersdk.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 12576,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "tpr0m7.cdn-settings.appsflyersdk.com",
+          "domain": "appsflyersdk.com",
+          "current_group": "appsflyersdk.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 10027,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 2,
+      "bytes": 22603,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "azure-api.net",
+      "category": "shared_cloud_routing",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Azure hosting, API gateways and traffic routing. This session contains Microsoft app traffic and unrelated customer measurement endpoints.",
+      "sources": [
+        "https://learn.microsoft.com/en-us/azure/traffic-manager/traffic-manager-overview"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "taos-platsvcs-wwprod-apim-norwayeast-01.regional.azure-api.net",
+          "domain": "azure-api.net",
+          "current_group": "regional.azure-api.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "titles.prod.mos.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "taos-platsvcs-wwprod-apim-westeurope-01.regional.azure-api.net",
+          "domain": "azure-api.net",
+          "current_group": "regional.azure-api.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "titles.prod.mos.microsoft.com"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 2
+    },
+    {
+      "domain": "azure.com",
+      "category": "shared_cloud_routing",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Azure hosting, API gateways and traffic routing. This session contains Microsoft app traffic and unrelated customer measurement endpoints.",
+      "sources": [
+        "https://learn.microsoft.com/en-us/azure/traffic-manager/traffic-manager-overview"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "a-tr-teamsc-euwe-04.westeurope.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "gateway-eu.az.relay.teams.cloud.microsoft"
+          ]
+        },
+        {
+          "hostname": "in1-gw2-04-3d6c3051.eastus2.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 4,
+          "cname_mentions": 3,
+          "cname_sources": [
+            "in.appcenter.ms",
+            "ingest.appcenter.ms"
+          ]
+        },
+        {
+          "hostname": "in1-gw2-05-3d6c3051.eastus2.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 29760,
+          "dns_queries": 4,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "in.appcenter.ms"
+          ]
+        },
+        {
+          "hostname": "in2-gw2-03-3d6c3051.eastus2.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "in.appcenter.ms"
+          ]
+        },
+        {
+          "hostname": "in2-gw2-04-3d6c3051.eastus2.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "ingest.appcenter.ms"
+          ]
+        },
+        {
+          "hostname": "keen-dcv2-we-oddu-prod.westeurope.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "se-svt-endpoint.2cnt.net"
+          ]
+        },
+        {
+          "hostname": "onedscolprdaus53.australiasoutheast.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 16357,
+          "dns_queries": 2,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "self.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdcus51.centralus.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "self.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdcus55.centralus.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "self.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdcus59.centralus.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 14746,
+          "dns_queries": 4,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "self.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdcus72.centralus.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 17394,
+          "dns_queries": 2,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "teams.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdeus08.eastus.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "self.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdeus15.eastus.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 15131,
+          "dns_queries": 2,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "self.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdfrc05.francecentral.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 18116,
+          "dns_queries": 2,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "eu-mobile.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdfrc10.francecentral.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "eu-mobile.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdgwc52.germanywestcentral.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "self.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdjpe52.japaneast.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "teams.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdneu50.northeurope.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 57109,
+          "dns_queries": 3,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "eu-teams.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdneu68.northeurope.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "eu-teams.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdneu69.northeurope.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "eu-mobile.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdweu01.westeurope.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "eu.events.data.trafficmanager.net"
+          ]
+        },
+        {
+          "hostname": "onedscolprdweu13.westeurope.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "eu-mobile.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "onedscolprdweu19.westeurope.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 33775,
+          "dns_queries": 2,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "eu.events.data.trafficmanager.net"
+          ]
+        },
+        {
+          "hostname": "taos-platsvcs-wwprod-apim-norwayeast.norwayeast.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "titles.prod.mos.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "taos-platsvcs-wwprod-apim-westeurope.westeurope.cloudapp.azure.com",
+          "domain": "azure.com",
+          "current_group": "azure.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "titles.prod.mos.microsoft.com"
+          ]
+        }
+      ],
+      "flows": 10,
+      "bytes": 202388,
+      "dns_queries": 29,
+      "cname_mentions": 29
+    },
+    {
+      "domain": "azurefd.net",
+      "category": "shared_cloud_routing",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Azure hosting, API gateways and traffic routing. This session contains Microsoft app traffic and unrelated customer measurement endpoints.",
+      "sources": [
+        "https://learn.microsoft.com/en-us/azure/traffic-manager/traffic-manager-overview"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "pemam-aaamd9e8fmaeaqh8.b02.azurefd.net",
+          "domain": "azurefd.net",
+          "current_group": "b02.azurefd.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 6,
+          "cname_sources": [
+            "mamservice.manage.microsoft.com",
+            "mamwelsprodsharedtm.trafficmanager.net",
+            "pins.manage.microsoft.com"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 6
+    },
+    {
+      "domain": "azurewebsites.net",
+      "category": "shared_cloud_routing",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Azure hosting, API gateways and traffic routing. This session contains Microsoft app traffic and unrelated customer measurement endpoints.",
+      "sources": [
+        "https://learn.microsoft.com/en-us/azure/traffic-manager/traffic-manager-overview"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "ssl.streamreceiver7.azurewebsites.net",
+          "domain": "azurewebsites.net",
+          "current_group": "streamreceiver7.azurewebsites.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "measure.trafficmanager.net",
+            "trafficgateway.research-int.se"
+          ]
+        },
+        {
+          "hostname": "streamreceiver7.azurewebsites.net",
+          "domain": "azurewebsites.net",
+          "current_group": "streamreceiver7.azurewebsites.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "measure.trafficmanager.net",
+            "trafficgateway.research-int.se"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 8
+    },
+    {
+      "domain": "backblaze.com",
+      "category": "cloud_storage_site",
+      "proposed_action": "keep_own_group",
+      "confidence": "high",
+      "rationale": "Cloud storage/backup vendor. The observed www host is its website, not proof of a background backup or tracker.",
+      "sources": [
+        "https://www.backblaze.com/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "www.backblaze.com",
+          "domain": "backblaze.com",
+          "current_group": "backblaze.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 17317,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 17317,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "bambuser.com",
+      "category": "video_commerce",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Embedded live/shoppable video delivery. Functional third-party content, not an ad/tracker label by default.",
+      "sources": [
+        "https://bambuser.com/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "storage.liveshopping.bambuser.com",
+          "domain": "bambuser.com",
+          "current_group": "bambuser.com",
+          "accounted": false,
+          "flows": 3,
+          "bytes": 1938381,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 3,
+      "bytes": 1938381,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "bcdn.se",
+      "category": "app_content_alias",
+      "proposed_action": "propose_explicit_alias",
+      "confidence": "medium",
+      "rationale": "Propose bcdn.se → booli.se. Booli CDN hypothesis is consistent with the session and public listing examples; primary-source confirmation remains incomplete. No timing rule.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "bcdn.se",
+          "domain": "bcdn.se",
+          "current_group": "bcdn.se",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "cf.bcdn.se",
+          "domain": "bcdn.se",
+          "current_group": "bcdn.se",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 2292530,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 2,
+      "bytes": 2292530,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "bitcointicker.co",
+      "category": "main_site",
+      "proposed_action": "keep_own_group",
+      "confidence": "medium",
+      "rationale": "Observed primary domain, API and updates endpoints form one service family. Do not attach it to another recent app.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "api.bitcointicker.co",
+          "domain": "bitcointicker.co",
+          "current_group": "bitcointicker.co",
+          "accounted": false,
+          "flows": 6,
+          "bytes": 107594,
+          "dns_queries": 4,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "bitcointicker.co",
+          "domain": "bitcointicker.co",
+          "current_group": "bitcointicker.co",
+          "accounted": false,
+          "flows": 11,
+          "bytes": 227315,
+          "dns_queries": 6,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "updates3.bitcointicker.co",
+          "domain": "bitcointicker.co",
+          "current_group": "bitcointicker.co",
+          "accounted": false,
+          "flows": 4,
+          "bytes": 75726,
+          "dns_queries": 3,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 21,
+      "bytes": 410635,
+      "dns_queries": 13,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "booli.se",
+      "category": "main_site",
+      "proposed_action": "keep_own_group",
+      "confidence": "high",
+      "rationale": "Booli housing service; already gets its own domain group without a lookup entry.",
+      "sources": [
+        "https://www.booli.se/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "logger.booli.se",
+          "domain": "booli.se",
+          "current_group": "booli.se",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 546782,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "www.booli.se",
+          "domain": "booli.se",
+          "current_group": "booli.se",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 546782,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "cloud.microsoft",
+      "category": "mixed_microsoft_apps",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "Microsoft SaaS namespace includes Outlook, Office and Teams. Use specific hostnames and DNS provenance, not a blanket tracking label.",
+      "sources": [
+        "https://learn.microsoft.com/en-us/microsoft-365/enterprise/urls-and-ip-address-ranges?view=o365-worldwide"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "acdcatm.outlook.mira.tm.svc.cloud.microsoft",
+          "domain": "cloud.microsoft",
+          "current_group": "cloud.microsoft",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 24636,
+          "dns_queries": 2,
+          "cname_mentions": 16,
+          "cname_sources": [
+            "outlook.office.com",
+            "outlook.office365.com",
+            "substrate.office.com"
+          ]
+        },
+        {
+          "hostname": "atm.office.mira.tm.svc.cloud.microsoft",
+          "domain": "cloud.microsoft",
+          "current_group": "cloud.microsoft",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 4,
+          "cname_mentions": 12,
+          "cname_sources": [
+            "eur.roaming1.live.com.akadns.net",
+            "mrodevicemgr.officeapps.live.com",
+            "odc.officeapps.live.com",
+            "officeclient.microsoft.com",
+            "prod.roaming1.live.com.akadns.net",
+            "roaming.officeapps.live.com"
+          ]
+        },
+        {
+          "hostname": "atm.outlook.mira.tm.svc.cloud.microsoft",
+          "domain": "cloud.microsoft",
+          "current_group": "cloud.microsoft",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 65921,
+          "dns_queries": 4,
+          "cname_mentions": 6,
+          "cname_sources": [
+            "acdcatm.outlook.mira.tm.svc.cloud.microsoft",
+            "outlook.office.com",
+            "outlook.office365.com",
+            "substrate.office.com"
+          ]
+        },
+        {
+          "hostname": "gateway-eu.az.relay.teams.cloud.microsoft",
+          "domain": "cloud.microsoft",
+          "current_group": "cloud.microsoft",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "outlook.cloud.microsoft",
+          "domain": "cloud.microsoft",
+          "current_group": "cloud.microsoft",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 16,
+          "cname_sources": [
+            "outlook.office.com",
+            "outlook.office365.com",
+            "substrate.office.com"
+          ]
+        },
+        {
+          "hostname": "shed.outlook.acdc.tm.svc.cloud.microsoft",
+          "domain": "cloud.microsoft",
+          "current_group": "cloud.microsoft",
+          "accounted": false,
+          "flows": 4,
+          "bytes": 213407,
+          "dns_queries": 7,
+          "cname_mentions": 12,
+          "cname_sources": [
+            "acdcatm.outlook.mira.tm.svc.cloud.microsoft",
+            "outlook.office.com",
+            "outlook.office365.com",
+            "substrate.office.com"
+          ]
+        }
+      ],
+      "flows": 7,
+      "bytes": 303964,
+      "dns_queries": 18,
+      "cname_mentions": 62
+    },
+    {
+      "domain": "cloudflare.com",
+      "category": "mixed_cdn_security",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "cdnjs is shared content delivery; challenges is bot protection. Neither is automatically advertising.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "cdnjs.cloudflare.com",
+          "domain": "cloudflare.com",
+          "current_group": "cloudflare.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 5,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "challenges.cloudflare.com",
+          "domain": "cloudflare.com",
+          "current_group": "cloudflare.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 7,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "cloudflare.net",
+      "category": "shared_cdn_dns",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Observed customer CDN aliases include IKEA, OpenAI, X and Reddit. Do not merge all customers.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "ios.chat.openai.com.cdn.cloudflare.net",
+          "domain": "cloudflare.net",
+          "current_group": "com.cdn.cloudflare.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "ios.chat.openai.com"
+          ]
+        },
+        {
+          "hostname": "pbs.twimg.com.cdn.cloudflare.net",
+          "domain": "cloudflare.net",
+          "current_group": "com.cdn.cloudflare.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "pbs.twimg.com"
+          ]
+        },
+        {
+          "hostname": "pi.reddit.com.cdn.cloudflare.net",
+          "domain": "cloudflare.net",
+          "current_group": "com.cdn.cloudflare.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "pi.reddit.com"
+          ]
+        },
+        {
+          "hostname": "shop.api.ingka.ikea.com.cdn.cloudflare.net",
+          "domain": "cloudflare.net",
+          "current_group": "com.cdn.cloudflare.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "shop.api.ingka.ikea.com"
+          ]
+        },
+        {
+          "hostname": "shop.static.ingka.ikea.com.cdn.cloudflare.net",
+          "domain": "cloudflare.net",
+          "current_group": "com.cdn.cloudflare.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "shop.static.ingka.ikea.com"
+          ]
+        },
+        {
+          "hostname": "w3-reporting.reddit.com.cdn.cloudflare.net",
+          "domain": "cloudflare.net",
+          "current_group": "com.cdn.cloudflare.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "w3-reporting.reddit.com"
+          ]
+        },
+        {
+          "hostname": "www.ikea.com.cdn.cloudflare.net",
+          "domain": "cloudflare.net",
+          "current_group": "com.cdn.cloudflare.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "www.ikea.com"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 13
+    },
+    {
+      "domain": "cloudfront.net",
+      "category": "shared_cloud_cdn",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "AWS hosting/CDN used by unrelated customers; this session includes Reddit, Smadex, Polymarket and Contentsquare-related chains.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "d2g2thc544wttl.cloudfront.net",
+          "domain": "cloudfront.net",
+          "current_group": "d2g2thc544wttl.cloudfront.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "mobile-production.content-square.net"
+          ]
+        },
+        {
+          "hostname": "d2o6gho7ir91cx.cloudfront.net",
+          "domain": "cloudfront.net",
+          "current_group": "d2o6gho7ir91cx.cloudfront.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "api.perpetuals.polymarket.com"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 4
+    },
+    {
+      "domain": "content-square.net",
+      "category": "experience_analytics",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Contentsquare mobile experience-analytics SDK configuration. Loading config is not itself proof of replay or tracking payload.",
+      "sources": [
+        "https://docs.contentsquare.com/en/csq-sdk-flutter/experience-analytics/troubleshooting/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "mobile-production.content-square.net",
+          "domain": "content-square.net",
+          "current_group": "content-square.net",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 14959,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 14959,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "cookielaw.org",
+      "category": "consent_management",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "OneTrust consent/privacy SDK and assets. This is functional consent tooling, not evidence of ads or consent being violated.",
+      "sources": [
+        "https://www.onetrust.com/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "cdn.cookielaw.org",
+          "domain": "cookielaw.org",
+          "current_group": "cookielaw.org",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 15476,
+          "dns_queries": 3,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 2,
+      "bytes": 15476,
+      "dns_queries": 3,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "crashlytics.com",
+      "category": "crash_diagnostics",
+      "proposed_action": "optional_timing",
+      "confidence": "high",
+      "rationale": "Firebase crash-reporting infrastructure; may report crashes well after the original app activity.",
+      "sources": [
+        "https://firebase.google.com/docs/crashlytics"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "firebase-settings.crashlytics.com",
+          "domain": "crashlytics.com",
+          "current_group": "crashlytics.com",
+          "accounted": false,
+          "flows": 3,
+          "bytes": 43487,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 3,
+      "bytes": 43487,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "customer.io",
+      "category": "customer_analytics_messaging",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Observed cdp hosts ingest customer/event data for messaging and automation. Classify that namespace, not every Customer.io product interaction.",
+      "sources": [
+        "https://docs.customer.io/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "cdp-east-edge.customer.io",
+          "domain": "customer.io",
+          "current_group": "customer.io",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "cdp.customer.io"
+          ]
+        },
+        {
+          "hostname": "cdp-east.customer.io",
+          "domain": "customer.io",
+          "current_group": "customer.io",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "cdp.customer.io"
+          ]
+        },
+        {
+          "hostname": "cdp.customer.io",
+          "domain": "customer.io",
+          "current_group": "customer.io",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 12741,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 12741,
+      "dns_queries": 3,
+      "cname_mentions": 4
+    },
+    {
+      "domain": "debugbear.com",
+      "category": "performance_monitoring",
+      "proposed_action": "optional_timing",
+      "confidence": "high",
+      "rationale": "Real-user performance monitoring asset; do not label it advertising.",
+      "sources": [
+        "https://www.debugbear.com/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "cdn.debugbear.com",
+          "domain": "debugbear.com",
+          "current_group": "debugbear.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 16953,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 16953,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "doubleclick.net",
+      "category": "advertising",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Google ad delivery/serving endpoints; their caller may be another site, not google.com.",
+      "sources": [
+        "https://support.google.com/adsense/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "ad.doubleclick.net",
+          "domain": "doubleclick.net",
+          "current_group": "doubleclick.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "googleads.g.doubleclick.net",
+          "domain": "doubleclick.net",
+          "current_group": "doubleclick.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 6,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "securepubads.g.doubleclick.net",
+          "domain": "doubleclick.net",
+          "current_group": "doubleclick.net",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 38410,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 38410,
+      "dns_queries": 10,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "dual-s-msedge.net",
+      "category": "shared_microsoft_edge",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Microsoft delivery/routing namespaces. Observed chains identify Teams, Skype configuration, SharePoint or management clients; the domain itself is not evidence of tracking.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "asyncgw-teams-microsoft-com.s-0005.dual-s-msedge.net",
+          "domain": "dual-s-msedge.net",
+          "current_group": "dual-s-msedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "se-prod.asyncgw.teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "config-teams.s-0005.dual-s-msedge.net",
+          "domain": "dual-s-msedge.net",
+          "current_group": "dual-s-msedge.net",
+          "accounted": false,
+          "flows": 6,
+          "bytes": 441209,
+          "dns_queries": 2,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "config.teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "s-0005.dual-s-msedge.net",
+          "domain": "dual-s-msedge.net",
+          "current_group": "dual-s-msedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 5,
+          "cname_sources": [
+            "config-teams.s-0005.dual-s-msedge.net",
+            "se-prod.asyncgw.teams.microsoft.com",
+            "teams-office-com.s-0005.dual-s-msedge.net",
+            "teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "teams-office-com.s-0005.dual-s-msedge.net",
+          "domain": "dual-s-msedge.net",
+          "current_group": "dual-s-msedge.net",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 62520,
+          "dns_queries": 3,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "teams.microsoft.com"
+          ]
+        }
+      ],
+      "flows": 7,
+      "bytes": 503729,
+      "dns_queries": 7,
+      "cname_mentions": 10
+    },
+    {
+      "domain": "edgekey.net",
+      "category": "shared_cdn_dns",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Akamai DNS/CDN infrastructure. Preserve the endpoint and use the original same-client DNS chain when it uniquely supports a service; never map the whole provider to one app.",
+      "sources": [
+        "https://www.akamai.com/products/edge-dns"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "api.svt.se.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "se.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "api.svt.se"
+          ]
+        },
+        {
+          "hostname": "australis.svt.se.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "se.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "australis.svt.se"
+          ]
+        },
+        {
+          "hostname": "e.svt.se.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "se.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "mms-panel-ping.e.svt.se"
+          ]
+        },
+        {
+          "hostname": "helix.svt.se.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "se.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "helix.svt.se"
+          ]
+        },
+        {
+          "hostname": "iadsdk.apple.com.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "com.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "iadsdk.apple.com"
+          ]
+        },
+        {
+          "hostname": "itunes.apple.com.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "com.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "pd.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "mesu.apple.com.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "com.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "mesu.apple.com"
+          ]
+        },
+        {
+          "hostname": "resources.office.net.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "net.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "27e1187c-9a74-49b3-a94a-06e258588b81.resources.office.net"
+          ]
+        },
+        {
+          "hostname": "sf-api-token-service.itunes.apple.com.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "com.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "sf-api-token-service.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "valresultat.svt.se.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "se.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "valresultat.svt.se"
+          ]
+        },
+        {
+          "hostname": "www.microsoft.com-c-3.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "com-c-3.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "www.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "www.svt.se.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "se.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "www.svt.se"
+          ]
+        },
+        {
+          "hostname": "www.svtstatic.se.edgekey.net",
+          "domain": "edgekey.net",
+          "current_group": "se.edgekey.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "www.svtstatic.se"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 25
+    },
+    {
+      "domain": "edgesuite.net",
+      "category": "shared_cdn_dns",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Akamai DNS/CDN infrastructure. Preserve the endpoint and use the original same-client DNS chain when it uniquely supports a service; never map the whole provider to one app.",
+      "sources": [
+        "https://www.akamai.com/products/edge-dns"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "commerce.itunes.apple.com.edgesuite.net",
+          "domain": "edgesuite.net",
+          "current_group": "com.edgesuite.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "entitlements-edge.itunes.apple.com"
+          ]
+        },
+        {
+          "hostname": "common-eipb-ak.spotifycdn.com.edgesuite.net",
+          "domain": "edgesuite.net",
+          "current_group": "com.edgesuite.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "i.scdn.co"
+          ]
+        },
+        {
+          "hostname": "gspe1-ssl.ls.apple.com.edgesuite.net",
+          "domain": "edgesuite.net",
+          "current_group": "com.edgesuite.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "gspe1-ssl.ls.apple.com"
+          ]
+        },
+        {
+          "hostname": "netcts.cdn-apple.com.edgesuite.net",
+          "domain": "edgesuite.net",
+          "current_group": "com.edgesuite.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "netcts.cdn-apple.com"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 0,
+      "cname_mentions": 8
+    },
+    {
+      "domain": "ggpht.com",
+      "category": "shared_image_content",
+      "proposed_action": "split_by_hostname",
+      "confidence": "medium",
+      "rationale": "Observed yt3.ggpht.com is a candidate YouTube image alias. Do not map all Google image hosting to YouTube; review the exact hostname.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "yt3.ggpht.com",
+          "domain": "ggpht.com",
+          "current_group": "ggpht.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 76149,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 2,
+      "bytes": 76149,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "google-analytics.com",
+      "category": "web_analytics",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Google Analytics collection family; classify the destination as analytics and infer caller separately.",
+      "sources": [
+        "https://developers.google.com/analytics/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "region1.google-analytics.com",
+          "domain": "google-analytics.com",
+          "current_group": "google-analytics.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 8,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 8,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "googleapis.com",
+      "category": "mixed_apis",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "28 observed hostnames include OAuth, maps, Firebase transport/installations, fonts and opaque APIs. No blanket google.com alias or tracker rule.",
+      "sources": [
+        "https://docs.cloud.google.com/vpc/docs/about-accessing-google-apis-endpoints"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "accountcapabilities-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "accountcapabilities-pa.googleapis.com",
+          "accounted": false,
+          "flows": 7,
+          "bytes": 132263,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "addons-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "addons-pa.googleapis.com",
+          "accounted": false,
+          "flows": 6,
+          "bytes": 81267,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "device-provisioning.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "device-provisioning.googleapis.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 23045,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "feedback-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "feedback-pa.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "firebaseinappmessaging.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "firebaseinappmessaging.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "firebaseinstallations.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "firebaseinstallations.googleapis.com",
+          "accounted": false,
+          "flows": 7,
+          "bytes": 225736,
+          "dns_queries": 4,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "firebaselogging-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "firebaselogging-pa.googleapis.com",
+          "accounted": false,
+          "flows": 6,
+          "bytes": 84143,
+          "dns_queries": 4,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "fonts.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "fonts.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "geller-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "geller-pa.googleapis.com",
+          "accounted": false,
+          "flows": 7,
+          "bytes": 114691,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "growth-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "growth-pa.googleapis.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 15718,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "iosantiabuse-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "iosantiabuse-pa.googleapis.com",
+          "accounted": false,
+          "flows": 7,
+          "bytes": 86517,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "locationhistory-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "locationhistory-pa.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "locationhistoryplacedetails-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "locationhistoryplacedetails-pa.googleapis.com",
+          "accounted": false,
+          "flows": 7,
+          "bytes": 96062,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "mobilemaps-pa-gz.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "mobilemaps-pa-gz.googleapis.com",
+          "accounted": false,
+          "flows": 4,
+          "bytes": 3556896,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "mobilemaps.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "mobilemaps.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "notifications-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "notifications-pa.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "oauth2.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "oauth2.googleapis.com",
+          "accounted": false,
+          "flows": 3,
+          "bytes": 36095,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "oauthaccountmanager.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "oauthaccountmanager.googleapis.com",
+          "accounted": false,
+          "flows": 3,
+          "bytes": 1407285,
+          "dns_queries": 3,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "ogads-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "ogads-pa.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "passbox-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "passbox-pa.googleapis.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 15480,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "people-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "people-pa.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "peoplestack-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "peoplestack-pa.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "play.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "play.googleapis.com",
+          "accounted": false,
+          "flows": 4,
+          "bytes": 32895,
+          "dns_queries": 3,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "robinfrontend-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "robinfrontend-pa.googleapis.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 22005,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "securitydomain-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "securitydomain-pa.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "streetviewpixels-pa.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "streetviewpixels-pa.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "www.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "www.googleapis.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 31044,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "youtubei.googleapis.com",
+          "domain": "googleapis.com",
+          "current_group": "youtubei.googleapis.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 68,
+      "bytes": 5961142,
+      "dns_queries": 62,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "googlesyndication.com",
+      "category": "advertising",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Google ad delivery/serving endpoints; their caller may be another site, not google.com.",
+      "sources": [
+        "https://support.google.com/adsense/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "pagead2.googlesyndication.com",
+          "domain": "googlesyndication.com",
+          "current_group": "googlesyndication.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 31794,
+          "dns_queries": 4,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "tpc.googlesyndication.com",
+          "domain": "googlesyndication.com",
+          "current_group": "googlesyndication.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 4,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 31794,
+      "dns_queries": 8,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "googletagmanager.com",
+      "category": "tag_delivery",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Tag-container delivery can support analytics or other tags. A request does not establish which tags executed.",
+      "sources": [
+        "https://developers.google.com/tag-platform/tag-manager"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "www.googletagmanager.com",
+          "domain": "googletagmanager.com",
+          "current_group": "googletagmanager.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 5,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 5,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "googleusercontent.com",
+      "category": "shared_user_content",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "User/profile/content hosting spans Google services and customer applications; no universal parent or tracking label.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "googlehosted.l.googleusercontent.com",
+          "domain": "googleusercontent.com",
+          "current_group": "googleusercontent.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "lh3.googleusercontent.com"
+          ]
+        },
+        {
+          "hostname": "gz0.googleusercontent.com",
+          "domain": "googleusercontent.com",
+          "current_group": "googleusercontent.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 711131,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "lh3.googleusercontent.com",
+          "domain": "googleusercontent.com",
+          "current_group": "googleusercontent.com",
+          "accounted": false,
+          "flows": 3,
+          "bytes": 558738,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 4,
+      "bytes": 1269869,
+      "dns_queries": 5,
+      "cname_mentions": 2
+    },
+    {
+      "domain": "gstatic.com",
+      "category": "shared_static_content",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "Observed fonts, maps and image-thumbnail hosts have different functional roles. Shared static delivery is not inherently tracking.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "encrypted-tbn0.gstatic.com",
+          "domain": "gstatic.com",
+          "current_group": "gstatic.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "encrypted-tbn2.gstatic.com",
+          "domain": "gstatic.com",
+          "current_group": "gstatic.com",
+          "accounted": false,
+          "flows": 4,
+          "bytes": 76387,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "fonts.gstatic.com",
+          "domain": "gstatic.com",
+          "current_group": "gstatic.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 22560,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "gz.gstatic.com",
+          "domain": "gstatic.com",
+          "current_group": "gstatic.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "maps.gstatic.com",
+          "domain": "gstatic.com",
+          "current_group": "gstatic.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 18956,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "ssl.gstatic.com",
+          "domain": "gstatic.com",
+          "current_group": "gstatic.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 12436,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "t1.gstatic.com",
+          "domain": "gstatic.com",
+          "current_group": "gstatic.com",
+          "accounted": false,
+          "flows": 3,
+          "bytes": 38902,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "www.gstatic.com",
+          "domain": "gstatic.com",
+          "current_group": "gstatic.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 25096,
+          "dns_queries": 3,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 11,
+      "bytes": 194337,
+      "dns_queries": 17,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "ikea.com",
+      "category": "main_site",
+      "proposed_action": "keep_own_group",
+      "confidence": "high",
+      "rationale": "IKEA shopping/design hosts already form their own registered-domain group.",
+      "sources": [
+        "https://www.ikea.com/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "api.home-design.ikea.com",
+          "domain": "ikea.com",
+          "current_group": "ikea.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 227260,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "shop.api.ingka.ikea.com",
+          "domain": "ikea.com",
+          "current_group": "ikea.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 79469,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "shop.static.ingka.ikea.com",
+          "domain": "ikea.com",
+          "current_group": "ikea.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 416988,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "www.ikea.com",
+          "domain": "ikea.com",
+          "current_group": "ikea.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 4348234,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 7,
+      "bytes": 5071951,
+      "dns_queries": 8,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "ipify.org",
+      "category": "network_utility",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Public-IP lookup API; useful to many apps and not inherently ad tracking.",
+      "sources": [
+        "https://www.ipify.org/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "api.ipify.org",
+          "domain": "ipify.org",
+          "current_group": "ipify.org",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 7784,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 7784,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "live.com",
+      "category": "mixed_microsoft_services",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "Observed officeapps.live.com endpoints are Office services. Avoid a broad live.com alias that would also capture other Microsoft products.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "config.officeapps.live.com",
+          "domain": "live.com",
+          "current_group": "live.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "officeclient.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "mrodevicemgr.officeapps.live.com",
+          "domain": "live.com",
+          "current_group": "live.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "odc.officeapps.live.com",
+          "domain": "live.com",
+          "current_group": "live.com",
+          "accounted": false,
+          "flows": 4,
+          "bytes": 88006,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "roaming.officeapps.live.com",
+          "domain": "live.com",
+          "current_group": "live.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 34365,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 5,
+      "bytes": 122371,
+      "dns_queries": 6,
+      "cname_mentions": 2
+    },
+    {
+      "domain": "ln-msedge.net",
+      "category": "shared_microsoft_edge",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Microsoft delivery/routing namespaces. Observed chains identify Teams, Skype configuration, SharePoint or management clients; the domain itself is not evidence of tracking.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "config-edge-skype.ln-0007.ln-msedge.net",
+          "domain": "ln-msedge.net",
+          "current_group": "ln-msedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 3,
+          "cname_sources": [
+            "config.edge.skype.com.trafficmanager.net"
+          ]
+        },
+        {
+          "hostname": "ln-0007.ln-msedge.net",
+          "domain": "ln-msedge.net",
+          "current_group": "ln-msedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 3,
+          "cname_sources": [
+            "config-edge-skype.ln-0007.ln-msedge.net",
+            "config.edge.skype.com.trafficmanager.net"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 4,
+      "cname_mentions": 6
+    },
+    {
+      "domain": "magic.link",
+      "category": "authentication_wallet",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Magic wallet/authentication infrastructure. Embedded login/service dependency rather than advertising.",
+      "sources": [
+        "https://magic.link/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "api.magic.link",
+          "domain": "magic.link",
+          "current_group": "magic.link",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 15251,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "api.toaster.magic.link",
+          "domain": "magic.link",
+          "current_group": "magic.link",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "auth.magic.link",
+          "domain": "magic.link",
+          "current_group": "magic.link",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 27441,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 3,
+      "bytes": 42692,
+      "dns_queries": 6,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "magiclabs.com",
+      "category": "authentication_wallet",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Magic wallet/authentication infrastructure. Embedded login/service dependency rather than advertising.",
+      "sources": [
+        "https://magic.link/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "tee.express.magiclabs.com",
+          "domain": "magiclabs.com",
+          "current_group": "magiclabs.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 7756,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 7756,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "microsoft.com",
+      "category": "mixed_microsoft_services",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "Teams communication, Graph API, device management, website traffic and events.data telemetry coexist. The telemetry hostnames need their own role.",
+      "sources": [
+        "https://learn.microsoft.com/en-us/microsoft-365/enterprise/urls-and-ip-address-ranges?view=o365-worldwide"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "api-emea.flightproxy.teams.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 15615,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "config.teams.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "ep-euno-03-prod-aks.flightproxy.teams.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "api-emea.flightproxy.teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "ep-swce-03-prod-aks.flightproxy.teams.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "api-emea.flightproxy.teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "eu-mobile.events.data.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 4,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "eu-teams.events.data.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "graph.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 42802,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "mamservice.manage.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 4,
+          "bytes": 81887,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "officeclient.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "pins.manage.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 16582,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "pub-ent-euwe-10-t.trouter.teams.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "se-prod.asyncgw.teams.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "self.events.data.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 8,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "teams.events.data.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "teams.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 498306,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "titles.prod.mos.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "www.microsoft.com",
+          "domain": "microsoft.com",
+          "current_group": "microsoft.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 3751,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 10,
+      "bytes": 658943,
+      "dns_queries": 38,
+      "cname_mentions": 2
+    },
+    {
+      "domain": "microsoftonline.com",
+      "category": "authentication",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Observed login.microsoftonline.com is Microsoft sign-in. No temporal attachment as an ad/tracker.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "login.microsoftonline.com",
+          "domain": "microsoftonline.com",
+          "current_group": "microsoftonline.com",
+          "accounted": false,
+          "flows": 28,
+          "bytes": 585477,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 28,
+      "bytes": 585477,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "msidentity.com",
+      "category": "identity_and_graph_api",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "Session DNS links login.mso/ak.privatelink to Microsoft sign-in and ags.privatelink to Graph. Treat login as authentication and Graph as functional API.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "ags.privatelink.msidentity.com",
+          "domain": "msidentity.com",
+          "current_group": "msidentity.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "graph.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "ak.privatelink.msidentity.com",
+          "domain": "msidentity.com",
+          "current_group": "msidentity.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 6,
+          "cname_sources": [
+            "login.microsoftonline.com",
+            "login.mso.msidentity.com"
+          ]
+        },
+        {
+          "hostname": "login.mso.msidentity.com",
+          "domain": "msidentity.com",
+          "current_group": "msidentity.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 19373,
+          "dns_queries": 4,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "login.microsoftonline.com"
+          ]
+        }
+      ],
+      "flows": 1,
+      "bytes": 19373,
+      "dns_queries": 4,
+      "cname_mentions": 10
+    },
+    {
+      "domain": "nebius.com",
+      "category": "cloud_compute_site",
+      "proposed_action": "keep_own_group",
+      "confidence": "high",
+      "rationale": "AI/cloud-compute vendor. Only its bare website hostname is present; there is no basis to call this tracking or infer a particular hosted workload.",
+      "sources": [
+        "https://nebius.com/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "nebius.com",
+          "domain": "nebius.com",
+          "current_group": "nebius.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 9346,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 9346,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "one.one",
+      "category": "dns_resolver",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "one.one.one.one is Cloudflare resolver traffic/endpoint identity. It does not identify a visited application.",
+      "sources": [
+        "https://developers.cloudflare.com/1.1.1.1/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "one.one.one.one",
+          "domain": "one.one",
+          "current_group": "one.one",
+          "accounted": false,
+          "flows": 4,
+          "bytes": 32793,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 4,
+      "bytes": 32793,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "onetrust.io",
+      "category": "consent_management",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "OneTrust consent/privacy SDK and assets. This is functional consent tooling, not evidence of ads or consent being violated.",
+      "sources": [
+        "https://www.onetrust.com/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "mobile-data.onetrust.io",
+          "domain": "onetrust.io",
+          "current_group": "onetrust.io",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 23650,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 23650,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "openai.com",
+      "category": "exact_app_alias",
+      "proposed_action": "exact_hostname_override",
+      "confidence": "high",
+      "rationale": "ios.chat.openai.com → chatgpt.com is implemented as an exact rule. Other OpenAI hosts retain their domain identity.",
+      "sources": [],
+      "review_status": "exact_rule_implemented_locally",
+      "hostnames": [
+        {
+          "hostname": "ios.chat.openai.com",
+          "domain": "openai.com",
+          "current_group": "openai.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 825090,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 2,
+      "bytes": 825090,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "optimizely.com",
+      "category": "experimentation_analytics",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Experimentation/personalization SDK and log endpoints. External analytics/experimentation, not necessarily advertising.",
+      "sources": [
+        "https://www.optimizely.com/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "cdn.optimizely.com",
+          "domain": "optimizely.com",
+          "current_group": "optimizely.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 30067,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "logx.optimizely.com",
+          "domain": "optimizely.com",
+          "current_group": "optimizely.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 30067,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "piwik.pro",
+      "category": "web_analytics",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Observed Booli tenant and common Piwik collector. Tenant hostnames can later give stronger hints, but do not map the entire provider to Booli.",
+      "sources": [
+        "https://piwik.pro/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "booli.containers.piwik.pro",
+          "domain": "piwik.pro",
+          "current_group": "piwik.pro",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 35781,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "booli.piwik.pro",
+          "domain": "piwik.pro",
+          "current_group": "piwik.pro",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "pp-public-p-sweb.piwik.pro",
+          "domain": "piwik.pro",
+          "current_group": "piwik.pro",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "booli.containers.piwik.pro",
+            "booli.piwik.pro"
+          ]
+        }
+      ],
+      "flows": 2,
+      "bytes": 35781,
+      "dns_queries": 5,
+      "cname_mentions": 4
+    },
+    {
+      "domain": "polymarket.com",
+      "category": "main_site",
+      "proposed_action": "keep_own_group",
+      "confidence": "high",
+      "rationale": "Observed website and trading/data APIs belong to the Polymarket service.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "api.perpetuals.polymarket.com",
+          "domain": "polymarket.com",
+          "current_group": "polymarket.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 47583,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "clob.polymarket.com",
+          "domain": "polymarket.com",
+          "current_group": "polymarket.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "gamma-api.polymarket.com",
+          "domain": "polymarket.com",
+          "current_group": "polymarket.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 1976550,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "polymarket.com",
+          "domain": "polymarket.com",
+          "current_group": "polymarket.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 2316219,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "ws-live-data.polymarket.com",
+          "domain": "polymarket.com",
+          "current_group": "polymarket.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 4,
+      "bytes": 4340352,
+      "dns_queries": 10,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "postnord.com",
+      "category": "main_site",
+      "proposed_action": "keep_own_group",
+      "confidence": "high",
+      "rationale": "Observed PostNord app backend; group by the service, not by the last visited site.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "pnapp-backoffice.aws.postnord.com",
+          "domain": "postnord.com",
+          "current_group": "postnord.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 8204,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 8204,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "privacy-center.org",
+      "category": "consent_management",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Didomi consent/privacy SDK and API domain. Functional consent infrastructure.",
+      "sources": [
+        "https://developers.didomi.io/api-and-platform/domains"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "sdk.privacy-center.org",
+          "domain": "privacy-center.org",
+          "current_group": "privacy-center.org",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 168797,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 168797,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "recaptcha.net",
+      "category": "bot_protection",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "reCAPTCHA security/risk analysis, not an advertising label.",
+      "sources": [
+        "https://developers.google.com/recaptcha/docs/faq"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "www.recaptcha.net",
+          "domain": "recaptcha.net",
+          "current_group": "recaptcha.net",
+          "accounted": false,
+          "flows": 3,
+          "bytes": 117792,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 3,
+      "bytes": 117792,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "research-int.se",
+      "category": "audience_measurement",
+      "proposed_action": "review_before_timing",
+      "confidence": "medium",
+      "rationale": "trafficgateway hostname and Kantar/SIFO association suggest audience measurement. Exact endpoint purpose needs confirmation; propose measurement rather than a broad site alias.",
+      "sources": [
+        "https://www.kantarsifo.se/sites/default/files/reports/documents/sifo_ri_den_nya_miljokonsumenten.pdf"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "trafficgateway.research-int.se",
+          "domain": "research-int.se",
+          "current_group": "research-int.se",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 9546,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 9546,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "resolver.arpa",
+      "category": "network_housekeeping",
+      "proposed_action": "exclude_from_app_tracks",
+      "confidence": "high",
+      "rationale": "Reverse-DNS/service discovery or encrypted resolver discovery; no app parent.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "_dns.resolver.arpa",
+          "domain": "resolver.arpa",
+          "current_group": "resolver.arpa",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "revenuecat.com",
+      "category": "purchases_subscriptions",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Subscription and in-app purchase backend. It has analytics features, but api.revenuecat.com alone is not sufficient to classify this flow as tracking.",
+      "sources": [
+        "https://www.revenuecat.com/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "api.revenuecat.com",
+          "domain": "revenuecat.com",
+          "current_group": "revenuecat.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 9862,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 1,
+      "bytes": 9862,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "sentry.io",
+      "category": "error_performance_diagnostics",
+      "proposed_action": "optional_timing",
+      "confidence": "high",
+      "rationale": "Tenant ingest endpoints for errors/performance; keep diagnostics distinct from ads. Collection may be delayed or batched.",
+      "sources": [
+        "https://sentry.io/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "o33249.ingest.us.sentry.io",
+          "domain": "sentry.io",
+          "current_group": "sentry.io",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 9945,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "o64374.ingest.sentry.io",
+          "domain": "sentry.io",
+          "current_group": "sentry.io",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 10213,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "o98317.ingest.us.sentry.io",
+          "domain": "sentry.io",
+          "current_group": "sentry.io",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 10124,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "sentry.io",
+          "domain": "sentry.io",
+          "current_group": "sentry.io",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 3,
+      "bytes": 30282,
+      "dns_queries": 7,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "sharepoint.com",
+      "category": "main_document_service",
+      "proposed_action": "keep_own_group",
+      "confidence": "high",
+      "rationale": "Tenant document storage/collaboration. Do not interpret tenant names or shared edge domains as tracker evidence.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "11846-ipv4v6e.clump.dprodmgd104.aa-rt.sharepoint.com",
+          "domain": "sharepoint.com",
+          "current_group": "sharepoint.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "gunet-my.sharepoint.com"
+          ]
+        },
+        {
+          "hostname": "189133-ipv4v6e.farm.dprodmgd104.aa-rt.sharepoint.com",
+          "domain": "sharepoint.com",
+          "current_group": "sharepoint.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "lappeenranta.sharepoint.com"
+          ]
+        },
+        {
+          "hostname": "189813-ipv4v6e.farm.dprodmgd104.aa-rt.sharepoint.com",
+          "domain": "sharepoint.com",
+          "current_group": "sharepoint.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "gunet-my.sharepoint.com"
+          ]
+        },
+        {
+          "hostname": "20150-ipv4v6e.clump.dprodmgd104.aa-rt.sharepoint.com",
+          "domain": "sharepoint.com",
+          "current_group": "sharepoint.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "lappeenranta.sharepoint.com"
+          ]
+        },
+        {
+          "hostname": "gunet-my.sharepoint.com",
+          "domain": "sharepoint.com",
+          "current_group": "sharepoint.com",
+          "accounted": false,
+          "flows": 3,
+          "bytes": 257618,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "gunet.sharepoint.com",
+          "domain": "sharepoint.com",
+          "current_group": "sharepoint.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "gunet-my.sharepoint.com"
+          ]
+        },
+        {
+          "hostname": "lappeenranta.sharepoint.com",
+          "domain": "sharepoint.com",
+          "current_group": "sharepoint.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 3,
+      "bytes": 257618,
+      "dns_queries": 4,
+      "cname_mentions": 10
+    },
+    {
+      "domain": "skype.com",
+      "category": "communication_configuration",
+      "proposed_action": "split_by_hostname",
+      "confidence": "medium",
+      "rationale": "Observed config.edge and emea.cc are communication/configuration infrastructure, including Teams chains. No blanket tracker rule or wholesale Teams alias.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "cc-euwe-02-prod-aks.cc.skype.com",
+          "domain": "skype.com",
+          "current_group": "skype.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "emea.cc.skype.com"
+          ]
+        },
+        {
+          "hostname": "cc-swce-05-prod-aks.cc.skype.com",
+          "domain": "skype.com",
+          "current_group": "skype.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "emea.cc.skype.com"
+          ]
+        },
+        {
+          "hostname": "config.edge.skype.com",
+          "domain": "skype.com",
+          "current_group": "skype.com",
+          "accounted": false,
+          "flows": 3,
+          "bytes": 35951,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "dual-s-0005-teams.config.skype.com",
+          "domain": "skype.com",
+          "current_group": "skype.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "config.teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "emea.cc.skype.com",
+          "domain": "skype.com",
+          "current_group": "skype.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "ln-0007.config.skype.com",
+          "domain": "skype.com",
+          "current_group": "skype.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 3,
+          "cname_sources": [
+            "config.edge.skype.com.trafficmanager.net"
+          ]
+        },
+        {
+          "hostname": "mira.config.skype.com",
+          "domain": "skype.com",
+          "current_group": "skype.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "config.edge.skype.com",
+            "config.edge.skype.com.trafficmanager.net",
+            "config.teams.microsoft.com"
+          ]
+        }
+      ],
+      "flows": 3,
+      "bytes": 35951,
+      "dns_queries": 4,
+      "cname_mentions": 10
+    },
+    {
+      "domain": "smadex.com",
+      "category": "advertising",
+      "proposed_action": "timing_candidate",
+      "confidence": "high",
+      "rationale": "Programmatic ad delivery/attribution. Observed creatives, pixel and tracking hosts are appropriate soft-parent candidates.",
+      "sources": [
+        "https://smadex.com/faqs/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "br-trk.smadex.com",
+          "domain": "smadex.com",
+          "current_group": "smadex.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 15470,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "creatives.smadex.com",
+          "domain": "smadex.com",
+          "current_group": "smadex.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 21265,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "pixel-ed.smadex.com",
+          "domain": "smadex.com",
+          "current_group": "smadex.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 17029,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "static-content-1.smadex.com",
+          "domain": "smadex.com",
+          "current_group": "smadex.com",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 10896,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        },
+        {
+          "hostname": "statics.prd.cdn.g.smadex.com",
+          "domain": "smadex.com",
+          "current_group": "smadex.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "static-content-1.smadex.com"
+          ]
+        }
+      ],
+      "flows": 7,
+      "bytes": 64660,
+      "dns_queries": 9,
+      "cname_mentions": 2
+    },
+    {
+      "domain": "spo-msedge.net",
+      "category": "shared_microsoft_edge",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Microsoft delivery/routing namespaces. Observed chains identify Teams, Skype configuration, SharePoint or management clients; the domain itself is not evidence of tracking.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "dual-spo-0005.spo-msedge.net",
+          "domain": "spo-msedge.net",
+          "current_group": "spo-msedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "gunet-my.sharepoint.com",
+            "lappeenranta.sharepoint.com"
+          ]
+        },
+        {
+          "hostname": "seg1.spo.mira.tm.svc.cloud.microsoft.dual-spo-0005.spo-msedge.net",
+          "domain": "spo-msedge.net",
+          "current_group": "spo-msedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "gunet-my.sharepoint.com",
+            "lappeenranta.sharepoint.com"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 6
+    },
+    {
+      "domain": "sunbreak.com",
+      "category": "unknown_api",
+      "proposed_action": "keep_unknown_group",
+      "confidence": "low",
+      "rationale": "api.sunbreak.com is observed but the product/purpose could not be established from primary sources. Do not guess a tracker category.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "api.sunbreak.com",
+          "domain": "sunbreak.com",
+          "current_group": "sunbreak.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 19834,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 2,
+      "bytes": 19834,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "t-s1-msedge.net",
+      "category": "shared_microsoft_edge",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Microsoft delivery/routing namespaces. Observed chains identify Teams, Skype configuration, SharePoint or management clients; the domain itself is not evidence of tracking.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "s-part-0016.t-0009.t-s1-msedge.net",
+          "domain": "t-s1-msedge.net",
+          "current_group": "t-s1-msedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "mamservice.manage.microsoft.com",
+            "mamwelsprodsharedtm.trafficmanager.net"
+          ]
+        },
+        {
+          "hostname": "s-part-0025.t-0009.t-s1-msedge.net",
+          "domain": "t-s1-msedge.net",
+          "current_group": "t-s1-msedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "pins.manage.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "shed.dual-low.s-part-0016.t-0009.t-s1-msedge.net",
+          "domain": "t-s1-msedge.net",
+          "current_group": "t-s1-msedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "mamservice.manage.microsoft.com",
+            "mamwelsprodsharedtm.trafficmanager.net",
+            "pins.manage.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "shed.dual-low.s-part-0025.t-0009.t-s1-msedge.net",
+          "domain": "t-s1-msedge.net",
+          "current_group": "t-s1-msedge.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 1,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "mamservice.manage.microsoft.com",
+            "pins.manage.microsoft.com"
+          ]
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 3,
+      "cname_mentions": 9
+    },
+    {
+      "domain": "tailscale.com",
+      "category": "network_service_telemetry",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Observed log.tailscale.com is network-service logging. Background VPN/network tooling should not follow foreground app timing.",
+      "sources": [
+        "https://tailscale.com/"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "log.tailscale.com",
+          "domain": "tailscale.com",
+          "current_group": "tailscale.com",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 23380,
+          "dns_queries": 4,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 2,
+      "bytes": 23380,
+      "dns_queries": 4,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "tested.com",
+      "category": "content_site",
+      "proposed_action": "keep_own_group",
+      "confidence": "medium",
+      "rationale": "files.tested.com is a content-delivery-looking hostname. Keep its own group; no attributed flow exists in this snapshot.",
+      "sources": [],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "files.tested.com",
+          "domain": "tested.com",
+          "current_group": "tested.com",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 0
+        }
+      ],
+      "flows": 0,
+      "bytes": 0,
+      "dns_queries": 2,
+      "cname_mentions": 0
+    },
+    {
+      "domain": "trafficmanager.net",
+      "category": "shared_cloud_routing",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Azure hosting, API gateways and traffic routing. This session contains Microsoft app traffic and unrelated customer measurement endpoints.",
+      "sources": [
+        "https://learn.microsoft.com/en-us/azure/traffic-manager/traffic-manager-overview"
+      ],
+      "review_status": "proposed",
+      "hostnames": [
+        {
+          "hostname": "asm-api-golocal-geo-se-teams.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "asm-api-golocal-geo-se-teams.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "se-prod.asyncgw.teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "azurefd-t54-prod.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "azurefd-t54-prod.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 6,
+          "cname_sources": [
+            "mamservice.manage.microsoft.com",
+            "mamwelsprodsharedtm.trafficmanager.net",
+            "pins.manage.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "cc-emea-skype.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "cc-emea-skype.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "emea.cc.skype.com"
+          ]
+        },
+        {
+          "hostname": "config-prod-weightedww.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "config-prod-weightedww.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "officeclient.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "config.edge.skype.com.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "com.trafficmanager.net",
+          "accounted": false,
+          "flows": 2,
+          "bytes": 20155,
+          "dns_queries": 4,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "config.edge.skype.com"
+          ]
+        },
+        {
+          "hostname": "config.teams.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "teams.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "config.teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "cosmic-northeurope-ns-d0028eed4e72.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "cosmic-northeurope-ns-d0028eed4e72.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "api-emea.flightproxy.teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "cosmic-swedencentral-ns-13df3b2d3e37.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "cosmic-swedencentral-ns-13df3b2d3e37.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "api-emea.flightproxy.teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "cosmic-swedencentral-ns-40b23d81ff36.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "cosmic-swedencentral-ns-40b23d81ff36.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "emea.cc.skype.com"
+          ]
+        },
+        {
+          "hostname": "cosmic-westeurope-ns-7ed735f79620.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "cosmic-westeurope-ns-7ed735f79620.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "pub-ent-euwe-10-t.trouter.teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "cosmic-westeurope-ns-8689919f5ead.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "cosmic-westeurope-ns-8689919f5ead.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "emea.cc.skype.com"
+          ]
+        },
+        {
+          "hostname": "discovery-prod-weightedww.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "discovery-prod-weightedww.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "odc.officeapps.live.com"
+          ]
+        },
+        {
+          "hostname": "eu.events.data.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "data.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 2,
+          "cname_mentions": 6,
+          "cname_sources": [
+            "eu-mobile.events.data.microsoft.com",
+            "eu-teams.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "euaz.relay.teams.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "teams.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 1,
+          "cname_sources": [
+            "gateway-eu.az.relay.teams.cloud.microsoft"
+          ]
+        },
+        {
+          "hostname": "flightproxy-emea-teams.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "flightproxy-emea-teams.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "api-emea.flightproxy.teams.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "in-prod-pme-eastus2-ingestion-66ddb56a.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "in-prod-pme-eastus2-ingestion-66ddb56a.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 6,
+          "cname_sources": [
+            "in.appcenter.ms",
+            "ingest.appcenter.ms"
+          ]
+        },
+        {
+          "hostname": "keendcv2neodduprodtm.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "keendcv2neodduprodtm.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "se-svt-endpoint.2cnt.net"
+          ]
+        },
+        {
+          "hostname": "mamwelsprodsharedtm.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "mamwelsprodsharedtm.trafficmanager.net",
+          "accounted": false,
+          "flows": 6,
+          "bytes": 111082,
+          "dns_queries": 2,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "mamservice.manage.microsoft.com",
+            "pins.manage.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "measure.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "measure.trafficmanager.net",
+          "accounted": false,
+          "flows": 1,
+          "bytes": 10918,
+          "dns_queries": 2,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "trafficgateway.research-int.se"
+          ]
+        },
+        {
+          "hostname": "mrodevicemgr-prod-defaultgeo.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "mrodevicemgr-prod-defaultgeo.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "mrodevicemgr.officeapps.live.com"
+          ]
+        },
+        {
+          "hostname": "prod.taos-platsvcs.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "taos-platsvcs.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "titles.prod.mos.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "roaming-prod-weightedww.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "roaming-prod-weightedww.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 6,
+          "cname_sources": [
+            "eur.roaming1.live.com.akadns.net",
+            "prod.roaming1.live.com.akadns.net",
+            "roaming.officeapps.live.com"
+          ]
+        },
+        {
+          "hostname": "self-events-data.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "self-events-data.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 8,
+          "cname_sources": [
+            "self.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "teams-events-data.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "teams-events-data.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 2,
+          "cname_sources": [
+            "teams.events.data.microsoft.com"
+          ]
+        },
+        {
+          "hostname": "teams-mrc-ww-acdcatm.trafficmanager.net",
+          "domain": "trafficmanager.net",
+          "current_group": "teams-mrc-ww-acdcatm.trafficmanager.net",
+          "accounted": false,
+          "flows": 0,
+          "bytes": 0,
+          "dns_queries": 0,
+          "cname_mentions": 4,
+          "cname_sources": [
+            "config.edge.skype.com",
+            "config.edge.skype.com.trafficmanager.net",
+            "config.teams.microsoft.com"
+          ]
+        }
+      ],
+      "flows": 9,
+      "bytes": 142155,
+      "dns_queries": 12,
+      "cname_mentions": 71
+    }
+  ],
+  "hostname_decisions": [
+    {
+      "hostname": "accountcapabilities-pa.googleapis.com",
+      "role": "authentication_security",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Name indicates account/OAuth/security API. No foreground caller or ad purpose can be inferred.",
+      "flows": 7,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "acdcatm.outlook.mira.tm.svc.cloud.microsoft",
+      "role": "office_outlook_functional",
+      "proposed_action": "review_explicit_office_parent",
+      "confidence": "medium",
+      "rationale": "Observed Office/Outlook naming and DNS provenance; fixed dependency is preferable to timing.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "addons-pa.googleapis.com",
+      "role": "opaque_google_api",
+      "proposed_action": "keep_unknown_service",
+      "confidence": "low",
+      "rationale": "Internal API identity is insufficient to infer tracker status or a specific Google app.",
+      "flows": 6,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "ags.privatelink.msidentity.com",
+      "role": "microsoft_graph_api",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Observed Graph DNS chain; not an ad collector.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "ak.privatelink.msidentity.com",
+      "role": "microsoft_authentication",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Observed DNS links to Microsoft sign-in.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "api-emea.flightproxy.teams.microsoft.com",
+      "role": "teams_communication",
+      "proposed_action": "review_explicit_teams_group",
+      "confidence": "high",
+      "rationale": "Microsoft Teams service namespace; not generic tracking.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "atm.office.mira.tm.svc.cloud.microsoft",
+      "role": "mixed_microsoft_apps",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "Use family disposition and the recorded CNAME sources. No stronger hostname-specific claim yet.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "atm.outlook.mira.tm.svc.cloud.microsoft",
+      "role": "office_outlook_functional",
+      "proposed_action": "review_explicit_office_parent",
+      "confidence": "medium",
+      "rationale": "Observed Office/Outlook naming and DNS provenance; fixed dependency is preferable to timing.",
+      "flows": 2,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "cdnjs.cloudflare.com",
+      "role": "shared_library_cdn",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Shared JavaScript/library delivery.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "challenges.cloudflare.com",
+      "role": "bot_protection",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Cloudflare challenge infrastructure, not a tracking label.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "config-edge-skype.ln-0007.ln-msedge.net",
+      "role": "shared_microsoft_edge",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Use family disposition and the recorded CNAME sources. No stronger hostname-specific claim yet.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "config.officeapps.live.com",
+      "role": "office_outlook_functional",
+      "proposed_action": "review_explicit_office_parent",
+      "confidence": "medium",
+      "rationale": "Observed Office/Outlook naming and DNS provenance; fixed dependency is preferable to timing.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "config.teams.microsoft.com",
+      "role": "teams_communication",
+      "proposed_action": "review_explicit_teams_group",
+      "confidence": "high",
+      "rationale": "Microsoft Teams service namespace; not generic tracking.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "device-provisioning.googleapis.com",
+      "role": "installation_identity",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Device/application installation plumbing; Firebase installations support many SDKs, not just analytics.",
+      "flows": 2,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "encrypted-tbn0.gstatic.com",
+      "role": "image_thumbnails",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Image-thumbnail namespace; not advertising by default.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "encrypted-tbn2.gstatic.com",
+      "role": "image_thumbnails",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Image-thumbnail namespace; not advertising by default.",
+      "flows": 4,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "ep-euno-03-prod-aks.flightproxy.teams.microsoft.com",
+      "role": "teams_communication",
+      "proposed_action": "review_explicit_teams_group",
+      "confidence": "high",
+      "rationale": "Microsoft Teams service namespace; not generic tracking.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "ep-swce-03-prod-aks.flightproxy.teams.microsoft.com",
+      "role": "teams_communication",
+      "proposed_action": "review_explicit_teams_group",
+      "confidence": "high",
+      "rationale": "Microsoft Teams service namespace; not generic tracking.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "eu-mobile.events.data.microsoft.com",
+      "role": "microsoft_diagnostics",
+      "proposed_action": "optional_timing",
+      "confidence": "high",
+      "rationale": "Events/diagnostic collection. Microsoft ownership does not identify the originating foreground app.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "eu-teams.events.data.microsoft.com",
+      "role": "microsoft_diagnostics",
+      "proposed_action": "optional_timing",
+      "confidence": "high",
+      "rationale": "Events/diagnostic collection. Microsoft ownership does not identify the originating foreground app.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "feedback-pa.googleapis.com",
+      "role": "feedback_diagnostics",
+      "proposed_action": "optional_timing",
+      "confidence": "medium",
+      "rationale": "Feedback API inferred from name; may be batched and is not necessarily analytics.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "firebaseinappmessaging.googleapis.com",
+      "role": "messaging",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Messaging/notification API; product role does not identify the caller.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "firebaseinstallations.googleapis.com",
+      "role": "installation_identity",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Device/application installation plumbing; Firebase installations support many SDKs, not just analytics.",
+      "flows": 7,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "firebaselogging-pa.googleapis.com",
+      "role": "sdk_telemetry_transport",
+      "proposed_action": "optional_timing",
+      "confidence": "high",
+      "rationale": "Shared Firebase logging/transport is used by multiple SDKs; not exclusively Analytics or advertising.",
+      "flows": 6,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "fonts.googleapis.com",
+      "role": "font_delivery",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Shared Google Fonts resources; do not merge with Google Search.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "fonts.gstatic.com",
+      "role": "font_delivery",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Shared Google Fonts resources; do not merge with Google Search.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "gateway-eu.az.relay.teams.cloud.microsoft",
+      "role": "teams_communication",
+      "proposed_action": "review_explicit_teams_group",
+      "confidence": "high",
+      "rationale": "Microsoft Teams service namespace; not generic tracking.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "geller-pa.googleapis.com",
+      "role": "opaque_google_api",
+      "proposed_action": "keep_unknown_service",
+      "confidence": "low",
+      "rationale": "Internal API identity is insufficient to infer tracker status or a specific Google app.",
+      "flows": 7,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "googlehosted.l.googleusercontent.com",
+      "role": "shared_user_images_content",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Images/profile/content used across products; no broad Search/YouTube assignment.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "graph.microsoft.com",
+      "role": "microsoft_graph_api",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Observed Graph DNS chain; not an ad collector.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "growth-pa.googleapis.com",
+      "role": "opaque_google_api",
+      "proposed_action": "keep_unknown_service",
+      "confidence": "low",
+      "rationale": "Internal API identity is insufficient to infer tracker status or a specific Google app.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "gz.gstatic.com",
+      "role": "shared_static_resources",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Generic shared static resources; cannot identify initiating app.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "gz0.googleusercontent.com",
+      "role": "shared_user_images_content",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Images/profile/content used across products; no broad Search/YouTube assignment.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "ios.chat.openai.com",
+      "role": "chatgpt_first_party",
+      "proposed_action": "fixed_chatgpt_parent",
+      "confidence": "high",
+      "rationale": "User-directed exact override; implemented locally.",
+      "flows": 2,
+      "review_status": "implemented_locally"
+    },
+    {
+      "hostname": "iosantiabuse-pa.googleapis.com",
+      "role": "app_security",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Anti-abuse API name; do not classify as advertising.",
+      "flows": 7,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "lh3.googleusercontent.com",
+      "role": "shared_user_images_content",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Images/profile/content used across products; no broad Search/YouTube assignment.",
+      "flows": 3,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "ln-0007.ln-msedge.net",
+      "role": "shared_microsoft_edge",
+      "proposed_action": "explicit_dns_evidence_only",
+      "confidence": "high",
+      "rationale": "Use family disposition and the recorded CNAME sources. No stronger hostname-specific claim yet.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "locationhistory-pa.googleapis.com",
+      "role": "location_history_api",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Location-history API inferred from hostname. Location processing is not equivalent to ad tracking; exact use unknown.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "locationhistoryplacedetails-pa.googleapis.com",
+      "role": "location_history_api",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Location-history API inferred from hostname. Location processing is not equivalent to ad tracking; exact use unknown.",
+      "flows": 7,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "login.microsoftonline.com",
+      "role": "microsoft_authentication",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Observed DNS links to Microsoft sign-in.",
+      "flows": 28,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "login.mso.msidentity.com",
+      "role": "microsoft_authentication",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Observed DNS links to Microsoft sign-in.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "mamservice.manage.microsoft.com",
+      "role": "mixed_microsoft_services",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "Use family disposition and the recorded CNAME sources. No stronger hostname-specific claim yet.",
+      "flows": 4,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "maps.gstatic.com",
+      "role": "maps_content_api",
+      "proposed_action": "review_specific_maps_group",
+      "confidence": "medium",
+      "rationale": "Strong maps/Street View naming; propose a functional Maps service group, not a generic tracker bucket.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "mobilemaps-pa-gz.googleapis.com",
+      "role": "maps_content_api",
+      "proposed_action": "review_specific_maps_group",
+      "confidence": "medium",
+      "rationale": "Strong maps/Street View naming; propose a functional Maps service group, not a generic tracker bucket.",
+      "flows": 4,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "mobilemaps.googleapis.com",
+      "role": "maps_content_api",
+      "proposed_action": "review_specific_maps_group",
+      "confidence": "medium",
+      "rationale": "Strong maps/Street View naming; propose a functional Maps service group, not a generic tracker bucket.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "mrodevicemgr.officeapps.live.com",
+      "role": "office_outlook_functional",
+      "proposed_action": "review_explicit_office_parent",
+      "confidence": "medium",
+      "rationale": "Observed Office/Outlook naming and DNS provenance; fixed dependency is preferable to timing.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "notifications-pa.googleapis.com",
+      "role": "messaging",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Messaging/notification API; product role does not identify the caller.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "oauth2.googleapis.com",
+      "role": "authentication_security",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Name indicates account/OAuth/security API. No foreground caller or ad purpose can be inferred.",
+      "flows": 3,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "oauthaccountmanager.googleapis.com",
+      "role": "authentication_security",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Name indicates account/OAuth/security API. No foreground caller or ad purpose can be inferred.",
+      "flows": 3,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "odc.officeapps.live.com",
+      "role": "office_outlook_functional",
+      "proposed_action": "review_explicit_office_parent",
+      "confidence": "medium",
+      "rationale": "Observed Office/Outlook naming and DNS provenance; fixed dependency is preferable to timing.",
+      "flows": 4,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "officeclient.microsoft.com",
+      "role": "mixed_microsoft_services",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "Use family disposition and the recorded CNAME sources. No stronger hostname-specific claim yet.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "ogads-pa.googleapis.com",
+      "role": "possible_ad_api",
+      "proposed_action": "review_before_timing",
+      "confidence": "low",
+      "rationale": "Suggestive name only. Do not activate timing classification without stronger endpoint documentation.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "outlook.cloud.microsoft",
+      "role": "office_outlook_functional",
+      "proposed_action": "review_explicit_office_parent",
+      "confidence": "medium",
+      "rationale": "Observed Office/Outlook naming and DNS provenance; fixed dependency is preferable to timing.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "passbox-pa.googleapis.com",
+      "role": "opaque_google_api",
+      "proposed_action": "keep_unknown_service",
+      "confidence": "low",
+      "rationale": "Internal API identity is insufficient to infer tracker status or a specific Google app.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "people-pa.googleapis.com",
+      "role": "contacts_api",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "People/contacts API naming; no ad attribution.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "peoplestack-pa.googleapis.com",
+      "role": "contacts_api",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "People/contacts API naming; no ad attribution.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "pins.manage.microsoft.com",
+      "role": "mixed_microsoft_services",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "Use family disposition and the recorded CNAME sources. No stronger hostname-specific claim yet.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "play.googleapis.com",
+      "role": "app_store_api",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Google Play service API; not inherently analytics.",
+      "flows": 4,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "pub-ent-euwe-10-t.trouter.teams.microsoft.com",
+      "role": "teams_communication",
+      "proposed_action": "review_explicit_teams_group",
+      "confidence": "high",
+      "rationale": "Microsoft Teams service namespace; not generic tracking.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "roaming.officeapps.live.com",
+      "role": "office_outlook_functional",
+      "proposed_action": "review_explicit_office_parent",
+      "confidence": "medium",
+      "rationale": "Observed Office/Outlook naming and DNS provenance; fixed dependency is preferable to timing.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "robinfrontend-pa.googleapis.com",
+      "role": "opaque_google_api",
+      "proposed_action": "keep_unknown_service",
+      "confidence": "low",
+      "rationale": "Internal API identity is insufficient to infer tracker status or a specific Google app.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "se-prod.asyncgw.teams.microsoft.com",
+      "role": "teams_communication",
+      "proposed_action": "review_explicit_teams_group",
+      "confidence": "high",
+      "rationale": "Microsoft Teams service namespace; not generic tracking.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "securitydomain-pa.googleapis.com",
+      "role": "authentication_security",
+      "proposed_action": "keep_service_group",
+      "confidence": "medium",
+      "rationale": "Name indicates account/OAuth/security API. No foreground caller or ad purpose can be inferred.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "self.events.data.microsoft.com",
+      "role": "microsoft_diagnostics",
+      "proposed_action": "optional_timing",
+      "confidence": "high",
+      "rationale": "Events/diagnostic collection. Microsoft ownership does not identify the originating foreground app.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "shed.outlook.acdc.tm.svc.cloud.microsoft",
+      "role": "office_outlook_functional",
+      "proposed_action": "review_explicit_office_parent",
+      "confidence": "medium",
+      "rationale": "Observed Office/Outlook naming and DNS provenance; fixed dependency is preferable to timing.",
+      "flows": 4,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "ssl.gstatic.com",
+      "role": "shared_static_resources",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Generic shared static resources; cannot identify initiating app.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "streetviewpixels-pa.googleapis.com",
+      "role": "maps_content_api",
+      "proposed_action": "review_specific_maps_group",
+      "confidence": "medium",
+      "rationale": "Strong maps/Street View naming; propose a functional Maps service group, not a generic tracker bucket.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "t1.gstatic.com",
+      "role": "shared_static_resources",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Generic shared static resources; cannot identify initiating app.",
+      "flows": 3,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "teams.events.data.microsoft.com",
+      "role": "microsoft_diagnostics",
+      "proposed_action": "optional_timing",
+      "confidence": "high",
+      "rationale": "Events/diagnostic collection. Microsoft ownership does not identify the originating foreground app.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "teams.microsoft.com",
+      "role": "teams_communication",
+      "proposed_action": "review_explicit_teams_group",
+      "confidence": "high",
+      "rationale": "Microsoft Teams service namespace; not generic tracking.",
+      "flows": 2,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "titles.prod.mos.microsoft.com",
+      "role": "mixed_microsoft_services",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "Use family disposition and the recorded CNAME sources. No stronger hostname-specific claim yet.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "www.googleapis.com",
+      "role": "shared_google_api",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Generic Google API endpoint; URL path would be needed to distinguish many services.",
+      "flows": 2,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "www.gstatic.com",
+      "role": "shared_static_resources",
+      "proposed_action": "keep_service_group",
+      "confidence": "high",
+      "rationale": "Generic shared static resources; cannot identify initiating app.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "www.microsoft.com",
+      "role": "mixed_microsoft_services",
+      "proposed_action": "split_by_hostname",
+      "confidence": "high",
+      "rationale": "Use family disposition and the recorded CNAME sources. No stronger hostname-specific claim yet.",
+      "flows": 1,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "youtubei.googleapis.com",
+      "role": "youtube_content_api",
+      "proposed_action": "review_fixed_youtube_parent",
+      "confidence": "medium",
+      "rationale": "YouTube-specific hostname candidates. Keep rule exact and verify before applying beyond the draft.",
+      "flows": 0,
+      "review_status": "proposed"
+    },
+    {
+      "hostname": "yt3.ggpht.com",
+      "role": "youtube_content_api",
+      "proposed_action": "review_fixed_youtube_parent",
+      "confidence": "medium",
+      "rationale": "YouTube-specific hostname candidates. Keep rule exact and verify before applying beyond the draft.",
+      "flows": 2,
+      "review_status": "proposed"
+    }
+  ],
+  "existing_mapping_review": [
+    {
+      "match": "slackb.com",
+      "role": "first_party_diagnostics",
+      "owner": "Slack",
+      "action": "retain_known_slack_parent; never create a main activation"
+    },
+    {
+      "match": "ads-twitter.com",
+      "role": "advertising",
+      "owner": "X",
+      "action": "external timing candidate; do not assume foreground X usage"
+    },
+    {
+      "match": "sc-static.net",
+      "role": "ad_pixel_delivery",
+      "owner": "Snap",
+      "action": "external timing candidate; do not assume foreground Snapchat usage"
+    },
+    {
+      "match": "tr.snapchat.com",
+      "role": "ad_pixel_collection",
+      "owner": "Snap",
+      "action": "external timing candidate; hostname-specific rule"
+    },
+    {
+      "match": "tr6.snapchat.com",
+      "role": "ad_pixel_collection",
+      "owner": "Snap",
+      "action": "external timing candidate; hostname-specific rule"
+    },
+    {
+      "match": "sc-gw.com",
+      "role": "mixed_snap_services",
+      "owner": "Snap",
+      "action": "classify only pixel-linked hosts; no blanket tracking policy"
+    },
+    {
+      "match": "aet.spotify.com",
+      "role": "possible_first_party_telemetry",
+      "owner": "Spotify",
+      "action": "keep Spotify identity; no main activation; role needs confirmation"
+    },
+    {
+      "match": "sentry.io",
+      "role": "diagnostics",
+      "owner": "Sentry",
+      "action": "separate category; optional caller timing only"
+    }
+  ]
+}

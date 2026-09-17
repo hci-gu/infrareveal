@@ -93,7 +93,7 @@ export function selectSceneWindow(
             ...lane,
             clips: laneClips,
             flowCount: laneClips.length,
-            associatedFlowCount: laneClips.filter((clip) => clip.associationRelationship === 'temporally_associated').length,
+            associatedFlowCount: laneClips.filter((clip) => (clip.associationRelationship === 'temporally_associated' || clip.associationRelationship === 'domain_alias')).length,
           }
         })
 

@@ -28,7 +28,7 @@ The backend stores raw observations separately from future derived conclusions. 
 Milestone 3 derived conclusions are:
 
 - `flow_attributions`: candidate hostname, source signal, confidence, and explanation for a flow.
-- `activity_episodes`: conservative, client-specific website/app activity windows anchored by confirmed first-party traffic.
+- `activity_episodes`: stable registered-domain groups per client and session, with explicit cross-domain aliases.
 - `flow_associations`: separate derived links from flows to activity episodes, including relationship, confidence, score, and explanation.
 
 Milestone 5 destination context is:
@@ -41,6 +41,6 @@ Milestone 5 destination context is:
 The `pocketbase/routing` module consumes committed flow counters, prioritizes recent byte volume, and owns bounded probes, cache reuse, retries, and publication. Destination enrichment cannot block discovery. Frontends share `routeForFlowAt` to select evidence known at the playback cursor; route discovery never intercepts client traffic.
 
 Attribution work consumes observations and writes separate derived records instead of overwriting raw observations.
-Website associations follow the same rule: endpoint identity remains intact, and only high- or medium-confidence first-party, CNAME, or fresh temporal evidence may add a parent activity. Provider-only, unresolved, pre-existing, DNS-less, and ambiguous traffic remains independent.
+Domain grouping preserves endpoint identity. Every high- or medium-confidence hostname groups by its registered domain; `pocketbase/observer/domain_groups.json` maps explicit alias domains to canonical groups. Subdomains follow their registered domain. Timing, shared providers, CNAME chains, and idle gaps do not establish or split groups. Traffic without usable hostname evidence remains independent. See `docs/implementation-guides/domain-grouping.md`.
 
 Both dashboard applications consume the same `@infrareveal/session-state` session runtime. Dashboard-specific UI and Remotion projections remain outside that shared module.

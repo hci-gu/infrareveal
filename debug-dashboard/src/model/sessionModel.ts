@@ -347,7 +347,7 @@ function buildServiceGroup(
     group.lastActivityMs = latestTimestamp(group.lastActivityMs, clip.lastActivityMs)
     group.routeCount += route ? 1 : 0
     group.routeCompleteCount += route?.complete ? 1 : 0
-    group.associatedFlowCount += clip.associationRelationship === 'temporally_associated' ? 1 : 0
+    group.associatedFlowCount += (clip.associationRelationship === 'temporally_associated' || clip.associationRelationship === 'domain_alias') ? 1 : 0
     if (!group.destinationIPs.includes(clip.destinationIP)) group.destinationIPs.push(clip.destinationIP)
     if (!group.clientIPs.includes(clip.clientIP)) group.clientIPs.push(clip.clientIP)
     if (isHostnameLabel(clip.label) && !group.hostnames.includes(clip.label)) group.hostnames.push(clip.label)
