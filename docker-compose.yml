@@ -1,5 +1,8 @@
+name: infrareveal
+
 services:
   proxy:
+    image: infrareveal-gateway:local
     build:
       context: .
       dockerfile: Dockerfile
@@ -7,9 +10,18 @@ services:
     privileged: true
     restart: always
     environment:
-      - AP_IFACE=wlan0
-      - INTERNET_IFACE=eth0
-      - SSID=Infrareveal
+      - AP_IFACE=${AP_IFACE:-wlan0}
+      - ADMIN_IFACE=${ADMIN_IFACE:-wlan1}
+      - ADMIN_WIFI_MAC=${ADMIN_WIFI_MAC:-}
+      - INTERNET_IFACE=${INTERNET_IFACE:-eth0}
+      - SSID=${SSID:-Infrareveal}
+      - ADMIN_SSID=${ADMIN_SSID:-Infrareveal-admin}
+      - AP_PREFIX=${AP_PREFIX:-10.0.0}
+      - ADMIN_PREFIX=${ADMIN_PREFIX:-10.77.0}
+      - WIFI_COUNTRY=${WIFI_COUNTRY:-SE}
+      - AP_CHANNEL=${AP_CHANNEL:-1}
+      - ADMIN_CHANNEL=${ADMIN_CHANNEL:-6}
+      - ADMIN_WIFI_PASSWORD_FILE=/run/secrets/admin_wifi_password
       - CONNTRACK_SAMPLE_MS=${CONNTRACK_SAMPLE_MS:-1000}
       - ROUTE_ENGINE=${ROUTE_ENGINE:-v2}
       - ROUTE_MAX_TARGETS=${ROUTE_MAX_TARGETS:-20}
@@ -18,8 +30,6 @@ services:
       - ROUTE_MAX_SNAPSHOTS=${ROUTE_MAX_SNAPSHOTS:-100}
       - ROUTE_MAX_BYTES=${ROUTE_MAX_BYTES:-16777216}
       - ROUTE_ASN_DB=${ROUTE_ASN_DB:-/root/geoip/asn.mmdb}
-      - CLIENT_CIDRS=${CLIENT_CIDRS:-10.0.0.0/24}
-      - GATEWAY_IP=${GATEWAY_IP:-10.0.0.1}
       - PACKET_ACTIVITY_ENABLED=true
       - PACKET_ACTIVITY_BUCKET_MS=50
       - PACKET_ACTIVITY_CHUNK_SECONDS=5
@@ -36,7 +46,6 @@ services:
       - LAB_GATE_QUEUE_NUM=${LAB_GATE_QUEUE_NUM:-42}
       - LAB_GATE_STRICT_QUEUE_NUM=${LAB_GATE_STRICT_QUEUE_NUM:-43}
       - LAB_GATE_DNS_QUEUE_NUM=${LAB_GATE_DNS_QUEUE_NUM:-44}
-      - LAB_GATE_CLIENT_SUBNET=${LAB_GATE_CLIENT_SUBNET:-10.0.0.0/24}
       - LAB_GATE_MAX_PENDING_FLOWS=${LAB_GATE_MAX_PENDING_FLOWS:-128}
       - LAB_GATE_MAX_HELD_PACKETS=${LAB_GATE_MAX_HELD_PACKETS:-768}
       - LAB_GATE_FLOW_TIMEOUT_MS=${LAB_GATE_FLOW_TIMEOUT_MS:-10000}
@@ -47,24 +56,43 @@ services:
       - LAB_GATE_CONTROL_TOKEN_FILE=${LAB_GATE_CONTROL_TOKEN_FILE:-}
       - LAB_GATE_ALLOWED_ORIGINS=${LAB_GATE_ALLOWED_ORIGINS:-}
     volumes:
-       - ./data:/root/pb/pb_data
-    entrypoint: ["/root/entrypoint.sh"]
-    # entrypoint: /bin/bash
-    tty: true
-    ports:
-      - "8090:8090"
+      - ${DATA_DIR:-./data}:/root/pb/pb_data
+      - ${GEOIP_DIR:-./geoip}:/root/geoip:ro
+    secrets:
+      - admin_wifi_password
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8090/api/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 6
+      start_period: 30s
+    stop_grace_period: 20s
   dashboard:
+    image: infrareveal-dashboard:local
     build:
       context: .
       dockerfile: dashboard/Dockerfile
+    network_mode: host
     restart: always
-    ports:
-      - "8080:80"
+    environment:
+      ADMIN_IP: ${ADMIN_PREFIX:-10.77.0}.1
+    depends_on:
+      proxy:
+        condition: service_healthy
   debug-dashboard:
+    image: infrareveal-debug-dashboard:local
     profiles: ["debug"]
     build:
       context: .
       dockerfile: debug-dashboard/Dockerfile
+    network_mode: host
     restart: always
-    ports:
-      - "8081:80"
+    environment:
+      ADMIN_IP: ${ADMIN_PREFIX:-10.77.0}.1
+    depends_on:
+      proxy:
+        condition: service_healthy
+
+secrets:
+  admin_wifi_password:
+    file: ./secrets/admin-wifi-password

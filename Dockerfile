@@ -1,5 +1,5 @@
 # Base image with Go installed
-FROM golang:1.27.1-bookworm AS builder
+FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm AS builder
 
 WORKDIR /src
 
@@ -20,20 +20,21 @@ COPY pocketbase/netmeta ./netmeta
 
 # Build the infra-reveal binary with CGO disabled
 ENV CGO_ENABLED=0
-ARG GOARCH=arm64
-ARG GOARM=7
-RUN GOOS=linux GOARCH=${GOARCH} GOARM=${GOARM} go build -trimpath -o /out/infra-reveal .
-RUN GOOS=linux GOARCH=${GOARCH} GOARM=${GOARM} go build -trimpath -o /out/route-diagnose ./cmd/route-diagnose
+ARG TARGETARCH
+ARG TARGETVARIANT
+RUN GOOS=linux GOARCH=${TARGETARCH} GOARM=${TARGETVARIANT#v} go build -trimpath -o /out/infra-reveal .
+RUN GOOS=linux GOARCH=${TARGETARCH} GOARM=${TARGETVARIANT#v} go build -trimpath -o /out/route-diagnose ./cmd/route-diagnose
 
-# Use a multi-architecture runtime. The old rpi-raspbian tag resolves to
-# linux/arm/v6 and cannot produce the arm64 image built above.
+# The runtime platform matches TARGETARCH, including the existing ARMv7 Pi.
 FROM debian:bookworm-slim
 
 # Install required dependencies
 RUN export DEBIAN_FRONTEND=noninteractive; \
     apt-get update --fix-missing && apt-get install -y --no-install-recommends \
     hostapd \
-    dbus \
+    iw \
+    python3 \
+    curl \
     net-tools \
     iptables \
     ipset \
@@ -49,14 +50,11 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
 # Set the working directory
 WORKDIR /root
 
-# Copy the stable runtime assets before the frequently changing binary.
-COPY pocketbase/geoip /root/geoip
+# GeoIP assets are supplied by the read-only runtime volume.
+RUN mkdir -p /root/geoip
 
 COPY entrypoint.sh /root/entrypoint.sh
-
-COPY hostapd.conf /etc/hostapd/hostapd.conf
-COPY hostapd /etc/default/hostapd
-COPY dnsmasq.conf /etc/dnsmasq.conf
+COPY scripts/gateway-network.sh scripts/gateway-preflight.py /root/scripts/
 
 # Copy the built binary from the builder stage last, so PocketBase changes only
 # invalidate this small final layer after the builder has reused its caches.

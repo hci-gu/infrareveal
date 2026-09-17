@@ -9,6 +9,8 @@ Start with the [project README](../README.md) for setup and deployment, [CONTEXT
 
 ## Implementation and operations
 
+- [Two-network Pi deployment](implementation-guides/pi-deployment.md): admin Wi-Fi, local UI/API hosting, ARMv7/ARM64 builds, migration and updates.
+
 - [Flow activity bursts](implementation-guides/flow-activity-bursts.md): capture, aggregation, persistence, quality and visualization contracts.
 - [Proxy Lab](implementation-guides/proxy-lab.md): runtime components, control APIs, first run and emergency recovery.
 - [Live route discovery](implementation-guides/live-route-discovery.md): scheduling, cache reuse, progressive evidence, replay and diagnostics.

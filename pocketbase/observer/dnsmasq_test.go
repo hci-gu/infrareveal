@@ -56,3 +56,12 @@ func TestApplyDNSReplyDoesNotStoreCNAMEMarkerAsAddress(t *testing.T) {
 		t.Fatalf("expected CNAME marker to be ignored as an address, got %#v", answers)
 	}
 }
+
+// Admin and upstream DNS must never reach storage or the trace stream. A nil
+// app/session callback makes accidental processing fail immediately.
+func TestDNSMasqIgnoresQueriesOutsideObservationScope(t *testing.T) {
+	ingestor := &DNSMasqIngestor{scope: NewObservationScope("10.0.0.0/24", "10.0.0.1")}
+	for _, ip := range []string{"10.77.0.50", "192.168.10.50", "not-an-ip"} {
+		ingestor.handleLine("dnsmasq[123]: 42 " + ip + "/53001 query[A] example.com from " + ip)
+	}
+}

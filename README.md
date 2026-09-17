@@ -3,7 +3,8 @@
 This guide shows how to run InfraReveal on a Raspberry Pi as a Wi‑Fi access point that records gateway metadata, stores observations in PocketBase, and serves a dashboard. It does not decrypt HTTPS traffic or require client trust certificates.
 
 What you get
-- A Wi‑Fi AP on wlan0 (default SSID: Infrareveal)
+- Participant Wi-Fi on wlan0 (SSID: Infrareveal)
+- WPA2-protected admin Wi-Fi on a second radio, wlan1 (SSID: Infrareveal-admin)
 - DHCP on 10.0.0.0/24 (dnsmasq), gateway at 10.0.0.1
 - NAT to the internet via eth0 by default
 - DNS query observations from dnsmasq
@@ -11,7 +12,8 @@ What you get
 - Header-only, directional flow activity at 50 ms resolution (no payload or URL storage)
 - Confidence-labeled flow attribution from recent DNS answers where available
 - Destination context and route approximations for observed destination IPs
-- PocketBase API/Admin on port 8090, dashboard on port 8080
+- Dashboard and PocketBase API/console at http://10.77.0.1/ on the admin network
+- Optional debug dashboard at http://10.77.0.1:8081/
 
 ## Development guides
 
@@ -46,50 +48,37 @@ when PocketBase is not on port 8090 of the dashboard host.
 
 Note: The AP is open (no password) by default. Use only in controlled environments.
 
-## Prerequisites
+Follow the **[two-network Pi deployment guide](docs/implementation-guides/pi-deployment.md)**
+for the existing Pi at `pi@192.168.10.120`. It covers pulling changes, installing
+Compose on its 32-bit OS, configuring the admin password, building images,
+preparing host networking, backing up the existing database, and replacing the
+old `infrareveal-server` container.
 
-- Raspberry Pi 3B+/4/5 with built‑in Wi‑Fi (AP mode capable) or a USB Wi‑Fi adapter that supports AP mode.
-- Ethernet uplink on eth0 (or a second Wi‑Fi adapter for uplink).
-- Raspberry Pi OS 64‑bit recommended (see Architecture note). Up‑to‑date firmware/drivers.
-- Docker Engine and Compose plugin installed on the Pi.
+The gateway requires two AP-capable Wi-Fi radios and an Ethernet uplink. The
+inspected built-in radio and Ralink RT5370 USB adapter meet the advertised
+capabilities. Images support ARMv7 and ARM64; the Docker target platform selects
+the Go binary architecture automatically. The host OS obtains Ethernet settings
+through DHCP. Upstream authentication and subnet conflicts still need handling.
 
-Install Docker and Compose on the Pi
-```bash
-curl -fsSL https://get.docker.com | sh
-sudo usermod -aG docker $USER
-sudo apt-get update
-sudo apt-get install -y docker-compose-plugin
-# log out/in or run: newgrp docker
-```
+Join `Infrareveal-admin` to open **http://10.77.0.1/** or
+**http://infrareveal.home.arpa/**. The UI and API share that address; no Ethernet IP
+needs to be discovered. Port 8090 is loopback-only. Participant devices continue
+to use `Infrareveal`, with internet and observation on `10.0.0.0/24`.
 
-## Architecture note (arm64 vs armhf)
+## Configuration
 
-The provided Dockerfile builds an arm64 (aarch64) Go binary. Ensure your Pi runs a 64‑bit OS and Docker can run arm64 images. If you must run 32‑bit (armhf):
-- Change GOARCH in the Dockerfile to `arm`
-- Use a 32‑bit base image (e.g., a balenalib armv7 image)
-
-Otherwise, keep the default and use a 64‑bit Raspberry Pi OS.
-
-## Network expectations
-
-- AP interface: wlan0, static 10.0.0.1/24
-- DHCP range: 10.0.0.50 – 10.0.0.150
-- Uplink: eth0 by default (configurable)
-- Ports exposed on the Pi:
-	- 8080 → Dashboard (HTTP)
-	- 8090 → PocketBase API/Admin (HTTP)
-
-## Configure the project
-
-Clone the repo on the Pi. PocketBase migrations create the required collections on first run.
-
-```bash
-git clone https://github.com/hci-gu/infrareveal.git
-cd infrareveal
-```
+Copy `.env.example` to `.env` and create `secrets/admin-wifi-password` as described
+in the deployment guide. Runtime scripts generate hostapd and the two dnsmasq
+configurations from these settings; there are no hand-edited root-level AP configs.
 
 Configuration knobs (via env in `docker-compose.yml`):
-- AP_IFACE: AP Wi‑Fi interface (default wlan0)
+- AP_IFACE: participant Wi-Fi interface (default wlan0)
+- ADMIN_IFACE: admin Wi-Fi interface (default wlan1)
+- ADMIN_WIFI_MAC: optional expected adapter MAC address
+- ADMIN_SSID: admin Wi-Fi name (default Infrareveal-admin)
+- AP_PREFIX / ADMIN_PREFIX: private /24 prefixes (10.0.0 / 10.77.0), checked for collisions
+- WIFI_COUNTRY / AP_CHANNEL / ADMIN_CHANNEL: SE / 1 / 6
+- DATA_DIR / GEOIP_DIR: persistent host directories (./data / ./geoip)
 - INTERNET_IFACE: uplink interface (default eth0)
 - SSID: Wi‑Fi network name (default Infrareveal)
 - ROUTE_ENGINE: `v2` (Scamper, default), `legacy` (paced traceroute), or `off`; all active engines share the same limits
@@ -97,8 +86,7 @@ Configuration knobs (via env in `docker-compose.yml`):
 - ROUTE_HOURLY_ATTEMPTS: 40 per network and address family, across sessions/restarts
 - ROUTE_MAX_SNAPSHOTS / ROUTE_MAX_BYTES: 100 useful path snapshots / 16 MiB evidence per session
 - ROUTE_ASN_DB: optional versioned local MaxMind ASN database; missing ASN data leaves the topology visible
-- CLIENT_CIDRS: comma-separated client subnets, default `10.0.0.0/24`; configure IPv6 only on a working dual-stack gateway
-- GATEWAY_IP: gateway addresses excluded from client observations; comma-separated for dual stack, e.g. `10.0.0.1,fd00::1`
+- CLIENT_CIDRS / GATEWAY_IP / PACKET_ACTIVITY_IFACE: derived from the participant prefix/interface by the container entrypoint; admin traffic is excluded
 - Discovery uses one worker at five probes/second, at most two methods per selected binding, and stops after useful evidence or repeated no-gain results. Missing hops never trigger indefinite repairs.
 - CONNTRACK_SAMPLE_MS: connection sampling interval, validated to 250–5000 ms (default 1000)
 - PACKET_ACTIVITY_ENABLED: enable header-only packet activity capture (default true)
@@ -127,7 +115,7 @@ The lab gate is a separate, explicit traffic-changing experiment. `LAB_GATE_ENAB
 | `LAB_GATE_QUEUE_NUM` | `42` | Flow-mode queue; must differ from 43/44. |
 | `LAB_GATE_STRICT_QUEUE_NUM` | `43` | Exact-tuple packet queue. |
 | `LAB_GATE_DNS_QUEUE_NUM` | `44` | Local DNS INPUT queue. |
-| `LAB_GATE_CLIENT_SUBNET` | `10.0.0.0/24` | Only IPv4 clients inside this prefix can arm. |
+| `LAB_GATE_CLIENT_SUBNET` | Derived from `AP_PREFIX` | Only participant IPv4 clients can arm. |
 | `LAB_GATE_MAX_PENDING_FLOWS` | `128` (`1`–`1024`) | New decisions bypass when full. |
 | `LAB_GATE_MAX_HELD_PACKETS` | `768` (`8`–`8192`, at least pending cap) | New packets bypass when full. |
 | `LAB_GATE_FLOW_TIMEOUT_MS` | `10000` (`100`–`60000`) | Pending flows are accepted as expired. |
@@ -138,28 +126,30 @@ The lab gate is a separate, explicit traffic-changing experiment. `LAB_GATE_ENAB
 | `LAB_GATE_CONTROL_TOKEN_FILE` | unset | Mutating controls are refused without a 32–512 byte token file. |
 | `LAB_GATE_ALLOWED_ORIGINS` | unset | Comma-separated browser origins allowed to call the control API. |
 
-You can also tweak:
-- `hostapd.conf` for country_code, channel, security (currently open)
-- `dnsmasq.conf` for DHCP range and DNS behavior
+## Run after initial setup
 
-## Run
-
-Build and start with Compose:
 ```bash
-docker compose up -d --build
+sudo bash scripts/build-pi-images.sh
+sudo docker compose up -d --no-build
+sudo docker compose ps
+sudo docker compose logs --tail=100 proxy dashboard
 ```
 
-Check logs if something doesn’t start:
-```bash
-docker compose logs -f proxy
-docker compose logs -f dashboard
-```
+Uncomment `COMPOSE_PROFILES=debug` in `.env` to include the debug dashboard.
+For updates to an existing installation, use the guide's stopped-state database
+backup procedure before restarting with new images.
 
 ## Using it
 
-1) On a client device, connect to the AP SSID (default: Infrareveal). It should receive an IP in 10.0.0.50–150 and have internet via the Pi.
-2) Visit the dashboard: http://<pi-ip>:8080
-3) PocketBase Admin UI: http://<pi-ip>:8090/_/
+1) Join `Infrareveal-admin` on the operator device using the configured password.
+2) Open http://10.77.0.1/ (dashboard) or http://10.77.0.1/_/ (PocketBase console).
+3) Join `Infrareveal` on the device being observed. It receives a `10.0.0.50–150`
+   address and internet via the Pi. Generate traffic to view it in the dashboard.
+
+Admin traffic has internet forwarding but is excluded from capture and DNS
+observations. The two subnets cannot forward to each other. Management web ports
+are inaccessible from participant Wi-Fi and Ethernet. The UI/API work locally
+without an uplink; the basemap still downloads internet-hosted tiles and fonts.
 
 The gateway forwards web traffic normally through NAT. Classic DNS traffic from clients is redirected to the local dnsmasq resolver so transaction-linked DNS answers, including CNAME chains, can be correlated with flows. Stored flows are limited to remote traffic initiated by connected clients; gateway-generated probes and local infrastructure traffic such as DNS sockets, DHCP, NTP, PCP, mDNS, and traceroute are excluded. The dashboard keeps raw destination IPs visible and labels inferred hostnames with confidence.
 
@@ -171,22 +161,18 @@ Destination context is enriched independently from reverse DNS, known provider n
 
 ## Customizations
 
-- Change SSID without editing files by overriding the env in `docker-compose.yml`:
-	```yaml
-	environment:
-		- AP_IFACE=wlan0
-		- INTERNET_IFACE=eth0
-		- SSID=MyLabAP
-	```
-- Use a second USB Wi‑Fi as uplink: set `INTERNET_IFACE=wlan1` and keep AP on `wlan0`.
-- Secure the AP: add WPA2 config in `hostapd.conf` (psk/ieee80211w, etc.).
-- Change DHCP range: edit `dnsmasq.conf`.
+Set SSIDs, country/channels, interface names, and non-overlapping private network
+prefixes in `.env`. Run `sudo docker compose up -d --no-build --force-recreate`
+after changing runtime settings. Changing the admin prefix changes the dashboard
+address too. Reconnect clients after changing prefixes so DHCP leases renew.
+The admin password lives in `secrets/admin-wifi-password`; restart the proxy after
+changing it. Both radios are dedicated APs in this deployment.
 
 ## Troubleshooting
 
 - hostapd failed to start
 	- Ensure the Wi‑Fi chip supports AP mode
-	- Set correct `country_code` in `hostapd.conf` and host OS WLAN country
+	- Set the correct `WIFI_COUNTRY` in `.env`
 	- Make sure `wpa_supplicant` is disabled and not holding wlan0
 
 - dnsmasq failed to start
@@ -198,10 +184,10 @@ Destination context is enriched independently from reverse DNS, known provider n
 	- Check NAT rules and IP forwarding in `proxy` logs
 
 - Dashboard loads but shows no data
-	- Verify PocketBase is reachable at http://<pi-ip>:8090
+	- Verify PocketBase is reachable through http://10.77.0.1/api/health on admin Wi-Fi
 	- Confirm a client has generated DNS or network traffic after joining the AP
 	- Check that `/var/log/dnsmasq.log` and `/proc/net/nf_conntrack` are visible inside the container
-	- The dashboard container image must support your Pi’s architecture; if it doesn’t, you can run the dashboard on another machine and point it to the Pi’s PocketBase URL
+	- Review `docker compose logs dashboard proxy` and confirm the proxy is healthy
 
 - Dashboard shows `Counters unavailable`
 	- Conntrack byte accounting is disabled or not writable from the observer container
@@ -216,9 +202,11 @@ Destination context is enriched independently from reverse DNS, known provider n
 
 ## Ports and data
 
-- Dashboard: http://<pi-ip>:8080
-- PocketBase API/Admin: http://<pi-ip>:8090 and http://<pi-ip>:8090/_/
+- Dashboard/API: http://10.77.0.1/ on admin Wi-Fi
+- PocketBase console: http://10.77.0.1/_/
+- Optional debug dashboard: http://10.77.0.1:8081/
 - Persistent data: `./data` on the host is mounted to `/root/pb/pb_data` in the proxy container
+- GeoIP assets: `./geoip` is mounted read-only at `/root/geoip`
 
 ## Security and ethics
 

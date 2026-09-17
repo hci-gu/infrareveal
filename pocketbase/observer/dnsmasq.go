@@ -43,6 +43,7 @@ type dnsLogEvent struct {
 }
 
 type DNSMasqIngestor struct {
+	scope          ObservationScope
 	app            *pocketbase.PocketBase
 	path           string
 	sessionID      func() string
@@ -52,9 +53,10 @@ type DNSMasqIngestor struct {
 	trace          debugtrace.Sink
 }
 
-func StartDNSMasqIngestor(ctx context.Context, app *pocketbase.PocketBase, path string, sessionID func() string, trace debugtrace.Sink) {
+func StartDNSMasqIngestor(ctx context.Context, app *pocketbase.PocketBase, path string, scope ObservationScope, sessionID func() string, trace debugtrace.Sink) {
 	ingestor := &DNSMasqIngestor{
 		app:            app,
+		scope:          scope,
 		path:           path,
 		sessionID:      sessionID,
 		recentByName:   make(map[string][]recentDNSQuery),
@@ -115,6 +117,9 @@ func (d *DNSMasqIngestor) handleLine(line string) {
 		return
 	}
 	if event.isQuery {
+		if !d.scope.ContainsClient(event.clientIP) {
+			return
+		}
 		d.recordQuery(event.serial, event.clientIP, event.queryName, event.queryType)
 		return
 	}

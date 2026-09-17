@@ -16,3 +16,13 @@ pocketbase/notes.txt
 pocketbase/pb_data
 **/__pycache__
 **/*.pyc
+
+# Never bake development endpoints, passwords, or local output into images.
+**/.env
+**/.env.*
+secrets
+output
+.playwright-cli
+
+geoip
+pocketbase/geoip

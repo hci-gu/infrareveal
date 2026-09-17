@@ -195,7 +195,7 @@ func main() {
 		apInterface := envOrDefault("AP_IFACE", "wlan0")
 		observationScope := observer.NewObservationScope(clientPrefix, gatewayIP)
 
-		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, currentSessionID, traceSink)
+		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, observationScope, currentSessionID, traceSink)
 		routeDiscovery = routing.Start(ctx, app, geoipDB, currentSessionID, routing.ConfigFromEnv())
 		se.Router.GET("/api/infrareveal/routes/status", func(e *core.RequestEvent) error { return e.JSON(http.StatusOK, routeDiscovery.Status()) })
 		se.Router.POST("/api/infrareveal/routes/measure", func(e *core.RequestEvent) error {

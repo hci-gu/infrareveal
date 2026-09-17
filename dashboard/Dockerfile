@@ -1,4 +1,4 @@
-FROM node:24-alpine AS builder
+FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS builder
 
 WORKDIR /workspace
 
@@ -10,11 +10,13 @@ RUN corepack enable && corepack prepare pnpm@11.25.0 --activate && pnpm install 
 
 COPY packages/session-state ./packages/session-state
 COPY dashboard ./dashboard
+ENV VITE_POCKETBASE_URL=/
 RUN pnpm --filter @infrareveal/dashboard run build
 
 FROM nginx:1.29-alpine
 
 COPY --from=builder /workspace/dashboard/dist /usr/share/nginx/html
-COPY dashboard/nginx.conf /etc/nginx/conf.d/default.conf
+COPY dashboard/nginx.conf /etc/nginx/templates/default.conf.template
+ENV ADMIN_IP=10.77.0.1
 
 EXPOSE 80

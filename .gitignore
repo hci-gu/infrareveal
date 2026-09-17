@@ -9,3 +9,9 @@ node_modules/
 **/node_modules/
 **/dist/
 *.tsbuildinfo
+
+# Deployment configuration and persistent state
+.env
+secrets/
+data/
+geoip/

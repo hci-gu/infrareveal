@@ -1,11 +1,5 @@
-#!/bin/bash
-
-AP_IFACE="${AP_IFACE:-wlan0}"
-INTERNET_IFACE="${INTERNET_IFACE:-eth0}"
-SSID="${SSID:-Public}"
-CAPTURE_FILE="${CAPTURE_FILE:-/root/data/http-traffic.cap}"
-MAC="${MAC:-random}"
-CHILD=""
+#!/usr/bin/env bash
+set -euo pipefail
 
 cleanup_lab_rules() {
   while iptables -w -C FORWARD -j INFRAREVEAL_LAB 2>/dev/null; do
@@ -22,33 +16,6 @@ cleanup_lab_rules() {
   ipset destroy infrareveal_lab_clients 2>/dev/null || true
 }
 
-# SIGTERM-handler
-term_handler() {
-  cleanup_lab_rules
-  while iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337 2>/dev/null; do
-    iptables -t nat -D PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337
-  done
-  while iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337 2>/dev/null; do
-    iptables -t nat -D PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337
-  done
-  iptables -t nat -D PREROUTING -i "$AP_IFACE" -p udp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || true
-  iptables -t nat -D PREROUTING -i "$AP_IFACE" -p tcp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || true
-  iptables -t nat -D POSTROUTING -o "$INTERNET_IFACE" -j MASQUERADE
-  iptables -D FORWARD -i "$INTERNET_IFACE" -o "$AP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT
-  iptables -D FORWARD -i "$AP_IFACE" -o "$INTERNET_IFACE" -j ACCEPT
-
-  /etc/init.d/dnsmasq stop
-  /etc/init.d/hostapd stop
-  /etc/init.d/dbus stop
-
-  if [ -n "$CHILD" ] && kill -0 "$CHILD" 2>/dev/null; then
-    kill -TERM "$CHILD" 2>/dev/null || true
-    wait "$CHILD" 2>/dev/null || true
-  fi
-
-  echo "received shutdown signal, exiting."
-}
-
 if [ "${INFRAREVEAL_ENTRYPOINT_LIBRARY_ONLY:-false}" = "true" ]; then
   if [ "${BASH_SOURCE[0]}" != "$0" ]; then
     return 0
@@ -56,109 +23,57 @@ if [ "${INFRAREVEAL_ENTRYPOINT_LIBRARY_ONLY:-false}" = "true" ]; then
   exit 0
 fi
 
-# Recover safely from an unclean previous lab run before normal forwarding is
-# configured. The Go controller recreates this empty chain/set only when lab
-# support is explicitly enabled.
+# shellcheck source=scripts/gateway-network.sh
+source /root/scripts/gateway-network.sh
+network_defaults
+# Allow USB enumeration after boot. Missing adapters cause an actionable failure.
+for ((attempt=0; attempt<30; attempt++)); do
+  if ip link show "$AP_IFACE" >/dev/null 2>&1 && ip link show "$ADMIN_IFACE" >/dev/null 2>&1; then
+    break
+  fi
+  sleep 1
+done
+python3 /root/scripts/gateway-preflight.py
+write_network_configs
 cleanup_lab_rules
+configure_firewall
+remove_legacy_rules
 
-# Set AP interface
-ip link set "$AP_IFACE" down
-ip link set "$AP_IFACE" address 02:00:00:00:01:00
-ip link set "$AP_IFACE" up
-
-# Assign static IP and flush existing IPs
-if ! ip addr add 10.0.0.1/24 dev "$AP_IFACE"; then
-  echo "Failed to assign IP 10.0.0.1 to $AP_IFACE"
-  # exit 1
-fi
-
-# Verify interface state
-if ! ip link set "$AP_IFACE" up; then
-  echo "Failed to bring up $AP_IFACE"
-  # exit 1
-fi
-
-# Ensure no lingering processes
-pkill -f dnsmasq
-pkill -f hostapd
-
-# Update configurations
-sed -i "s/^ssid=.*/ssid=$SSID/g" /etc/hostapd/hostapd.conf
-sed -i "s/^interface=.*/interface=$AP_IFACE/g" /etc/hostapd/hostapd.conf
-sed -i "s/^interface=.*/interface=$AP_IFACE/g" /etc/dnsmasq.conf
-
-# wait 2 seconds
-echo "Letting the system settle for 2 seconds"
-sleep 2
-# log that we are continuing
-echo "Continuing with the script"
-
-# Start dbus if not running
-if ! /etc/init.d/dbus status > /dev/null 2>&1; then
-  /etc/init.d/dbus start || {
-    echo "Failed to start dbus"
-    exit 1
-  }
-fi
-
-# Start dnsmasq
-if ! /etc/init.d/dnsmasq start; then
-  echo "dnsmasq failed to start"
-  ip addr show dev "$AP_IFACE"  # Debug interface state
-  exit 1
-fi
-
-# Start hostapd
-if ! /etc/init.d/hostapd start; then
-  echo "hostapd failed to start"
-  exit 1
-fi
-
-# Enable IP forwarding
+# The host must leave both Wi-Fi interfaces unmanaged; Ethernet stays on DHCP.
+for iface in "$AP_IFACE" "$ADMIN_IFACE"; do
+  ip link set "$iface" up
+  ip -4 addr flush dev "$iface"
+done
+ip addr add "$AP_PREFIX.1/24" dev "$AP_IFACE"
+ip addr add "$ADMIN_PREFIX.1/24" dev "$ADMIN_IFACE"
 echo 1 > /proc/sys/net/ipv4/ip_forward
 
-# Configure iptables rules for NAT and traffic forwarding
-iptables -t nat -C POSTROUTING -o "$INTERNET_IFACE" -j MASQUERADE 2>/dev/null || \
-iptables -t nat -A POSTROUTING -o "$INTERNET_IFACE" -j MASQUERADE
-
-iptables -C FORWARD -i "$INTERNET_IFACE" -o "$AP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT 2>/dev/null || \
-iptables -A FORWARD -i "$INTERNET_IFACE" -o "$AP_IFACE" -m state --state RELATED,ESTABLISHED -j ACCEPT
-
-iptables -C FORWARD -i "$AP_IFACE" -o "$INTERNET_IFACE" -j ACCEPT 2>/dev/null || \
-iptables -A FORWARD -i "$AP_IFACE" -o "$INTERNET_IFACE" -j ACCEPT
-
-# Remove stale transparent proxy rules from older InfraReveal runs.
-while iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337 2>/dev/null; do
-  iptables -t nat -D PREROUTING -i "$AP_IFACE" -p tcp --dport 80 -j REDIRECT --to-port 1337
-done
-while iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337 2>/dev/null; do
-  iptables -t nat -D PREROUTING -i "$AP_IFACE" -p tcp --dport 443 -j REDIRECT --to-port 1337
-done
-
-# Keep classic DNS observable by routing client DNS to the local dnsmasq resolver.
-iptables -t nat -C PREROUTING -i "$AP_IFACE" -p udp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || \
-iptables -t nat -A PREROUTING -i "$AP_IFACE" -p udp --dport 53 -j REDIRECT --to-ports 53
-
-iptables -t nat -C PREROUTING -i "$AP_IFACE" -p tcp --dport 53 -j REDIRECT --to-ports 53 2>/dev/null || \
-iptables -t nat -A PREROUTING -i "$AP_IFACE" -p tcp --dport 53 -j REDIRECT --to-ports 53
-
-# Signal handling
-trap term_handler SIGTERM SIGINT
-
-# Start infra-reveal
-if [ -x /root/pb/infra-reveal ]; then
-  /root/pb/infra-reveal serve --http="0.0.0.0:8090" &
-  CHILD=$!
-else
-  echo "infra-reveal binary not found or not executable"
-  exit 1
-fi
-
-wait "$CHILD"
-status=$?
-if [ "$status" -ne 0 ]; then
-  echo "infra-reveal exited with status $status"
+children=()
+# Called by the EXIT trap.
+# shellcheck disable=SC2329
+cleanup() {
+  trap - EXIT TERM INT
   cleanup_lab_rules
-  exit "$status"
-fi
-cleanup_lab_rules
+  for child in "${children[@]}"; do kill -TERM "$child" 2>/dev/null || true; done
+  for child in "${children[@]}"; do wait "$child" 2>/dev/null || true; done
+  # Retain isolation rules if another service is still listening during shutdown.
+}
+trap cleanup EXIT
+trap 'exit 0' TERM INT
+
+hostapd "$CONFIG_DIR/participants.hostapd" "$CONFIG_DIR/admin.hostapd" &
+children+=("$!")
+dnsmasq --keep-in-foreground --conf-file="$CONFIG_DIR/participants.dnsmasq" &
+children+=("$!")
+dnsmasq --keep-in-foreground --conf-file="$CONFIG_DIR/admin.dnsmasq" &
+children+=("$!")
+/root/pb/infra-reveal serve --http=127.0.0.1:8090 --dir=/root/pb/pb_data &
+children+=("$!")
+
+# Any essential daemon exiting restarts the whole gateway through Compose.
+set +e
+wait -n "${children[@]}"
+status=$?
+set -e
+echo "A gateway service exited (status $status); restarting the gateway." >&2
+exit 1

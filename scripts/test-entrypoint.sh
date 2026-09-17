@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# Library mode returns from the sourced entrypoint; ShellCheck also sees its executable exit path.
+# shellcheck disable=SC2317
 set -euo pipefail
 
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
