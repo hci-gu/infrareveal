@@ -1,4 +1,4 @@
-import { isTrafficConnection } from '@infrareveal/session-state'
+import { isTrafficConnection, routeForFlowAt, routeBindingKey } from '@infrareveal/session-state'
 import type { DNSQuery, Destination, Flow, FlowActivityChunk, FlowAssociation, FlowAttribution, GatewayData, Route } from '@infrareveal/session-state'
 import { decodeActivityChunk, type FlowActivitySample } from '../shared/activity/decodeActivityChunk'
 
@@ -152,8 +152,8 @@ export function buildSessionComposition(
   const flows = data.flows.filter(isTrafficConnection)
   const flowIDs = new Set(flows.map((flow) => flow.id))
   const flowsByID = new Map(flows.map((flow) => [flow.id, flow]))
-  const observableRouteKeys = new Set(flows.map((flow) => routeKey(flow.destination_ip, flow.destination_port)))
-  const routes = data.routes.filter((route) => observableRouteKeys.has(routeKey(route.destination_ip, route.destination_port)))
+  const observableRouteKeys = new Set(flows.map((flow) => routeBindingKey(flow)))
+  const routes = data.routes.filter((route) => observableRouteKeys.has(routeBindingKey(route)))
   const attributionsByFlow = new Map(
     data.attributions.filter((item) => flowIDs.has(item.flow)).map((item) => [item.flow, item]),
   )
@@ -164,9 +164,9 @@ export function buildSessionComposition(
   )
   const destinationsByIP = new Map(data.destinations.map((item) => [item.ip, item]))
   const hostnamesByIP = buildHostnameCandidatesByIP(data.dnsQueries)
-  const routesByDestination = new Map(
-    routes.map((route) => [routeKey(route.destination_ip, route.destination_port), route]),
-  )
+  const routeCursor = bounds.sessionEndMs ?? parseTime(data.selectedSession?.ended_at || data.selectedSession?.updated || '', Date.now())
+  const routesByDestination = new Map<string, Route>()
+  for (const flow of flows) {const selected=routeForFlowAt(flow,routes,routeCursor);if(selected) routesByDestination.set(routeBindingKey(flow),selected)}
   const chunksByFlow = new Map<string, FlowActivityChunk[]>()
   for (const chunk of data.flowActivityChunks) {
     if (!flowIDs.has(chunk.flow)) continue
@@ -253,7 +253,7 @@ export function buildSessionComposition(
   const lanesByGroup = new Map<string, TimelineLane>()
   for (const [groupID, groupClips] of clipsByGroup) {
     const routeSignature = groupClips
-      .map((clip) => recordSignature(routesByDestination.get(routeKey(clip.destinationIP, clip.destinationPort))))
+      .map((clip) => recordSignature(routesByDestination.get(routeBindingKey(flowsByID.get(clip.flowId)!))))
       .join('|')
     const cached = projectionCache?.groups.get(groupID)
     if (cached && cached.routeSignature === routeSignature && sameReferences(cached.clips, groupClips)) {
@@ -299,7 +299,7 @@ export function buildSessionComposition(
     totals: {
       flowCount: flows.length,
       attributedCount: attributionsByFlow.size,
-      routeCount: routes.length,
+      routeCount: new Set([...routesByDestination.values()].filter(route => route.hops?.some(h => h.address && h.address !== route.destination_ip)).map(routeBindingKey)).size,
       byteCount: flows.reduce((total, flow) => total + flow.bytes_in + flow.bytes_out, 0),
       packetCount: flows.reduce((total, flow) => total + flow.packets_in + flow.packets_out, 0),
       trafficCountersAvailable: flows.some(
@@ -337,16 +337,20 @@ function buildServiceGroup(
     routeCount: 0,
     associatedFlowCount: 0,
   }
+  const countedRoutes = new Set<string>()
   for (const clip of clips) {
-    const route = routesByDestination.get(routeKey(clip.destinationIP, clip.destinationPort))
+    const route = routesByDestination.get(routeBindingKey(flowsByID.get(clip.flowId)!))
     group.totalBytes += clip.bytes
     group.packetCount += clip.packets
     group.flowCount += flowsByID.has(clip.flowId) ? 1 : 0
     group.firstSeenMs = Math.min(group.firstSeenMs, clip.startMs)
     group.lastSeenMs = Math.max(group.lastSeenMs, clip.endMs)
     group.lastActivityMs = latestTimestamp(group.lastActivityMs, clip.lastActivityMs)
-    group.routeCount += route ? 1 : 0
-    group.routeCompleteCount += route?.complete ? 1 : 0
+    if (route && !countedRoutes.has(route.id) && route.hops?.some(h => h.address && h.address !== route.destination_ip)) {
+      countedRoutes.add(route.id)
+      group.routeCount++
+      if (route.destination_reached ?? route.complete) group.routeCompleteCount++
+    }
     group.associatedFlowCount += (clip.associationRelationship === 'temporally_associated' || clip.associationRelationship === 'domain_alias') ? 1 : 0
     if (!group.destinationIPs.includes(clip.destinationIP)) group.destinationIPs.push(clip.destinationIP)
     if (!group.clientIPs.includes(clip.clientIP)) group.clientIPs.push(clip.clientIP)
@@ -818,10 +822,6 @@ function parseTime(value: string, fallback: number) {
 
 function msToFrame(ms: number) {
   return Math.round((ms / 1000) * FPS)
-}
-
-function routeKey(destinationIP: string, destinationPort: number) {
-  return `${destinationIP}:${destinationPort}`
 }
 
 function compareGroups(left: ServiceGroup, right: ServiceGroup) {

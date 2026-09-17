@@ -50,3 +50,7 @@ export { routeForFlowAt, routeAvailableAt, routeBindingKey, routeMatchesFlow, ro
 
 export { getRouteDiscoveryStatus } from './data/pocketbaseClient'
 export type { RouteDiscoveryStatus } from './data/pocketbaseClient'
+
+export { routeTopology, routeCollectionStateLabel, applyRouteEvidenceAt, previousRouteForFlowAt } from './data/routeEvidence'
+export { measureRoute, extendRouteBudget, getRouteOutcomes } from './data/pocketbaseClient'
+export { useRouteDiscovery } from './data/useRouteDiscovery'

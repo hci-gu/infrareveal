@@ -1,18 +1,47 @@
-# Live route discovery validation
+# Selective route discovery validation
 
-Use the [implementation guide](../implementation-guides/live-route-discovery.md) for configured probe budgets, deployment and diagnostics. Actual Pi CPU, memory, probe rate, persistence latency and sample-to-screen percentiles remain unmeasured; the targets below are acceptance criteria, not performance guarantees.
+Candidate: working tree, 17 September 2026. The [implementation guide](../implementation-guides/live-route-discovery.md) documents current semantics. The older investigation below is retained as historical context, not validation of this rewrite.
 
-## Timing contract
+## Local results
 
-Target visible traffic and route state in under two seconds normally, with a five-second deadline on a healthy gateway and connected dashboard. Show a compatible cached route, newly measured partial evidence or explicit pending/unknown state. Missing route information must not hold back traffic.
+| Check | Result |
+| --- | --- |
+| 5,200 silent progress publications | Zero routes, observations, outcomes or budget records created by progress |
+| Repeated identical completed useful topology | One route, one observation, one current outcome; finite callback idempotency |
+| 1,000 automatic destination admissions | Twenty admitted; eviction/restart cannot restore allowance |
+| Five fully silent two-method comparisons | Ten attempts; zero routes; five outcomes; persistent network pause |
+| Visibility pause expiry | One no-gain trial closes discovery again |
+| Storage | Snapshot limit, conservative byte limit, rejected geometry retaining terminal outcome, transaction deduplication |
+| Source changes | Persistent context invalidates previous source after restart; one event/context change |
+| Playback | Exact IP/protocol/port; no future confirmation/enrichment; authoritative network epochs; compact gaps |
+| Workspace | Frontend tests, lint and production builds pass (existing large-chunk warnings remain) |
+| Go | All packages and routing race suite pass; ARMv7 and ARM64 cross-builds pass |
+| Audit/compaction | Read-only dry run leaves data untouched; exact duplicates only; different availability retained; SQLite backup retains pre-compaction copy |
 
-Fresh discovery of every hop and its geography cannot be guaranteed. Routers can suppress replies and replying IPs can lack coordinates. A disconnected browser, overloaded gateway or cold burst exceeding worker capacity must expose delayed/pending state.
+The read-only local database audit found **zero route rows** in a 294,912-byte database. It is not the reported 5,200-row recording. That recording's contribution from queue ticks, retries, cached copies and genuinely different measurements remains unmeasured. No recording was compacted or deleted.
 
-For immediate worker admission, the proposed cold-route budget is one second for flow discovery, 250 ms for scheduling, three seconds for probing and 500 ms for persistence/delivery/rendering: 4.75 seconds. A cache hit skips probing. Queued destinations still need visible state within the display deadline even when measurement arrives later.
+## Actual engine qualification
 
-## Automated checks
+Disposable Debian Bookworm ARM64 container, `scamper=20211212-1.1`, `--network none`, private sender/router/destination namespaces. The fixture changes only its own namespace addresses/firewall rules. The real executable tests establish:
 
-From the repository root:
+- IPv4 TCP, UDP Paris and ICMP Paris recover a deliberately dropped first-hop response; one-query baseline misses it.
+- IPv6 TCP and ICMP Paris reach the endpoint through a responding intermediate interface.
+- IPv4 TCP through NAT preserves the gateway source identity and terminal evidence.
+- Cancellation without a complete JSON result produces unknown probe extent, not invented `no_reply`/`not_probed` facts.
+- All seven diagnostic profiles capture candidate ICMP headers before deliberate INPUT filtering; the clean-input comparison also passes with zero kernel capture drops.
+- Production structured results must match the reserved engine sequence, method and TCP/UDP source/destination ports. Negative decoder fixtures reject another attempt/port/method. A persistent scalar prevents immediate synthetic source-port reuse across restart/session changes.
+
+**Qualified exception:** UDP Paris over IPv6 failed in this exact engine/runtime: capture saw outgoing probes and returning ICMPv6 but the JSON contained no matched replies. Datalink receive and error-queue trials did not fix it. Automatic IPv6 UDP bindings therefore use the verified **ICMP Paris approximation**, one method only, within the same budgets. The adapter refuses an explicit unsupported UDPv6 automatic profile. The independent diagnostic retains UDPv6 for investigation. This is an engine qualification limitation, not evidence that the destination or ISP drops traffic.
+
+The executable's [documented trace options](https://manpages.debian.org/bookworm/scamper/scamper.1.en.html#TRACE_OPTIONS) specify per-hop attempts, pacing, flow identifiers and whole-task output. The initial adapter cannot recover unflushed replies from a killed process. The diagnostic reports candidate responder IPs present in capture but absent from decoding; this is not packet-by-packet matching. Dedicated delayed-packet injection, exhaustive matching accounting and the ARMv7 executable matrix remain release qualification work; cross-compilation is not equivalent to those tests.
+
+## Browser checks
+
+The loopback fixture supports `POST /__fixture {"routes":true,"count":8}`. It supplies a fully located path, a reached path with TTL 3–12 unknown, an unlocated useful partial path, shared-access outcome and endpoint-only fallback. No gateway records are written.
+
+Verified the production map's exact connection selection and unlocated path details; the topology strip retains interface addresses and collapses silent positions. Verified recorded Traffic selection: before route availability the inspector showed an unknown intermediate route; at the recording end it showed TTLs 1, 2, 3–12 unknown and 13 with zero located interfaces. Also verified reached-with-gaps and endpoint-only explanations; current collection controls stay out of closed-session playback. Screenshots are under `output/playwright/routes-*.png`. Shared selector tests additionally enforce event availability before/after seeking, including confirmations and enrichment. These screenshots are fixture verification, not measured before/after Pi results.
+
+## Reproduce automated checks
 
 ```bash
 pnpm test
@@ -24,42 +53,22 @@ pnpm build
 (cd pocketbase && GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build ./...)
 ```
 
-Run the routing suite on Linux with the traceroute executable shipped in the proxy image as well. Parser-only tests cannot establish progressive publication: the real executable/pipe tests must verify output framing, draining on cancellation and TCP/UDP loopback behavior.
+Build the routing test binary for the container architecture and run `scripts/test-route-coverage-netns.sh /path/to/routing.test` inside a disposable Linux container with namespace/raw-socket capabilities and the shipped tools. The script covers IPv4, IPv6, NAT, filtered replies and cancellation; it needs no Internet connection.
 
-`scripts/test-route-coverage-netns.sh /path/to/routing.test` runs the real coverage engine and diagnostic tool in private sender/router/destination namespaces. Build the test binary with `go test -c ./routing` for the container architecture. Run in a disposable Linux container with `ip`, `iptables`, `traceroute`, `scamper`, `tcpdump` and namespace/raw-socket capabilities. Use `--network none`; the test creates its own veth links and needs no Internet access. It cleans up its namespaces and changes no host firewall rules.
+## Outstanding physical gateway acceptance
 
-Retain deterministic integration coverage for:
+Use the same recorded demand and matching cold/warm-cache Pi sessions for minimal browsing, SVT, YouTube and Spotify. Record build/configuration, duration, targets, attempts, useful bindings/snapshots, outcomes/cache/events, total serialized bytes and physical SQLite growth, measured packets/second including control traffic, CPU/RSS, and browser latency.
 
-1. **Shared reuse:** a new session receives compatible cached evidence with its original age; simultaneous callers share one attempt. A failed refresh neither erases useful evidence nor renews its age.
-2. **Priority and bounds:** a cold burst of 79 destinations followed by a high-volume stream promotes that stream ahead of low-volume backlog. Assert worker/output/queue limits, fair starts and bounded memory. Do not expect all cold probes within five seconds.
-3. **Progressive output:** publish partial snapshots before exit; handle split reads, missing final newline, timeout, IPv6 and unreachable markers without discarding received evidence.
-4. **Background repair:** a repair can improve coverage while foreground work proceeds or preempts it. Different attempts and alternate methods remain separate paths.
-5. **Temporal correctness:** seeking before a reply, location update or cache binding excludes later evidence. Check protocol/port compatibility, expiry, network changes, pause/resume, reset/restart, clear and cache-retention boundaries. Results must stay attached to the correct session.
-6. **Delivery and history:** recover dropped/out-of-order route and activity events through bounded reconciliation. Independently paginate route history, including a range's preceding revision and routes for closed flows. Long live recordings must not retain every revision in overview state.
-7. **Map projection:** directional bursts traverse all displayed segments with continuous phase. Gaps, co-located hops, missing geography and absent activity stay distinguishable. Unknown destination geography must not hide a located route prefix. Incoming traffic uses the labeled gateway-route approximation; it is not a measured return path.
+1. Audit an export or offline copy of the actual 5,200-row recording. Preserve it; report aggregates, not inferred causes.
+2. Require at least 98% fewer newly written routes in the matched reproduction, zero status-only/duplicate routes, and no useful fixture-path loss below budgets. The independent ceilings remain 100 snapshots and 16 MiB.
+3. Verify healthy observed-traffic/status visibility within five seconds. Measure useful remote-hop latency separately; no response-time guarantee is made.
+4. Confirm restart/session changes/clearing observations cannot replenish limits; collection pauses must leave forwarding and activity observation working.
+5. Qualify the actual ARMv7 image if that is the deployment platform; repeat configured dual-stack and delayed-reply cases on the gateway.
+6. Exercise rollback with an additive-migrated recording and run the bounded capture diagnostic on the affected uplink. Determine transmission/reception/matching/parsing/display loss only from observed evidence.
 
-## Raspberry Pi workload
+No Pi deployment, matched workload, affected-uplink diagnosis or actual-recording compaction was performed in this implementation run.
 
-Deploy a candidate build and start a fresh session. Repeat SVT video, YouTube and Spotify with cold and warm route caches. Start another session to verify reuse; a CDN choosing another IP requires a new measurement.
-
-Measure from gateway observation time to visible browser state, including persistence and delivery. Capture the route status API alongside browser timings. Compare representative paths with a lower-concurrency probe to determine whether the fast profile sacrifices replies. Verify the retired scheduler does not run alongside the routing module.
-
-| Pi / OS / commit / configuration | Cold cache | Warm cache |
-| --- | --- | --- |
-| First traffic/state latency p50 / p95 / maximum | | |
-| First useful hop / destination-reached latency | | |
-| Directional sample-to-screen delay | | |
-| Recent-byte route coverage | | |
-| Reached destinations / replying hops / located hops | | |
-| Cache hits / stale hits / attempts per key | | |
-| Queue age / deferred demand / worker utilization | | |
-| Probe packets per second, including responses and resets | | |
-| Persistence latency / failures | | |
-| CPU / memory / route-history payload and cache size | | |
-
-Keep cache freshness, destination reachability, responding hops and geographic coverage separate. The status API's measured-byte coverage requires at least one usable responding hop; it does not imply a complete or located route.
-
-Attach completed measurements and deadline misses to the release or issue. Tune worker count and pacing from Pi evidence; automatic rate adaptation remains follow-up work.
+---
 
 ## Coverage implementation checks — 10 September 2026
 

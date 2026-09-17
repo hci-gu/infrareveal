@@ -2,6 +2,13 @@ package observer
 
 import "testing"
 
+func TestDualStackCIDRsExcludeBothGatewayAddresses(t *testing.T) {
+	scope := NewObservationScope("10.0.0.0/24,fd00::/64", "10.0.0.1, fd00::1")
+	if !scope.Includes("tcp", "fd00::50", "2606:4700:4700::1111", 443) || scope.Includes("tcp", "fd00::1", "2606:4700:4700::1111", 443) || scope.ContainsClient("10.0.1.50") {
+		t.Fatal("incorrect dual-stack observation boundary")
+	}
+}
+
 func TestObservationScopeIncludesOnlyRemoteClientTraffic(t *testing.T) {
 	scope := NewObservationScope("10.0.0.", "10.0.0.1")
 	tests := []struct {

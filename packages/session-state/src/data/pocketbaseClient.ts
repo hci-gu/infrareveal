@@ -11,6 +11,7 @@ import type {
   GatewayData,
   GateEvent,
   Route,
+  RouteEvidenceUpdate,
   Session,
   SessionManifest,
   SessionWindow,
@@ -111,13 +112,21 @@ export async function getGatewayData(
     flowActivityWindows: [],
     flowActivityStatuses,
     destinations,
-    routes,
+    routes: await attachRouteUpdates(routes, sessionFilter),
     gateEvents: [],
   }
 }
 
 export async function getSessions(signal?: AbortSignal) {
   return listAllRecords<Session>('sessions', { sort: '-created', signal })
+}
+
+async function attachRouteUpdates(routes: Route[], filter?: string, signal?: AbortSignal): Promise<Route[]> {
+  if (!routes.length) return routes
+  const updates = await listOptionalRecords<RouteEvidenceUpdate & {session: string; network_context: string; binding_key: string}>('route_evidence_updates', {filter, sort:'available_at', signal})
+  return routes.map(route => ({...route, evidence_updates: updates.filter(event => event.session === route.session && (
+    event.binding_key === route.id || (event.kind === 'network_invalidated' && event.network_context === route.network_context && event.available_at > (route.available_at || route.completed_at))
+  ))}))
 }
 
 export async function getSessionManifest(sessionId: string, signal?: AbortSignal) {
@@ -298,7 +307,7 @@ export async function getCollectionSessionWindow({
     flowActivityWindows,
     flowActivityStatuses,
     destinations,
-    routes,
+    routes: await attachRouteUpdates(routes, sessionFilter, signal),
     gateEvents,
     nextCursor: null,
   }
@@ -692,5 +701,18 @@ class RealtimeClient {
 
 const realtime = new RealtimeClient()
 
-export type RouteDiscoveryStatus = {coverage_running?: number; reached_byte_coverage?: number; located_byte_coverage?: number; hop_coverage?: number; pending: number; running: number; starts: number; cache_hits: number; failures: number; deferred: number; oldest_wait_ms: number; last_error: string; measured_byte_coverage: number; recent_bytes: number}
+export type RouteOutcome = {key: string; session: string; binding_key: string; value: {class: string; reason: string; status: string; destination_ip: string; destination_port: number; protocol: string; measured_at: string}}
+export type RouteDiscoveryStatus = {access_context?: Array<{prefix: Array<{ttl: number; addresses: string[]}>; witnesses: Array<{ip: string; attempt: string; at: string}>}>; session?: string; engine?: string; useful_paths?: number; unique_useful_bindings?: number; no_gain_attempts?: number; suppressed_attempts?: number; duplicate_publications_avoided?: number; evidence_bytes_written?: number; budget_remaining?: number; manual_remaining?: number; targets?: Array<{destination_ip: string; destination_port: number; protocol: string; state: string}>;coverage_running?: number; reached_byte_coverage?: number; located_byte_coverage?: number; hop_coverage?: number; pending: number; running: number; starts: number; cache_hits: number; failures: number; deferred: number; oldest_wait_ms: number; last_error: string; measured_byte_coverage: number; recent_bytes: number}
 export function getRouteDiscoveryStatus(signal?: AbortSignal) { return requestJSON<RouteDiscoveryStatus>('/api/infrareveal/routes/status', signal) }
+
+export async function measureRoute(flowId: string) {
+ const response=await fetch(`${baseUrl}/api/infrareveal/routes/measure`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({flow_id:flowId})})
+ if (!response.ok) throw new Error((await response.json()).message || 'Unable to request measurement')
+}
+export async function extendRouteBudget() {
+ const response=await fetch(`${baseUrl}/api/infrareveal/routes/extend-budget`,{method:'POST'})
+ if (!response.ok) throw new Error('Unable to extend route budget')
+}
+export function getRouteOutcomes(session: string, signal?: AbortSignal) {
+ return listAllRecords<RouteOutcome>('route_outcomes',{filter:`session="${session}"`,signal})
+}

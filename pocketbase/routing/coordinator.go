@@ -1,63 +1,105 @@
+// Package routing collects a finite set of useful gateway route approximations.
 package routing
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net/netip"
 	"os"
 	"sort"
-	"strings"
 	"sync"
 	"time"
 
 	"github.com/oschwald/geoip2-golang"
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 )
 
+type TargetStatus struct {
+	IP       string `json:"destination_ip"`
+	Protocol string `json:"protocol"`
+	Port     int    `json:"destination_port"`
+	State    string `json:"state"`
+}
 type Stats struct {
-	CoverageRunning      int     `json:"coverage_running"`
-	ReachedByteCoverage  float64 `json:"reached_byte_coverage"`
-	LocatedByteCoverage  float64 `json:"located_byte_coverage"`
-	HopCoverage          float64 `json:"hop_coverage"`
-	RecentBytes          int64   `json:"recent_bytes"`
-	MeasuredByteCoverage float64 `json:"measured_byte_coverage"`
-	Pending              int     `json:"pending"`
-	Running              int     `json:"running"`
-	Starts               int     `json:"starts"`
-	CacheHits            int     `json:"cache_hits"`
-	Deferred             int     `json:"deferred"`
-	Failures             int     `json:"failures"`
-	OldestWaitMS         int64   `json:"oldest_wait_ms"`
-	LastError            string  `json:"last_error"`
-	Network              string  `json:"network_context"`
-	UpdatedAt            string  `json:"updated_at"`
+	CoverageRunning      int              `json:"coverage_running"`
+	ReachedByteCoverage  float64          `json:"reached_byte_coverage"`
+	LocatedByteCoverage  float64          `json:"located_byte_coverage"`
+	HopCoverage          float64          `json:"hop_coverage"`
+	RecentBytes          int64            `json:"recent_bytes"`
+	MeasuredByteCoverage float64          `json:"measured_byte_coverage"`
+	Pending              int              `json:"pending"`
+	Running              int              `json:"running"`
+	Starts               int              `json:"starts"`
+	CacheHits            int              `json:"cache_hits"`
+	Deferred             int              `json:"deferred"`
+	Failures             int              `json:"failures"`
+	OldestWaitMS         int64            `json:"oldest_wait_ms"`
+	LastError            string           `json:"last_error"`
+	Network              string           `json:"network_context"`
+	Session              string           `json:"session"`
+	UpdatedAt            string           `json:"updated_at"`
+	Engine               string           `json:"engine"`
+	UsefulPaths          int              `json:"useful_paths"`
+	UniqueUseful         int              `json:"unique_useful_bindings"`
+	NoGain               int              `json:"no_gain_attempts"`
+	Suppressed           int              `json:"suppressed_attempts"`
+	Duplicates           int              `json:"duplicate_publications_avoided"`
+	EvidenceBytes        int              `json:"evidence_bytes_written"`
+	Attempts             int              `json:"attempts"`
+	RouteRows            int              `json:"route_rows_written"`
+	UsefulPerAttempt     float64          `json:"useful_paths_per_attempt"`
+	UsefulPerKiB         float64          `json:"useful_paths_per_kib"`
+	AttemptsRemaining    int              `json:"budget_remaining"`
+	ManualRemaining      int              `json:"manual_remaining"`
+	Targets              []TargetStatus   `json:"targets"`
+	Access               []accessEvidence `json:"access_context"`
 }
 type demand struct {
-	plan             probePlan
-	target           target
-	session, key     string
-	first, last      time.Time
-	buckets          map[int64]int64
-	cache            cacheEntry
-	loaded, bound    bool
-	running          bool
-	cancel           context.CancelFunc
-	slow             bool
-	generation       uint64
-	retryPublication time.Time
+	target                         target
+	session, key                   string
+	first, last                    time.Time
+	buckets                        map[int64]int64
+	cache                          cacheEntry
+	loaded, bound, running, manual bool
+	state                          string
+	generation                     uint64
+	cancel                         context.CancelFunc
+	retryPublication               time.Time
+	pending                        *progress
 }
 
 func (d *demand) weight(now time.Time) int64 {
 	var total int64
 	for sec, n := range d.buckets {
-		if sec < now.Add(-10*time.Second).Unix() {
+		if sec < now.Add(-30*time.Second).Unix() {
 			delete(d.buckets, sec)
 		} else {
 			total += n
 		}
 	}
 	return total
+}
+func (d *demand) qualified(now time.Time, minimum int64) bool {
+	if d.weight(now) >= minimum {
+		return true
+	}
+	var first, last int64
+	count := 0
+	for sec, n := range d.buckets {
+		if n > 0 {
+			count++
+			if first == 0 || sec < first {
+				first = sec
+			}
+			if sec > last {
+				last = sec
+			}
+		}
+	}
+	return count >= 3 && last-first >= 10
 }
 
 type counter struct {
@@ -70,7 +112,10 @@ type progress struct {
 	value      snapshot
 	terminal   bool
 }
-
+type manualRequest struct {
+	FlowID string
+	Reply  chan error
+}
 type Coordinator struct {
 	mu             sync.Mutex
 	intake         map[string]Flow
@@ -78,6 +123,7 @@ type Coordinator struct {
 	stats          Stats
 	reset          chan chan struct{}
 	done           chan struct{}
+	requests       chan manualRequest
 	repo           repository
 	config         Config
 	probe          prober
@@ -87,20 +133,23 @@ type Coordinator struct {
 
 func Start(ctx context.Context, app core.App, geo *geoip2.Reader, session func() string, config Config) *Coordinator {
 	version := "unknown"
-	if file, err := os.Stat("./geoip/city.mmdb"); err == nil {
-		version = fmt.Sprintf("%d/%d", file.Size(), file.ModTime().Unix())
+	if f, e := os.Stat("./geoip/city.mmdb"); e == nil {
+		version = fmt.Sprintf("%d/%d", f.Size(), f.ModTime().Unix())
 	}
-	c := &Coordinator{intake: map[string]Flow{}, reset: make(chan chan struct{}), done: make(chan struct{}), repo: repository{app: app, geo: geo, geoVersion: version, locations: map[string]*Location{}}, config: config, probe: discoveryProbe{fast: commandProbe{deadline: config.FastDeadline}, quality: coverageProbe{deadline: config.QualityDeadline}}, session: session, network: networkContext}
+	var engine prober = coverageProbe{deadline: config.QualityDeadline}
+	if config.Engine == "legacy" {
+		engine = commandProbe{deadline: config.QualityDeadline}
+	}
+	c := &Coordinator{intake: map[string]Flow{}, reset: make(chan chan struct{}), done: make(chan struct{}), requests: make(chan manualRequest, 10), repo: repository{app: app, geo: geo, geoVersion: version, locations: map[string]*Location{}, config: config}, config: config, probe: engine, session: session, network: networkContext}
 	go c.run(ctx)
 	return c
 }
-
-// Observe only copies committed counters. Disk and process work never occurs
-// on the conntrack caller. Repeated updates coalesce to their latest counter.
 func (c *Coordinator) Observe(f Flow) {
-	if _, err := netip.ParseAddr(f.IP); err != nil || f.Session == "" || (f.Protocol != "tcp" && f.Protocol != "udp") {
+	ip, e := netip.ParseAddr(f.IP)
+	if e != nil || f.Session == "" || (f.Protocol != "tcp" && f.Protocol != "udp") || f.Port < 1 || f.Port > 65535 {
 		return
 	}
+	f.IP = ip.Unmap().String()
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	key := f.Session + "|" + f.ID
@@ -113,7 +162,13 @@ func (c *Coordinator) Observe(f Flow) {
 	}
 	c.intake[key] = f
 }
-func (c *Coordinator) Status() Stats { c.mu.Lock(); defer c.mu.Unlock(); return c.stats }
+func (c *Coordinator) Status() Stats {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	s := c.stats
+	s.Targets = append([]TargetStatus(nil), s.Targets...)
+	return s
+}
 func (c *Coordinator) Reset() {
 	ack := make(chan struct{})
 	select {
@@ -125,26 +180,46 @@ func (c *Coordinator) Reset() {
 	case <-c.done:
 	}
 }
-
+func (c *Coordinator) Measure(ctx context.Context, flowID string) error {
+	req := manualRequest{flowID, make(chan error, 1)}
+	select {
+	case c.requests <- req:
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		return fmt.Errorf("route discovery stopped")
+	}
+	select {
+	case e := <-req.Reply:
+		return e
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-c.done:
+		return fmt.Errorf("route discovery stopped")
+	}
+}
+func (c *Coordinator) ExtendBudget() error { return c.repo.extend(c.session()) }
 func (c *Coordinator) run(ctx context.Context) {
 	defer close(c.done)
+	c.repo.config = c.config
 	ticker := time.NewTicker(c.config.Interval)
 	defer ticker.Stop()
-	updates := make(chan progress, c.config.Workers*4)
-	// A cancelled subprocess may still be draining pipes. Keep its worker
-	// lease across resets and network/session changes until it actually exits.
-	slots := make(chan struct{}, c.config.Workers)
-	coverageSlots := make(chan struct{}, 1)
-	var coverageUnavailableUntil time.Time
+	updates := make(chan progress, 4)
+	enricher := newInterfaceEnricher()
+	defer enricher.close()
+	var workers sync.WaitGroup
+	defer workers.Wait()
+	// A cancelled child retains its lease until pipes and process have exited.
+	slots := make(chan struct{}, 1)
 	networks := make(chan string, 1)
 	go func() {
 		timer := time.NewTicker(2 * time.Second)
 		defer timer.Stop()
 		for {
-			key, err := c.network()
-			if err == nil {
+			n, e := c.network()
+			if e == nil {
 				select {
-				case networks <- key:
+				case networks <- n:
 				case <-ctx.Done():
 					return
 				}
@@ -156,14 +231,16 @@ func (c *Coordinator) run(ctx context.Context) {
 			}
 		}
 	}()
-	network := "unknown:" + hash(fmt.Sprint(time.Now().UnixNano()))
+	// A failed context lookup must not replenish persisted limits on restart.
+	network := "unknown"
 	demands := map[string]*demand{}
 	counters := map[string]counter{}
+	session := ""
 	var generation uint64
-	var starts, hits, failures, deferred int
+	starts, hits, failures, deferred := 0, 0, 0, 0
 	lastPrune := time.Now()
-	lastLog := time.Now()
-	lastSession := ""
+	lastDone := time.Time{}
+	lastError := ""
 	cancelAll := func() {
 		for _, d := range demands {
 			if d.cancel != nil {
@@ -172,18 +249,30 @@ func (c *Coordinator) run(ctx context.Context) {
 		}
 	}
 	defer cancelAll()
-	save := func(d *demand, s snapshot, state, source string, now time.Time) bool {
-		entry, err := c.repo.publish(d.key, network, d.session, d.target, d.cache, s, state, source, now)
-		if err != nil {
-			c.mu.Lock()
-			c.stats.LastError = err.Error()
-			c.mu.Unlock()
+	apply := func(d *demand, p progress, now time.Time) bool {
+		s := p.value
+		next, e := c.repo.publish(d.key, network, d.session, d.target, d.cache, s, s.Status, "measured", now)
+		if e != nil {
+			lastError = e.Error()
 			d.retryPublication = now.Add(time.Second)
-			log.Printf("route publication failed: %v", err)
+			d.pending = &p
 			return false
 		}
-		d.cache = entry
+		d.cache = next
+		d.pending = nil
 		d.retryPublication = time.Time{}
+		if p.terminal {
+			d.running = false
+			d.cancel = nil
+			lastDone = now
+			d.state = s.Status
+			if s.Status == "failed" {
+				failures++
+			}
+			if s.Error != "" {
+				lastError = s.Error
+			}
+		}
 		return true
 	}
 	for {
@@ -203,104 +292,66 @@ func (c *Coordinator) run(ctx context.Context) {
 			if next == network {
 				continue
 			}
-			now := time.Now().UTC()
-			if err := c.repo.invalidateSession(c.session(), network, now); err != nil {
-				log.Printf("route network invalidation: %v", err)
-
+			if e := c.repo.activateNetwork(c.session(), next, time.Now().UTC()); e != nil {
+				lastError = e.Error()
 				continue
 			}
 			cancelAll()
 			generation++
 			demands = map[string]*demand{}
 			network = next
-		case update := <-updates:
-			d := demands[update.key]
-			if d == nil || d.generation != update.generation {
+		case req := <-c.requests:
+			if c.config.Engine == "off" {
+				req.Reply <- fmt.Errorf("route engine disabled")
 				continue
 			}
-			now := time.Now().UTC()
-			s := c.repo.enrich(update.value, d.target)
-			if update.terminal {
-				d.running = false
-				d.cancel = nil
+			f, e := c.repo.app.FindRecordById("flows", req.FlowID)
+			if e != nil || f.GetString("session") != c.session() {
+				req.Reply <- fmt.Errorf("select an observed flow in the active session")
+				continue
 			}
-			d.cache.Last = s
-			if d.cache.Methods == nil {
-				d.cache.Methods = map[string]snapshot{}
+			t := target{f.GetString("destination_ip"), f.GetString("protocol"), f.GetInt("destination_port")}
+			ip, parseErr := netip.ParseAddr(t.IP)
+			if parseErr != nil || (t.Protocol != "tcp" && t.Protocol != "udp") || t.Port < 1 || t.Port > 65535 {
+				req.Reply <- fmt.Errorf("unsupported flow")
+				continue
 			}
-			methodOld := d.cache.Methods[s.Method]
-			methodTTL := time.Minute
-			if methodOld.Reached {
-				methodTTL = c.config.StaleTTL
-			}
-			if s.replies() > 0 && (now.Sub(methodOld.Measured) > methodTTL || betterSnapshot(methodOld, s)) {
-				d.cache.Methods[s.Method] = s
-			}
-			old := d.cache.Best
-			if s.replies() > 0 && (!now.Before(d.cache.ValidUntil) || betterSnapshot(old, s)) {
-				d.cache.Best = s
-				d.cache.FreshUntil = now.Add(time.Minute)
-				d.cache.ValidUntil = now.Add(time.Minute)
-				if s.Reached {
-					d.cache.FreshUntil = now.Add(c.config.FreshTTL)
-					d.cache.ValidUntil = now.Add(c.config.StaleTTL)
+			t.IP = ip.Unmap().String()
+			key := t.key(network)
+			d := demands[key]
+			if d == nil {
+				if len(demands) >= c.config.MaxPending {
+					req.Reply <- fmt.Errorf("route queue full")
+					continue
 				}
+				d = &demand{target: t, session: c.session(), key: key, first: time.Now(), buckets: map[int64]int64{}}
+				demands[key] = d
 			}
-			if update.terminal {
-				if s.Error != "" && s.Status != "cancelled" {
-					c.mu.Lock()
-					c.stats.LastError = s.Error
-					c.mu.Unlock()
-				}
-				if d.slow {
-					if s.Status == "cancelled" {
-						d.cache.QualityNext = now.Add(2 * time.Second)
-					} else {
-						d.cache.QualityIndex++
-						d.cache.QualityNext = now.Add(15 * time.Second)
-						if d.cache.QualityIndex%3 == 0 {
-							d.cache.QualityNext = now.Add(10 * time.Minute)
-						}
-						capabilityError := strings.ToLower(s.Error)
-						if strings.Contains(capabilityError, "executable file not found") || strings.Contains(capabilityError, "operation not permitted") || strings.Contains(capabilityError, "permission denied") {
-							coverageUnavailableUntil = now.Add(time.Minute)
-						}
-					}
-				} else if d.cache.QualityNext.IsZero() {
-					d.cache.QualityNext = now.Add(5 * time.Second)
-				}
-				if s.Status == "cancelled" {
-					d.cache.RetryAt = now.Add(time.Second)
-				} else if s.Reached {
-					d.cache.Failures = 0
-					d.cache.RetryAt = d.cache.FreshUntil
-				} else {
-					failures++
-					d.cache.Failures++
-					backoff := []time.Duration{15 * time.Second, time.Minute, 5 * time.Minute}[min(d.cache.Failures-1, 2)]
-					d.cache.RetryAt = now.Add(backoff + time.Duration(starts%5)*time.Second)
-				}
+			if d.running || d.manual {
+				req.Reply <- nil
+				continue
 			}
-			state := s.Status
-			if d.cache.Best.Reached && !s.Reached {
-				state = "refreshing"
-				if update.terminal {
-					state = "cached"
-				}
+			d.manual = true
+			d.last = time.Now()
+			req.Reply <- nil
+		case p := <-updates:
+			d := demands[p.key]
+			if d == nil || d.generation != p.generation {
+				continue
 			}
-			source := "measured"
-			if s.Method != "" && methodProtocol(s.Method) != d.target.Protocol {
-				source = "alternate"
-			}
-			save(d, s, state, source, now)
+			apply(d, p, time.Now().UTC())
 		case now := <-ticker.C:
 			active := c.session()
-			if active != lastSession {
+			if active != session {
+				if err := c.repo.activateNetwork(active, network, now); err != nil {
+					lastError = err.Error()
+					continue
+				}
 				cancelAll()
 				generation++
 				demands = map[string]*demand{}
 				counters = map[string]counter{}
-				lastSession = active
+				session = active
 			}
 			c.mu.Lock()
 			incoming := c.intake
@@ -309,7 +360,7 @@ func (c *Coordinator) run(ctx context.Context) {
 			c.intake = map[string]Flow{}
 			c.mu.Unlock()
 			for id, f := range incoming {
-				if active == "" || f.Session != active {
+				if f.Session != active || active == "" {
 					continue
 				}
 				t := target{f.IP, f.Protocol, f.Port}
@@ -317,18 +368,8 @@ func (c *Coordinator) run(ctx context.Context) {
 				d := demands[key]
 				if d == nil {
 					if len(demands) >= c.config.MaxPending {
-						var victim *demand
-						for _, candidate := range demands {
-							if !candidate.running && (victim == nil || candidate.last.Before(victim.last)) {
-								victim = candidate
-							}
-						}
-						if victim != nil && now.Sub(victim.last) > 10*time.Second {
-							delete(demands, victim.key)
-						} else {
-							deferred++
-							continue
-						}
+						deferred++
+						continue
 					}
 					d = &demand{target: t, session: active, key: key, first: f.At, last: f.At, buckets: map[int64]int64{}}
 					demands[key] = d
@@ -343,220 +384,210 @@ func (c *Coordinator) run(ctx context.Context) {
 					delta = f.Bytes
 				}
 				if exists {
-					delta = f.Bytes - previous.bytes
-					if delta < 0 {
-						delta = 0
-					}
+					delta = max(0, f.Bytes-previous.bytes)
 				}
 				counters[id] = counter{f.Bytes, f.At}
 				d.last = f.At
 				d.buckets[f.At.Unix()] += delta
 			}
-			for id, count := range counters {
-				if now.Sub(count.at) > time.Minute {
+			for id, v := range counters {
+				if now.Sub(v.at) > time.Minute {
 					delete(counters, id)
 				}
 			}
-			ranked := make([]*demand, 0, len(demands))
-			var recentBytes, coveredBytes, reachedBytes, locatedBytes int64
-			var hopCoverage float64
-			for _, d := range demands {
-				ranked = append(ranked, d)
-				weight := d.weight(now)
-				recentBytes += weight
-				if d.cache.Best.replies() > 0 && now.Before(d.cache.ValidUntil) {
-					coveredBytes += weight
-					if d.cache.Best.Reached {
-						reachedBytes += weight
-					}
-					if d.cache.Best.located() > 0 {
-						locatedBytes += weight
-					}
-					hopCoverage += float64(weight) * d.cache.Best.coverage()
-				}
-			}
-			sort.Slice(ranked, func(i, j int) bool {
-				a, b := ranked[i].weight(now), ranked[j].weight(now)
-				if a != b {
-					return a > b
-				}
-				return ranked[i].key < ranked[j].key
-			})
-			important := map[string]bool{}
-			var coveredPriority int64
-			for _, d := range ranked {
-				if len(important) > 0 && float64(coveredPriority) >= float64(recentBytes)*0.9 {
-					break
-				}
-				important[d.key] = true
-				coveredPriority += d.weight(now)
-			}
-			var queue []*demand
-			running, background := 0, 0
+			ranked := []*demand{}
 			for key, d := range demands {
-				weight := d.weight(now)
-				if d.running {
-					running++
-					if d.slow {
-						background++
-					}
-					continue
+				if d.pending != nil && !now.Before(d.retryPublication) {
+					apply(d, *d.pending, now)
 				}
-				if now.Sub(d.last) > time.Minute {
+				if now.Sub(d.last) > time.Minute && !d.running && !d.manual && d.pending == nil {
 					delete(demands, key)
 					continue
 				}
-				if now.Before(d.retryPublication) {
-					continue
-				}
 				if !d.loaded {
-					entry, err := c.repo.load(key)
+					e, err := c.repo.load(key)
 					if err != nil {
-						d.retryPublication = now.Add(time.Second)
+						lastError = err.Error()
 						continue
 					}
-					d.cache = entry
+					d.cache = e
 					d.loaded = true
 				}
-				if !d.bound {
-					state, source := "queued", "measured"
-					if d.cache.Best.replies() > 0 && now.Before(d.cache.ValidUntil) {
-						state, source = "cached", "cache"
-					}
-					if !save(d, snapshot{Location: c.repo.location(d.target.IP)}, state, source, now) {
+				if !d.bound && d.cache.Best.Attempt != "" && now.Before(d.cache.ValidUntil) {
+					_, err := c.repo.publish(key, network, active, d.target, d.cache, d.cache.Best, "cached", "cache", now)
+					if err != nil {
+						lastError = err.Error()
 						continue
 					}
 					d.bound = true
-					if source == "cache" {
-						hits++
-					}
+					hits++
 				}
-				if !d.retryPublication.IsZero() {
-					save(d, d.cache.Last, d.cache.Last.Status, "measured", now)
-					continue
+				if !d.running && d.pending == nil && (d.manual || d.qualified(now, c.config.MinBytes)) {
+					ranked = append(ranked, d)
+				} else if !d.running {
+					d.state = "low_activity"
 				}
-				needsCoverage := !d.cache.Best.Reached || d.cache.Best.coverage() < 1
-				repair := important[d.key] && needsCoverage && d.cache.Last.Attempt != "" && !now.Before(d.cache.QualityNext) && !now.Before(coverageUnavailableUntil)
-				fastDue := !now.Before(d.cache.RetryAt) && (!d.cache.Best.Reached || !now.Before(d.cache.FreshUntil))
-				if !repair && !fastDue {
-					continue
-				}
-				d.plan = probePlan{}
-				if repair && len(coverageSlots) == 0 {
-					d.plan = probePlan{Quality: true, Method: qualityMethods(d.target)[d.cache.QualityIndex%3]}
-				} else if !fastDue {
-					continue
-				}
-
-				if now.Sub(d.first) > 10*time.Second && weight == 0 {
-					continue
-				}
-				queue = append(queue, d)
 			}
-			sort.Slice(queue, func(i, j int) bool {
-				a, b := queue[i], queue[j]
+			sort.Slice(ranked, func(i, j int) bool {
+				a, b := ranked[i], ranked[j]
+				if a.manual != b.manual {
+					return a.manual
+				}
 				wa, wb := a.weight(now), b.weight(now)
-				if a.plan.Quality != b.plan.Quality {
-					return !a.plan.Quality
-				}
-				if important[a.key] != important[b.key] {
-					return important[a.key]
-				}
-				if a.cache.Best.replies() == 0 && b.cache.Best.replies() > 0 {
-					return true
-				}
-				if b.cache.Best.replies() == 0 && a.cache.Best.replies() > 0 {
-					return false
-				}
 				if wa != wb {
 					return wa > wb
 				}
-				if !a.first.Equal(b.first) {
-					return a.first.Before(b.first)
-				}
-				return a.key < b.key
+				return a.first.Before(b.first)
 			})
-			// Reclaim only a background repair; foreground processes get their short deadline.
-			if len(queue) > 0 && running >= c.config.Workers && background > 0 {
-				for _, d := range demands {
-					if d.running && d.slow && (!queue[0].plan.Quality || d.weight(now) < queue[0].weight(now)) {
-						d.cancel()
+			if len(ranked) > 10 {
+				for _, d := range ranked[10:] {
+					d.state = "not_selected"
+				}
+				ranked = ranked[:10]
+			}
+			if c.config.Engine != "off" && len(slots) == 0 && now.Sub(lastDone) >= 200*time.Millisecond {
+				for _, d := range ranked {
+					a, err := c.repo.reserve(active, network, d.target, c.config, d.manual, now)
+					if err != nil {
+						lastError = err.Error()
 						break
 					}
-				}
-			}
-			for len(queue) > 0 && len(slots) < c.config.Workers {
-				index := 0
-				if starts%4 == 3 {
-					for i, d := range queue {
-						if d.plan.Quality == queue[0].plan.Quality && d.first.Before(queue[index].first) {
-							index = i
+					if a.Reason != "" {
+						d.state = a.Reason
+						if a.Reason != "paced" {
+							d.manual = false
 						}
-					}
-				}
-				d := queue[index]
-				queue = append(queue[:index], queue[index+1:]...)
-				slow := d.plan.Quality
-				if slow {
-					if len(coverageSlots) > 0 {
 						continue
 					}
-					coverageSlots <- struct{}{}
-					d.cache.QualityNext = now.Add(10 * time.Minute)
-					background++
-				}
-				generation++
-				d.generation = generation
-				d.running = true
-				slots <- struct{}{}
-				d.slow = slow
-				running++
-				starts++
-				jobctx, cancel := context.WithCancel(ctx)
-				d.cancel = cancel
-				state := "probing"
-				if d.cache.Best.replies() > 0 && now.Before(d.cache.ValidUntil) {
-					state = "refreshing"
-				}
-				save(d, snapshot{}, state, "measured", now)
-				go func(key string, g uint64, t target, plan probePlan) {
-					if plan.Quality {
-						defer func() { <-coverageSlots }()
-					}
-					defer func() { <-slots }()
-					emit := func(s snapshot, terminal bool) {
+					generation++
+					d.generation = generation
+					d.running = true
+					d.manual = false
+					d.state = "probing"
+					starts++
+					slots <- struct{}{}
+					job, cancel := context.WithCancel(ctx)
+					d.cancel = cancel
+					workers.Add(1)
+					go func(key string, g uint64, t target, a admission) {
+						defer workers.Done()
+						defer func() { <-slots; cancel() }()
+						revision := 0
+						lastProgress := time.Time{}
+						emit := func(s snapshot, terminal bool) {
+							revision++
+							s.Attempt = a.Attempt
+							s.Revision = revision
+							if s.Method == "" {
+								s.Method = a.Method
+							}
+							select {
+							case updates <- progress{key, g, s, terminal}:
+							case <-ctx.Done():
+							}
+						}
+						s := c.probe.Run(job, t, probePlan{Quality: true, Method: a.Method, Sequence: a.Sequence, SourcePort: a.SourcePort}, func(s snapshot) {
+							if time.Since(lastProgress) >= time.Second {
+								lastProgress = time.Now()
+								emit(s, false)
+							}
+						})
+						if s.Finished.IsZero() {
+							s.Finished = time.Now().UTC()
+						}
+						if classifyRouteEvidence(s, t, nil).Class == "useful_path" {
+							s = enricher.enrich(job, s)
+						}
+						emit(s, true)
 						select {
-						case updates <- progress{key, g, s, terminal}:
+						case <-time.After(200 * time.Millisecond):
 						case <-ctx.Done():
 						}
-					}
-					s := c.probe.Run(jobctx, t, plan, func(s snapshot) { emit(s, false) })
-					emit(s, true)
-					cancel()
-				}(d.key, d.generation, d.target, d.plan)
+					}(d.key, d.generation, d.target, a)
+					break
+				}
 			}
-			oldest := int64(0)
-			for _, d := range queue {
-				oldest = max(oldest, now.Sub(d.first).Milliseconds())
+			b := sessionBudget{}
+			if active != "" {
+				_, loaded, e := loadSessionBudget(c.repo.app, active)
+				if e == nil {
+					b = loaded
+				} else {
+					lastError = e.Error()
+				}
+			}
+			stats := Stats{Network: network, Session: active, Engine: c.config.Engine, Running: len(slots), Starts: starts, CacheHits: hits, Failures: failures, Deferred: deferred, LastError: lastError, UpdatedAt: date(now), UsefulPaths: b.Snapshots, NoGain: b.NoGain, Duplicates: b.Duplicates, EvidenceBytes: b.Bytes, AttemptsRemaining: max(0, c.config.MaxAttempts+b.ExtraAttempts-b.Attempts), ManualRemaining: max(0, c.config.ManualAttempts-b.Manual), Targets: []TargetStatus{}}
+			for _, v := range b.Targets {
+				if v.Useful {
+					stats.UniqueUseful++
+				}
+			}
+			var measured, reached, located int64
+			for _, d := range demands {
+				if c.config.Engine == "off" {
+					d.state = "disabled"
+				}
+				weight := d.weight(now)
+				stats.RecentBytes += weight
+				if d.cache.Best.Attempt != "" && now.Before(d.cache.ValidUntil) {
+					measured += weight
+					if d.cache.Best.Reached {
+						reached += weight
+					}
+					if d.cache.Best.located() > 0 {
+						located += weight
+					}
+				}
+				stats.Targets = append(stats.Targets, TargetStatus{d.target.IP, d.target.Protocol, d.target.Port, d.state})
+				if d.state == "probing" {
+					continue
+				}
+				if d.state == "negative_cache" || d.state == "visibility_paused" || d.state == "useful_path_saved" || d.state == "comparison_finished" {
+					stats.Suppressed++
+				}
+			}
+			// Outcomes remain explainable after an idle binding leaves demand memory.
+			if active != "" {
+				outcomes, err := c.repo.app.FindRecordsByFilter("route_outcomes", "session={:s}", "", 120, 0, dbx.Params{"s": active})
+				if err == nil {
+					seen := map[string]bool{}
+					for _, v := range stats.Targets {
+						seen[target{v.IP, v.Protocol, v.Port}.binding()] = true
+					}
+					for _, rec := range outcomes {
+						var v outcome
+						data, _ := json.Marshal(rec.Get("value"))
+						if json.Unmarshal(data, &v) == nil && !seen[target{v.IP, v.Protocol, v.Port}.binding()] {
+							stats.Targets = append(stats.Targets, TargetStatus{v.IP, v.Protocol, v.Port, v.Class})
+						}
+					}
+				}
+			}
+			stats.Attempts = b.Attempts + b.Manual
+			stats.RouteRows = b.Snapshots
+			stats.UsefulPerAttempt = float64(stats.UniqueUseful) / float64(max(1, stats.Attempts))
+			stats.UsefulPerKiB = float64(stats.UniqueUseful) * 1024 / float64(max(1, b.Bytes))
+			sort.Slice(stats.Targets, func(i, j int) bool { return stats.Targets[i].IP < stats.Targets[j].IP })
+			den := float64(max(1, stats.RecentBytes))
+			stats.MeasuredByteCoverage = float64(measured) / den
+			stats.ReachedByteCoverage = float64(reached) / den
+			stats.LocatedByteCoverage = float64(located) / den
+			stats.Pending = max(0, len(ranked)-len(slots))
+			for _, f := range []string{"ipv4", "ipv6"} {
+				n := networkBudget{}
+				_, e := loadState(c.repo.app, "network:"+network+":"+f, &n)
+				if e == nil && len(n.Access.Witnesses) >= 3 {
+					stats.Access = append(stats.Access, n.Access)
+				}
 			}
 			c.mu.Lock()
-			lastErr := c.stats.LastError
-			coverage := float64(0)
-			if recentBytes > 0 {
-				coverage = float64(coveredBytes) / float64(recentBytes)
-			}
-			denominator := float64(max(recentBytes, 1))
-			c.stats = Stats{CoverageRunning: len(coverageSlots), ReachedByteCoverage: float64(reachedBytes) / denominator, LocatedByteCoverage: float64(locatedBytes) / denominator, HopCoverage: hopCoverage / denominator, RecentBytes: recentBytes, MeasuredByteCoverage: coverage, Pending: len(queue), Running: len(slots), Starts: starts, CacheHits: hits, Deferred: deferred, Failures: failures, OldestWaitMS: oldest, LastError: lastErr, Network: network, UpdatedAt: date(now)}
+			c.stats = stats
 			c.mu.Unlock()
 			if now.Sub(lastPrune) > time.Minute {
-				if err := c.repo.prune(now); err != nil {
-					log.Printf("route cache retention: %v", err)
+				if e := c.repo.prune(now); e != nil {
+					log.Printf("route retention: %v", e)
 				}
 				lastPrune = now
-			}
-			if now.Sub(lastLog) > 10*time.Second {
-				log.Printf("route discovery pending=%d running=%d starts=%d cache_hits=%d failures=%d oldest_wait_ms=%d", len(queue), running, starts, hits, failures, oldest)
-				lastLog = now
 			}
 		}
 	}

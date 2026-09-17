@@ -90,14 +90,17 @@ func (b *outputBuffer) copy() ([]byte, bool) {
 
 func (p commandProbe) Run(parent context.Context, t target, plan probePlan, publish func(snapshot)) snapshot {
 	deadline := p.deadline
-	outstanding, wait := "8", "0.5"
+	outstanding, wait := "1", "1"
 
 	ctx, cancel := context.WithTimeout(parent, deadline)
 	defer cancel()
 	started := time.Now().UTC()
-	s := snapshot{Engine: "traceroute", Profile: "fast", Attempt: hash(fmt.Sprintf("%s/%d", t.binding(), started.UnixNano()))[:24], Method: t.method(), Started: started, Measured: started, Status: "probing"}
-	args := []string{"-n", "-q", "1", "-m", "32", "-N", outstanding, "-w", wait, "-z", "0.04"}
-	if t.Protocol == "tcp" {
+	s := snapshot{Engine: "traceroute", Profile: "selective-legacy", Attempt: hash(fmt.Sprintf("%s/%d", t.binding(), started.UnixNano()))[:24], Method: t.method(), Started: started, Measured: started, Status: "probing"}
+	args := []string{"-n", "-q", "1", "-m", "32", "-N", outstanding, "-w", wait, "-z", "0.2"}
+	if plan.Method == "icmp-paris" {
+		args = append(args, "-I")
+		s.Method = "icmp"
+	} else if t.Protocol == "tcp" {
 		args = append(args, "-T", "-p", strconv.Itoa(t.Port))
 	} else if t.Protocol == "udp" {
 		args = append(args, "-U", "-p", strconv.Itoa(t.Port))
@@ -187,7 +190,11 @@ func (p commandProbe) Run(parent context.Context, t target, plan probePlan, publ
 			}
 			s.ProbedTTL = highest
 			if !s.Reached && highest < 32 {
-				s.Hops = append(s.Hops, Hop{TTL: highest + 1, Missing: true, State: "not_probed", Timings: []float64{}})
+				state := "not_probed"
+				if s.Error != "" {
+					state = "unknown"
+				}
+				s.Hops = append(s.Hops, Hop{TTL: highest + 1, EndTTL: 32, Missing: true, State: state, Timings: []float64{}})
 			}
 			return s
 		}

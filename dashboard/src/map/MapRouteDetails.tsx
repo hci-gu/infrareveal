@@ -1,5 +1,5 @@
 import type { Route } from '@infrareveal/session-state'
-import { parseEpoch, routeStateLabel, routeAvailableAt } from '@infrareveal/session-state'
+import { parseEpoch, routeStateLabel, routeAvailableAt, routeTopology } from '@infrareveal/session-state'
 import { hasMapCoordinates, orderedRouteHops } from './mapRoutes'
 import { formatCursor } from './format'
 
@@ -8,17 +8,19 @@ export function MapRouteDetails({ route, cursorMs = routeAvailableAt(route) }: {
   const replies = hops.filter(hop => !hop.missing && hop.address)
   const located = replies.filter(hop => hasMapCoordinates(hop.lat, hop.lon))
   return <details className="atlas-route-details">
-    <summary><span>Traceroute <b>{routeStateLabel(route, cursorMs)}</b></span><small>{replies.length} replies · {located.length} located · {formatCursor(parseEpoch(route.measured_at || route.completed_at || route.available_at, 0))} UTC</small></summary>
-    <p className="atlas-route-explanation">Located routers shape the map path. Dashed spans bridge unanswered or unlocated hops; their path is approximate.</p>
+    <summary><span>Traceroute <b>{routeStateLabel(route, cursorMs)}</b></span><small>{replies.length} responding TTL positions · {located.length} located interfaces · {formatCursor(parseEpoch(route.measured_at || route.completed_at || route.available_at, 0))} UTC</small></summary>
+    <p className="atlas-route-explanation">The map approximates the route between located interface IPs. All connecting lines are inferred; dashed spans indicate unknown sections.</p>
     {route.probe_details?.profile === 'coverage' && <p>Coverage pass · {route.probe_details.probe_count} probes · {Math.round((route.probe_details.hop_coverage ?? 0) * 100)}% of probed hop positions answered.</p>}
+    <ol className="atlas-topology-strip" aria-label="Observed route topology">{routeTopology(route).map(segment => <li key={segment.from}><small>TTL {segment.from}{segment.to > segment.from ? `–${segment.to}` : ''}</small><strong>{segment.label}</strong>{segment.state === 'ambiguous' && <small>Multiple observed responders</small>}</li>)}</ol>
     <ol className="atlas-route-hops">{hops.map((hop, i) => {
       const timings = (hop.timings ?? []).filter(value => Number.isFinite(value) && value >= 0)
       const located = !hop.missing && hasMapCoordinates(hop.lat, hop.lon)
       return <li key={`${hop.ttl}:${i}`} className={located ? 'is-located' : 'is-unlocated'} value={hop.ttl}>
-        <span className="atlas-hop-ttl">{hop.ttl}</span>
+        <span className="atlas-hop-ttl">{hop.ttl}{hop.end_ttl ? `–${hop.end_ttl}` : ''}</span>
         <span className="atlas-hop-description">
-          <strong>{hop.state === 'not_probed' ? 'Not probed' : hop.state === 'pending' ? 'Awaiting reply' : hop.missing ? 'No response' : hop.hostname || hop.address || 'Unknown responder'}</strong>
+          <strong>{hop.state === 'not_probed' ? 'Not probed' : hop.state === 'pending' ? 'Awaiting reply' : hop.missing ? 'Unobserved segment' : hop.hostname || hop.address || 'Unknown responder'}</strong>
           {hop.state === 'multipath' && <small>Multiple responders: {[...new Set(hop.replies?.map(reply => reply.address) ?? [])].join(', ')}. Connections through this hop are uncertain.</small>}
+          {hop.interface_evidence?.[hop.address] && <small>{[hop.interface_evidence[hop.address].ptr, hop.interface_evidence[hop.address].origin_asn ? `AS${hop.interface_evidence[hop.address].origin_asn}` : '', hop.interface_evidence[hop.address].organization].filter(Boolean).join(' · ')}</small>}
           {!hop.missing && hop.hostname && hop.hostname !== hop.address && <small>{hop.address}</small>}
           <small>{located ? [hop.city, hop.country].filter(Boolean).join(', ') || 'Approximate location' : hop.missing ? 'Path unknown' : 'Location unavailable'}</small>
           {located && hop.accuracy_km != null && <small>GeoIP estimate · {hop.accuracy_km} km radius</small>}
@@ -35,7 +37,7 @@ export function MapRouteDetails({ route, cursorMs = routeAvailableAt(route) }: {
       <ol className="atlas-route-alternatives">{alternative.hops?.map(hop => <li key={hop.ttl} value={hop.ttl}>{hop.state === 'not_probed' ? 'Not probed' : hop.address || 'No reply'}{hop.city ? ` · ${hop.city}` : ''}{hop.state === 'multipath' && <small>Multiple responders: {[...new Set(hop.replies?.map(reply => reply.address) ?? [])].join(', ')}</small>}</li>)}</ol>
     </details>)}
     {route.error && <p>{route.error}</p>}
-    <small>Incoming volume follows this gateway-measured path; the return path is unmeasured.</small>
+    <small>Traffic animation is associated with this gateway approximation. The return path is unmeasured.</small>
     <small>Gateway probe · {route.method} · reply times are round trips from the gateway</small>
   </details>
 }

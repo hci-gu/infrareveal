@@ -310,6 +310,10 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 	if err != nil {
 		return sessionTimelineWindow{}, http.StatusInternalServerError, err
 	}
+	routePayload, err := exportRouteRecords(app, routes, to)
+	if err != nil {
+		return sessionTimelineWindow{}, http.StatusInternalServerError, err
+	}
 	statuses, _, err := queryTimelinePage(app, "flow_activity_status", []dbx.Expression{
 		dbx.HashExp{"session": sessionID},
 	}, []string{"reported_at DESC"}, 1, 0)
@@ -347,7 +351,7 @@ func buildSessionTimelineWindow(app core.App, sessionID string, query map[string
 		FlowActivityWindows:  exportRecords(windows),
 		FlowActivityStatuses: exportRecords(statuses),
 		Destinations:         exportRecords(destinations),
-		Routes:               exportRecords(routes),
+		Routes:               routePayload,
 		GateEvents:           exportRecords(gateEvents),
 		NextCursor:           nextCursor,
 	}, http.StatusOK, nil

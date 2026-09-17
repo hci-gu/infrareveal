@@ -38,6 +38,13 @@ ip -n "$ROUTER" link set downstream up
 ip -n "$DESTINATION" link set dest up
 ip -n "$SENDER" route add default via 10.249.1.1
 ip -n "$DESTINATION" route add default via 10.249.2.1
+ip -n "$SENDER" -6 addr add fd42:249:1::2/64 dev send nodad
+ip -n "$ROUTER" -6 addr add fd42:249:1::1/64 dev upstream nodad
+ip -n "$ROUTER" -6 addr add fd42:249:2::1/64 dev downstream nodad
+ip -n "$DESTINATION" -6 addr add fd42:249:2::2/64 dev dest nodad
+ip -n "$SENDER" -6 route add default via fd42:249:1::1
+ip -n "$DESTINATION" -6 route add default via fd42:249:2::1
+ip netns exec "$ROUTER" sh -c 'echo 1 > /proc/sys/net/ipv6/conf/all/forwarding'
 ip netns exec "$ROUTER" sh -c 'echo 1 > /proc/sys/net/ipv4/ip_forward; echo 0 > /proc/sys/net/ipv4/icmp_ratelimit'
 ip netns exec "$DESTINATION" sh -c 'echo 0 > /proc/sys/net/ipv4/icmp_ratelimit'
 
@@ -53,6 +60,17 @@ for method in tcp udp-paris icmp-paris; do
   reset_loss
   ip netns exec "$SENDER" env IR_ROUTE_NETNS_CASE="$method" "$ROUTING_TEST_BINARY" -test.run '^TestLinuxCoverageNetwork$' -test.v
 done
+ip netns exec "$ROUTER" iptables -F OUTPUT
+for method in tcp udp-paris icmp-paris; do
+  ip netns exec "$SENDER" env IR_ROUTE_NETNS_CASE="v6-$method" "$ROUTING_TEST_BINARY" -test.run '^TestLinuxWholeTaskBoundaries$' -test.v
+done
+ip netns exec "$ROUTER" iptables -t nat -A POSTROUTING -o downstream -j MASQUERADE
+ip netns exec "$SENDER" env IR_ROUTE_NETNS_CASE=nat "$ROUTING_TEST_BINARY" -test.run '^TestLinuxWholeTaskBoundaries$' -test.v
+ip netns exec "$ROUTER" iptables -t nat -F POSTROUTING
+ip netns exec "$ROUTER" iptables -A FORWARD -j DROP
+ip netns exec "$ROUTER" iptables -A OUTPUT -p icmp -j DROP
+ip netns exec "$SENDER" env IR_ROUTE_NETNS_CASE=cancel "$ROUTING_TEST_BINARY" -test.run '^TestLinuxWholeTaskBoundaries$' -test.v
+ip netns exec "$ROUTER" iptables -F FORWARD
 ip netns exec "$ROUTER" iptables -F OUTPUT
 ip netns exec "$SENDER" iptables -A INPUT -p icmp --icmp-type time-exceeded -j DROP
 ip netns exec "$SENDER" env IR_ROUTE_NETNS_CASE=diagnostic "$ROUTING_TEST_BINARY" -test.run '^TestLinuxRouteDiagnostic$' -test.v

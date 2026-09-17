@@ -198,7 +198,7 @@ function projectDestination(destination: Destination, sessionId?: string): Pipel
 }
 
 function projectRoute(route: Route): PipelineEvent[] {
-  const occurredAtMs = timestamp(route.completed_at)
+  const occurredAtMs = timestamp(route.available_at || route.completed_at)
   if (occurredAtMs === null) return []
   return [recordedEvent({
     id: `route:${route.id}`, sessionId: route.session, traceId: `route:${route.id}`,

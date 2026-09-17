@@ -1,4 +1,4 @@
-import { routeForFlowAt } from '@infrareveal/session-state'
+import { routeForFlowAt, previousRouteForFlowAt, routeCollectionStateLabel, useRouteDiscovery, measureRoute } from '@infrareveal/session-state'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { parseEpoch } from '@infrareveal/session-state'
@@ -57,7 +57,12 @@ export function MapTrackInspector({ track, catalog, cursorMs, traffic, onClose, 
 
 function Connection({ connection, cursorMs, catalog }: { connection: MapConnection; cursorMs: number; catalog: MapTrackCatalog }) {
   const { flow } = connection
+  const live = Boolean(catalog.data.selectedSession?.active)
+  const status = useRouteDiscovery(live)
+  const [measurementMessage, setMeasurementMessage] = useState('')
+  const currentStatus = status?.session === flow.session ? status.targets?.find(item => item.destination_ip === flow.destination_ip && item.protocol === flow.protocol && item.destination_port === flow.destination_port) : undefined
   const selectedRoute = routeForFlowAt(flow, catalog.data.routes, cursorMs)
+  const previousRoute = previousRouteForFlowAt(flow, catalog.data.routes, cursorMs)
   const routes = selectedRoute ? [selectedRoute] : []
   return <details className="atlas-connection" data-flow-id={flow.id}>
     <summary><span className={`atlas-connection-status ${connection.active ? 'is-active' : ''}`} /><span className="atlas-connection-name"><strong>{connection.hostname}</strong><small>{flow.destination_ip}:{flow.destination_port} · {flow.protocol.toUpperCase()}</small></span><span className="atlas-connection-bytes">{formatBytes(connection.bytes)}<small>{connection.mapped ? connection.location || 'Located' : 'Unmapped'}</small></span></summary>
@@ -70,7 +75,9 @@ function Connection({ connection, cursorMs, catalog }: { connection: MapConnecti
       {connection.attribution && <div><dt>Hostname confidence</dt><dd>{connection.attribution.confidence}</dd></div>}
     </dl>
     {routes.map(route => <MapRouteDetails key={route.id} route={route} cursorMs={cursorMs} />)}
-    {!routes.length && <p className="atlas-route-explanation">No traceroute available at this time.{connection.mapped ? ' The map shows an approximate connection to the destination.' : ' This destination has no map location.'}</p>}
+    {previousRoute && <details><summary>Earlier measured approximation</summary><p>Separate measurement; interfaces are not combined with the selected path.</p><MapRouteDetails route={previousRoute} cursorMs={cursorMs} /></details>}
+    {!routes.length && <p className="atlas-route-explanation">Destination known; intermediate route unknown.{connection.mapped ? ' The dashed connection is an endpoint approximation.' : ' This destination has no map location.'}</p>}
+    {live && <><p>{routeCollectionStateLabel(currentStatus?.state)}</p><button type="button" onClick={async () => {try {await measureRoute(flow.id);setMeasurementMessage('Measurement requested within the remaining budget.')} catch(error){setMeasurementMessage(error instanceof Error ? error.message : 'Unable to measure')}}}>Measure this destination</button><p role="status">{measurementMessage}</p></>}
     </div>
   </details>
 }

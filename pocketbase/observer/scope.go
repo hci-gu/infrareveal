@@ -1,6 +1,7 @@
 package observer
 
 import (
+	"myapp/netmeta"
 	"net/netip"
 	"strings"
 )
@@ -26,11 +27,14 @@ func (scope ObservationScope) Includes(protocol, clientIP, destinationIP string,
 	if clientIP == "" || destinationIP == "" {
 		return false
 	}
-	if scope.ClientPrefix != "" && !strings.HasPrefix(clientIP, scope.ClientPrefix) {
+	if scope.ClientPrefix != "" && !scope.ContainsClient(clientIP) {
 		return false
 	}
-	if clientIP == scope.GatewayIP || destinationIP == scope.GatewayIP {
-		return false
+	for _, gateway := range strings.Split(scope.GatewayIP, ",") {
+		gateway = strings.TrimSpace(gateway)
+		if clientIP == gateway || destinationIP == gateway {
+			return false
+		}
 	}
 	if !isPublicDestination(destinationIP) {
 		return false
@@ -45,18 +49,25 @@ func inferredGatewayIP(clientPrefix string) string {
 	return "10.0.0.1"
 }
 
-func isPublicDestination(value string) bool {
+func (scope ObservationScope) ContainsClient(value string) bool {
 	ip, err := netip.ParseAddr(value)
 	if err != nil {
 		return false
 	}
-	return !ip.IsPrivate() &&
-		!ip.IsLoopback() &&
-		!ip.IsLinkLocalUnicast() &&
-		!ip.IsLinkLocalMulticast() &&
-		!ip.IsMulticast() &&
-		!ip.IsUnspecified()
+	ip = ip.Unmap()
+	for _, part := range strings.Split(scope.ClientPrefix, ",") {
+		part = strings.TrimSpace(part)
+		// Compatibility with CLIENT_IP_PREFIX=10.0.0.; internally match a CIDR.
+		if strings.HasSuffix(part, ".") {
+			part += "0/24"
+		}
+		if prefix, err := netip.ParsePrefix(part); err == nil && prefix.Contains(ip) {
+			return true
+		}
+	}
+	return false
 }
+func isPublicDestination(value string) bool { return netmeta.PublicAddress(value) }
 
 func isInfrastructureFlow(protocol string, destinationPort int) bool {
 	protocol = strings.ToLower(protocol)

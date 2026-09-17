@@ -384,3 +384,8 @@
   .atlas-inspector-heading { padding-top: 8px; }
   .atlas-legend { gap: 10px; }
 }
+
+.atlas-topology-strip { display: flex; gap: .65rem; overflow-x: auto; padding: .5rem 0 1rem; list-style: none; }
+.atlas-topology-strip li { flex: 0 0 auto; max-width: 15rem; border: 1px solid #b5bfca; border-radius: .4rem; padding: .5rem; }
+.atlas-topology-strip strong, .atlas-topology-strip small { display: block; overflow-wrap: anywhere; }
+.atlas-topology-strip strong { font: 500 .75rem ui-monospace, monospace; }

@@ -13,6 +13,44 @@ import (
 	"time"
 )
 
+func TestLinuxWholeTaskBoundaries(t *testing.T) {
+	mode := os.Getenv("IR_ROUTE_NETNS_CASE")
+	if mode != "nat" && mode != "cancel" && !strings.HasPrefix(mode, "v6-") {
+		t.Skip("isolated namespace fixture only")
+	}
+	dst := target{IP: "10.249.2.2", Protocol: "tcp", Port: 49999}
+	method := "tcp"
+	if strings.HasPrefix(mode, "v6-") {
+		dst.IP = "fd42:249:2::2"
+		method = strings.TrimPrefix(mode, "v6-")
+	}
+	deadline := 8 * time.Second
+	if mode == "cancel" {
+		deadline = 300 * time.Millisecond
+	}
+	result := (coverageProbe{deadline: deadline}).Run(context.Background(), dst, probePlan{Method: method}, func(snapshot) {})
+	if mode == "v6-udp-paris" {
+		if result.ProbeCount != 0 || !strings.Contains(result.Error, "unsupported probe method") {
+			t.Fatal("unqualified method launched", result)
+		}
+		dst.Protocol = "udp"
+		if methods := qualityMethods(dst); len(methods) != 1 || methods[0] != "icmp-paris" {
+			t.Fatal("missing qualified fallback", methods)
+		}
+		result = (coverageProbe{deadline: deadline}).Run(context.Background(), dst, probePlan{}, func(snapshot) {})
+	}
+	if mode == "cancel" {
+		if result.Error == "" || result.Reached || result.ProbedTTL != 0 || len(result.Hops) != 1 || result.Hops[0].State != "unknown" {
+			t.Fatalf("interrupted output invented probe facts: %+v", result)
+		}
+		return
+	}
+	if !result.Reached || result.replies() != 2 || result.ProbeCount > 64 || result.SourceIP == "" {
+		t.Fatalf("whole task failed %s: %+v", mode, result)
+	}
+	t.Logf("%s: source %s, %d probes, %d responding TTLs", mode, result.SourceIP, result.ProbeCount, result.replies())
+}
+
 func TestLinuxCoverageNetwork(t *testing.T) {
 	method := os.Getenv("IR_ROUTE_NETNS_CASE")
 	if method == "" {
@@ -37,7 +75,7 @@ func TestLinuxCoverageNetwork(t *testing.T) {
 		t.Fatal("unknown namespace test case")
 	}
 	probe := coverageProbe{deadline: 12 * time.Second}
-	result := probe.Run(ctx, target, probePlan{Quality: true, Method: method}, func(snapshot) {})
+	result := probe.Run(ctx, target, probePlan{Quality: true, Method: method, Sequence: 4242, SourcePort: 45551}, func(snapshot) {})
 	if !result.Reached || result.replies() != 2 || result.Hops[0].Address != "10.249.1.1" || result.ProbeCount <= 2 {
 		t.Fatalf("coverage did not recover the dropped router response: %+v", result)
 	}
@@ -59,7 +97,7 @@ func TestLinuxRouteDiagnostic(t *testing.T) {
 	if mode != "diagnostic" && mode != "diagnostic-fast" {
 		t.Skip("run scripts/test-route-coverage-netns.sh")
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	var output bytes.Buffer
 	if err := Diagnose(ctx, "10.249.2.2", 49999, "send", 5*time.Second, 3, &output); err != nil {
@@ -90,8 +128,8 @@ func TestLinuxRouteDiagnostic(t *testing.T) {
 			t.Fatalf("unexpected traceroute response for %s: %+v", mode, row)
 		}
 	}
-	if comparisons != 4 {
+	if comparisons != 7 {
 		t.Fatalf("got %d comparisons", comparisons)
 	}
-	t.Logf("All four profiles captured returning ICMP in %s", mode)
+	t.Logf("All seven profiles captured returning ICMP in %s", mode)
 }

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { Route, SessionWindow } from './types'
 import { emptyGatewayData } from './pocketbaseClient'
-import { routeForFlowAt, routeStateLabel } from './routeEvidence'
+import { routeForFlowAt, routeStateLabel, routeTopology } from './routeEvidence'
 import { applyRealtimeBatch, applySessionWindow, clearDetailPages, resetSessionTimeline, sessionTimelineStore } from '../timeline/store/sessionStore'
 
 const start = Date.parse('2026-09-10T12:00:00Z')
@@ -10,6 +10,27 @@ function route(id: string, at: number, extra: Partial<Route> = {}): Route {
   return { ...socket, id, destination: '', method: 'tcp:443', complete: false, error: '', completed_at: '', available_at: new Date(start + at).toISOString(), valid_until: new Date(start + 60_000).toISOString(), hops: [], ...extra }
 }
 describe('route evidence over time', () => {
+  it('applies confirmation, enrichment and network epochs only at their availability', () => {
+    const at = (n: number) => new Date(start+n).toISOString()
+    const r = route('sparse',100,{valid_until:at(1000),hops:[{ttl:1,address:'1.1.1.1',missing:false,timings:[]}],evidence_updates:[
+      {kind:'confirmed',available_at:at(1500),value:{fresh_until:at(2500),valid_until:at(5000)}},
+      {kind:'enriched',available_at:at(2000),value:{'1':{'1.1.1.1':{origin_asn:13335,source:'fixture',version:'1',available_at:at(2000),confidence:'inferred'}}}},
+      {kind:'network_invalidated',available_at:at(3000),value:{}},
+    ]})
+    expect(routeForFlowAt(socket,[r],start+1100)).toBeNull()
+    expect(routeForFlowAt(socket,[r],start+1600)?.hops?.[0].interface_evidence).toBeUndefined()
+    expect(routeForFlowAt(socket,[r],start+2100)?.hops?.[0].interface_evidence?.['1.1.1.1'].origin_asn).toBe(13335)
+    expect(routeForFlowAt(socket,[r],start+3100)).toBeNull()
+  })
+  it('keeps unlocated responders, unknown spans and unprobed tails distinct', () => {
+    const r = route('topology',100,{hops:[
+      {ttl:1,address:'192.168.1.1',missing:false,timings:[]},
+      {ttl:2,end_ttl:12,address:'',missing:true,state:'no_reply',timings:[]},
+      {ttl:13,address:'9.9.9.9',missing:false,timings:[]},
+      {ttl:14,end_ttl:32,address:'',missing:true,state:'not_probed',timings:[]},
+    ]})
+    expect(routeTopology(r).map(h=>[h.from,h.to,h.label])).toEqual([[1,1,'192.168.1.1'],[2,12,'Unobserved segment'],[13,13,'9.9.9.9'],[14,32,'Not probed']])
+  })
   it('keeps alternate probes separate and reveals them only with their revision', () => {
     const mainHops = [{ttl: 1, address: '1.1.1.1', missing: false, timings: [1]}]
     const first = route('first', 100, {hops: mainHops, provenance: 'cache', measured_at: new Date(start - 60_000).toISOString()})

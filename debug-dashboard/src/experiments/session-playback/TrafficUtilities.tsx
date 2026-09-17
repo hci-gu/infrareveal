@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { getRouteDiscoveryStatus } from '@infrareveal/session-state'
-import type { RouteDiscoveryStatus, Session } from '@infrareveal/session-state'
+import { useRouteDiscovery, extendRouteBudget } from '@infrareveal/session-state'
+import type { Session } from '@infrareveal/session-state'
 import { Link } from 'react-router-dom'
 import { X } from 'lucide-react'
 import type { SessionComposition } from '../../model/sessionModel'
@@ -15,15 +15,8 @@ export function TrafficUtilities({ open, onClose, view, onView, onReset, composi
   const dialog = useRef<HTMLDialogElement>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
-  const [routeStatus, setRouteStatus] = useState<RouteDiscoveryStatus | null>(null)
-  useEffect(() => {
-    if (!open || !session.active) return
-    const controller = new AbortController()
-    let busy = false
-    const update = async () => { if (busy) return; busy = true; try { const status = await getRouteDiscoveryStatus(controller.signal); if (!controller.signal.aborted) setRouteStatus(status) } catch { /* Older gateways have no route diagnostics. */ } finally {busy = false} }
-    void update(); const timer = window.setInterval(update, 2000)
-    return () => {controller.abort();window.clearInterval(timer)}
-  }, [open, session.active])
+  const currentRouteStatus = useRouteDiscovery(open && session.active)
+  const routeStatus = currentRouteStatus?.session === session.id ? currentRouteStatus : null
   const unmatched = composition.captureStatus?.unmatched_events ?? 0
   useEffect(() => { if (open) dialog.current?.showModal(); else dialog.current?.close() }, [open])
   const exportBundle = () => {
@@ -35,7 +28,7 @@ export function TrafficUtilities({ open, onClose, view, onView, onReset, composi
   return <dialog className="traffic-utilities desktop-ui" ref={dialog} onCancel={onClose} onClose={onClose} aria-label="Traffic utilities and settings"><header><h2>Traffic utilities</h2><button type="button" aria-label="Close utilities" onClick={onClose}><X size={16} /></button></header>
     <section><h3>Workspace</h3><label>View<select value={view} onChange={event => { onView(event.target.value as 'timeline' | 'treemap'); onClose() }}><option value="timeline">Timeline</option><option value="treemap">Treemap</option></select></label><button type="button" onClick={() => { onReset(); onClose() }}>Restore default layout</button><Link to="/controlled-client">Open controlled network client ↗</Link></section>
     {unmatched > 0 ? <section><h3>Unmatched observations</h3><p>{unmatched.toLocaleString()} packet observations could not be linked to a saved connection before the matching timeout. This collector total is separate from capture loss and does not mark other connections incomplete.</p><p>The count is cumulative since the collector started, as of this session's last status report.</p></section> : null}
-    {routeStatus && session.active ? <section><h3>Route discovery</h3><p>{routeStatus.running} probing ({routeStatus.coverage_running ?? 0} coverage passes) · {routeStatus.pending} waiting · {routeStatus.cache_hits} cache hits</p><p>{Math.round(routeStatus.measured_byte_coverage * 100)}% of recent bytes have route evidence. Oldest wait: {(routeStatus.oldest_wait_ms / 1000).toFixed(1)}s.</p><p>{Math.round((routeStatus.reached_byte_coverage ?? 0) * 100)}% of recent bytes reach a measured destination · {Math.round((routeStatus.located_byte_coverage ?? 0) * 100)}% have a located hop. Weighted hop coverage: {Math.round((routeStatus.hop_coverage ?? 0) * 100)}%.</p><p>{routeStatus.starts} attempts · {routeStatus.failures} unsuccessful · {routeStatus.deferred} deferred</p>{routeStatus.last_error ? <p>{routeStatus.last_error}</p> : null}<p>Collector totals. Hop coverage and destination reachability can remain partial.</p></section> : null}
+    {routeStatus && session.active ? <section><h3>Selective route discovery</h3><p>{routeStatus.unique_useful_bindings ?? 0} destinations with useful approximations · {routeStatus.useful_paths ?? 0} stored snapshots</p><p>{routeStatus.running} measuring · {routeStatus.budget_remaining ?? '—'} automatic attempts remaining · {routeStatus.manual_remaining ?? '—'} manual attempts remaining</p><p>{Math.round(routeStatus.measured_byte_coverage*100)}% of recent bytes have a useful approximation.</p><p>{routeStatus.no_gain_attempts ?? 0} attempts added no useful path · {routeStatus.duplicate_publications_avoided ?? 0} duplicate publications avoided · {((routeStatus.evidence_bytes_written ?? 0)/1024).toFixed(1)} KiB of evidence</p>{routeStatus.access_context?.map((context,i)=><details key={i}><summary>Shared access context · {context.witnesses.length} measured destinations</summary><p>{context.prefix.map(hop=>`TTL ${hop.ttl}: ${hop.addresses.join(' / ')}`).join(' → ')}</p><p>Observed toward other destinations; not inserted into unmeasured paths.</p></details>)}<p>{routeStatus.failures} engine failures. Unanswered hops are observation limits.</p>{routeStatus.last_error && <p>{routeStatus.last_error}</p>}<button type="button" onClick={async()=>{try{await extendRouteBudget();setMessage('Added 20 targets and 40 attempts. Hourly and storage limits still apply.')}catch(error){setMessage(error instanceof Error ? error.message : 'Unable to extend budget')}}}>Allow 20 more targets this session</button></section> : null}
     <section><h3>Keyboard</h3><p>Space plays/pauses. ← / → steps one second; Shift + arrows steps five seconds. The session scrubber also supports native arrow keys. Focus a pane divider and use arrows to resize it. Escape leaves the expanded workspace.</p></section>
     <section><h3>Recorded export</h3><p>Save the current loaded scene and source times as a deterministic Remotion render bundle. Missing activity stays explicit in the bundle.</p><button type="button" disabled={session.active} onClick={exportBundle}>{session.active ? 'Available for recorded sessions' : 'Download render bundle'}</button></section>
     <section className="danger-zone"><h3>Gateway data</h3><p>Delete all observation and derived activity records. The existing confirmation applies to all sessions.</p><button type="button" disabled={busy} onClick={async () => {

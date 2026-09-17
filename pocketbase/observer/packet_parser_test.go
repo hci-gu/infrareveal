@@ -92,7 +92,7 @@ func TestParsePacketActivityRejectsFragmentsMalformedAndInfrastructure(t *testin
 
 func TestParsePacketActivitySupportsBasicIPv6(t *testing.T) {
 	frame := buildIPv6UDPFrame("fd00::50", "2606:4700:4700::1111", 53000, 443, make([]byte, 24))
-	event, ok := ParsePacketActivityFrame(frame, len(frame), time.Now(), NewObservationScope("fd00:", "fd00::1"))
+	event, ok := ParsePacketActivityFrame(frame, len(frame), time.Now(), NewObservationScope("fd00::/64", "fd00::1"))
 	if !ok {
 		t.Fatal("expected basic IPv6 UDP packet to parse")
 	}

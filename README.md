@@ -22,7 +22,7 @@ See the [documentation index](docs/README.md) for architecture decisions, curren
 - [Proxy Lab implementation and operations](docs/implementation-guides/proxy-lab.md): passive replay/live tracing plus the opt-in flow, strict-packet, and DNS gates.
 - [Proxy Lab Raspberry Pi validation](docs/validation/proxy-lab-raspberry-pi.md): namespace, failure, soak, client, and recovery procedures.
 - [Dashboard browser validation](docs/validation/debug-dashboard.md): fixture, interaction, accessibility, performance and lifecycle checks.
-- [Live route discovery](docs/implementation-guides/live-route-discovery.md): priority scheduling, persistent reuse, progressive paths and diagnostics.
+- [Live route discovery](docs/implementation-guides/live-route-discovery.md): finite useful-path collection, topology display, budgets and diagnostics.
 - [Live route validation](docs/validation/live-route-discovery.md): timing targets, cache/replay checks and pending Pi measurements.
 
 ## Frontend workspace
@@ -92,8 +92,14 @@ Configuration knobs (via env in `docker-compose.yml`):
 - AP_IFACE: AP Wi‑Fi interface (default wlan0)
 - INTERNET_IFACE: uplink interface (default eth0)
 - SSID: Wi‑Fi network name (default Infrareveal)
-- ROUTE_WORKERS: concurrent route probes, validated to 1–8 (default 4)
-- ROUTE_QUALITY_SECONDS: background coverage deadline per method, validated to 15–90 seconds (default 45); fast discovery keeps its separate three-second budget
+- ROUTE_ENGINE: `v2` (Scamper, default), `legacy` (paced traceroute), or `off`; all active engines share the same limits
+- ROUTE_MAX_TARGETS / ROUTE_MAX_ATTEMPTS: 20 targets / 40 automatic attempts per session
+- ROUTE_HOURLY_ATTEMPTS: 40 per network and address family, across sessions/restarts
+- ROUTE_MAX_SNAPSHOTS / ROUTE_MAX_BYTES: 100 useful path snapshots / 16 MiB evidence per session
+- ROUTE_ASN_DB: optional versioned local MaxMind ASN database; missing ASN data leaves the topology visible
+- CLIENT_CIDRS: comma-separated client subnets, default `10.0.0.0/24`; configure IPv6 only on a working dual-stack gateway
+- GATEWAY_IP: gateway addresses excluded from client observations; comma-separated for dual stack, e.g. `10.0.0.1,fd00::1`
+- Discovery uses one worker at five probes/second, at most two methods per selected binding, and stops after useful evidence or repeated no-gain results. Missing hops never trigger indefinite repairs.
 - CONNTRACK_SAMPLE_MS: connection sampling interval, validated to 250–5000 ms (default 1000)
 - PACKET_ACTIVITY_ENABLED: enable header-only packet activity capture (default true)
 - PACKET_ACTIVITY_IFACE: capture interface (defaults to AP_IFACE)

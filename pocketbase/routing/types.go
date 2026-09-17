@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"strconv"
@@ -21,29 +22,32 @@ type Flow struct {
 	At                        time.Time
 }
 type HopReply struct {
-	Address     string   `json:"address"`
-	RTT         *float64 `json:"rtt_ms,omitempty"`
-	ReportedRTT *float64 `json:"reported_rtt_ms,omitempty"`
-	ProbeID     int      `json:"probe_id"`
-	ICMPType    *int     `json:"icmp_type,omitempty"`
-	ICMPCode    *int     `json:"icmp_code,omitempty"`
-	TCPFlags    *int     `json:"tcp_flags,omitempty"`
-	SeenAt      string   `json:"seen_at,omitempty"`
+	Extensions  json.RawMessage `json:"extensions,omitempty"`
+	Address     string          `json:"address"`
+	RTT         *float64        `json:"rtt_ms,omitempty"`
+	ReportedRTT *float64        `json:"reported_rtt_ms,omitempty"`
+	ProbeID     int             `json:"probe_id"`
+	ICMPType    *int            `json:"icmp_type,omitempty"`
+	ICMPCode    *int            `json:"icmp_code,omitempty"`
+	TCPFlags    *int            `json:"tcp_flags,omitempty"`
+	SeenAt      string          `json:"seen_at,omitempty"`
 }
 type Hop struct {
-	Replies    []HopReply `json:"replies,omitempty"`
-	TTL        int        `json:"ttl"`
-	Address    string     `json:"address"`
-	Missing    bool       `json:"missing"`
-	State      string     `json:"state"`
-	Timings    []float64  `json:"timings"`
-	Annotation string     `json:"annotation,omitempty"`
-	City       string     `json:"city,omitempty"`
-	Country    string     `json:"country,omitempty"`
-	Lat        *float64   `json:"lat,omitempty"`
-	Lon        *float64   `json:"lon,omitempty"`
-	AccuracyKM uint16     `json:"accuracy_km,omitempty"`
-	GeoVersion string     `json:"geo_version,omitempty"`
+	EndTTL     int                          `json:"end_ttl,omitempty"`
+	Evidence   map[string]InterfaceEvidence `json:"interface_evidence,omitempty"`
+	Replies    []HopReply                   `json:"replies,omitempty"`
+	TTL        int                          `json:"ttl"`
+	Address    string                       `json:"address"`
+	Missing    bool                         `json:"missing"`
+	State      string                       `json:"state"`
+	Timings    []float64                    `json:"timings"`
+	Annotation string                       `json:"annotation,omitempty"`
+	City       string                       `json:"city,omitempty"`
+	Country    string                       `json:"country,omitempty"`
+	Lat        *float64                     `json:"lat,omitempty"`
+	Lon        *float64                     `json:"lon,omitempty"`
+	AccuracyKM uint16                       `json:"accuracy_km,omitempty"`
+	GeoVersion string                       `json:"geo_version,omitempty"`
 }
 type Location struct {
 	Lat        float64 `json:"lat"`
@@ -60,10 +64,13 @@ type target struct {
 
 func (t target) binding() string           { return fmt.Sprintf("%s|%s|%d", t.IP, t.Protocol, t.Port) }
 func (t target) method() string            { return fmt.Sprintf("%s:%d", t.Protocol, t.Port) }
-func (t target) key(network string) string { return hash(network + "|v1|" + t.binding()) }
+func (t target) key(network string) string { return hash(network + "|v2|" + t.binding()) }
 func hash(s string) string                 { v := sha256.Sum256([]byte(s)); return hex.EncodeToString(v[:]) }
 
 type snapshot struct {
+	StopReason    string    `json:"stop_reason,omitempty"`
+	SourceIP      string    `json:"source_ip,omitempty"`
+	EngineVersion string    `json:"engine_version,omitempty"`
 	Engine        string    `json:"engine,omitempty"`
 	Profile       string    `json:"profile,omitempty"`
 	FlowID        string    `json:"flow_id,omitempty"`
@@ -105,28 +112,45 @@ type cacheEntry struct {
 	Failures     int                 `json:"failures"`
 }
 type Config struct {
-	Workers, MaxPending                                         int
-	Interval, FastDeadline, QualityDeadline, FreshTTL, StaleTTL time.Duration
+	Workers, MaxPending                                                                         int
+	Interval, FastDeadline, QualityDeadline, FreshTTL, StaleTTL                                 time.Duration
+	Engine                                                                                      string
+	MaxTargets, MaxAttempts, HourlyAttempts, ManualAttempts, MaxSnapshots, MaxUpdates, MaxBytes int
+	MinBytes                                                                                    int64
+	Cooldown                                                                                    time.Duration
 }
 
 func ConfigFromEnv() Config {
-	workers := 4
-	if n, e := strconv.Atoi(os.Getenv("ROUTE_WORKERS")); e == nil && n >= 1 && n <= 8 {
-		workers = n
+	engine := os.Getenv("ROUTE_ENGINE")
+	if engine != "legacy" && engine != "off" {
+		engine = "v2"
 	}
-	return Config{Workers: workers, MaxPending: 1024, Interval: 250 * time.Millisecond, FastDeadline: 3 * time.Second, QualityDeadline: time.Duration(envInt("ROUTE_QUALITY_SECONDS", 45, 15, 90)) * time.Second, FreshTTL: 10 * time.Minute, StaleTTL: time.Hour}
+	return Config{Workers: 1, MaxPending: 256, Interval: 250 * time.Millisecond,
+		FastDeadline: 45 * time.Second, QualityDeadline: 45 * time.Second, FreshTTL: 10 * time.Minute, StaleTTL: time.Hour,
+		Engine: engine, MaxTargets: envInt("ROUTE_MAX_TARGETS", 20, 1, 100), MaxAttempts: envInt("ROUTE_MAX_ATTEMPTS", 40, 1, 200),
+		HourlyAttempts: envInt("ROUTE_HOURLY_ATTEMPTS", 40, 1, 200), ManualAttempts: 10,
+		MaxSnapshots: envInt("ROUTE_MAX_SNAPSHOTS", 100, 1, 100), MaxUpdates: 100, MaxBytes: envInt("ROUTE_MAX_BYTES", 16*1024*1024, 65536, 16*1024*1024),
+		MinBytes: 1024 * 1024, Cooldown: 30 * time.Minute}
 }
 
 type probePlan struct {
-	Quality bool
-	Method  string
+	Quality    bool
+	Method     string
+	Sequence   uint32
+	SourcePort int
 }
 
 func qualityMethods(t target) []string {
 	if t.Protocol == "udp" {
-		return []string{"udp-paris", "icmp-paris", "tcp"}
+		// Bookworm 20211212 loses UDPv6 Paris reply correlation in the shipped
+		// Linux namespace fixture. Use the qualified approximation, never a
+		// futile automatic UDP pass. The diagnostic can still compare it.
+		if family(t) == "ipv6" {
+			return []string{"icmp-paris"}
+		}
+		return []string{"udp-paris", "icmp-paris"}
 	}
-	return []string{"tcp", "icmp-paris", "udp-paris"}
+	return []string{"tcp", "icmp-paris"}
 }
 func methodProtocol(method string) string {
 	if strings.HasPrefix(method, "tcp") {
@@ -179,9 +203,7 @@ func betterSnapshot(old, next snapshot) bool {
 	if old.coverage() != next.coverage() {
 		return next.coverage() > old.coverage()
 	}
-	if old.located() != next.located() {
-		return next.located() > old.located()
-	}
+
 	return next.Measured.After(old.Measured)
 }
 func envInt(name string, fallback, minValue, maxValue int) int {

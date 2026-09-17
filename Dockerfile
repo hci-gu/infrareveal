@@ -41,7 +41,7 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
     macchanger \
     iproute2 \
     traceroute \
-    scamper \
+    scamper=20211212-1.1 \
     tcpdump \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*

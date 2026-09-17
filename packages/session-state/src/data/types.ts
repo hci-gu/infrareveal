@@ -167,7 +167,14 @@ export type RouteAlternative = {
   located_hops: number
   probe_details?: RouteProbeDetails
 }
+export type InterfaceEvidence = {geo?: {lat: number; lon: number; accuracy_km?: number; geo_version?: string}; geo_available_at?: string; geo_source?: string; ptr_source?: string; asn_source?: string; ptr?: string; origin_asn?: number; organization?: string; prefix?: string; source: string; version: string; available_at: string; confidence: string}
+export type RouteEvidenceUpdate = {kind: 'confirmed' | 'enriched' | 'network_invalidated'; available_at: string; value: Record<string, unknown>}
 export type Route = {
+  schema_version?: number
+  fingerprint?: string
+  evidence_class?: 'useful_path' | 'access_only' | 'endpoint_only' | 'no_path' | 'indeterminate'
+  evidence_reason?: string
+  evidence_updates?: RouteEvidenceUpdate[]
   id: string
   created?: string
   updated?: string
@@ -196,6 +203,8 @@ export type Route = {
   destination_location?: { lat: number; lon: number; city?: string; country?: string; accuracy_km?: number; geo_version?: string } | null
   hops: Array<{
     ttl: number
+    end_ttl?: number
+    interface_evidence?: Record<string, InterfaceEvidence>
     address: string
     missing: boolean
     state?: string

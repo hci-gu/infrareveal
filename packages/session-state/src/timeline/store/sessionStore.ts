@@ -555,6 +555,11 @@ function removeMissingRelations(
 function upsertEntity(state: SessionTimelineState, collection: keyof EntityMaps, incoming: RecordBase) {
   const map = state.entities[collection] as Map<string, RecordBase>
   const existing = map.get(incoming.id)
+  if (collection === 'routes' && existing) {
+    // A realtime row or an older window must not erase separately loaded events.
+    const events = [...((existing as Route).evidence_updates ?? []), ...((incoming as Route).evidence_updates ?? [])]
+    incoming = {...incoming, evidence_updates: [...new Map(events.map(event => [JSON.stringify(event), event])).values()]} as Route
+  }
   const incomingRevision = entityRevision(collection, incoming)
   const tombstoneKey = entityKey(collection, incoming.id)
   const tombstoneRevision = state.tombstones.get(tombstoneKey)

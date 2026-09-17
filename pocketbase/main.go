@@ -84,11 +84,6 @@ func generateDebugData(app *pocketbase.PocketBase, geoipDB *geoip2.Reader) {
 			continue
 		}
 
-		// Run traceroute
-		if err := lib.RunTraceroute(sessionRecord.Id, app, geoipDB, domain); err != nil {
-			log.Printf("Traceroute error for %s: %v", domain, err)
-		}
-
 		// Simulate packet data
 		aggregator := lib.NewPacketAggregator(recordID, app)
 
@@ -195,7 +190,7 @@ func main() {
 
 		dnsmasqLogPath := envOrDefault("DNSMASQ_LOG_PATH", "/var/log/dnsmasq.log")
 		conntrackPath := envOrDefault("CONNTRACK_PATH", "/proc/net/nf_conntrack")
-		clientPrefix := envOrDefault("CLIENT_IP_PREFIX", "10.0.0.")
+		clientPrefix := envOrDefault("CLIENT_CIDRS", envOrDefault("CLIENT_IP_PREFIX", "10.0.0.0/24"))
 		gatewayIP := envOrDefault("GATEWAY_IP", "10.0.0.1")
 		apInterface := envOrDefault("AP_IFACE", "wlan0")
 		observationScope := observer.NewObservationScope(clientPrefix, gatewayIP)
@@ -203,6 +198,25 @@ func main() {
 		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, currentSessionID, traceSink)
 		routeDiscovery = routing.Start(ctx, app, geoipDB, currentSessionID, routing.ConfigFromEnv())
 		se.Router.GET("/api/infrareveal/routes/status", func(e *core.RequestEvent) error { return e.JSON(http.StatusOK, routeDiscovery.Status()) })
+		se.Router.POST("/api/infrareveal/routes/measure", func(e *core.RequestEvent) error {
+			var request struct {
+				FlowID string `json:"flow_id"`
+			}
+			if err := e.BindBody(&request); err != nil {
+				return e.BadRequestError("Invalid request", err)
+			}
+			if err := routeDiscovery.Measure(e.Request.Context(), request.FlowID); err != nil {
+				return e.BadRequestError(err.Error(), nil)
+			}
+			return e.JSON(http.StatusAccepted, map[string]bool{"accepted": true})
+		})
+		se.Router.POST("/api/infrareveal/routes/extend-budget", func(e *core.RequestEvent) error {
+			if err := routeDiscovery.ExtendBudget(); err != nil {
+				return e.BadRequestError(err.Error(), nil)
+			}
+			return e.JSON(http.StatusOK, map[string]bool{"extended": true})
+		})
+
 		conntrackSampler = observer.StartConntrackSampler(ctx, app, conntrackPath, observationScope, currentSessionID, traceSink, routeDiscovery.Observe)
 		observer.StartPacketActivityObserver(
 			ctx,
@@ -392,6 +406,7 @@ func clearObservationCollections(app *pocketbase.PocketBase) (clearObservationsR
 		"routes",
 		"route_cache",
 		"route_observations",
+		"route_outcomes", "route_evidence_updates",
 		"traceroutes",
 		"packets",
 		"flows",
@@ -564,14 +579,6 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 			aggregator.Flush()
 			recordIDCh <- recordID
 
-			// If this is a new hostname in the current session, run traceroute & geolocate in background.
-			if _, loaded := sessionHostnames.LoadOrStore(hn, true); !loaded {
-				go func() {
-					if err := lib.RunTraceroute(sessionID, app, geoipDB, hn); err != nil {
-						log.Printf("Traceroute error for host %s: %v", hn, err)
-					}
-				}()
-			}
 		}()
 	} else {
 		recordIDCh <- ""

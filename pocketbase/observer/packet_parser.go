@@ -3,7 +3,6 @@ package observer
 import (
 	"encoding/binary"
 	"net/netip"
-	"strings"
 	"time"
 
 	"myapp/netmeta"
@@ -53,7 +52,7 @@ func ParsePacketActivityFrame(frame []byte, wireLength int, observedAt time.Time
 		return PacketActivityEvent{}, false
 	}
 	tuple, direction, err := packet.Orient(func(address netip.Addr) bool {
-		return scope.ClientPrefix != "" && strings.HasPrefix(address.String(), scope.ClientPrefix)
+		return scope.ContainsClient(address.String())
 	})
 	if err != nil || !scope.Includes(packet.Protocol, tuple.ClientIP.String(), tuple.RemoteIP.String(), int(tuple.RemotePort)) {
 		return PacketActivityEvent{}, false

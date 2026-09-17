@@ -17,21 +17,6 @@ import (
 	"time"
 )
 
-// The fast executable streams individual hops. The coverage engine uses Paris
-// probes and retries unanswered TTLs. Four-TTL segments bound time-to-publication
-// and preserve completed segments if a background process is cancelled.
-type discoveryProbe struct {
-	fast    commandProbe
-	quality coverageProbe
-}
-
-func (p discoveryProbe) Run(ctx context.Context, t target, plan probePlan, publish func(snapshot)) snapshot {
-	if plan.Quality {
-		return p.quality.Run(ctx, t, plan, publish)
-	}
-	return p.fast.Run(ctx, t, plan, publish)
-}
-
 type coverageProbe struct {
 	deadline   time.Duration
 	executable string
@@ -48,6 +33,9 @@ func (p coverageProbe) Run(parent context.Context, t target, plan probePlan, pub
 	now := time.Now().UTC()
 	attempt := hash(fmt.Sprintf("quality/%s/%d", t.binding(), now.UnixNano()))[:24]
 	sourcePort := 40000 + int(crc32.ChecksumIEEE([]byte(attempt))%20000)
+	if plan.SourcePort > 0 {
+		sourcePort = plan.SourcePort
+	}
 	method := plan.Method
 	if method == "" {
 		method = qualityMethods(t)[0]
@@ -56,52 +44,40 @@ func (p coverageProbe) Run(parent context.Context, t target, plan probePlan, pub
 	if method != "icmp-paris" {
 		label += ":" + strconv.Itoa(t.Port)
 	}
-	s := snapshot{Attempt: attempt, Method: label, Engine: "scamper", Profile: "coverage", FlowID: fmt.Sprintf("%d/%s/%s/%d", sourcePort, t.IP, method, t.Port), Started: now, Measured: now, Status: "probing"}
+	s := snapshot{Attempt: attempt, Method: label, Engine: "scamper", Profile: "selective", EngineVersion: "20211212-1.1", FlowID: fmt.Sprintf("%d/%s/%s/%d", sourcePort, t.IP, method, t.Port), Started: now, Measured: now, Status: "probing"}
+	if family(t) == "ipv6" && method == "udp-paris" {
+		s.Status = "failed"
+		s.Error = "unsupported probe method: UDP Paris IPv6 is unqualified in Scamper 20211212-1.1; use ICMP Paris"
+		s.Finished = now
+		return s
+	}
 	run := p.run
 	if run == nil {
 		run = p.execute
 	}
-	for from := 1; from <= 32; from += 4 {
-		if from > 1 {
-			// Starting a new process resets scamper's packet clock. Preserve
-			// pacing at segment boundaries too, including very short paths.
-			select {
-			case <-time.After(200 * time.Millisecond):
-			case <-ctx.Done():
-			}
-			if ctx.Err() != nil {
-				break
-			}
-		}
-		to := min(32, from+3)
-		// Bookworm's scamper fails to match terminal TCP replies with parallel
-		// TTL queries. Keep TCP serial; UDP/ICMP retain two outstanding TTLs.
-		queries := 2
-		if method == "tcp" {
-			queries = 1
-		}
-		command := fmt.Sprintf("trace -T -P %s -d %d -s %d -q 3 -w 1 -W 20 -g 32 -N %d -f %d -m %d", method, t.Port, sourcePort, queries, from, to)
-		data, err := run(ctx, []string{"-O", "json", "-O", "rawtcp", "-p", "5", "-c", command, "-i", t.IP})
-		if err != nil {
-			s.Error = err.Error()
-			break
-		}
-		result, err := decodeScamperTrace(data, t, from, to)
-		if err != nil {
-			s.Error = err.Error()
-			break
-		}
-		s.Hops = append(s.Hops, result.Hops...)
-		s.ProbeCount += result.ProbeCount
+	// A single task retains its flow and reply matching state across all TTLs.
+	command := fmt.Sprintf("trace -T -P %s -d %d -s %d -q 2 -w 1 -W 20 -g 32 -N 1 -f 1 -m 32", method, t.Port, sourcePort)
+	command += fmt.Sprintf(" -U %d", plan.Sequence)
+	data, runErr := run(ctx, []string{"-O", "json", "-O", "rawtcp", "-p", "5", "-c", command, "-i", t.IP})
+	result, decodeErr := decodeScamperTrace(data, t, 1, 32, probeIdentity{plan.Sequence, sourcePort, method})
+	if decodeErr == nil {
+		s.Hops = result.Hops
+		s.ProbeCount = result.ProbeCount
 		s.ProbedTTL = result.ProbedTTL
 		s.Reached = result.Reached
+		s.Status = result.Status
+		s.StopReason = result.StopReason
+		s.SourceIP = result.SourceIP
 		s.Measured = time.Now().UTC()
+	} else {
+		s.Error = decodeErr.Error()
+	}
+	if runErr != nil {
+		s.Error = runErr.Error()
+	}
+	if len(s.Hops) > 0 {
 		s.Revision++
 		publish(s)
-		if s.Reached || result.Status == "unreachable" {
-			s.Status = result.Status
-			break
-		}
 	}
 	s.Revision++
 	s.Finished = time.Now().UTC()
@@ -122,7 +98,11 @@ func (p coverageProbe) Run(parent context.Context, t target, plan probePlan, pub
 		}
 	}
 	if !s.Reached && s.ProbedTTL < 32 {
-		s.Hops = append(s.Hops, Hop{TTL: s.ProbedTTL + 1, Missing: true, State: "not_probed", Timings: []float64{}})
+		state := "not_probed"
+		if decodeErr != nil {
+			state = "unknown"
+		}
+		s.Hops = append(s.Hops, Hop{TTL: s.ProbedTTL + 1, EndTTL: 32, Missing: true, State: state, Timings: []float64{}})
 	}
 	return s
 }
@@ -149,52 +129,74 @@ func (p coverageProbe) execute(ctx context.Context, args []string) ([]byte, erro
 }
 
 type scamperHop struct {
-	Address  string  `json:"addr"`
-	TTL      int     `json:"probe_ttl"`
-	ProbeID  int     `json:"probe_id"`
-	RTT      float64 `json:"rtt"`
-	ICMPType *int    `json:"icmp_type"`
-	ICMPCode *int    `json:"icmp_code"`
-	TCPFlags *int    `json:"tcp_flags"`
-	TX       struct {
+	Address        string          `json:"addr"`
+	Extensions     json.RawMessage `json:"icmpext,omitempty"`
+	ICMPExtensions json.RawMessage `json:"icmp_ext,omitempty"`
+	TTL            int             `json:"probe_ttl"`
+	ProbeID        int             `json:"probe_id"`
+	RTT            float64         `json:"rtt"`
+	ICMPType       *int            `json:"icmp_type"`
+	ICMPCode       *int            `json:"icmp_code"`
+	TCPFlags       *int            `json:"tcp_flags"`
+	TX             struct {
 		Sec  int64 `json:"sec"`
 		Usec int64 `json:"usec"`
 	} `json:"tx"`
 }
 
-func decodeScamperTrace(data []byte, t target, from, to int) (snapshot, error) {
+type probeIdentity struct {
+	Sequence   uint32
+	SourcePort int
+	Method     string
+}
+
+func decodeScamperTrace(data []byte, t target, from, to int, identities ...probeIdentity) (snapshot, error) {
 	decoder := json.NewDecoder(bytes.NewReader(data))
 	for {
 		var row struct {
-			Type       string       `json:"type"`
-			IP         string       `json:"dst"`
-			Method     string       `json:"method"`
-			Stop       string       `json:"stop_reason"`
-			First      int          `json:"firsthop"`
-			Count      int          `json:"hop_count"`
-			ProbeCount int          `json:"probe_count"`
-			Hops       []scamperHop `json:"hops"`
+			Sequence        uint32       `json:"userid"`
+			SourcePort      int          `json:"sport"`
+			DestinationPort int          `json:"dport"`
+			Type            string       `json:"type"`
+			Source          string       `json:"src"`
+			IP              string       `json:"dst"`
+			Method          string       `json:"method"`
+			Stop            string       `json:"stop_reason"`
+			First           int          `json:"firsthop"`
+			Count           int          `json:"hop_count"`
+			ProbeCount      int          `json:"probe_count"`
+			Hops            []scamperHop `json:"hops"`
 		}
 		if err := decoder.Decode(&row); err != nil {
 			if err == io.EOF {
-				return snapshot{}, errors.New("scamper produced no completed trace segment")
+				return snapshot{}, errors.New("scamper produced no complete measurement record")
 			}
 			return snapshot{}, err
 		}
 		if row.Type != "trace" {
 			continue
 		}
+		if len(identities) > 0 && identities[0].Sequence != 0 {
+			i := identities[0]
+			method := strings.ReplaceAll(row.Method, "icmp-echo-paris", "icmp-paris")
+			if row.Sequence != i.Sequence || method != i.Method || (method != "icmp-paris" && (row.SourcePort != i.SourcePort || row.DestinationPort != t.Port)) || row.ProbeCount > 64 {
+				return snapshot{}, errors.New("scamper result identity or probe budget mismatch")
+			}
+		}
 		ip, err := netip.ParseAddr(row.IP)
 		targetIP, _ := netip.ParseAddr(t.IP)
 		if err != nil || ip != targetIP || row.First != from || row.Count < from || row.Count > to || row.ProbeCount < 0 || row.ProbeCount > (to-from+1)*3 {
 			return snapshot{}, errors.New("scamper trace does not match the requested target or TTL range")
 		}
-		result := snapshot{ProbeCount: row.ProbeCount, ProbedTTL: row.Count, Status: "partial"}
+		result := snapshot{ProbeCount: row.ProbeCount, ProbedTTL: row.Count, Status: "partial", StopReason: row.Stop, SourceIP: row.Source}
 		hops := map[int]*Hop{}
 		for ttl := from; ttl <= row.Count; ttl++ {
 			hops[ttl] = &Hop{TTL: ttl, Missing: true, State: "no_reply", Timings: []float64{}}
 		}
 		for _, reply := range row.Hops {
+			if len(reply.Extensions) == 0 {
+				reply.Extensions = reply.ICMPExtensions
+			}
 			address, err := netip.ParseAddr(reply.Address)
 			h := hops[reply.TTL]
 			if err != nil || h == nil || reply.RTT < 0 || math.IsNaN(reply.RTT) || math.IsInf(reply.RTT, 0) || len(h.Replies) >= 16 {
@@ -214,7 +216,7 @@ func decodeScamperTrace(data []byte, t target, from, to int) (snapshot, error) {
 			if reply.TX.Sec > 0 && rtt != nil {
 				seen = date(time.Unix(reply.TX.Sec, reply.TX.Usec*1000).Add(time.Duration(reply.RTT * float64(time.Millisecond))))
 			}
-			h.Replies = append(h.Replies, HopReply{Address: address.String(), RTT: rtt, ReportedRTT: reportedRTT, ProbeID: reply.ProbeID, ICMPType: reply.ICMPType, ICMPCode: reply.ICMPCode, TCPFlags: reply.TCPFlags, SeenAt: seen})
+			h.Replies = append(h.Replies, HopReply{Address: address.String(), RTT: rtt, ReportedRTT: reportedRTT, ProbeID: reply.ProbeID, ICMPType: reply.ICMPType, ICMPCode: reply.ICMPCode, TCPFlags: reply.TCPFlags, SeenAt: seen, Extensions: reply.Extensions})
 			h.Missing = false
 			if h.Address == "" {
 				h.Address = address.String()

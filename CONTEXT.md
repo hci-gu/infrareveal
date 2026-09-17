@@ -35,10 +35,13 @@ Milestone 5 destination context is:
 
 - `destinations`: reverse DNS, provider label, and coarse GeoIP context keyed by observed destination IP.
 - `routes`: immutable session revisions of gateway-to-destination evidence, bound by IP, protocol, port, and availability time. A reached destination may still have unanswered hops.
-- `route_observations`: immutable snapshots emitted during individual probe attempts.
-- `route_cache`: persistent network-scoped reuse, freshness, best evidence, and last-attempt state.
+- `route_observations`: bounded evidence bundles for accepted useful snapshots only.
+- `route_cache`: bounded network-scoped useful evidence, retaining its original measurement age.
+- `route_outcomes`: one compact current summary per admitted session binding; not historical playback evidence.
+- `route_budget_state`: persisted session/hour spending, negative suppression and network visibility/capability pauses.
+- `route_evidence_updates`: bounded confirmation/enrichment events and authoritative network invalidations, applied at their availability time.
 
-The `pocketbase/routing` module consumes committed flow counters, prioritizes recent byte volume, and owns bounded probes, cache reuse, retries, and publication. Destination enrichment cannot block discovery. Frontends share `routeForFlowAt` to select evidence known at the playback cursor; route discovery never intercepts client traffic.
+The `pocketbase/routing` module consumes committed flow counters, prioritizes recent byte volume, and owns finite admission, one paced probe, cache reuse and useful-path publication. Defaults are 20 automatic targets, 40 attempts and at most 100 useful snapshots per session. Silent/status-only results never create routes. Once useful evidence is retained, automatic work stops for that binding; five unsuccessful two-method comparisons pause discovery for 30 minutes. Destination enrichment cannot block discovery. Frontends share `routeForFlowAt` to select evidence known at the playback cursor; route discovery never intercepts client traffic.
 
 Attribution work consumes observations and writes separate derived records instead of overwriting raw observations.
 Domain grouping preserves endpoint identity. Every high- or medium-confidence hostname groups by its registered domain; `pocketbase/observer/domain_groups.json` maps explicit alias domains to canonical groups. Subdomains follow their registered domain. Timing, shared providers, CNAME chains, and idle gaps do not establish or split groups. Traffic without usable hostname evidence remains independent. See `docs/implementation-guides/domain-grouping.md`.
