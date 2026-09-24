@@ -1,12 +1,15 @@
-import { useMemo } from 'react'
 import type { CSSProperties } from 'react'
 import { MapIcon } from './MapIcon'
 import { formatElapsed } from './format'
-import { timelineActivity } from './timelineActivity'
+import { waveformCeiling } from './wireWaveform'
+import type { WireBin } from './wireWaveform'
+import type { TrafficDirection } from './mapWorkspace'
 import type { MapTimelineScene } from './mapModel'
 
 type Props = {
   scene: MapTimelineScene
+  bins: WireBin[]
+  direction: TrafficDirection
   endMs: number
   frame: number
   fps: number
@@ -21,15 +24,14 @@ type Props = {
   onFullscreen: () => void
 }
 
-export function MapTransport({ scene, endMs, frame, fps, playing, rate, live, following, onToggle, onSeek, onRate, onLive, onFullscreen }: Props) {
-  const bins = useMemo(() => timelineActivity(scene, endMs), [scene, endMs])
-  const peak = Math.max(1, ...bins)
+export function MapTransport({ scene, bins, direction, endMs, frame, fps, playing, rate, live, following, onToggle, onSeek, onRate, onLive, onFullscreen }: Props) {
+  const peak = waveformCeiling([bins], direction)
   const duration = Math.max(1, (endMs - scene.startMs) / 1000)
   const maxFrame = Math.max(1, Math.floor(duration * fps))
   const progress = Math.min(100, Math.max(0, frame / maxFrame * 100))
 
   return <footer className="atlas-transport" aria-label="Session playback">
-    <div className="atlas-transport-heading"><span><MapIcon name="activity" size={14} />SESSION TIMELINE</span><span className="atlas-timeline-description">Geolocated flow activity</span><span className="atlas-key-hint"><kbd>space</kbd> to play / pause</span></div>
+    <div className="atlas-transport-heading"><span><MapIcon name="activity" size={14} />SESSION TIMELINE</span><span className="atlas-timeline-description">Captured wire rate · selection</span><span className="atlas-key-hint"><kbd>space</kbd> to play / pause</span></div>
     <div className="atlas-transport-body">
       <div className="atlas-playback-buttons">
         <button type="button" className="atlas-icon-button atlas-skip" onClick={() => onSeek(Math.max(0, frame - fps * 10))} aria-label="Back 10 seconds" title="Back 10 seconds"><MapIcon name="rewind" size={19} /></button>
@@ -38,7 +40,7 @@ export function MapTransport({ scene, endMs, frame, fps, playing, rate, live, fo
       </div>
       <div className="atlas-timeline">
         <div className="atlas-timeline-track" style={{ '--progress': `${progress}%` } as CSSProperties}>
-          <div className="atlas-timeline-bars" aria-hidden="true">{bins.map((count, index) => <i key={index} className={index / bins.length * 100 <= progress ? 'is-played' : ''} style={{ height: `${Math.max(5, count / peak * 100)}%` }} />)}</div>
+          <div className="atlas-timeline-bars atlas-directional-bars" aria-hidden="true">{bins.map((bin, index) => <i key={index} className={bin.complete ? "" : "is-partial"}>{bin.observed && <>{direction !== "sent" && <b className="received" style={{ height: `${bin.received / peak * 50}%` }} />}{direction !== "received" && <b className="sent" style={{ height: `${bin.sent / peak * 50}%` }} />}</>}</i>)}</div>
           <div className="atlas-timeline-playhead" aria-hidden="true"><span /></div>
           <input type="range" aria-label="Session timeline" aria-valuetext={`${formatElapsed(frame / fps)} of ${formatElapsed(duration)}`} min={0} max={maxFrame} step={1} value={Math.min(frame, maxFrame)} onChange={(event) => onSeek(Number(event.target.value))} />
         </div>

@@ -6,12 +6,14 @@ import { colorCSS } from './mapTracks'
 import type { MapConnection, MapTrack, MapTrackCatalog, trackTraffic } from './mapTracks'
 import { formatBytes, formatCursor, formatElapsed } from './format'
 import { MapIcon } from './MapIcon'
+import { directionLabel } from './mapWorkspace'
+import type { TrafficDirection } from './mapWorkspace'
 import { MapRouteDetails } from './MapRouteDetails'
 
-type Props = { track: MapTrack; catalog: MapTrackCatalog; cursorMs: number; traffic: ReturnType<typeof trackTraffic>; onClose: () => void; onFit: () => void }
+type Props = { direction: TrafficDirection; track: MapTrack; catalog: MapTrackCatalog; cursorMs: number; traffic: ReturnType<typeof trackTraffic>; onClose: () => void; onFit: () => void }
 const PAGE_SIZE = 40
 
-export function MapTrackInspector({ track, catalog, cursorMs, traffic, onClose, onFit }: Props) {
+export function MapTrackInspector({ direction, track, catalog, cursorMs, traffic, onClose, onFit }: Props) {
   const [tab, setTab] = useState<'connections' | 'evidence'>('connections')
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
@@ -36,7 +38,7 @@ export function MapTrackInspector({ track, catalog, cursorMs, traffic, onClose, 
   return <section ref={panel} tabIndex={-1} className="atlas-track-inspector" aria-label={`${track.label} track details`} style={{ '--track-color': colorCSS(track.color) } as CSSProperties} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
     <header className="atlas-inspector-heading"><span><i className="atlas-track-dot" />SELECTED TRACK</span><button className="atlas-icon-button" type="button" aria-label="Close track details" onClick={onClose}><MapIcon name="close" size={17} /></button></header>
     <div className="atlas-track-title"><h2>{track.label}</h2>{track.site !== track.label && <p>{track.site || 'Connections without a supported activity association'}</p>}<span>Client <b>{track.client}</b></span></div>
-    <div className="atlas-track-summary"><div><strong>{track.connections.length}</strong><span>Connections <b>· {track.activeCount} active</b></span></div><div><strong>{formatBytes(track.bytes)}</strong><span>Observed volume</span></div><div><strong>{traffic.available ? `${formatBytes(traffic.rate)}/s` : '—'}</strong><span>{traffic.estimated ? 'Estimated average' : 'Recent payload rate'}{traffic.partial ? ' · Partial' : ''}</span></div><div><strong>{new Set(track.connections.map(connection => connection.flow.destination_ip)).size}</strong><span>Destinations</span></div></div>
+    <div className="atlas-track-summary"><div><strong>{track.connections.length}</strong><span>Connections <b>· {track.activeCount} active</b></span></div><div><strong>{formatBytes(track.bytes)}</strong><span>{directionLabel(direction)} · to playhead</span></div><div><strong>{traffic.available ? `${formatBytes(traffic.rate)}/s` : '—'}</strong><span>{traffic.estimated ? 'Estimated average' : `${directionLabel(direction)} rate`}{traffic.partial ? ' · Partial' : ''}</span></div><div><strong>{new Set(track.connections.map(connection => connection.flow.destination_ip)).size}</strong><span>Destinations</span></div></div>
     <div className="atlas-track-map-status"><span>{track.mappedCount} of {track.connections.length} connections mapped</span><button type="button" disabled={!track.mappedCount} onClick={onFit}><MapIcon name="expand" size={12} />Fit track</button></div>
     <div className="atlas-inspector-tabs" role="group" aria-label="Track detail view"><button type="button" aria-pressed={tab === 'connections'} onClick={() => setTab('connections')}>Connections <span>{track.connections.length}</span></button><button type="button" aria-pressed={tab === 'evidence'} onClick={() => setTab('evidence')}>Observations <span>{evidenceCount}</span></button></div>
     <div className="atlas-inspector-scroll">
@@ -68,7 +70,7 @@ function Connection({ connection, cursorMs, catalog }: { connection: MapConnecti
     <summary><span className={`atlas-connection-status ${connection.active ? 'is-active' : ''}`} /><span className="atlas-connection-name"><strong>{connection.hostname}</strong><small>{flow.destination_ip}:{flow.destination_port} · {flow.protocol.toUpperCase()}</small></span><span className="atlas-connection-bytes">{formatBytes(connection.bytes)}<small>{connection.mapped ? connection.location || 'Located' : 'Unmapped'}</small></span></summary>
     <div className="atlas-connection-body"><dl>
       <div><dt>Client socket</dt><dd>{flow.client_ip}:{flow.source_port}</dd></div><div><dt>Connection</dt><dd>{flow.id}</dd></div><div><dt>Last reported state</dt><dd>{flow.state}</dd></div>
-      <div><dt>Received / sent</dt><dd>{formatBytes(flow.bytes_in)} / {formatBytes(flow.bytes_out)}</dd></div><div><dt>Packets received / sent</dt><dd>{flow.packets_in.toLocaleString()} / {flow.packets_out.toLocaleString()}</dd></div>
+      <div><dt>Lifetime received / sent</dt><dd>{formatBytes(flow.bytes_in)} / {formatBytes(flow.bytes_out)}</dd></div><div><dt>Packets received / sent</dt><dd>{flow.packets_in.toLocaleString()} / {flow.packets_out.toLocaleString()}</dd></div>
       <div><dt>First observed</dt><dd>{formatCursor(connection.startMs)} UTC</dd></div><div><dt>Observed duration</dt><dd>{formatElapsed((Math.min(cursorMs, connection.endMs) - connection.startMs) / 1000)}</dd></div>
       {connection.provider && <div><dt>Network provider</dt><dd>{connection.provider}</dd></div>}
       {connection.association && <div><dt>Activity association</dt><dd>{connection.association.relationship.replace(/_/g, ' ')} · {connection.association.confidence}</dd></div>}

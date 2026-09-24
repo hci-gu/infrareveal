@@ -1,6 +1,11 @@
 // Open a production-built /map/<session> page with the gateway fixture first.
 // Run with: playwright-cli run-code --filename dashboard/test-support/browser-map-worker.js
 async (page) => {
+  // Equal Earth uses bundled SVG geography; exercise the optional Mercator worker.
+  await page.evaluate(() => {
+    const key = 'infrareveal.map.display.v1';
+    localStorage.setItem(key, JSON.stringify({ projection: 'mercator', theme: 'dark', labels: true }));
+  });
   const workerStarted = page.waitForEvent('worker', { timeout: 15000 });
   await page.reload();
   const mapWorker = await workerStarted;

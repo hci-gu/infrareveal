@@ -145,3 +145,18 @@ function elapsedFraction(cursor: number, start: number, end: number) {
 function revision(chunk: VolumeChunk) { return parseEpoch(chunk.updated || chunk.updated_at_source, 0) }
 function validBytes(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 }
 function safeBytes(value: number) { return validBytes(value) ? value : 0 }
+
+export type DirectionalColumn = DestinationColumn & { direction: number }
+/** Paired, independently scaled sent/received stacks; track selection stays available. */
+export function directionalColumns(destinations: DestinationVolume[], direction: 'both' | 'received' | 'sent'): DirectionalColumn[] {
+  return destinations.filter(destination => !destination.country).flatMap(destination => (['received', 'sent'] as const)
+    .filter(key => direction === 'both' || direction === key).flatMap(key => {
+      const height = destinationHeight(destination[key])
+      let base = 0
+      return destination.tracks.filter(track => track[key] > 0).map(track => {
+        const column = { ...track, bytes: track[key], base, height: height * track[key] / destination[key], direction: key === 'sent' ? 1 : -1 }
+        base += column.height
+        return column
+      })
+    }))
+}

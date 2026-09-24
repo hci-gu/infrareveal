@@ -27,7 +27,14 @@ import { formatCursor } from '../map/format'
 import { indexMapTraffic } from '../map/mapTraffic'
 import { buildMapTrackCatalog, TrackColors } from '../map/mapTracks'
 import { useDestinationVolumes } from '../map/useDestinationVolumes'
+import { MapSettings } from '../map/MapSettings'
+import { useMapPreferences } from '../map/mapPreferences'
+import { projectWorkspace } from '../map/mapWorkspace'
+import type { WorkspaceState } from '../map/mapWorkspace'
+import { wireWaveform } from '../map/wireWaveform'
+import { themedAtlasStyle } from '../map/atlasStyle'
 import '../map/map.css'
+import '../map/workspace.css'
 
 const LIVE_DURATION_HEADROOM_SECONDS = 30
 const LIVE_EDGE_TOLERANCE_MS = 2_000
@@ -38,6 +45,11 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const { sessionID: routeSessionID = '' } = useParams()
   const sessionID = sessionIdOverride ?? routeSessionID
   const kiosk = Boolean(demo)
+  const { preferences, setPreferences, theme } = useMapPreferences()
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [view, setView] = useState<WorkspaceState & { sessionId: string }>({ sessionId: sessionID, direction: 'both', locationId: null, expanded: false })
+  const workspace = useMemo<WorkspaceState>(() => view.sessionId === sessionID ? view : { direction: view.direction, locationId: null, expanded: false }, [view, sessionID])
+  const updateWorkspace = useCallback((next: WorkspaceState) => setView({ ...next, sessionId: sessionID }), [sessionID])
   const pageRef = useRef<HTMLElement>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState(() => ({ width: Math.max(320, window.innerWidth), height: Math.max(240, window.innerHeight - 208) }))
@@ -69,6 +81,11 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const trackCatalog = useMemo(() => buildMapTrackCatalog({ ...routeData, dnsQueries: activity.dnsQueries }, trackPalette.colors), [activity.dnsQueries, routeData, trackPalette])
   const trafficIndex = useMemo(() => indexMapTraffic(activity.chunks), [activity.chunks])
   const destinationVolumes = useDestinationVolumes(scene.sessionId, timeline.mode === 'live', timeline.manifest?.ephemeral, timeline.epochMs)
+  const cursorMs = timeForFrame(scene.startMs, currentFrame, FPS)
+  const projectionCursor = Math.floor(cursorMs / 250) * 250
+  const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationVolumes.index, projectionCursor, workspace), [trackCatalog, scene, destinationVolumes.index, projectionCursor, workspace])
+  const playbackBins = useMemo(() => wireWaveform([...overview.byFlow.values()], destinationVolumes.index, { from: scene.startMs, to: contentEndMs }), [overview.byFlow, destinationVolumes.index, scene.startMs, contentEndMs])
+  const styledMap = useMemo(() => themedAtlasStyle(mapStyleUrl, theme, preferences.labels), [theme, preferences.labels])
   const previousEpoch = useRef(scene.startMs)
   const timelineRef = useRef({
     epochMs: scene.startMs,
@@ -98,19 +115,6 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     setCurrentFrame(target)
   }, [scene.startMs, contentDurationInFrames, timeline.manifest?.ephemeral])
 
-  const inputProps = useMemo<MapCompositionProps>(() => ({
-    scene,
-    trackCatalog,
-    fps: FPS,
-    mapStyleUrl,
-    unavailable: connectionState === 'error' || connectionState === 'offline',
-    loading: !scene.sessionId && connectionState !== 'error' && connectionState !== 'offline',
-    trafficIndex,
-    trafficLoading: activity.loading,
-    destinationIndex: destinationVolumes.index,
-    destinationLoading: destinationVolumes.loading,
-    destinationError: destinationVolumes.error,
-  }), [activity.loading, connectionState, scene, trackCatalog, trafficIndex, destinationVolumes.index, destinationVolumes.loading, destinationVolumes.error])
 
   useEffect(() => {
     const container = mapContainerRef.current
@@ -155,6 +159,23 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     setCurrentFrame(target)
   }, [contentDurationInFrames])
 
+  const seekTime = useCallback((time: number) => seek(frameForTime(scene.startMs, time, FPS)), [scene.startMs, seek])
+
+  const inputProps = useMemo<MapCompositionProps>(() => ({
+    scene,
+    trackCatalog,
+    fps: FPS,
+    mapStyleUrl: styledMap,
+    preferences, theme, workspace, overview, onWorkspace: updateWorkspace,
+    endMs: contentEndMs, onSeekTime: seekTime,
+    unavailable: connectionState === 'error' || connectionState === 'offline',
+    loading: !scene.sessionId && connectionState !== 'error' && connectionState !== 'offline',
+    trafficIndex,
+    trafficLoading: activity.loading,
+    destinationIndex: destinationVolumes.index,
+    destinationLoading: destinationVolumes.loading,
+    destinationError: destinationVolumes.error,
+  }), [activity.loading, connectionState, scene, trackCatalog, trafficIndex, destinationVolumes.index, destinationVolumes.loading, destinationVolumes.error, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
   const togglePlayback = useCallback(() => {
     const player = playerRef.current
     if (!player) return
@@ -167,7 +188,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if (kiosk) return
+      if ((kiosk && !workspace.expanded) || settingsOpen) return
       const target = event.target as HTMLElement | null
       if (event.altKey || event.ctrlKey || event.metaKey || target?.closest('input, select, button, a, textarea, [contenteditable="true"]')) return
       if (event.code === 'Space') { event.preventDefault(); togglePlayback() }
@@ -176,7 +197,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [seek, togglePlayback, kiosk])
+  }, [seek, togglePlayback, kiosk, workspace.expanded, settingsOpen])
 
   async function toggleFullscreen() {
     try {
@@ -269,16 +290,19 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     if (
       !player
       || timeline.mode !== 'live'
-      || (!kiosk && (timeline.playback !== 'following'
+      || ((!kiosk || workspace.expanded) && (timeline.playback !== 'following'
       || sessionTimelineStore.getState().playback !== 'following'))
     ) return
     followLiveEdge()
-  }, [followLiveEdge, timeline.mode, timeline.playback, kiosk])
+  }, [followLiveEdge, timeline.mode, timeline.playback, kiosk, workspace.expanded])
 
   return (
     <main
       ref={pageRef}
-      className={`atlas-page${kiosk ? " atlas-demo" : ""}`}
+      className={`atlas-page${kiosk ? " atlas-demo" : ""}${workspace.expanded ? " atlas-timeline-open" : ""}`}
+      data-theme={theme}
+      data-projection={preferences.projection}
+      data-direction={workspace.direction}
       data-session-id={scene.sessionId ?? ''}
       data-session-state={connectionState}
       data-timeline-mode={timeline.mode}
@@ -288,7 +312,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
         <Link to="/" className="atlas-brand" aria-label="InfraReveal — all sessions"><span className="atlas-brand-mark"><MapIcon name="globe" size={23} /></span><span>infra<span>reveal</span><small>NETWORK OBSERVABILITY</small></span></Link>
         <div className="atlas-header-divider" />
         <nav className="atlas-breadcrumb" aria-label="Breadcrumb"><Link to="/" aria-label="All sessions"><MapIcon name="back" size={15} /><span>Sessions</span></Link><span className="atlas-breadcrumb-slash">/</span><span className="atlas-session-name" title={scene.sessionName}>{scene.sessionName}</span></nav>
-        <div className="atlas-header-right"><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(timeForFrame(scene.startMs, currentFrame, FPS))}</strong><span>UTC</span></div></div>
+        <div className="atlas-header-right"><button type="button" className="atlas-icon-button" aria-label="Open display settings" title="Display settings" onClick={() => setSettingsOpen(true)}><MapIcon name="settings" /></button><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(timeForFrame(scene.startMs, currentFrame, FPS))}</strong><span>UTC</span></div></div>
       </header>
       {(error || fullscreenError) && <div className="atlas-connection-notice" role="status"><span>{error || fullscreenError}</span>{error ? <button type="button" onClick={() => void refresh()}>Retry connection</button> : <button type="button" onClick={() => setFullscreenError('')}>Dismiss</button>}</div>}
       {demo && <div className="atlas-demo-banner">
@@ -319,7 +343,8 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       />
       </MapCompositionProvider>
       </div>
-      {!kiosk && <MapTransport scene={scene} endMs={contentEndMs} frame={currentFrame} fps={FPS}
+      <MapSettings open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />
+      {(!kiosk || workspace.expanded) && <MapTransport scene={scene} bins={playbackBins} direction={workspace.direction} endMs={contentEndMs} frame={currentFrame} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}
         live={timeline.mode === 'live'} following={timeline.playback === 'following'}
         onToggle={togglePlayback} onSeek={seek} onRate={(rate) => setTimelinePlayback({

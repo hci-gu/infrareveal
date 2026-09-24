@@ -3,8 +3,9 @@
 The Pi runs the gateway and dashboard; a separate screen PC joins `Infrareveal-admin`
 and opens **http://10.77.0.1/demo**. Visitors join the participant SSID (`Infrareveal`
 by default). The existing two-radio networking setup excludes admin traffic from
-observation. The Pi needs its Ethernet uplink for visitor internet access and the
-map's internet-hosted tiles/fonts.
+observation. The Pi needs its Ethernet uplink for visitor internet access.
+The default Equal Earth background is bundled and works offline; the optional
+Mercator basemap needs internet access for its tiles/fonts.
 
 ## Enable
 
@@ -75,6 +76,11 @@ It retries initial failures and session replacement. Gateway, capture, and clean
 problems are visible on the screen; an idle network is allowed to show an empty map.
 Normal `/map/:sessionID` pages retain interactive playback and timeline controls.
 The screen does not generate synthetic visitor traffic.
+
+The compact pane can expand into an interactive traffic timeline. Expanded demo
+mode permits pausing and replay; returning to the map resumes live following.
+Display settings select projection, appearance, and labels for this browser.
+See the [map dashboard guide](map-dashboard.md).
 
 ## Permanent domain catalogue
 

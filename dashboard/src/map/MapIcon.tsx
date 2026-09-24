@@ -1,6 +1,7 @@
-export type MapIconName = 'globe' | 'back' | 'play' | 'pause' | 'rewind' | 'forward' | 'expand' | 'plus' | 'minus' | 'target' | 'layers' | 'route' | 'close' | 'arrow' | 'activity' | 'pin'
+export type MapIconName = 'globe' | 'back' | 'play' | 'pause' | 'rewind' | 'forward' | 'expand' | 'plus' | 'minus' | 'target' | 'layers' | 'route' | 'close' | 'arrow' | 'activity' | 'pin' | 'settings'
 
 const paths: Record<MapIconName, string> = {
+  settings: 'M4 7h16M4 17h16M9 4v6M15 14v6',
   globe: 'M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0ZM3 12h18M12 3c5 5 5 13 0 18-5-5-5-13 0-18Z',
   back: 'm14 6-6 6 6 6M8 12h12',
   play: 'm8 5 11 7-11 7V5Z',

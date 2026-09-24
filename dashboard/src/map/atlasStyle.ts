@@ -71,3 +71,17 @@ export const atlasStyle: StyleSpecification = {
     },
   ],
 }
+
+/** Theme the built-in style; an explicitly configured external style remains provider-owned. */
+export function themedAtlasStyle(style: string | StyleSpecification, theme: 'dark' | 'light', labels: boolean): string | StyleSpecification {
+  if (typeof style === 'string') return style
+  const light: Record<string, string> = {
+    '#192a35': '#dce8df', '#0b1822': '#eef3ef', '#2a414d': '#a7bbb3', '#203b3c': '#c5dec5',
+    '#344a55': '#a8beb3', '#3a505a': '#96ada2', '#35444c': '#b0bcb3', '#263c48': '#cedbd2',
+    '#789099': '#526f69', '#92a5ac': '#405e59',
+  }
+  return { ...style, layers: style.layers.map(layer => ({ ...layer,
+    ...(layer.type === 'symbol' ? { layout: { ...layer.layout, visibility: labels ? 'visible' as const : 'none' as const } } : {}),
+    ...('paint' in layer ? { paint: Object.fromEntries(Object.entries(layer.paint ?? {}).map(([key, value]) => [key, theme === 'light' && typeof value === 'string' ? light[value] ?? value : value])) } : {}),
+  })) as StyleSpecification['layers'] }
+}
