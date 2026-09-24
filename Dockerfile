@@ -54,7 +54,7 @@ WORKDIR /root
 RUN mkdir -p /root/geoip
 
 COPY entrypoint.sh /root/entrypoint.sh
-COPY scripts/gateway-network.sh scripts/gateway-preflight.py /root/scripts/
+COPY scripts/gateway-network.sh scripts/gateway-preflight.py scripts/gateway-runtime.py /root/scripts/
 
 # Copy the built binary from the builder stage last, so PocketBase changes only
 # invalidate this small final layer after the builder has reused its caches.

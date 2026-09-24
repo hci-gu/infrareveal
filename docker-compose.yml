@@ -68,9 +68,9 @@ services:
       - ${DATA_DIR:-./data}:/root/pb/pb_data
       - ${GEOIP_DIR:-./geoip}:/root/geoip:ro
     healthcheck:
-      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8090/api/health"]
+      test: ["CMD", "python3", "/root/scripts/gateway-runtime.py", "health"]
       interval: 10s
-      timeout: 3s
+      timeout: 8s
       retries: 6
       start_period: 30s
     stop_grace_period: 20s
@@ -86,7 +86,9 @@ services:
       ADMIN_IP: ${ADMIN_PREFIX:-10.77.0}.1
     depends_on:
       proxy:
-        condition: service_healthy
+        # The dashboard entrypoint waits for gateway networking without making
+        # compose up fail when the admin USB adapter is absent at startup.
+        condition: service_started
   debug-dashboard:
     image: infrareveal-debug-dashboard:local
     profiles: ["debug"]
@@ -100,4 +102,4 @@ services:
       ADMIN_IP: ${ADMIN_PREFIX:-10.77.0}.1
     depends_on:
       proxy:
-        condition: service_healthy
+        condition: service_started

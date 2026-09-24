@@ -220,8 +220,20 @@ sudo docker compose ps
 ```
 
 Keep `.env`, `data`, and `geoip` between updates. `restart: always` starts the
-services again after reboot. The gateway waits up to 30 seconds for both radios,
-validates configuration, and exits with a readable error if either is absent.
+services again after reboot. The gateway waits for both radios, including a USB
+adapter plugged in after startup, then validates configuration and starts the
+network. While a radio is missing, the proxy is unhealthy. Dashboard containers
+start independently and wait for the gateway API before binding the admin
+address, so firewall isolation is installed before they begin serving requests.
+Rebuild all three images when upgrading to this recovery behavior.
+
+Every two seconds, a watchdog checks both radios, their interface identities,
+and gateway addresses. Losing or replacing either radio stops the gateway
+daemons and lets Compose restart the proxy. It waits for the adapter to return,
+then restores addresses, Wi-Fi, DNS and the API. This interrupts both Wi-Fi
+networks and observation during recovery. Health checks also require both radios
+to be in AP mode and the API to respond. USB enumeration failures still require
+reseating or replacing the adapter; application recovery cannot repair hardware.
 
 ## Portability and troubleshooting
 
@@ -254,6 +266,7 @@ validates configuration, and exits with a readable error if either is absent.
 
 ```bash
 bash scripts/test-entrypoint.sh
+python3 scripts/test-gateway-runtime.py
 python3 scripts/test-gateway-preflight.py
 (cd pocketbase && go test ./observer)
 docker build -t infrareveal-gateway:network-test .

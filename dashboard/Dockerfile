@@ -17,6 +17,7 @@ FROM nginx:1.29-alpine
 
 COPY --from=builder /workspace/dashboard/dist /usr/share/nginx/html
 COPY dashboard/nginx.conf /etc/nginx/templates/default.conf.template
+COPY --chmod=755 scripts/wait-for-gateway.sh /docker-entrypoint.d/05-wait-for-gateway.sh
 ENV ADMIN_IP=10.77.0.1
 
 EXPOSE 80
