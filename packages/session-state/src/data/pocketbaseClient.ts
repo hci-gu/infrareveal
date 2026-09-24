@@ -315,7 +315,7 @@ export async function getCollectionSessionWindow({
 
 export function createCollectionSessionManifest(session: Session): SessionManifest {
   const serverNow = new Date().toISOString()
-  const startedAt = session.started_at || session.created
+  const startedAt = session.ephemeral ? new Date(Math.max(Date.parse(session.started_at || session.created), Date.parse(serverNow) - 300_000)).toISOString() : session.started_at || session.created
   const endedAt = session.active ? null : session.ended_at || session.updated
   const edge = endedAt || serverNow
   return {
@@ -324,6 +324,7 @@ export function createCollectionSessionManifest(session: Session): SessionManife
     startedAt,
     endedAt,
     active: session.active,
+    ephemeral: session.ephemeral,
     serverNow,
     watermark: session.updated || edge,
     counts: {},
@@ -376,7 +377,7 @@ function mergeById<T extends { id: string }>(current: T[], incoming: T[]) {
 }
 
 async function requestJSON<T>(path: string, signal?: AbortSignal) {
-  const response = await fetch(`${baseUrl}${path}`, { signal })
+  const response = await fetch(`${baseUrl}${path}`, { signal: requestSignal(signal) })
   if (!response.ok) {
     const payload = await response.json().catch(() => null) as { error?: string; message?: string } | null
     throw new PocketBaseRequestError(
@@ -495,7 +496,7 @@ async function listAllRecords<T>(
     if (options.sort) params.set('sort', options.sort)
     if (options.filter) params.set('filter', options.filter)
     const response = await fetch(`${baseUrl}/api/collections/${collection}/records?${params.toString()}`, {
-      signal: options.signal,
+      signal: requestSignal(options.signal),
     })
     if (!response.ok) {
       throw new PocketBaseRequestError(
@@ -663,6 +664,7 @@ class RealtimeClient {
     }
 
     const response = await fetch(`${baseUrl}/api/realtime`, {
+      signal: requestSignal(),
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -715,4 +717,11 @@ export async function extendRouteBudget() {
 }
 export function getRouteOutcomes(session: string, signal?: AbortSignal) {
  return listAllRecords<RouteOutcome>('route_outcomes',{filter:`session="${session}"`,signal})
+}
+
+// Bound failed requests as well as successful data; a hung connection must not
+// prevent live reconciliation indefinitely. Owners still cancel on teardown.
+function requestSignal(signal?: AbortSignal) {
+  const timeout = AbortSignal.timeout(20_000)
+  return signal ? AbortSignal.any([signal, timeout]) : timeout
 }

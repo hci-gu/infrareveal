@@ -4,6 +4,7 @@ import {
   selectDetailGatewayData,
   selectOverviewGatewayData,
   sessionTimelineStore,
+  timelineStartMs,
 } from '../timeline/store/sessionStore'
 import { chooseLOD, sessionController } from '../timeline/transport/sessionController'
 import { parseEpoch } from '../timeline/domain/time'
@@ -39,7 +40,7 @@ export function useGatewayData(requestedSessionId?: string | null, enabled = tru
     if (enabled) await sessionController.refresh()
   }, [enabled])
 
-  const epochMs = parseEpoch(manifest?.startedAt, parseEpoch(data.selectedSession?.started_at || data.selectedSession?.created, fallbackEpochMs))
+  const epochMs = manifest ? timelineStartMs() : parseEpoch(undefined, parseEpoch(data.selectedSession?.started_at || data.selectedSession?.created, fallbackEpochMs))
   return {
     data,
     connectionState,

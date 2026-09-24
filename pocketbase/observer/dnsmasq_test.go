@@ -1,6 +1,12 @@
 package observer
 
-import "testing"
+import (
+	"bufio"
+	"io"
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestParseDNSMasqExtraLogKeepsQuerySerialAcrossCNAMEChain(t *testing.T) {
 	lines := []string{
@@ -63,5 +69,60 @@ func TestDNSMasqIgnoresQueriesOutsideObservationScope(t *testing.T) {
 	ingestor := &DNSMasqIngestor{scope: NewObservationScope("10.0.0.0/24", "10.0.0.1")}
 	for _, ip := range []string{"10.77.0.50", "192.168.10.50", "not-an-ip"} {
 		ingestor.handleLine("dnsmasq[123]: 42 " + ip + "/53001 query[A] example.com from " + ip)
+	}
+}
+
+func TestDNSLogRotationWaitsForBacklogAndResumesNewWrites(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "dnsmasq.log")
+	writer, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0600)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer writer.Close()
+	if err := writer.Truncate(8*1024*1024 + 1); err != nil {
+		t.Fatal(err)
+	}
+	readerFile, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer readerFile.Close()
+	reader := bufio.NewReader(readerFile)
+	if err := resetDNSLogAtEOF(readerFile, reader); err != nil {
+		t.Fatal(err)
+	}
+	info, _ := readerFile.Stat()
+	if info.Size() == 0 {
+		t.Fatal("unread backlog discarded")
+	}
+	if _, err := readerFile.Seek(0, io.SeekEnd); err != nil {
+		t.Fatal(err)
+	}
+	if err := resetDNSLogAtEOF(readerFile, reader); err != nil {
+		t.Fatal(err)
+	}
+	info, _ = readerFile.Stat()
+	if info.Size() != 0 {
+		t.Fatal("consumed spool not rotated")
+	}
+	if _, err := writer.WriteString("next query\n"); err != nil {
+		t.Fatal(err)
+	}
+	line, err := reader.ReadString('\n')
+	if err != nil || line != "next query\n" {
+		t.Fatalf("did not resume: %q %v", line, err)
+	}
+	if err := writer.Truncate(0); err != nil {
+		t.Fatal(err)
+	}
+	if err := resetDNSLogAtEOF(readerFile, reader); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := writer.WriteString("after external rotation\n"); err != nil {
+		t.Fatal(err)
+	}
+	line, err = reader.ReadString('\n')
+	if err != nil || line != "after external rotation\n" {
+		t.Fatalf("external rotation: %q %v", line, err)
 	}
 }

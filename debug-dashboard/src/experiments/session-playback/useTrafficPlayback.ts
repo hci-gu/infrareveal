@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { sessionTimelineStore, setTimelinePlayback } from '@infrareveal/session-state'
+import { sessionTimelineStore, setTimelinePlayback, timelineStartMs } from '@infrareveal/session-state'
 import { clampTime } from './trafficTime'
 
 /** The active Traffic route drives playback; the shared controller owns server time. */
@@ -15,7 +15,7 @@ export function useTrafficPlayback(sessionId: string | null) {
       const state = sessionTimelineStore.getState()
       const manifest = state.manifest
       if (manifest?.sessionId === sessionId && now - published >= 32) {
-        const fromMs = Date.parse(manifest.startedAt)
+        const fromMs = timelineStartMs(state)
         const toMs = manifest.active ? state.liveEdgeMs : Date.parse(manifest.endedAt || manifest.coverage.to)
         if (Number.isFinite(fromMs) && Number.isFinite(toMs)) {
           if (state.playback === 'following') setTimelinePlayback({ cursorMs: toMs, ...(!manifest.active ? { playback: 'paused' as const } : {}) })

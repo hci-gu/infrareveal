@@ -81,22 +81,19 @@ cd /home/pi/Documents/infrareveal
 This follows Docker's [manual plugin installation](https://docs.docker.com/compose/install/linux/).
 The plugin is system-wide so `sudo docker compose` can find it.
 
-## 2. Configure credentials and preserve GeoIP assets
+## 2. Configure networking and preserve GeoIP assets
 
 ```bash
 cp -n .env.example .env
-mkdir -p secrets data geoip
-chmod 700 secrets
-read -r -s -p 'Admin Wi-Fi password (8–63 ASCII characters): ' admin_wifi_password
-printf '\n'
-(umask 077; printf '%s\n' "$admin_wifi_password" > secrets/admin-wifi-password)
-unset admin_wifi_password
+mkdir -p data geoip
 nano .env
 ```
 
-Use a password you will enter when joining `Infrareveal-admin`. It is mounted as
-a Compose secret, never baked into an image. `.env`, `secrets`, `data` and `geoip`
-are excluded from Git and Docker build context.
+The `Infrareveal-admin` Wi-Fi password is always **`password123`**. No password
+file or Compose secret is needed. Existing `secrets/admin-wifi-password` files
+are ignored after upgrading. This is the Wi-Fi password; your PocketBase
+superuser login remains the one you created. `.env`, `data` and `geoip` are
+excluded from Git and the Docker build context.
 
 In `.env`, retain `wlan0` / `wlan1` and country `SE` for this Pi. Optionally set
 `ADMIN_WIFI_MAC=38:a2:8c:a2:1f:c9` to verify that `wlan1` is the inspected adapter.
@@ -185,7 +182,7 @@ Migrations may change the database; rollback should use the stopped-state backup
 
 ## 6. Verify from the two networks
 
-1. Join `Infrareveal-admin` using the configured password. Expect a
+1. Join `Infrareveal-admin` using `password123`. Expect a
    `10.77.0.50–150` address.
 2. Open **http://10.77.0.1/**. The DNS name
    **http://infrareveal.home.arpa/** should work when using the Wi-Fi's DNS.
@@ -222,7 +219,7 @@ sudo docker compose up -d --no-build
 sudo docker compose ps
 ```
 
-Keep `.env` and the password file between updates. `restart: always` starts the
+Keep `.env`, `data`, and `geoip` between updates. `restart: always` starts the
 services again after reboot. The gateway waits up to 30 seconds for both radios,
 validates configuration, and exits with a readable error if either is absent.
 
@@ -279,3 +276,34 @@ SSE delivery. Observer tests, preflight tests and the native-container network
 isolation/DNS test passed. The changes have not yet been applied to the physical
 Pi; association, DHCP leases and reboot behavior remain deployment acceptance
 checks.
+
+## Always-on ephemeral sessions
+
+After rebuilding and recreating the containers, migrations add an `ephemeral`
+checkbox to the `sessions` collection in PocketBase. Open
+**http://10.77.0.1/_/**, sign in, edit the current active session, enable
+**ephemeral**, and save. Both dashboards pick up the change automatically.
+The same session stays active across restarts; its timeline grows to five
+minutes and then slides forward. A paused playhead is clamped when it expires.
+
+Enabling this option on an existing session discards history older than five
+minutes. Disable it to keep new history from the remaining window; also clear
+`active` if you want to stop the session. Ordinary sessions are unaffected.
+
+Every 15 seconds the backend removes expired observations and packet chunks.
+Connections still seen in the window retain their identity and necessary DNS
+and route evidence, even when they were opened hours ago. Traffic columns use
+only retained packet chunks, with partial boundary chunks marked as partial.
+Browser records, timeline indexes, colors, queued events and detail pages are
+also evicted; requests are cancelled on teardown and time out on lost networks.
+
+Storage depends on traffic volume and concurrent connections, rather than how
+many days this session has run. SQLite reuses deleted pages, so an existing large
+database may keep its previous file size. Other recorded sessions still take up
+space. Docker logs rotate at 10 MiB with three files per service, and the DNS
+capture spool is truncated after it exceeds 8 MiB and the reader has caught up.
+
+To apply these changes on the Pi, use the normal update commands above, including
+`sudo bash scripts/build-pi-images.sh` and
+`sudo docker compose up -d --no-build --force-recreate`.
+Reconnect to admin Wi-Fi with `password123` after the gateway restarts.

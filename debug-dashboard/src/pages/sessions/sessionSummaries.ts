@@ -20,5 +20,5 @@ export function sessionDuration(session: Session, manifest?: SessionManifest, re
   const end = session.active
     ? manifest && receivedAt ? Date.parse(manifest.serverNow) + Math.max(0, now - receivedAt) : NaN
     : Date.parse(manifest?.endedAt || session.ended_at || '')
-  return Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start) / 1000 : null
+  return Number.isFinite(start) && Number.isFinite(end) ? Math.min(session.ephemeral ? 300 : Infinity, Math.max(0, end - start) / 1000) : null
 }

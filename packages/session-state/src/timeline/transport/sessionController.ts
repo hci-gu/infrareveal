@@ -27,6 +27,7 @@ import {
   setTimelineManifest,
   setTimelineSessions,
   tickTimelineClock,
+  timelineStartMs,
   touchDetailPages,
 } from '../store/sessionStore'
 import type { QueuedRealtimeEvent } from '../store/sessionStore'
@@ -56,7 +57,7 @@ class SessionController {
   private requestedSessionId: string | null = null
   private unsubscribers: Array<() => void> = []
   private reconcileTimer = 0
-  private reconciling = false
+  private reconcileController: AbortController | null = null
   private tailCursor = 0
   private clockTimer = 0
   private batchTimer = 0
@@ -91,6 +92,11 @@ class SessionController {
     const state = sessionTimelineStore.getState()
     const sessionId = state.selectedSessionId
     if (!sessionId || toMs <= fromMs) return
+    if (state.manifest?.ephemeral) {
+      fromMs = Math.max(fromMs, timelineStartMs(state))
+      toMs = Math.min(toMs, state.liveEdgeMs + 30_000)
+      if (toMs <= fromMs) return
+    }
     const normalizedFlowIDs = Array.from(new Set(flowIds)).sort()
     const flowKey = hashFlowIDs(normalizedFlowIDs)
     const pageDescriptors = windowSegments(fromMs, toMs).map((segment) => ({
@@ -209,6 +215,7 @@ class SessionController {
             ip?: string
           }
           if (!record.id) return
+          if (storeCollection !== 'sessions' && storeCollection !== 'destinations' && record.session !== sessionTimelineStore.getState().selectedSessionId) return
           if (!isRealtimeRecordInWorkingSet(storeCollection, record)) return
           this.enqueue({ collection: storeCollection, action: event.action, record })
           if (collectionName === 'sessions') window.setTimeout(() => this.reconcile(generation, true), 0)
@@ -229,6 +236,8 @@ class SessionController {
 
   private enqueue(event: QueuedRealtimeEvent) {
     this.queue.set(`${event.collection}/${event.record.id}`, event)
+    // A slow initial request must not buffer an unlimited realtime history.
+    if (this.queue.size > 10_000) this.queue.delete(this.queue.keys().next().value!)
     if (this.buffering || this.batchTimer) return
     this.batchTimer = window.setTimeout(() => {
       this.batchTimer = 0
@@ -250,19 +259,21 @@ class SessionController {
   }
 
   private async reconcile(generation: number, full: boolean) {
-    if (this.reconciling) return
+    if (this.reconcileController) return
     const state = sessionTimelineStore.getState()
     const sessionId = state.selectedSessionId
     if (!sessionId || generation !== this.generation) return
-    this.reconciling = true
+    const controller = new AbortController()
+    this.reconcileController = controller
+    const signal = controller.signal
     try {
-      const sessions = await getSessions()
+      const sessions = await getSessions(signal)
       if (generation !== this.generation) return
       const selected = sessions.find((session) => session.id === sessionId)
       if (!selected) throw new Error('The selected session no longer exists.')
       const manifest = this.collectionTransport
         ? createCollectionSessionManifest(selected)
-        : await getSessionManifest(sessionId)
+        : await getSessionManifest(sessionId, signal)
       this.collectionTransport = manifest.transport === 'collections'
       if (generation !== this.generation) return
       setTimelineSessions(sessions)
@@ -276,6 +287,7 @@ class SessionController {
         fromMs,
         toMs: Math.max(fromMs + 1, edgeMs),
         lod: 'overview',
+        signal,
       })
       if (generation !== this.generation) return
       reconcileOverviewWindow(overview)
@@ -286,7 +298,7 @@ class SessionController {
         const jobs = pages.flatMap(page => (page.flowIds.size > 0 ? chunk([...page.flowIds], 200) : [[]]).map(flowIds => ({page, flowIds})))
         for (let offset = 0; offset < Math.min(4, jobs.length); offset += 1) {
           const {page, flowIds} = jobs[(this.tailCursor + offset) % jobs.length]
-          const tail = await this.getWindow({sessionId, fromMs: Math.max(page.fromMs, edgeMs - 10_000), toMs: Math.min(page.toMs, edgeMs + 1), flowIds, lod: page.lod})
+          const tail = await this.getWindow({sessionId, fromMs: Math.max(page.fromMs, edgeMs - 10_000), toMs: Math.min(page.toMs, edgeMs + 1), flowIds, lod: page.lod, signal})
           if (generation !== this.generation) return
           applyRealtimeBatch([
             ...tail.flowActivityChunks.map(record => ({collection: 'flowActivityChunks' as const, action: 'update', record})),
@@ -306,7 +318,9 @@ class SessionController {
       if (generation !== this.generation) return
       const nextState: ConnectionState = navigator.onLine ? 'polling' : 'offline'
       setTimelineConnection(nextState, normalizeError(error))
-    } finally { this.reconciling = false }
+    } finally {
+      if (this.reconcileController === controller) this.reconcileController = null
+    }
   }
 
   private async loadDetailPage(
@@ -344,6 +358,8 @@ class SessionController {
     this.bootstrapController?.abort()
     this.bootstrapController = null
     this.stopTimers()
+    this.reconcileController?.abort()
+    this.reconcileController = null
     if (this.batchTimer) window.clearTimeout(this.batchTimer)
     this.batchTimer = 0
     for (const unsubscribe of this.unsubscribers.splice(0)) void unsubscribe()

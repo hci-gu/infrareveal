@@ -1,5 +1,11 @@
 name: infrareveal
 
+x-bounded-logs: &bounded-logs
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   proxy:
     image: infrareveal-gateway:local
@@ -9,6 +15,7 @@ services:
     network_mode: "host"
     privileged: true
     restart: always
+    logging: *bounded-logs
     environment:
       - AP_IFACE=${AP_IFACE:-wlan0}
       - ADMIN_IFACE=${ADMIN_IFACE:-wlan1}
@@ -21,7 +28,6 @@ services:
       - WIFI_COUNTRY=${WIFI_COUNTRY:-SE}
       - AP_CHANNEL=${AP_CHANNEL:-1}
       - ADMIN_CHANNEL=${ADMIN_CHANNEL:-6}
-      - ADMIN_WIFI_PASSWORD_FILE=/run/secrets/admin_wifi_password
       - CONNTRACK_SAMPLE_MS=${CONNTRACK_SAMPLE_MS:-1000}
       - ROUTE_ENGINE=${ROUTE_ENGINE:-v2}
       - ROUTE_MAX_TARGETS=${ROUTE_MAX_TARGETS:-20}
@@ -58,8 +64,6 @@ services:
     volumes:
       - ${DATA_DIR:-./data}:/root/pb/pb_data
       - ${GEOIP_DIR:-./geoip}:/root/geoip:ro
-    secrets:
-      - admin_wifi_password
     healthcheck:
       test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8090/api/health"]
       interval: 10s
@@ -74,6 +78,7 @@ services:
       dockerfile: dashboard/Dockerfile
     network_mode: host
     restart: always
+    logging: *bounded-logs
     environment:
       ADMIN_IP: ${ADMIN_PREFIX:-10.77.0}.1
     depends_on:
@@ -87,12 +92,9 @@ services:
       dockerfile: debug-dashboard/Dockerfile
     network_mode: host
     restart: always
+    logging: *bounded-logs
     environment:
       ADMIN_IP: ${ADMIN_PREFIX:-10.77.0}.1
     depends_on:
       proxy:
         condition: service_healthy
-
-secrets:
-  admin_wifi_password:
-    file: ./secrets/admin-wifi-password

@@ -33,6 +33,17 @@ describe('accumulated destination traffic', () => {
     expect(connectionVolume(connection, index, epoch + 2500)).toMatchObject({ received: 2000, sent: 500 })
   })
 
+  it('uses only the rolling window and never substitutes lifetime counters', () => {
+    const { connection } = fixture()
+    const index = indexDestinationVolumes([chunk(), chunk({ id: 'c2', chunk_start: iso(5000), updated_at_source: iso(10_000) })], epoch + 2500)
+    expect(connectionVolume(connection, index, epoch + 2500)).toMatchObject({ received: 0, sent: 0 })
+    expect(connectionVolume(connection, index, epoch + 10_000)).toMatchObject({ received: 6000, sent: 1500, partial: true })
+    const expired = indexDestinationVolumes([chunk()], epoch + 6000)
+    expect(connectionVolume(connection, expired, epoch + 10_000).received).toBe(0)
+    const missing = indexDestinationVolumes([], epoch + 6000)
+    expect(connectionVolume(connection, missing, epoch + 10_000)).toMatchObject({ received: 0, sent: 0, partial: true })
+  })
+
   it('stops growing at the last observed packet and preserves gaps as silence', () => {
     const { connection } = fixture()
     const index = indexDestinationVolumes([chunk({ updated_at_source: iso(1000) }), chunk({ id: 'c2', chunk_start: iso(8000), updated_at_source: iso(9000) })])
@@ -147,6 +158,14 @@ describe('destination summary transport', () => {
     expect(params.get('fields')).not.toContain('samples')
     expect(params.get('filter')).toContain('id > "a499"')
     expect(params.get('filter')).toContain('updated >= "2026-09-10 10:01:10.000Z"')
+  })
+
+  it('requests only retained summaries, including the boundary chunk', async () => {
+    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [chunk(), chunk({ id: 'new', chunk_start: iso(5000) })] }) })
+    vi.stubGlobal('fetch', fetcher)
+    const result = await readVolumeChunks('s', 0, new AbortController().signal, epoch + 6000)
+    expect(result.map(record => record.id)).toEqual(['new'])
+    expect(new URL(fetcher.mock.calls[0][0]).searchParams.get('filter')).toContain('chunk_start >=')
   })
 
   it('does not return incomplete history after a page fails', async () => {

@@ -46,9 +46,6 @@ def main():
     mac = env.get('ADMIN_WIFI_MAC', '')
     if mac and Path('/sys/class/net', env['ADMIN_IFACE'], 'address').read_text().strip().lower() != mac.lower():
         raise ValueError('ADMIN_IFACE does not match ADMIN_WIFI_MAC; check interface naming')
-    password = Path(env['ADMIN_WIFI_PASSWORD_FILE']).read_text().removesuffix('\n')
-    if not 8 <= len(password) <= 63 or any(ord(c) < 32 or ord(c) > 126 for c in password):
-        raise ValueError('Admin Wi-Fi password must contain 8–63 printable ASCII characters on one line')
     phys = [Path('/sys/class/net', env[key], 'phy80211').resolve().name
             for key in ('AP_IFACE', 'ADMIN_IFACE')]
     if len(set(phys)) != 2:

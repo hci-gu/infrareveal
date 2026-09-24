@@ -28,6 +28,7 @@ type sessionTimelineManifest struct {
 	StartedAt         string           `json:"startedAt"`
 	EndedAt           *string          `json:"endedAt"`
 	Active            bool             `json:"active"`
+	Ephemeral         bool             `json:"ephemeral"`
 	ServerNow         string           `json:"serverNow"`
 	Watermark         string           `json:"watermark"`
 	Counts            map[string]int64 `json:"counts"`
@@ -96,7 +97,8 @@ func buildSessionTimelineManifest(app core.App, sessionID string, now time.Time)
 	if started.IsZero() {
 		started = record.GetDateTime("created").Time()
 	}
-	active := record.GetBool("active")
+	ephemeral := record.GetBool("ephemeral")
+	active := record.GetBool("active") || ephemeral
 	ended := record.GetDateTime("ended_at").Time()
 	if !active && ended.IsZero() {
 		ended = record.GetDateTime("updated").Time()
@@ -126,6 +128,13 @@ func buildSessionTimelineManifest(app core.App, sessionID string, now time.Time)
 		coverageTo = coverageFrom
 	}
 
+	if ephemeral {
+		if started.Before(now.Add(-ephemeralWindow)) {
+			started = now.Add(-ephemeralWindow)
+		}
+		coverageFrom, coverageTo, ended = started, now, time.Time{}
+	}
+
 	counts := map[string]int64{}
 	for _, collection := range []string{
 		"flows", "dns_queries", "flow_attributions", "activity_episodes",
@@ -144,6 +153,7 @@ func buildSessionTimelineManifest(app core.App, sessionID string, now time.Time)
 		Name:              record.GetString("name"),
 		StartedAt:         started.UTC().Format(time.RFC3339Nano),
 		Active:            active,
+		Ephemeral:         ephemeral,
 		ServerNow:         now.Format(time.RFC3339Nano),
 		Watermark:         now.Format(time.RFC3339Nano),
 		Counts:            counts,

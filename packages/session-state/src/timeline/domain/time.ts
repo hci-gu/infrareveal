@@ -1,4 +1,5 @@
 /** Canonical epoch/frame projection used by live and recorded consumers. */
+export const EPHEMERAL_WINDOW_MS = 5 * 60_000
 export const FPS = 30
 export const WINDOW_SEGMENT_MS = 10_000
 

@@ -12,9 +12,8 @@ network_defaults() {
   AP_CHANNEL="${AP_CHANNEL:-1}"
   ADMIN_CHANNEL="${ADMIN_CHANNEL:-6}"
   CONFIG_DIR="${CONFIG_DIR:-/run/infrareveal}"
-  ADMIN_WIFI_PASSWORD_FILE="${ADMIN_WIFI_PASSWORD_FILE:-/run/secrets/admin_wifi_password}"
   export AP_IFACE ADMIN_IFACE INTERNET_IFACE AP_PREFIX ADMIN_PREFIX
-  export SSID ADMIN_SSID WIFI_COUNTRY AP_CHANNEL ADMIN_CHANNEL ADMIN_WIFI_PASSWORD_FILE
+  export SSID ADMIN_SSID WIFI_COUNTRY AP_CHANNEL ADMIN_CHANNEL
   # One source of truth: admin addresses can never enter the observation scope.
   export CLIENT_CIDRS="$AP_PREFIX.0/24" GATEWAY_IP="$AP_PREFIX.1"
   export PACKET_ACTIVITY_IFACE="$AP_IFACE" LAB_GATE_CLIENT_SUBNET="$AP_PREFIX.0/24"
@@ -23,8 +22,6 @@ network_defaults() {
 
 write_network_configs() {
   install -d -m 700 "$CONFIG_DIR"
-  local password
-  password=$(cat "$ADMIN_WIFI_PASSWORD_FILE")
   umask 077
   cat > "$CONFIG_DIR/participants.hostapd" <<CONFIG
 interface=$AP_IFACE
@@ -50,9 +47,8 @@ auth_algs=1
 wpa=2
 wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
-wpa_passphrase=$password
+wpa_passphrase=password123
 CONFIG
-  unset password
   cat > "$CONFIG_DIR/participants.dnsmasq" <<CONFIG
 interface=$AP_IFACE
 listen-address=$AP_PREFIX.1

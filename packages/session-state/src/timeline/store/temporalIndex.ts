@@ -49,6 +49,16 @@ export class TemporalBucketIndex {
     return result
   }
 
+  /** Trim long-lived intervals as well as expired records. */
+  pruneBefore(cutoffMs: number) {
+    for (const [id, interval] of this.intervals) {
+      if (interval.endMs < cutoffMs) this.remove(id)
+      else if (interval.startMs < cutoffMs) this.upsert(id, cutoffMs, interval.endMs)
+    }
+  }
+
+  get bucketCount() { return this.buckets.size }
+
   clear() {
     this.buckets.clear()
     this.intervals.clear()

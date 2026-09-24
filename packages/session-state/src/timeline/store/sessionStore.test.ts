@@ -294,3 +294,45 @@ function detailPage(key: string, start: number) {
     flowIds: new Set(['flow-1']),
   }
 }
+
+describe('ephemeral sessions', () => {
+  it('bounds every working set and the index of a long-lived flow over 12 hours', () => {
+    resetSessionTimeline(session.id, [{ ...session, ephemeral: true }])
+    const start = Date.parse(session.started_at!)
+    for (let minute = 0; minute < 720; minute++) {
+      const now = start + minute * 60_000
+      const at = new Date(now).toISOString()
+      setTimelineManifest({ sessionId: session.id, name: 'Rolling', active: true, ephemeral: true,
+        startedAt: session.started_at!, endedAt: null, serverNow: at, watermark: at,
+        counts: {}, coverage: { from: session.started_at!, to: at } })
+      applySessionWindow(makeWindow('overview', [
+        makeFlow(at, 'ESTABLISHED'), // same socket, original start stays 12 hours in the past
+        { ...makeFlow(at, 'ESTABLISHED'), id: `short-${minute}`, start: at },
+      ]))
+      const page = detailPage(`page-${minute}`, minute * 60_000)
+      applySessionWindow(makeWindow('50ms', [], [makeChunk(`chunk-${minute}`, at)]), page)
+      applyRealtimeBatch([{ collection: 'flows', action: 'delete', record: { id: `gone-${minute}`, session: session.id, updated: at } }])
+      const state = sessionTimelineStore.getState()
+      expect(state.entities.flows.size).toBeLessThanOrEqual(7)
+      expect(state.entities.flowActivityChunks.size).toBeLessThanOrEqual(6)
+      expect(state.pages.size).toBeLessThanOrEqual(6)
+      expect(state.tombstones.size).toBeLessThanOrEqual(7)
+      expect(state.indexes.flows.bucketCount).toBeLessThanOrEqual(31)
+      expect(state.cursorMs).toBeGreaterThanOrEqual(now - 300_000)
+      expect(state.cacheBytes).toBeLessThan(40_000)
+    }
+    const state = sessionTimelineStore.getState()
+    const before = state.entities.flows.size
+    applySessionWindow(makeWindow('overview', [{ ...makeFlow(session.started_at!, 'ESTABLISHED'), id: 'late-old-response' }]))
+    expect(sessionTimelineStore.getState().entities.flows.size).toBe(before)
+  })
+
+  it('keeps regular session history when the clock advances', () => {
+    resetSessionTimeline(session.id, [session])
+    applySessionWindow(makeWindow('overview', [makeFlow(session.started_at!, 'ESTABLISHED')]))
+    setTimelineManifest({ sessionId: session.id, name: 'Recording', active: true,
+      startedAt: session.started_at!, endedAt: null, serverNow: '2026-09-03T10:00:00Z', watermark: '',
+      counts: {}, coverage: { from: session.started_at!, to: '2026-09-03T10:00:00Z' } })
+    expect(sessionTimelineStore.getState().entities.flows.size).toBe(1)
+  })
+})

@@ -55,13 +55,16 @@ export function MapPage() {
   )
   const contentEndMs = Math.max(scene.startMs + 1_000, scene.endMs, timeline.liveEdgeMs)
   const contentDurationInFrames = Math.max(FPS, frameForTime(scene.startMs, contentEndMs, FPS) + 1)
+  // Playback needs a little headroom between clock ticks to avoid emitting
+  // 'ended' at the live edge. The visible transport still uses contentEndMs.
   const durationInFrames = timeline.mode === 'live'
-    ? roundLiveDuration(contentDurationInFrames)
+    ? timeline.manifest?.ephemeral ? contentDurationInFrames + FPS * 3 : roundLiveDuration(contentDurationInFrames)
     : contentDurationInFrames
   // Request a bounded 90-second window at 500 ms LOD, moving every 30 seconds.
   const trackCatalog = useMemo(() => buildMapTrackCatalog({ ...routeData, dnsQueries: activity.dnsQueries }, trackPalette.colors), [activity.dnsQueries, routeData, trackPalette])
   const trafficIndex = useMemo(() => indexMapTraffic(activity.chunks), [activity.chunks])
-  const destinationVolumes = useDestinationVolumes(scene.sessionId, timeline.mode === 'live')
+  const destinationVolumes = useDestinationVolumes(scene.sessionId, timeline.mode === 'live', timeline.manifest?.ephemeral, timeline.epochMs)
+  const previousEpoch = useRef(scene.startMs)
   const timelineRef = useRef({
     epochMs: scene.startMs,
     liveEdgeMs: timeline.liveEdgeMs,
@@ -75,6 +78,20 @@ export function MapPage() {
       mode: timeline.mode,
     }
   }, [scene.startMs, timeline.liveEdgeMs, timeline.mode])
+
+  // Rebase the player when the rolling origin moves, preserving absolute
+  // paused/replay time. Expired paused positions clamp to the retained edge.
+  useEffect(() => {
+    const oldEpoch = previousEpoch.current
+    previousEpoch.current = scene.startMs
+    const player = playerRef.current
+    if (!timeline.manifest?.ephemeral || !player || oldEpoch === scene.startMs) return
+    const absolute = timeForFrame(oldEpoch, player.getCurrentFrame(), FPS)
+    const target = Math.min(contentDurationInFrames - 1, frameForTime(scene.startMs, absolute, FPS))
+    programmaticSeekTargetRef.current = target
+    player.seekTo(target)
+    setCurrentFrame(target)
+  }, [scene.startMs, contentDurationInFrames, timeline.manifest?.ephemeral])
 
   const inputProps = useMemo<MapCompositionProps>(() => ({
     scene,
@@ -229,7 +246,7 @@ export function MapPage() {
 
   useEffect(() => {
     const player = playerRef.current
-    if (!player || !scene.sessionId || initializedSessionRef.current === scene.sessionId) return
+    if (!player || !scene.sessionId || !timeline.manifest || initializedSessionRef.current === scene.sessionId) return
     initializedSessionRef.current = scene.sessionId
     if (timeline.mode === 'live') {
       followLiveEdge(true)
@@ -239,7 +256,7 @@ export function MapPage() {
     player.seekTo(0)
     player.play()
     setTimelinePlayback({ cursorMs: scene.startMs, playback: 'playing' })
-  }, [followLiveEdge, scene.sessionId, scene.startMs, timeline.mode])
+  }, [followLiveEdge, scene.sessionId, scene.startMs, timeline.mode, timeline.manifest])
 
   useEffect(() => {
     const player = playerRef.current

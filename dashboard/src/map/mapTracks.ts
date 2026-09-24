@@ -2,6 +2,8 @@ import { flowTrackAt, indexFlowTracks, isTrafficConnection, parseEpoch } from '@
 import type { Flow, FlowTrackIdentity, GatewayData } from '@infrareveal/session-state'
 import type { MapEndpoint, MapTimelineScene } from './mapModel'
 import type { TrafficProfile } from './mapTraffic'
+import { connectionVolume } from './destinationVolumes'
+import type { DestinationVolumeIndex } from './destinationVolumes'
 
 export type TrackColor = [number, number, number]
 const PALETTE: TrackColor[] = [[104, 222, 193], [175, 148, 246], [247, 181, 100], [106, 184, 250], [239, 135, 160], [199, 216, 112], [104, 213, 230], [226, 164, 235], [239, 144, 101], [131, 201, 139], [162, 181, 226], [215, 198, 171]]
@@ -28,6 +30,8 @@ export type MapTrackCatalog = ReturnType<typeof buildMapTrackCatalog>
 /** Retain assigned colors across live revisions, independent of list sorting or selection. */
 export class TrackColors {
   private colors = new Map<string, TrackColor>()
+  retain(ids: Set<string>) { for (const id of this.colors.keys()) if (!ids.has(id)) this.colors.delete(id) }
+  get size() { return this.colors.size }
   get(id: string): TrackColor {
     let color = this.colors.get(id)
     if (!color) {
@@ -42,14 +46,18 @@ export class TrackColors {
 export function buildMapTrackCatalog(data: GatewayData, colors = new TrackColors()) {
   const flows = data.flows.filter(isTrafficConnection).sort((a, b) => parseEpoch(a.start, 0) - parseEpoch(b.start, 0) || a.id.localeCompare(b.id))
   const index = indexFlowTracks(data)
+  const colorIDs = new Set<string>()
   for (const flow of flows) {
+    colorIDs.add(`${flow.client_ip}:independent`)
+    for (const record of index.evidence.get(flow.id)?.associations ?? []) colorIDs.add(`${flow.client_ip}:activity:${record.episode}`)
     colors.get(`${flow.client_ip}:independent`)
     for (const record of index.evidence.get(flow.id)?.associations ?? []) colors.get(`${flow.client_ip}:activity:${record.episode}`)
   }
+  if (data.selectedSession?.ephemeral) colors.retain(colorIDs)
   return { flows, index, colors, destinations: new Map(data.destinations.map(destination => [destination.ip, destination])), data }
 }
 
-export function projectMapTracks(catalog: MapTrackCatalog, scene: MapTimelineScene, cursorMs: number) {
+export function projectMapTracks(catalog: MapTrackCatalog, scene: MapTimelineScene, cursorMs: number, volumes?: DestinationVolumeIndex) {
   const groups = new Map<string, MapTrack>()
   const byFlow = new Map<string, MapConnection>()
   const mappedIPs = new Set(scene.endpoints.filter(endpoint => endpoint.availableFromMs <= cursorMs).map(endpoint => endpoint.ip))
@@ -64,6 +72,10 @@ export function projectMapTracks(catalog: MapTrackCatalog, scene: MapTimelineSce
       mapped: mappedIPs.has(flow.destination_ip),
       location: destination ? [destination.city, destination.country].filter(Boolean).join(', ') : '',
       provider: destination?.provider_label || destination?.organization || '',
+    }
+    if (volumes?.fromMs) {
+      const volume = connectionVolume(connection, volumes, cursorMs)
+      connection.bytes = volume.received + volume.sent
     }
     const group = groups.get(identity.id) ?? { ...identity, color: catalog.colors.get(identity.id), connections: [], bytes: 0, activeCount: 0, mappedCount: 0 }
     group.connections.push(connection)

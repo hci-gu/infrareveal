@@ -50,7 +50,7 @@ Note: The AP is open (no password) by default. Use only in controlled environmen
 
 Follow the **[two-network Pi deployment guide](docs/implementation-guides/pi-deployment.md)**
 for the existing Pi at `pi@192.168.10.120`. It covers pulling changes, installing
-Compose on its 32-bit OS, configuring the admin password, building images,
+Compose on its 32-bit OS, building images,
 preparing host networking, backing up the existing database, and replacing the
 old `infrareveal-server` container.
 
@@ -60,15 +60,14 @@ capabilities. Images support ARMv7 and ARM64; the Docker target platform selects
 the Go binary architecture automatically. The host OS obtains Ethernet settings
 through DHCP. Upstream authentication and subnet conflicts still need handling.
 
-Join `Infrareveal-admin` to open **http://10.77.0.1/** or
+Join `Infrareveal-admin` with **`password123`** to open **http://10.77.0.1/** or
 **http://infrareveal.home.arpa/**. The UI and API share that address; no Ethernet IP
 needs to be discovered. Port 8090 is loopback-only. Participant devices continue
 to use `Infrareveal`, with internet and observation on `10.0.0.0/24`.
 
 ## Configuration
 
-Copy `.env.example` to `.env` and create `secrets/admin-wifi-password` as described
-in the deployment guide. Runtime scripts generate hostapd and the two dnsmasq
+Copy `.env.example` to `.env` as described in the deployment guide. Runtime scripts generate hostapd and the two dnsmasq
 configurations from these settings; there are no hand-edited root-level AP configs.
 
 Configuration knobs (via env in `docker-compose.yml`):
@@ -141,7 +140,7 @@ backup procedure before restarting with new images.
 
 ## Using it
 
-1) Join `Infrareveal-admin` on the operator device using the configured password.
+1) Join `Infrareveal-admin` on the operator device using `password123`.
 2) Open http://10.77.0.1/ (dashboard) or http://10.77.0.1/_/ (PocketBase console).
 3) Join `Infrareveal` on the device being observed. It receives a `10.0.0.50–150`
    address and internet via the Pi. Generate traffic to view it in the dashboard.
@@ -159,14 +158,27 @@ For supported site/app families, the backend also derives conservative activity 
 
 Destination context is enriched independently from reverse DNS, known provider networks, and the bundled GeoIP database. Slow traceroute work runs separately so it cannot delay identity labels. Routes are traceroute approximations from the gateway to the observed destination IP and port; they are not exact proof of the client application path.
 
+## Always-on sessions
+
+In the PocketBase admin console at **http://10.77.0.1/_/**, open `sessions`,
+edit the current session, enable **ephemeral**, and save. It stays active and both
+dashboards show a rolling five-minute timeline. Old observations are discarded
+on a 15-second cleanup cycle; live connections and the evidence they need remain.
+Regular sessions keep their existing recording behavior.
+
+Enabling this on an existing recording discards its older history. Disable
+`ephemeral` to resume keeping history from the remaining window, or to stop the
+session. See the [deployment guide](docs/implementation-guides/pi-deployment.md#always-on-ephemeral-sessions)
+for storage and upgrade details.
+
 ## Customizations
 
 Set SSIDs, country/channels, interface names, and non-overlapping private network
 prefixes in `.env`. Run `sudo docker compose up -d --no-build --force-recreate`
 after changing runtime settings. Changing the admin prefix changes the dashboard
 address too. Reconnect clients after changing prefixes so DHCP leases renew.
-The admin password lives in `secrets/admin-wifi-password`; restart the proxy after
-changing it. Both radios are dedicated APs in this deployment.
+The admin Wi-Fi password is always `password123`; no secret file is required.
+Both radios are dedicated APs in this deployment.
 
 ## Troubleshooting
 

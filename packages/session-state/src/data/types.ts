@@ -257,6 +257,7 @@ export type Session = {
   updated: string
   name: string
   active: boolean
+  ephemeral?: boolean
   started_at?: string
   ended_at?: string
   gate_audit_complete?: boolean
@@ -271,6 +272,7 @@ export type SessionManifest = {
   startedAt: string
   endedAt: string | null
   active: boolean
+  ephemeral?: boolean
   serverNow: string
   watermark: string
   counts: Record<string, number>

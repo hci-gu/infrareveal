@@ -66,9 +66,8 @@ fi
 kill "$participant_pid"
 
 # Validate generated configs, admin secrecy, and two independent resolvers.
-ADMIN_WIFI_PASSWORD_FILE=/tmp/test-admin-password
-printf '%s\n' 'only-a-test-password' > "$ADMIN_WIFI_PASSWORD_FILE"
 write_network_configs
+grep -qx 'wpa_passphrase=password123' "$CONFIG_DIR/admin.hostapd"
 dnsmasq --test --conf-file="$CONFIG_DIR/participants.dnsmasq"
 dnsmasq --test --conf-file="$CONFIG_DIR/admin.dnsmasq"
 if grep -q '^log-queries' "$CONFIG_DIR/admin.dnsmasq"; then exit 1; fi

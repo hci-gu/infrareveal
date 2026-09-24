@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { parseEpoch } from '@infrareveal/session-state'
+import { parseEpoch, sessionTimelineStore, timelineStartMs } from '@infrareveal/session-state'
 import { indexDestinationVolumes } from './destinationVolumes'
 import type { VolumeChunk } from './destinationVolumes'
 
@@ -10,7 +10,7 @@ const noRecords: VolumeChunk[] = []
 type State = { sessionId: string; records: VolumeChunk[]; loading: boolean; error: boolean }
 
 /** Session-wide summaries only; raw packet samples stay in the bounded rate window. */
-export function useDestinationVolumes(sessionId: string | null, live: boolean) {
+export function useDestinationVolumes(sessionId: string | null, live: boolean, ephemeral = false, fromMs = 0) {
   const [state, setState] = useState<State>({ sessionId: '', records: [], loading: true, error: false })
   useEffect(() => {
     if (!sessionId) return
@@ -20,7 +20,10 @@ export function useDestinationVolumes(sessionId: string | null, live: boolean) {
     let timer = 0
     async function refresh() {
       try {
-        const incoming = await readVolumeChunks(sessionId!, watermark, controller.signal)
+        const cutoff = ephemeral ? timelineStartMs(sessionTimelineStore.getState()) : 0
+        const incoming = await readVolumeChunks(sessionId!, ephemeral ? 0 : watermark, controller.signal, cutoff)
+        // Authoritative replacement repairs deletions as well as expiring old IDs.
+        if (ephemeral) records.clear()
         if (controller.signal.aborted) return
         for (const record of incoming) {
           records.set(record.id, record)
@@ -36,16 +39,17 @@ export function useDestinationVolumes(sessionId: string | null, live: boolean) {
     }
     void refresh()
     return () => { controller.abort(); window.clearTimeout(timer) }
-  }, [sessionId, live])
+  }, [sessionId, live, ephemeral])
   const records = state.sessionId === sessionId ? state.records : noRecords
-  const index = useMemo(() => indexDestinationVolumes(records), [records])
+  const index = useMemo(() => indexDestinationVolumes(records, ephemeral ? fromMs : 0), [records, ephemeral, fromMs])
   return { index, loading: state.sessionId !== sessionId || state.loading, error: state.sessionId === sessionId && state.error }
 }
 
-export async function readVolumeChunks(sessionId: string, watermark: number, signal: AbortSignal): Promise<VolumeChunk[]> {
+export async function readVolumeChunks(sessionId: string, watermark: number, signal: AbortSignal, fromMs = 0): Promise<VolumeChunk[]> {
   const records: VolumeChunk[] = []
   let after = ''
   const sessionFilter = `session=${JSON.stringify(sessionId)}`
+    + (fromMs ? ` && chunk_start >= ${JSON.stringify(new Date(fromMs - 60_000).toISOString().replace('T', ' '))}` : '')
   // Use storage revision, so a late write of an old capture chunk is still picked up.
   const updatedFilter = watermark ? ` && updated >= ${JSON.stringify(new Date(watermark - 30_000).toISOString().replace('T', ' '))}` : ''
   while (!signal.aborted) {
@@ -55,7 +59,7 @@ export async function readVolumeChunks(sessionId: string, watermark: number, sig
     if (!response.ok) throw new Error(`Destination totals request failed: ${response.status}`)
     const payload = await response.json() as { items: VolumeChunk[] }
     if (!Array.isArray(payload.items)) throw new Error('Missing destination totals')
-    records.push(...payload.items.filter(record => record.session === sessionId))
+    records.push(...payload.items.filter(record => record.session === sessionId && (!fromMs || parseEpoch(record.chunk_start) + record.chunk_ms > fromMs)))
     if (payload.items.length < 500) break
     const next = payload.items[payload.items.length - 1]?.id
     if (!next || next <= after) throw new Error('Destination totals pagination did not advance')

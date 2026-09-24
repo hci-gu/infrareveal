@@ -20,7 +20,7 @@ import type {
   TimelineLOD,
 } from '../../data/types'
 import { emptyGatewayData } from '../../data/pocketbaseClient'
-import { parseEpoch } from '../domain/time'
+import { EPHEMERAL_WINDOW_MS, parseEpoch } from '../domain/time'
 import { TemporalBucketIndex } from './temporalIndex'
 
 /** Default raw-detail working-set budget shared by both dashboards. */
@@ -226,7 +226,7 @@ export function setTimelineSessions(sessions: Session[]) {
 
 export function setTimelineManifest(manifest: SessionManifest) {
   const state = sessionTimelineStore.getState()
-  const epochMs = parseEpoch(manifest.startedAt, parseEpoch(manifest.coverage.from, Date.now()))
+  const epochMs = manifest.ephemeral ? Math.max(parseEpoch(manifest.startedAt), parseEpoch(manifest.serverNow) - EPHEMERAL_WINDOW_MS) : parseEpoch(manifest.startedAt, parseEpoch(manifest.coverage.from, Date.now()))
   const serverNowMs = parseEpoch(manifest.serverNow, Date.now())
   const endedAtMs = parseEpoch(manifest.endedAt, 0)
   const liveEdgeMs = manifest.active ? serverNowMs : Math.max(epochMs, endedAtMs)
@@ -248,6 +248,7 @@ export function setTimelineManifest(manifest: SessionManifest) {
       : state.ui,
     clockVersion: state.clockVersion + 1,
   })
+  pruneEphemeralTimeline()
 }
 
 export function tickTimelineClock() {
@@ -256,6 +257,7 @@ export function tickTimelineClock() {
   const projected = state.serverClock.serverNowMs + Math.max(0, performanceNow() - state.serverClock.syncedAtMs)
   if (projected <= state.liveEdgeMs) return
   sessionTimelineStore.setState({ liveEdgeMs: projected, clockVersion: state.clockVersion + 1 })
+  pruneEphemeralTimeline()
 }
 
 /** Advances the shared edge from an accepted ephemeral trace without allowing
@@ -339,6 +341,7 @@ export function applySessionWindow(
     overviewVersion: state.overviewVersion + (overviewChanged ? 1 : 0),
     detailVersion: state.detailVersion + (detailChanged ? 1 : 0),
   })
+  pruneEphemeralTimeline()
 }
 
 /** Replaces the authoritative overview portion of a range, repairing missed SSE deletes. */
@@ -438,6 +441,7 @@ export function applyRealtimeBatch(events: QueuedRealtimeEvent[]) {
     overviewVersion: state.overviewVersion + (overviewChanged ? 1 : 0),
     detailVersion: state.detailVersion + (detailChanged ? 1 : 0),
   })
+  pruneEphemeralTimeline()
 }
 
 export function selectOverviewGatewayData(state = sessionTimelineStore.getState()): GatewayData {
@@ -553,6 +557,11 @@ function removeMissingRelations(
 }
 
 function upsertEntity(state: SessionTimelineState, collection: keyof EntityMaps, incoming: RecordBase) {
+  if (state.manifest?.ephemeral) {
+    const cutoff = timelineStartMs(state)
+    if (collection === 'flows' && parseEpoch((incoming as Flow).last_seen) < cutoff) return false
+    if (collection === 'activityEpisodes' && parseEpoch((incoming as ActivityEpisode).last_seen) < cutoff) return false
+  }
   const map = state.entities[collection] as Map<string, RecordBase>
   const existing = map.get(incoming.id)
   if (collection === 'routes' && existing) {
@@ -617,11 +626,11 @@ function removeEntity(state: SessionTimelineState, collection: keyof EntityMaps,
 function indexEntity(state: SessionTimelineState, collection: keyof EntityMaps, record: RecordBase) {
   if (collection === 'flows') {
     const flow = record as Flow
-    const start = parseEpoch(flow.start || flow.created)
+    const start = Math.max(parseEpoch(flow.start || flow.created), state.manifest?.ephemeral ? timelineStartMs(state) : 0)
     state.indexes.flows.upsert(flow.id, start, parseEpoch(flow.last_seen || flow.updated, start))
   } else if (collection === 'activityEpisodes') {
     const episode = record as ActivityEpisode
-    const start = parseEpoch(episode.start || episode.created)
+    const start = Math.max(parseEpoch(episode.start || episode.created), state.manifest?.ephemeral ? timelineStartMs(state) : 0)
     state.indexes.episodes.upsert(episode.id, start, parseEpoch(episode.last_seen || episode.updated, start))
   } else if (collection === 'dnsQueries') {
     const dns = record as DNSQuery
@@ -815,4 +824,67 @@ function pruneRouteRevisions(state: SessionTimelineState) {
   }
   const pins = new Set([...latest.values()].map(route => route.id))
   for (const id of state.entities.routes.keys()) if (!pins.has(id) && !state.detailRefCounts.routes.has(id)) state.entities.routes.delete(id)
+}
+
+/** Canonical rolling origin, also between server manifest refreshes. */
+export function timelineStartMs(state = sessionTimelineStore.getState()) {
+  const start = parseEpoch(state.manifest?.startedAt)
+  return state.manifest?.ephemeral ? Math.max(start, state.liveEdgeMs - EPHEMERAL_WINDOW_MS) : start
+}
+
+/** Independent of server delete events: reconnects and stale responses cannot
+ * make the working set grow with session age. Long-lived flows retain identity. */
+export function pruneEphemeralTimeline() {
+  const state = sessionTimelineStore.getState()
+  if (!state.manifest?.ephemeral) return
+  const cutoff = timelineStartMs(state)
+  let changed = false
+  for (const page of [...state.pages.values()]) {
+    if (page.toMs <= cutoff) { removePage(state, page); changed = true }
+  }
+  const remove = (collection: keyof EntityMaps, id: string) => { changed = removeEntity(state, collection, id) || changed }
+  for (const record of state.entities.flows.values()) if (parseEpoch(record.last_seen) < cutoff) remove('flows', record.id)
+  for (const record of state.entities.activityEpisodes.values()) if (parseEpoch(record.last_seen) < cutoff) remove('activityEpisodes', record.id)
+  for (const record of state.entities.attributions.values()) if (!state.entities.flows.has(record.flow)) remove('attributions', record.id)
+  for (const record of state.entities.flowAssociations.values()) if (!state.entities.flows.has(record.flow) || !state.entities.activityEpisodes.has(record.episode)) remove('flowAssociations', record.id)
+  for (const record of state.entities.dnsQueries.values()) if (parseEpoch(record.timestamp) < cutoff) remove('dnsQueries', record.id)
+  for (const record of state.entities.flowActivityChunks.values()) if (parseEpoch(record.chunk_start) + record.chunk_ms <= cutoff) remove('flowActivityChunks', record.id)
+  for (const record of state.entities.flowActivityWindows.values()) if (parseEpoch(record.window_start) + record.window_ms <= cutoff) remove('flowActivityWindows', record.id)
+  for (const record of state.entities.gateEvents.values()) if (parseEpoch(record.queued_at) < cutoff) remove('gateEvents', record.id)
+  const flows = [...state.entities.flows.values()]
+  for (const record of state.entities.routes.values()) if (!flows.some(flow => routeMatchesFlow(record, flow))) remove('routes', record.id)
+  for (const record of state.entities.routes.values()) {
+    const anchors = new Map<string, NonNullable<Route['evidence_updates']>[number]>()
+    const recent = (record.evidence_updates ?? []).filter(event => {
+      if (parseEpoch(event.available_at) >= cutoff) return true
+      const previous = anchors.get(event.kind)
+      if (!previous || parseEpoch(previous.available_at) < parseEpoch(event.available_at)) anchors.set(event.kind, event)
+      return false
+    })
+    const updates = [...anchors.values(), ...recent]
+    if (updates.length !== record.evidence_updates?.length) {
+      state.entities.routes.set(record.id, { ...record, evidence_updates: updates })
+      changed = true
+    }
+  }
+  const ips = new Set(flows.map(flow => flow.destination_ip))
+  for (const route of state.entities.routes.values()) for (const hop of route.hops ?? []) ips.add(hop.address)
+  for (const record of state.entities.destinations.values()) if (!ips.has(record.ip)) remove('destinations', record.id)
+  for (const [key, at] of state.tombstones) if (at < cutoff - 60_000) state.tombstones.delete(key)
+  while (state.tombstones.size > 10_000) state.tombstones.delete(state.tombstones.keys().next().value!)
+  for (const index of Object.values(state.indexes)) index.pruneBefore(cutoff)
+  // Release ownership entries for records removed independently of their page.
+  for (const page of state.pages.values()) for (const collection of Object.keys(page.ownership) as Array<keyof EntityOwnership>) {
+    for (const id of page.ownership[collection]) if (!state.entities[collection].has(id)) {
+      page.ownership[collection].delete(id)
+      state.detailRefCounts[collection].delete(id)
+    }
+  }
+  const cursorMs = Math.min(state.liveEdgeMs, Math.max(cutoff, state.cursorMs))
+  const viewport = { fromMs: Math.max(cutoff, state.viewport.fromMs), toMs: Math.max(cutoff, state.viewport.toMs) }
+  sessionTimelineStore.setState({
+    cursorMs, viewport, pages: state.pages, cacheBytes: state.cacheBytes,
+    overviewVersion: state.overviewVersion + Number(changed),
+    detailVersion: state.detailVersion + Number(changed),
+  })
 }

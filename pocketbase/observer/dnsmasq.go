@@ -102,6 +102,9 @@ func (d *DNSMasqIngestor) follow(ctx context.Context) error {
 		line, err := reader.ReadString('\n')
 		if err != nil {
 			if errors.Is(err, io.EOF) {
+				if err := resetDNSLogAtEOF(file, reader); err != nil {
+					log.Printf("DNS spool rotation: %v", err)
+				}
 				time.Sleep(300 * time.Millisecond)
 				continue
 			}
@@ -109,6 +112,33 @@ func (d *DNSMasqIngestor) follow(ctx context.Context) error {
 		}
 		d.handleLine(strings.TrimSpace(line))
 	}
+}
+
+// Rotate only after consuming the spool, so backlog is not discarded. dnsmasq
+// opens its log with O_APPEND and continues writing to the same inode.
+func resetDNSLogAtEOF(file *os.File, reader *bufio.Reader) error {
+	position, err := file.Seek(0, io.SeekCurrent)
+	if err != nil {
+		return err
+	}
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+	truncated := info.Size() < position
+	if info.Size() > 8*1024*1024 && position >= info.Size() {
+		if err := os.Truncate(file.Name(), 0); err != nil {
+			return err
+		}
+		truncated = true
+	}
+	if truncated {
+		if _, err := file.Seek(0, io.SeekStart); err != nil {
+			return err
+		}
+		reader.Reset(file)
+	}
+	return nil
 }
 
 func (d *DNSMasqIngestor) handleLine(line string) {

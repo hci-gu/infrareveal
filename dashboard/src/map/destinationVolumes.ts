@@ -9,7 +9,7 @@ import type { CountryFootprint } from './countryFootprints'
 export type VolumeChunk = Pick<FlowActivityChunk, 'id' | 'session' | 'flow' | 'chunk_start' | 'chunk_ms' | 'wire_bytes_in' | 'wire_bytes_out' | 'capture_complete' | 'dropped_events' | 'updated_at_source' | 'updated'>
 type Interval = { start: number; end: number; received: number; sent: number; partial: boolean }
 type VolumeSeries = { intervals: Interval[]; received: number[]; sent: number[]; partial: number[] }
-export type DestinationVolumeIndex = Map<string, VolumeSeries>
+export type DestinationVolumeIndex = Map<string, VolumeSeries> & { fromMs?: number }
 export type ByteTotals = { received: number; sent: number; estimated: boolean; partial: boolean }
 export type DestinationVolume = ByteTotals & {
   id: string; position: MapPosition; location: string; bytes: number; height: number
@@ -21,7 +21,7 @@ export type DestinationColumn = ByteTotals & {
 }
 
 /** Compact wire counters, independent of the evictable activity/rate window. */
-export function indexDestinationVolumes(records: readonly VolumeChunk[]): DestinationVolumeIndex {
+export function indexDestinationVolumes(records: readonly VolumeChunk[], fromMs = 0): DestinationVolumeIndex {
   const unique = new Map<string, VolumeChunk>()
   for (const record of records) {
     const previous = unique.get(record.id)
@@ -37,12 +37,15 @@ export function indexDestinationVolumes(records: readonly VolumeChunk[]): Destin
     if (!previous || revision(record) >= revision(previous)) chunks.set(start, record)
     flows.set(record.flow, chunks)
   }
-  return new Map([...flows].map(([flow, chunks]) => {
+  const index: DestinationVolumeIndex = new Map([...flows].map(([flow, chunks]) => {
     const series: VolumeSeries = { intervals: [], received: [0], sent: [0], partial: [0] }
     for (const [start, chunk] of [...chunks].sort(([a], [b]) => a - b)) {
       // Wire counters have chunk-level timing; the last packet bounds growth.
       const end = Math.max(start, Math.min(start + chunk.chunk_ms, parseEpoch(chunk.updated_at_source, start + chunk.chunk_ms)))
-      const interval = { start, end, received: chunk.wire_bytes_in, sent: chunk.wire_bytes_out, partial: !chunk.capture_complete || chunk.dropped_events > 0 }
+      if (end <= fromMs) continue
+      const clippedStart = Math.max(start, fromMs)
+      const fraction = end > start ? (end - clippedStart) / (end - start) : 1
+      const interval = { start: clippedStart, end, received: chunk.wire_bytes_in * fraction, sent: chunk.wire_bytes_out * fraction, partial: clippedStart > start || !chunk.capture_complete || chunk.dropped_events > 0 }
       series.intervals.push(interval)
       series.received.push(series.received[series.received.length - 1] + interval.received)
       series.sent.push(series.sent[series.sent.length - 1] + interval.sent)
@@ -50,6 +53,8 @@ export function indexDestinationVolumes(records: readonly VolumeChunk[]): Destin
     }
     return [flow, series]
   }))
+  index.fromMs = fromMs
+  return index
 }
 
 export function connectionVolume(connection: MapConnection, index: DestinationVolumeIndex, cursorMs: number): ByteTotals {
@@ -57,6 +62,7 @@ export function connectionVolume(connection: MapConnection, index: DestinationVo
   if (cursorMs < connection.startMs) return empty
   const series = index.get(connection.flow.id)
   if (!series) {
+    if (index.fromMs) return { ...empty, partial: true }
     const fraction = elapsedFraction(cursorMs, connection.startMs, connection.endMs)
     return { received: safeBytes(connection.flow.bytes_in) * fraction, sent: safeBytes(connection.flow.bytes_out) * fraction, estimated: true, partial: false }
   }

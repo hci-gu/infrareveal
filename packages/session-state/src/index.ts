@@ -17,6 +17,7 @@ export {
 export type { ClearGatewayDataResult, RealtimeEvent } from './data/pocketbaseClient'
 export { useFlowActivityRange, useGatewayData } from './data/useGatewayData'
 export {
+  EPHEMERAL_WINDOW_MS,
   FPS,
   WINDOW_SEGMENT_MS,
   alignWindowStart,
@@ -34,6 +35,7 @@ export {
   selectDetailGatewayData,
   selectOverviewGatewayData,
   sessionTimelineStore,
+  timelineStartMs,
   setTimelinePlayback,
   setTimelineUI,
   toggleTimelineServiceCollapsed,

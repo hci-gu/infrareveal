@@ -57,7 +57,7 @@ export function MapComposition({ scene, trackCatalog, fps, mapStyleUrl, unavaila
   const cursorMs = timeForFrame(scene.startMs, frame, fps)
   const projectedCursorMs = Math.floor(cursorMs / MAP_PROJECTION_INTERVAL_MS) * MAP_PROJECTION_INTERVAL_MS
   const [showRoutes, setShowRoutes] = useState(true)
-  const trackFrame = useMemo(() => projectMapTracks(trackCatalog, scene, projectedCursorMs), [trackCatalog, scene, projectedCursorMs])
+  const trackFrame = useMemo(() => projectMapTracks(trackCatalog, scene, projectedCursorMs, destinationIndex), [trackCatalog, scene, projectedCursorMs, destinationIndex])
   const trackScene = useMemo(() => sceneForTracks(scene, trackFrame.byFlow), [scene, trackFrame.byFlow])
   const displayScene = useMemo(() => showRoutes ? trackScene : {
     ...trackScene, endpoints: trackScene.endpoints.map(endpoint => ({ ...endpoint, routes: [] })),

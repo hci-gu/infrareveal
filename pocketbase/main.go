@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/oschwald/geoip2-golang"
@@ -31,7 +32,7 @@ import (
 )
 
 // Global pointer tracking active session
-var active_session_id *string
+var activeSessionID atomic.Pointer[string]
 
 // We'll keep a global map to track which hostnames we've seen for the current session
 var sessionHostnames sync.Map // key=string (hostname), value=bool
@@ -195,6 +196,7 @@ func main() {
 		apInterface := envOrDefault("AP_IFACE", "wlan0")
 		observationScope := observer.NewObservationScope(clientPrefix, gatewayIP)
 
+		startEphemeralRetention(ctx, app)
 		observer.StartDNSMasqIngestor(ctx, app, dnsmasqLogPath, observationScope, currentSessionID, traceSink)
 		routeDiscovery = routing.Start(ctx, app, geoipDB, currentSessionID, routing.ConfigFromEnv())
 		se.Router.GET("/api/infrareveal/routes/status", func(e *core.RequestEvent) error { return e.JSON(http.StatusOK, routeDiscovery.Status()) })
@@ -251,6 +253,7 @@ func main() {
 	})
 
 	app.OnRecordCreate("sessions").BindFunc(func(e *core.RecordEvent) error {
+		normalizeEphemeralSession(e.Record, time.Now().UTC())
 		if e.Record.GetDateTime("started_at").IsZero() {
 			e.Record.Set("started_at", time.Now().UTC().Format(time.RFC3339Nano))
 		}
@@ -263,6 +266,7 @@ func main() {
 	})
 
 	app.OnRecordUpdate("sessions").BindFunc(func(e *core.RecordEvent) error {
+		normalizeEphemeralSession(e.Record, time.Now().UTC())
 		if e.Record.GetBool("active") {
 			e.Record.Set("ended_at", "")
 			e.Record.Set("gate_audit_complete", true)
@@ -295,7 +299,7 @@ func main() {
 	app.OnRecordAfterCreateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
 		id := e.Record.GetString("id")
 		if e.Record.GetBool("active") {
-			active_session_id = &id
+			activeSessionID.Store(&id)
 			// Clear map of seen hostnames on new session
 			clearSessionHostnames()
 		}
@@ -304,10 +308,12 @@ func main() {
 
 	app.OnRecordAfterUpdateSuccess("sessions").BindFunc(func(e *core.RecordEvent) error {
 		if !e.Record.GetBool("active") {
-			active_session_id = nil
+			if currentSessionID() == e.Record.Id {
+				activeSessionID.Store(nil)
+			}
 		} else {
 			id := e.Record.GetString("id")
-			active_session_id = &id
+			activeSessionID.Store(&id)
 			clearSessionHostnames()
 		}
 		return e.Next()
@@ -327,17 +333,18 @@ func envOrDefault(name string, fallback string) string {
 }
 
 func currentSessionID() string {
-	if active_session_id == nil {
+	id := activeSessionID.Load()
+	if id == nil {
 		return ""
 	}
-	return *active_session_id
+	return *id
 }
 
 func ensureDefaultActiveSession(app *pocketbase.PocketBase) error {
 	record, err := app.FindFirstRecordByFilter("sessions", "active=true")
 	if err == nil {
 		id := record.Id
-		active_session_id = &id
+		activeSessionID.Store(&id)
 		return nil
 	}
 	if !strings.Contains(err.Error(), sql.ErrNoRows.Error()) {
@@ -355,7 +362,7 @@ func ensureDefaultActiveSession(app *pocketbase.PocketBase) error {
 		return err
 	}
 	id := record.Id
-	active_session_id = &id
+	activeSessionID.Store(&id)
 	return nil
 }
 
@@ -376,10 +383,10 @@ func clearObservationCollections(app *pocketbase.PocketBase) (clearObservationsR
 	observationClearMu.Lock()
 	defer observationClearMu.Unlock()
 
-	previousActiveSessionID := active_session_id
-	active_session_id = nil
+	previousActiveSessionID := activeSessionID.Load()
+	activeSessionID.Store(nil)
 	defer func() {
-		active_session_id = previousActiveSessionID
+		activeSessionID.Store(previousActiveSessionID)
 	}()
 	if conntrackSampler != nil {
 		if err := conntrackSampler.SuppressCurrentFlows(); err != nil {
@@ -558,8 +565,7 @@ func pipeTraffic(clientConn net.Conn, backendConn net.Conn, clientReader io.Read
 	var aggregator *lib.PacketAggregator
 	recordIDCh := make(chan string, 1)
 
-	if active_session_id != nil {
-		sessionID := *active_session_id
+	if sessionID := currentSessionID(); sessionID != "" {
 		hn := stripPort(hostname)
 		aggregator = lib.NewPacketAggregator("", app)
 
