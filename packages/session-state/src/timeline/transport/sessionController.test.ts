@@ -1,8 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionWindow } from '../../data/types'
-import { resetSessionTimeline } from '../store/sessionStore'
+import { resetSessionTimeline, sessionTimelineStore } from '../store/sessionStore'
 import { sessionController } from './sessionController'
-import { getSessionWindow } from '../../data/pocketbaseClient'
+import { getSessions, getSessionManifest, getSessionWindow } from '../../data/pocketbaseClient'
 vi.mock('../../data/pocketbaseClient', () => ({ getSessionWindow: vi.fn(), getCollectionSessionWindow: vi.fn(), getSessions: vi.fn(), getSessionManifest: vi.fn(), createCollectionSessionManifest: vi.fn(), pb: {} }))
 const requests: { signal: AbortSignal; resolve: () => void; reject: (e: Error) => void }[] = []
 beforeEach(() => {
@@ -15,7 +15,7 @@ beforeEach(() => {
     options.signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')))
   }))
 })
-afterEach(() => { sessionController.dispose(); vi.unstubAllGlobals() })
+afterEach(() => { sessionController.dispose(); vi.useRealTimers(); vi.unstubAllGlobals() })
 describe('detail request owners', () => {
   it('lets the visible window and a pinned inspector load independently', async () => {
     const visible = sessionController.ensureDetailRange(0, 1000, ['visible'], '50ms', 'tracks')
@@ -41,5 +41,27 @@ describe('detail request owners', () => {
     expect(requests).toHaveLength(1)
     sessionController.releaseDetailRange('a'); expect(requests[0].signal.aborted).toBe(false)
     requests[0].resolve(); await Promise.all([a,b])
+  })
+})
+
+
+describe('unattended bootstrap recovery', () => {
+  it.each(['offline', 'empty'])('retries after an initially %s gateway', async (failure) => {
+    vi.useFakeTimers()
+    vi.stubGlobal('window', { setTimeout, clearTimeout, setInterval, clearInterval })
+    resetSessionTimeline(null, [])
+    const sessions = vi.mocked(getSessions)
+    if (failure === 'offline') sessions.mockRejectedValueOnce(new Error('Offline'))
+    else sessions.mockResolvedValueOnce([])
+    sessions.mockResolvedValue([{ id: 's', name: 'Demo', active: true, ephemeral: true, started_at: '2026-09-24T12:00:00Z', created: '', updated: '' }])
+    vi.mocked(getSessionManifest).mockResolvedValue({ sessionId: 's', name: 'Demo', active: true, ephemeral: true, retentionMinutes: 30, startedAt: '2026-09-24T12:00:00Z', endedAt: null, serverNow: '2026-09-24T12:01:00Z', watermark: '', counts: {}, coverage: {from: '2026-09-24T12:00:00Z', to: '2026-09-24T12:01:00Z'} })
+    await sessionController.start('s')
+    expect(sessionTimelineStore.getState().selectedSessionId).toBeNull()
+    await vi.advanceTimersByTimeAsync(2_000)
+    expect(sessionTimelineStore.getState().selectedSessionId).toBe('s')
+    expect(requests).toHaveLength(1)
+    requests[0].resolve()
+    await vi.advanceTimersByTimeAsync(1)
+    expect(sessionTimelineStore.getState().connectionState).toBe('polling')
   })
 })

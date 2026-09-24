@@ -1,3 +1,4 @@
+import { retentionWindowMs } from '../timeline/domain/time'
 import type {
   DNSQuery,
   Destination,
@@ -315,7 +316,7 @@ export async function getCollectionSessionWindow({
 
 export function createCollectionSessionManifest(session: Session): SessionManifest {
   const serverNow = new Date().toISOString()
-  const startedAt = session.ephemeral ? new Date(Math.max(Date.parse(session.started_at || session.created), Date.parse(serverNow) - 300_000)).toISOString() : session.started_at || session.created
+  const startedAt = session.ephemeral ? new Date(Math.max(Date.parse(session.started_at || session.created), Date.parse(serverNow) - retentionWindowMs(session.retention_minutes))).toISOString() : session.started_at || session.created
   const endedAt = session.active ? null : session.ended_at || session.updated
   const edge = endedAt || serverNow
   return {
@@ -325,6 +326,7 @@ export function createCollectionSessionManifest(session: Session): SessionManife
     endedAt,
     active: session.active,
     ephemeral: session.ephemeral,
+    retentionMinutes: session.retention_minutes,
     serverNow,
     watermark: session.updated || edge,
     counts: {},
@@ -725,3 +727,6 @@ function requestSignal(signal?: AbortSignal) {
   const timeout = AbortSignal.timeout(20_000)
   return signal ? AbortSignal.any([signal, timeout]) : timeout
 }
+
+export type DemoStatus = { serverNow: string; enabled: boolean; sessionId?: string; ssid: string; retentionMinutes?: number; observing?: boolean; catalogueEnabled: boolean; maintenance: {lastSuccess: string; lastError: string}; capture?: {running: boolean; reportedAt: string; lastError: string} }
+export function getDemoStatus(signal?: AbortSignal) { return requestJSON<DemoStatus>("/api/infrareveal/demo", signal) }

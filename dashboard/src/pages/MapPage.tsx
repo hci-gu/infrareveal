@@ -1,3 +1,5 @@
+import type { DemoStatus } from '@infrareveal/session-state'
+import { demoHealthMessage } from './demoHealth'
 import type { CallbackListener, PlayerRef } from '@remotion/player'
 import { Player } from '@remotion/player'
 import { setWorkerUrl } from 'maplibre-gl'
@@ -31,8 +33,10 @@ const LIVE_EDGE_TOLERANCE_MS = 2_000
 
 setWorkerUrl(mapLibreWorkerUrl)
 
-export function MapPage() {
-  const { sessionID = '' } = useParams()
+export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: string; demo?: { status: DemoStatus; error: string } } = {}) {
+  const { sessionID: routeSessionID = '' } = useParams()
+  const sessionID = sessionIdOverride ?? routeSessionID
+  const kiosk = Boolean(demo)
   const pageRef = useRef<HTMLElement>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState(() => ({ width: Math.max(320, window.innerWidth), height: Math.max(240, window.innerHeight - 208) }))
@@ -162,6 +166,7 @@ export function MapPage() {
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (kiosk) return
       const target = event.target as HTMLElement | null
       if (event.altKey || event.ctrlKey || event.metaKey || target?.closest('input, select, button, a, textarea, [contenteditable="true"]')) return
       if (event.code === 'Space') { event.preventDefault(); togglePlayback() }
@@ -170,7 +175,7 @@ export function MapPage() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [seek, togglePlayback])
+  }, [seek, togglePlayback, kiosk])
 
   async function toggleFullscreen() {
     try {
@@ -263,16 +268,16 @@ export function MapPage() {
     if (
       !player
       || timeline.mode !== 'live'
-      || timeline.playback !== 'following'
-      || sessionTimelineStore.getState().playback !== 'following'
+      || (!kiosk && (timeline.playback !== 'following'
+      || sessionTimelineStore.getState().playback !== 'following'))
     ) return
     followLiveEdge()
-  }, [followLiveEdge, timeline.mode, timeline.playback])
+  }, [followLiveEdge, timeline.mode, timeline.playback, kiosk])
 
   return (
     <main
       ref={pageRef}
-      className="atlas-page"
+      className={`atlas-page${kiosk ? " atlas-demo" : ""}`}
       data-session-id={scene.sessionId ?? ''}
       data-session-state={connectionState}
       data-timeline-mode={timeline.mode}
@@ -285,6 +290,11 @@ export function MapPage() {
         <div className="atlas-header-right"><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(timeForFrame(scene.startMs, currentFrame, FPS))}</strong><span>UTC</span></div></div>
       </header>
       {(error || fullscreenError) && <div className="atlas-connection-notice" role="status"><span>{error || fullscreenError}</span>{error ? <button type="button" onClick={() => void refresh()}>Retry connection</button> : <button type="button" onClick={() => setFullscreenError('')}>Dismiss</button>}</div>}
+      {demo && <div className="atlas-demo-banner">
+        <span>Connect to <strong>{demo.status.ssid}</strong> Wi-Fi to see your traffic here</span>
+        <span>Last {demo.status.retentionMinutes} minutes · Live network metadata</span>
+        {(demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow))) && <strong role="status" className="atlas-demo-warning">{demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow))}</strong>}
+      </div>}
       <div ref={mapContainerRef} className="atlas-map-container">
       <MapCompositionProvider value={inputProps}>
       <Player
@@ -308,7 +318,7 @@ export function MapPage() {
       />
       </MapCompositionProvider>
       </div>
-      <MapTransport scene={scene} endMs={contentEndMs} frame={currentFrame} fps={FPS}
+      {!kiosk && <MapTransport scene={scene} endMs={contentEndMs} frame={currentFrame} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}
         live={timeline.mode === 'live'} following={timeline.playback === 'following'}
         onToggle={togglePlayback} onSeek={seek} onRate={(rate) => setTimelinePlayback({
@@ -316,7 +326,7 @@ export function MapPage() {
           // A faster/slower clock is playback; live following must run at real time.
           ...(rate !== 1 && timeline.playback === 'following' ? { playback: 'playing' } : {}),
         })}
-        onLive={() => followLiveEdge(true)} onFullscreen={() => void toggleFullscreen()} />
+        onLive={() => followLiveEdge(true)} onFullscreen={() => void toggleFullscreen()} />}
     </main>
   )
 }

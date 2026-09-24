@@ -258,6 +258,8 @@ export type Session = {
   name: string
   active: boolean
   ephemeral?: boolean
+  retention_minutes?: number
+  demo?: boolean
   started_at?: string
   ended_at?: string
   gate_audit_complete?: boolean
@@ -273,6 +275,7 @@ export type SessionManifest = {
   endedAt: string | null
   active: boolean
   ephemeral?: boolean
+  retentionMinutes?: number
   serverNow: string
   watermark: string
   counts: Record<string, number>

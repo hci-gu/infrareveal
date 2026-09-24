@@ -22,6 +22,9 @@ services:
       - ADMIN_WIFI_MAC=${ADMIN_WIFI_MAC:-}
       - INTERNET_IFACE=${INTERNET_IFACE:-eth0}
       - SSID=${SSID:-Infrareveal}
+      - DEMO_MODE=${DEMO_MODE:-false}
+      - DEMO_RETENTION_MINUTES=${DEMO_RETENTION_MINUTES:-30}
+      - DEMO_DOMAIN_CATALOGUE=${DEMO_DOMAIN_CATALOGUE:-true}
       - ADMIN_SSID=${ADMIN_SSID:-Infrareveal-admin}
       - AP_PREFIX=${AP_PREFIX:-10.0.0}
       - ADMIN_PREFIX=${ADMIN_PREFIX:-10.77.0}

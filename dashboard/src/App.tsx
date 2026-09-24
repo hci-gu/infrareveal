@@ -2,6 +2,8 @@ import { lazy, Suspense } from 'react'
 import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom'
 import { SessionsPage } from './pages/SessionsPage'
 
+const DemoPage = lazy(() => import("./pages/DemoPage").then(module => ({ default: module.DemoPage })))
+
 const MapPage = lazy(async () => {
   const module = await import('./pages/MapPage')
   return { default: module.MapPage }
@@ -13,6 +15,7 @@ export default function App() {
       <Suspense fallback={<RouteLoading />}>
         <Routes>
           <Route path="/" element={<SessionsPage />} />
+          <Route path="/demo" element={<DemoPage />} />
           <Route path="/map/:sessionID" element={<MapPage />} />
           <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

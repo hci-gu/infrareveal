@@ -158,11 +158,21 @@ For supported site/app families, the backend also derives conservative activity 
 
 Destination context is enriched independently from reverse DNS, known provider networks, and the bundled GeoIP database. Slow traceroute work runs separately so it cannot delay identity labels. Routes are traceroute approximations from the gateway to the observed destination IP and port; they are not exact proof of the client application path.
 
+## Always-on lab demo
+
+For an unattended screen, enable `DEMO_MODE=true`, set
+`DEMO_RETENTION_MINUTES=30`, and open **http://10.77.0.1/demo** on the admin PC.
+The dedicated session resumes after restarts; the screen follows live traffic and
+reconnects automatically. A separate domain catalogue preserves bounded examples
+and aggregate counts for reviewing `domain_groups.json`.
+See the [lab demo setup, exports, and soak-test guide](docs/implementation-guides/lab-demo.md).
+
 ## Always-on sessions
 
 In the PocketBase admin console at **http://10.77.0.1/_/**, open `sessions`,
 edit the current session, enable **ephemeral**, and save. It stays active and both
-dashboards show a rolling five-minute timeline. Old observations are discarded
+dashboards show a rolling timeline (five minutes by default; configure
+`retention_minutes` in the session). Old observations are discarded
 on a 15-second cleanup cycle; live connections and the evidence they need remain.
 Regular sessions keep their existing recording behavior.
 

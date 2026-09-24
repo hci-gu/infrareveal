@@ -28,6 +28,7 @@ type sessionTimelineManifest struct {
 	StartedAt         string           `json:"startedAt"`
 	EndedAt           *string          `json:"endedAt"`
 	Active            bool             `json:"active"`
+	RetentionMinutes  int              `json:"retentionMinutes"`
 	Ephemeral         bool             `json:"ephemeral"`
 	ServerNow         string           `json:"serverNow"`
 	Watermark         string           `json:"watermark"`
@@ -129,8 +130,8 @@ func buildSessionTimelineManifest(app core.App, sessionID string, now time.Time)
 	}
 
 	if ephemeral {
-		if started.Before(now.Add(-ephemeralWindow)) {
-			started = now.Add(-ephemeralWindow)
+		if started.Before(now.Add(-sessionRetention(record))) {
+			started = now.Add(-sessionRetention(record))
 		}
 		coverageFrom, coverageTo, ended = started, now, time.Time{}
 	}
@@ -154,6 +155,7 @@ func buildSessionTimelineManifest(app core.App, sessionID string, now time.Time)
 		StartedAt:         started.UTC().Format(time.RFC3339Nano),
 		Active:            active,
 		Ephemeral:         ephemeral,
+		RetentionMinutes:  int(sessionRetention(record) / time.Minute),
 		ServerNow:         now.Format(time.RFC3339Nano),
 		Watermark:         now.Format(time.RFC3339Nano),
 		Counts:            counts,

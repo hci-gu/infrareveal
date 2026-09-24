@@ -171,6 +171,7 @@ func main() {
 	app.OnServe().BindFunc(func(se *core.ServeEvent) error {
 		// serves static files from the provided public dir (if exists)
 		registerSessionTimelineRoutes(se.Router, app)
+		registerDemoRoutes(se.Router, app)
 		debugtrace.RegisterRoutes(se.Router, app, traceHub)
 		labgate.RegisterControlRoutes(se.Router, app, gateController, labgate.ControlRouteConfig{
 			Token: controlToken, AllowedOrigins: gateConfig.AllowedOrigins, ClientSubnet: clientSubnet,
@@ -186,7 +187,7 @@ func main() {
 		se.Router.GET("/{path...}", apis.Static(os.DirFS("./pb_public"), false))
 
 		if err := ensureDefaultActiveSession(app); err != nil {
-			log.Printf("failed to ensure active gateway session: %v", err)
+			return fmt.Errorf("ensure active gateway session: %w", err)
 		}
 
 		dnsmasqLogPath := envOrDefault("DNSMASQ_LOG_PATH", "/var/log/dnsmasq.log")
@@ -254,6 +255,9 @@ func main() {
 
 	app.OnRecordCreate("sessions").BindFunc(func(e *core.RecordEvent) error {
 		normalizeEphemeralSession(e.Record, time.Now().UTC())
+		if demoEnabled() && e.Record.GetBool("active") && !e.Record.GetBool("demo") {
+			return fmt.Errorf("disable DEMO_MODE before starting another session")
+		}
 		if e.Record.GetDateTime("started_at").IsZero() {
 			e.Record.Set("started_at", time.Now().UTC().Format(time.RFC3339Nano))
 		}
@@ -267,6 +271,9 @@ func main() {
 
 	app.OnRecordUpdate("sessions").BindFunc(func(e *core.RecordEvent) error {
 		normalizeEphemeralSession(e.Record, time.Now().UTC())
+		if demoEnabled() && e.Record.GetBool("active") && !e.Record.GetBool("demo") {
+			return fmt.Errorf("disable DEMO_MODE before starting another session")
+		}
 		if e.Record.GetBool("active") {
 			e.Record.Set("ended_at", "")
 			e.Record.Set("gate_audit_complete", true)
@@ -341,6 +348,9 @@ func currentSessionID() string {
 }
 
 func ensureDefaultActiveSession(app *pocketbase.PocketBase) error {
+	if demoEnabled() {
+		return ensureDemoSession(app)
+	}
 	record, err := app.FindFirstRecordByFilter("sessions", "active=true")
 	if err == nil {
 		id := record.Id

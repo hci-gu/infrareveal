@@ -124,7 +124,7 @@ function SessionCard({ session }: { session: Session }) {
         </div>
         <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-sm text-slate-600">
           <span>Started {formatDate(startedAt)}</span>
-          <span>{session.ephemeral ? 'Ephemeral · last 5 minutes' : session.active ? 'Capturing now' : formatDuration(startedAt, endedAt)}</span>
+          <span>{session.ephemeral ? `Rolling · last ${session.retention_minutes || 5} minutes` : session.active ? 'Capturing now' : formatDuration(startedAt, endedAt)}</span>
         </div>
         <p className="mt-2 truncate font-mono text-xs text-slate-400">{session.id}</p>
       </div>

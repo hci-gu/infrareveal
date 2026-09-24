@@ -5,7 +5,7 @@ InfraReveal is a consent-based network metadata observability gateway.
 ## Domain Terms
 
 - Gateway: the Raspberry Pi or small computer running the Wi-Fi access point, DHCP, DNS, NAT, observers, PocketBase, and dashboard.
-- Session: one bounded observation period. An active session is live and advances from the server clock; a closed session is a recorded timeline with a fixed end.
+- Session: one observation period. An active session is live and advances from the server clock; a closed session is a recorded timeline with a fixed end. Ephemeral sessions retain a rolling window and can run continuously.
 - Session runtime: the shared frontend module that loads, reconciles, indexes, caches, and controls playback for either kind of session.
 - Client: a device connected to the InfraReveal Wi-Fi network.
 - Flow: a sampled remote network connection initiated by a client to a public destination IP and port. Gateway-generated probes and local infrastructure protocols are excluded.
@@ -47,3 +47,15 @@ Attribution work consumes observations and writes separate derived records inste
 Domain grouping preserves endpoint identity. Every high- or medium-confidence hostname groups by its registered domain; `pocketbase/observer/domain_groups.json` maps explicit alias domains to canonical groups. Subdomains follow their registered domain. Timing, shared providers, CNAME chains, and idle gaps do not establish or split groups. Traffic without usable hostname evidence remains independent. See `docs/implementation-guides/domain-grouping.md`.
 
 Both dashboard applications consume the same `@infrareveal/session-state` session runtime. Dashboard-specific UI and Remotion projections remain outside that shared module.
+
+## Continuous lab demo
+
+`DEMO_MODE=true` designates one persistent ephemeral session. Its configurable
+retention (`DEMO_RETENTION_MINUTES`, default 30) is published in the manifest and
+used by both dashboards. `/demo` is the unattended live display. Recorded sessions
+remain bounded recordings; existing ephemeral sessions default to five minutes.
+Ephemeral route admission renews hourly; network rolling-hour limits remain and
+storage accounting measures retained evidence. The superuser-only domain catalogue
+stores aggregate DNS/attributed-flow counts and bounded hostname/CNAME examples for
+manual alias review. Temporary transactional checkpoints expire with raw sources.
+See `docs/implementation-guides/lab-demo.md` for deployment and physical acceptance.

@@ -277,6 +277,14 @@ isolation/DNS test passed. The changes have not yet been applied to the physical
 Pi; association, DHCP leases and reboot behavior remain deployment acceptance
 checks.
 
+## Always-on lab demo
+
+For the unattended lab display, use the [lab demo guide](lab-demo.md). Set
+`DEMO_MODE=true`, `DEMO_RETENTION_MINUTES=30`, and `DEMO_DOMAIN_CATALOGUE=true`
+in `.env`, rebuild/recreate the containers, and open `http://10.77.0.1/demo`.
+This creates a dedicated rolling session, resumes it after restarts, renews route
+budgets, and retains a separate domain-review catalogue.
+
 ## Always-on ephemeral sessions
 
 After rebuilding and recreating the containers, migrations add an `ephemeral`
@@ -284,7 +292,8 @@ checkbox to the `sessions` collection in PocketBase. Open
 **http://10.77.0.1/_/**, sign in, edit the current active session, enable
 **ephemeral**, and save. Both dashboards pick up the change automatically.
 The same session stays active across restarts; its timeline grows to five
-minutes and then slides forward. A paused playhead is clamped when it expires.
+minutes and then slides forward (or use the session’s `retention_minutes`
+setting for a different duration). A paused playhead is clamped when it expires.
 
 Enabling this option on an existing session discards history older than five
 minutes. Disable it to keep new history from the remaining window; also clear

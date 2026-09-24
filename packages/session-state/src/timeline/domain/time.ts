@@ -1,5 +1,8 @@
 /** Canonical epoch/frame projection used by live and recorded consumers. */
 export const EPHEMERAL_WINDOW_MS = 5 * 60_000
+export function retentionWindowMs(minutes?: number) {
+  return Number.isInteger(minutes) && minutes! >= 1 && minutes! <= 1440 ? minutes! * 60_000 : EPHEMERAL_WINDOW_MS
+}
 export const FPS = 30
 export const WINDOW_SEGMENT_MS = 10_000
 

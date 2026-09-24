@@ -25,6 +25,7 @@ func (v bindingBudget) comparisonPending(t target) bool {
 }
 
 type sessionBudget struct {
+	RenewsAt      time.Time                `json:"renews_at,omitempty"`
 	Targets       map[string]bindingBudget `json:"targets"`
 	Attempts      int                      `json:"attempts"`
 	Manual        int                      `json:"manual"`
@@ -96,8 +97,41 @@ func loadState(app core.App, key string, dst any) (*core.Record, error) {
 }
 func saveState(app core.App, r *core.Record, v any) error { r.Set("value", v); return app.Save(r) }
 func loadSessionBudget(app core.App, session string) (*core.Record, sessionBudget, error) {
+	return loadSessionBudgetAt(app, session, time.Now().UTC())
+}
+
+func loadSessionBudgetAt(app core.App, session string, now time.Time) (*core.Record, sessionBudget, error) {
 	b := sessionBudget{}
 	r, e := loadState(app, "session:"+session, &b)
+	if e != nil {
+		return r, b, e
+	}
+	active, err := app.FindRecordById("sessions", session)
+	if err != nil {
+		return r, b, err
+	}
+	if active.GetBool("ephemeral") {
+		// Renew admission hourly. Network rolling-hour limits and suppression persist.
+		if b.RenewsAt.IsZero() || !now.Before(b.RenewsAt) {
+			b = sessionBudget{RenewsAt: now.Add(time.Hour)}
+		}
+		// Charge retained evidence, including conservative observation/cache overhead.
+		var usage struct {
+			Snapshots int `db:"snapshots"`
+			Updates   int `db:"updates"`
+			Bytes     int `db:"bytes"`
+		}
+		err = app.DB().NewQuery(`SELECT
+   (SELECT count(*) FROM routes WHERE session={:s}) snapshots,
+   (SELECT count(*) FROM route_evidence_updates WHERE session={:s}) updates,
+   (SELECT COALESCE(sum(8192 + 3*length(COALESCE(o.snapshot,''))),0) FROM routes r LEFT JOIN route_observations o ON o.id=r.observation_id WHERE r.session={:s}) +
+   (SELECT COALESCE(sum(512+length(value)),0) FROM route_evidence_updates WHERE session={:s}) +
+   (SELECT COALESCE(sum(512+length(value)),0) FROM route_outcomes WHERE session={:s}) bytes`).Bind(dbx.Params{"s": session}).One(&usage)
+		if err != nil {
+			return r, b, err
+		}
+		b.Snapshots, b.Updates, b.Bytes = usage.Snapshots, usage.Updates, usage.Bytes
+	}
 	if b.Targets == nil {
 		b.Targets = map[string]bindingBudget{}
 	}
@@ -127,7 +161,7 @@ func (r repository) reserve(session, network string, t target, c Config, manual 
 	}
 	result := admission{}
 	err := r.app.RunInTransaction(func(app core.App) error {
-		sr, b, e := loadSessionBudget(app, session)
+		sr, b, e := loadSessionBudgetAt(app, session, now)
 		if e != nil {
 			return e
 		}
@@ -164,6 +198,15 @@ func (r repository) reserve(session, network string, t target, c Config, manual 
 			return reject("paced")
 		}
 		key := t.key(network)
+		if !manual && active.GetBool("ephemeral") {
+			useful, err := app.CountRecords("routes", dbx.NewExp("session={:s} AND network_context={:n} AND binding_key={:b} AND valid_until>{:now} AND evidence_class='useful_path'", dbx.Params{"s": session, "n": network, "b": t.binding(), "now": date(now)}))
+			if err != nil {
+				return err
+			}
+			if useful > 0 {
+				return reject("useful_path_saved")
+			}
+		}
 		v, exists := b.Targets[key]
 		if manual {
 			if b.Manual >= c.ManualAttempts {

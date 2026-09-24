@@ -31,3 +31,5 @@ Start with the [project README](../README.md) for setup and deployment, [CONTEXT
 Keep current contracts, decisions, operator instructions and repeatable validation procedures here. Update the relevant guide when an implementation changes. Identify proposed behavior and pending hardware acceptance explicitly.
 
 Put generated screenshots, logs, data exports and benchmark results under `output/` or attach them to the relevant issue or release. Completed task checklists and implementation handoff reports belong in version history; carry their lasting decisions and unresolved checks into the guides above.
+
+- [Unattended lab demo](implementation-guides/lab-demo.md): rolling retention, kiosk setup, permanent domain catalogue, exports, and soak validation.

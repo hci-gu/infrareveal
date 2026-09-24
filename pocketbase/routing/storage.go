@@ -223,7 +223,7 @@ func (r repository) publish(key, network, session string, t target, entry cacheE
 		if !active.GetBool("active") {
 			return nil
 		}
-		sr, b, e := loadSessionBudget(app, session)
+		sr, b, e := loadSessionBudgetAt(app, session, now)
 		if e != nil {
 			return e
 		}

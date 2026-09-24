@@ -156,6 +156,7 @@ class SessionController {
       resetSessionTimeline(selected?.id ?? null, sessions)
       if (!selected) {
         setTimelineConnection('error', 'No gateway session is available.')
+        this.startTimers(generation)
         return
       }
 
@@ -262,7 +263,8 @@ class SessionController {
     if (this.reconcileController) return
     const state = sessionTimelineStore.getState()
     const sessionId = state.selectedSessionId
-    if (!sessionId || generation !== this.generation) return
+    if (generation !== this.generation) return
+    if (!sessionId) { void this.refresh(); return }
     const controller = new AbortController()
     this.reconcileController = controller
     const signal = controller.signal

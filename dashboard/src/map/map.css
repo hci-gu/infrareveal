@@ -409,3 +409,9 @@
 .atlas-topology-strip li { flex: 0 0 auto; max-width: 15rem; border: 1px solid #b5bfca; border-radius: .4rem; padding: .5rem; }
 .atlas-topology-strip strong, .atlas-topology-strip small { display: block; overflow-wrap: anywhere; }
 .atlas-topology-strip strong { font: 500 .75rem ui-monospace, monospace; }
+
+.atlas-demo-banner { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; padding: 16px 28px; background: #172e30; color: #e3eeef; font-size: 16px; border-bottom: 1px solid #365750; }
+.atlas-demo-banner strong { color: #68dec1; }
+.atlas-demo-banner .atlas-demo-warning { width: 100%; color: #ffc783; font-size: 13px; }
+.atlas-demo .atlas-breadcrumb, .atlas-demo .atlas-header-divider { display: none; }
+.atlas-demo .atlas-brand { pointer-events: none; }

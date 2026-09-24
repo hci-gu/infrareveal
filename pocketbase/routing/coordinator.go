@@ -400,7 +400,7 @@ func (c *Coordinator) run(ctx context.Context) {
 			// process. Do not require another traffic burst after a slow attempt.
 			admissionBudget := sessionBudget{}
 			if active != "" {
-				_, loaded, budgetErr := loadSessionBudget(c.repo.app, active)
+				_, loaded, budgetErr := loadSessionBudgetAt(c.repo.app, active, now)
 				if budgetErr != nil {
 					lastError = budgetErr.Error()
 				} else {
@@ -439,12 +439,15 @@ func (c *Coordinator) run(ctx context.Context) {
 					d.bound = true
 					hits++
 				}
-				if !d.running && d.pending == nil && (d.manual || comparisonPending || d.qualified(now, c.config.MinBytes)) {
+				v := admissionBudget.Targets[key]
+				savedUseful := v.Useful || (d.bound && d.cache.Best.Attempt != "" && now.Before(d.cache.ValidUntil))
+				eligible := d.manual || (!savedUseful && (comparisonPending || (v.Attempts < len(qualityMethods(d.target)) && d.qualified(now, c.config.MinBytes))))
+				if !d.running && d.pending == nil && eligible {
 					ranked = append(ranked, d)
 				} else if !d.running {
 					v := admissionBudget.Targets[key]
 					switch {
-					case v.Useful:
+					case savedUseful:
 						d.state = "useful_path_saved"
 					case v.Attempts >= len(qualityMethods(d.target)):
 						d.state = "comparison_finished"
@@ -538,7 +541,7 @@ func (c *Coordinator) run(ctx context.Context) {
 			}
 			b := sessionBudget{}
 			if active != "" {
-				_, loaded, e := loadSessionBudget(c.repo.app, active)
+				_, loaded, e := loadSessionBudgetAt(c.repo.app, active, now)
 				if e == nil {
 					b = loaded
 				} else {

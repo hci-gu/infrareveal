@@ -14,6 +14,7 @@ import {
   setTimelineManifest,
   setTimelineUI,
   tickTimelineClock,
+  timelineStartMs,
 } from './sessionStore'
 
 const session: Session = {
@@ -296,6 +297,21 @@ function detailPage(key: string, start: number) {
 }
 
 describe('ephemeral sessions', () => {
+  it('uses the server-configured 30-minute window and handles shrinking it', () => {
+    resetSessionTimeline(session.id, [{ ...session, ephemeral: true, retention_minutes: 30 }])
+    const now = Date.parse(session.started_at!) + 60 * 60_000
+    const at = new Date(now).toISOString()
+    const manifest = { sessionId: session.id, name: 'Demo', active: true, ephemeral: true,
+      retentionMinutes: 30, startedAt: session.started_at!, endedAt: null, serverNow: at,
+      watermark: at, counts: {}, coverage: { from: session.started_at!, to: at } }
+    setTimelineManifest(manifest)
+    const retained = new Date(now - 20 * 60_000).toISOString()
+    applySessionWindow(makeWindow('overview', [{ ...makeFlow(retained, 'ESTABLISHED'), start: retained }]))
+    expect(sessionTimelineStore.getState().entities.flows.size).toBe(1)
+    expect(timelineStartMs()).toBe(now - 30 * 60_000)
+    setTimelineManifest({ ...manifest, retentionMinutes: 5 })
+    expect(sessionTimelineStore.getState().entities.flows.size).toBe(0)
+  })
   it('bounds every working set and the index of a long-lived flow over 12 hours', () => {
     resetSessionTimeline(session.id, [{ ...session, ephemeral: true }])
     const start = Date.parse(session.started_at!)

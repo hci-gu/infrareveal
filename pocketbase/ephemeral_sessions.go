@@ -8,9 +8,18 @@ import (
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"myapp/observer"
 )
 
-const ephemeralWindow = 5 * time.Minute
+const ephemeralWindow = 5 * time.Minute // Compatibility default for existing sessions.
+
+func sessionRetention(record *core.Record) time.Duration {
+	minutes := record.GetInt("retention_minutes")
+	if minutes < 1 || minutes > 1440 {
+		return ephemeralWindow
+	}
+	return time.Duration(minutes) * time.Minute
+}
 
 // Keep the original creation date for identity; started_at is the retained edge.
 func normalizeEphemeralSession(record *core.Record, now time.Time) {
@@ -21,8 +30,8 @@ func normalizeEphemeralSession(record *core.Record, now time.Time) {
 	record.Set("ended_at", "")
 	if record.GetDateTime("started_at").IsZero() {
 		record.Set("started_at", now)
-	} else if record.GetDateTime("started_at").Time().Before(now.Add(-ephemeralWindow)) {
-		record.Set("started_at", now.Add(-ephemeralWindow))
+	} else if record.GetDateTime("started_at").Time().Before(now.Add(-sessionRetention(record))) {
+		record.Set("started_at", now.Add(-sessionRetention(record)))
 	}
 }
 
@@ -31,8 +40,11 @@ func startEphemeralRetention(ctx context.Context, app core.App) {
 		ticker := time.NewTicker(15 * time.Second)
 		defer ticker.Stop()
 		for {
-			if err := pruneEphemeralSessions(app, time.Now().UTC()); err != nil {
-				log.Printf("ephemeral retention: %v", err)
+			now := time.Now().UTC()
+			err := pruneEphemeralSessions(app, now)
+			updateDemoMaintenance(now, err)
+			if err != nil {
+				log.Printf("demo maintenance: %v", err)
 			}
 
 			select {
@@ -63,7 +75,10 @@ func pruneEphemeralSessions(app core.App, now time.Time) error {
 			if !current.GetBool("ephemeral") {
 				return nil
 			}
-			params := dbx.Params{"session": session.Id, "cut": formatPocketBaseTimelineDate(now.Add(-ephemeralWindow))}
+			if err := collectDemoDomains(tx, current); err != nil {
+				return err
+			}
+			params := dbx.Params{"session": session.Id, "cut": formatPocketBaseTimelineDate(now.Add(-sessionRetention(current)))}
 			staleFlows := `SELECT id FROM flows WHERE session={:session} AND last_seen < {:cut}`
 			statements := []string{
 				`DELETE FROM flow_activity_chunks WHERE session={:session} AND (julianday(chunk_start)+chunk_ms/86400000.0 <= julianday({:cut}) OR flow IN (` + staleFlows + `))`,
@@ -96,11 +111,20 @@ func pruneEphemeralSessions(app core.App, now time.Time) error {
 			return err
 		}
 	}
+	if err := observer.PruneDomainCatalogueCheckpoints(app); err != nil {
+		return err
+	}
 	if len(sessions) == 0 {
 		return nil
 	}
 	// Shared caches are bounded independently, even when route probing is disabled.
-	params := dbx.Params{"cut": formatPocketBaseTimelineDate(now.Add(-ephemeralWindow)), "day": formatPocketBaseTimelineDate(now.Add(-24 * time.Hour))}
+	sharedWindow := ephemeralWindow
+	for _, session := range sessions {
+		if window := sessionRetention(session); window > sharedWindow {
+			sharedWindow = window
+		}
+	}
+	params := dbx.Params{"cut": formatPocketBaseTimelineDate(now.Add(-sharedWindow)), "day": formatPocketBaseTimelineDate(now.Add(-24 * time.Hour))}
 	for _, statement := range []string{
 		`DELETE FROM destinations WHERE last_seen < {:cut} AND NOT EXISTS (SELECT 1 FROM flows WHERE destination_ip=destinations.ip) AND NOT EXISTS (SELECT 1 FROM routes WHERE destination=destinations.id OR destination_ip=destinations.ip)`,
 		`DELETE FROM clients WHERE last_seen < {:cut} AND NOT EXISTS (SELECT 1 FROM flows WHERE client_ip=clients.ip)`,

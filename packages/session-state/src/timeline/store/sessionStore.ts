@@ -20,7 +20,7 @@ import type {
   TimelineLOD,
 } from '../../data/types'
 import { emptyGatewayData } from '../../data/pocketbaseClient'
-import { EPHEMERAL_WINDOW_MS, parseEpoch } from '../domain/time'
+import { retentionWindowMs, parseEpoch } from '../domain/time'
 import { TemporalBucketIndex } from './temporalIndex'
 
 /** Default raw-detail working-set budget shared by both dashboards. */
@@ -226,7 +226,7 @@ export function setTimelineSessions(sessions: Session[]) {
 
 export function setTimelineManifest(manifest: SessionManifest) {
   const state = sessionTimelineStore.getState()
-  const epochMs = manifest.ephemeral ? Math.max(parseEpoch(manifest.startedAt), parseEpoch(manifest.serverNow) - EPHEMERAL_WINDOW_MS) : parseEpoch(manifest.startedAt, parseEpoch(manifest.coverage.from, Date.now()))
+  const epochMs = manifest.ephemeral ? Math.max(parseEpoch(manifest.startedAt), parseEpoch(manifest.serverNow) - retentionWindowMs(manifest.retentionMinutes)) : parseEpoch(manifest.startedAt, parseEpoch(manifest.coverage.from, Date.now()))
   const serverNowMs = parseEpoch(manifest.serverNow, Date.now())
   const endedAtMs = parseEpoch(manifest.endedAt, 0)
   const liveEdgeMs = manifest.active ? serverNowMs : Math.max(epochMs, endedAtMs)
@@ -829,7 +829,7 @@ function pruneRouteRevisions(state: SessionTimelineState) {
 /** Canonical rolling origin, also between server manifest refreshes. */
 export function timelineStartMs(state = sessionTimelineStore.getState()) {
   const start = parseEpoch(state.manifest?.startedAt)
-  return state.manifest?.ephemeral ? Math.max(start, state.liveEdgeMs - EPHEMERAL_WINDOW_MS) : start
+  return state.manifest?.ephemeral ? Math.max(start, state.liveEdgeMs - retentionWindowMs(state.manifest.retentionMinutes)) : start
 }
 
 /** Independent of server delete events: reconnects and stale responses cannot
