@@ -18,6 +18,7 @@ Using Playwright CLI (or its installed wrapper):
 ```bash
 playwright-cli open http://127.0.0.1:5188/map/live-session
 playwright-cli run-code --filename dashboard/test-support/browser-workspace.js
+playwright-cli run-code --filename dashboard/test-support/browser-map-drag.js
 playwright-cli run-code --filename dashboard/test-support/browser-map-worker.js
 playwright-cli run-code --filename dashboard/test-support/browser-workspace-demo.js
 ```
@@ -30,6 +31,10 @@ directory before running. Use a fresh browser session for each complete run.
 The demo check verifies that expanded replay stays paused and returning resumes
 live following. These checks do not replace a Pi/network soak test.
 
+The drag regression check runs on an Equal Earth map. It queues multiple pointer
+moves and then releases or cancels the drag in the same browser task, verifying
+that deferred React updates keep the final position without reading cleared state.
+
 The worker check selects Mercator (Equal Earth uses bundled SVG geography), then
 imports the emitted worker and waits for MapLibre initialization. It
 catches missing production dependencies even when the map canvas and traffic
@@ -40,3 +45,48 @@ does not require OpenFreeMap connectivity; visually checking tiles and labels do
 The MapLibre ESM worker must be imported with `?worker&url` so Vite bundles its
 dependencies. A plain `?url` copies only the entry module and leaves its sibling
 imports missing. The bundled `.js` also uses Nginx's standard JavaScript MIME type.
+
+## Traffic animation regressions
+
+With the same gateway fixture, run Vite instead of the production preview:
+
+```bash
+VITE_POCKETBASE_URL=http://127.0.0.1:8095 pnpm --filter @infrareveal/dashboard dev --host 127.0.0.1 --port 5188
+playwright-cli open http://127.0.0.1:5188/map/live-session
+playwright-cli run-code --filename dashboard/test-support/browser-rolling-animation.js
+playwright-cli run-code --filename dashboard/test-support/browser-recorded-animation.js
+playwright-cli run-code --filename dashboard/test-support/browser-traffic-shaders.js
+```
+
+The test makes the fixture ephemeral with a one-minute retained window. It reads
+the actual direct/traceroute layer clocks through multiple retention ticks, then
+checks pause, window-relative seek, faster replay, expired-position clamping, and
+return to live. GPU checks cover sample boundaries, long uptime, and phase wrapping
+for direct, traceroute, and country streams. This requires Vite for module access.
+It previously reproduced nine backward clock resets in seven seconds.
+
+The recorded check crosses an activity-request boundary and checks uninterrupted
+clocks, stream data, and GPU model identity. The shader check additionally follows
+an isolated captured burst along each direction of direct, traceroute, and country
+paths: it must remain visible in flight, not appear ahead or linger behind, finish
+after arrival, and stay continuous as history buckets shift. The former
+latest-rate-only renderer erased all 24 tested in-flight burst positions.
+
+## Map performance and rendering detail
+
+`browser-map-performance.js` instruments a production React build with readable
+function names. Build with:
+
+```bash
+VITE_POCKETBASE_URL=http://127.0.0.1:8095 pnpm --filter @infrareveal/dashboard exec vite build --minify false --sourcemap
+```
+
+Run it against the preview and standard fixture. It measures eight-second samples
+at 6× CPU throttling and checks that the sidebar and waveform do not follow every
+animation frame, Equal Earth prepares no Mercator data, and unchanged Mercator
+routes are not resampled. These are local browser measurements, not Pi FPS results.
+
+Against Vite, `browser-map-quality.js` switches Full detail to Raspberry Pi at 2×
+pixel density. It checks actual GPU mesh sizes, both canvas resolutions, fresh
+radius attributes after capture updates, and preference persistence. Run playback
+checks with the browser in front; background/occluded windows throttle rendering.

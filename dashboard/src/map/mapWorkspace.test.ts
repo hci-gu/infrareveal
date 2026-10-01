@@ -102,9 +102,9 @@ describe('wire-rate timeline', () => {
 
 describe('map display settings and geography', () => {
   it('handles invalid persisted settings and preserves supported preferences', () => {
-    expect(parseMapPreferences('broken')).toEqual({ projection: 'equal-earth', theme: 'dark', labels: true })
+    expect(parseMapPreferences('broken')).toEqual({ projection: 'equal-earth', theme: 'dark', labels: true, quality: 'auto' })
     expect(parseMapPreferences('{"projection":"globe","theme":"invalid","labels":"false"}')).toEqual(parseMapPreferences(null))
-    expect(parseMapPreferences('{"projection":"mercator","theme":"system","labels":false}')).toEqual({ projection: 'mercator', theme: 'system', labels: false })
+    expect(parseMapPreferences('{"projection":"mercator","theme":"system","labels":false}')).toEqual({ projection: 'mercator', theme: 'system', labels: false, quality: 'auto' })
   })
   it('projects poles and antimeridian finitely with symmetric geometry', () => {
     expect(equalEarth([0, 0])).toEqual([500, 280])

@@ -44,6 +44,18 @@ describe('accumulated destination traffic', () => {
     expect(connectionVolume(connection, missing, epoch + 10_000)).toMatchObject({ received: 0, sent: 0, partial: true })
   })
 
+  it('moves the retention cutoff without rebuilding history or retaining expired partial flags', () => {
+    const { connection } = fixture()
+    const index = indexDestinationVolumes([chunk({ capture_complete: false }), chunk({ id: 'c2', chunk_start: iso(5000), updated_at_source: iso(10_000) })])
+    const series = index.get('f1')
+    index.fromMs = epoch + 2500
+    expect(connectionVolume(connection, index, epoch + 10_000)).toMatchObject({ received: 6000, sent: 1500, partial: true })
+    index.fromMs = epoch + 5000
+    expect(connectionVolume(connection, index, epoch + 10_000)).toMatchObject({ received: 4000, sent: 1000, partial: false })
+    expect(connectionVolume(connection, index, epoch + 4000)).toMatchObject({ received: 0, sent: 0 })
+    expect(index.get('f1')).toBe(series)
+  })
+
   it('stops growing at the last observed packet and preserves gaps as silence', () => {
     const { connection } = fixture()
     const index = indexDestinationVolumes([chunk({ updated_at_source: iso(1000) }), chunk({ id: 'c2', chunk_start: iso(8000), updated_at_source: iso(9000) })])

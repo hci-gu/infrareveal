@@ -59,27 +59,40 @@ export function indexDestinationVolumes(records: readonly VolumeChunk[], fromMs 
 
 export function connectionVolume(connection: MapConnection, index: DestinationVolumeIndex, cursorMs: number): ByteTotals {
   const empty = { received: 0, sent: 0, estimated: false, partial: false }
-  if (cursorMs < connection.startMs) return empty
+  const cutoff = index.fromMs ?? 0
+  if (cursorMs < connection.startMs || cursorMs <= cutoff) return empty
   const series = index.get(connection.flow.id)
   if (!series) {
     if (index.fromMs) return { ...empty, partial: true }
     const fraction = elapsedFraction(cursorMs, connection.startMs, connection.endMs)
     return { received: safeBytes(connection.flow.bytes_in) * fraction, sent: safeBytes(connection.flow.bytes_out) * fraction, estimated: true, partial: false }
   }
+  const at = (time: number) => {
+    const i = intervalAt(series, time)
+    if (i < 0) return { received: 0, sent: 0, i, fraction: 0 }
+    const chunk = series.intervals[i]
+    const fraction = elapsedFraction(time, Math.max(chunk.start, connection.startMs), chunk.end)
+    return { received: series.received[i] + chunk.received * fraction, sent: series.sent[i] + chunk.sent * fraction, i, fraction }
+  }
+  const end = at(cursorMs), start = at(cutoff)
+  if (end.i < 0) return empty
+  const boundary = series.intervals[start.i]
+  const first = start.i < 0 ? 0 : start.i + Number(boundary.end <= cutoff)
+  const partial = series.partial[end.i] + Number(end.fraction > 0 && series.intervals[end.i].partial) - series.partial[first]
+  return {
+    received: Math.max(0, end.received - start.received), sent: Math.max(0, end.sent - start.sent), estimated: false,
+    partial: partial > 0 || Boolean(boundary && cutoff > boundary.start && cutoff < boundary.end),
+  }
+}
+
+function intervalAt(series: VolumeSeries, cursorMs: number) {
   let low = 0, high = series.intervals.length
   while (low < high) {
     const middle = (low + high) >>> 1
     if (series.intervals[middle].start <= cursorMs) low = middle + 1
     else high = middle
   }
-  if (!low) return empty
-  const i = low - 1, chunk = series.intervals[i]
-  const fraction = elapsedFraction(cursorMs, Math.max(chunk.start, connection.startMs), chunk.end)
-  return {
-    received: series.received[i] + chunk.received * fraction,
-    sent: series.sent[i] + chunk.sent * fraction,
-    estimated: false, partial: series.partial[i] > 0 || (fraction > 0 && chunk.partial),
-  }
+  return low - 1
 }
 
 /** Each connection contributes once, regardless of route splits or hop count. */

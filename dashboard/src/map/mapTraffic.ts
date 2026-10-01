@@ -7,6 +7,13 @@ export const TRAFFIC_BUCKET_MS = 500
 export const TRAFFIC_HISTORY_LENGTH = 12
 export const TRAFFIC_TRAVEL_SECONDS = 4
 
+/** Preserve sub-frame GPU precision after weeks of uptime. Both stream shaders
+ * repeat on this period, so wrapping it cannot move the travelling accent. */
+export function trafficShaderClock(seconds: number) {
+  const period = TRAFFIC_TRAVEL_SECONDS * 256
+  return ((seconds % period) + period) % period
+}
+
 type Sample = { bytesPerSecond: number; packetsPerSecond: number; inRate: number; outRate: number; inPackets: number; outPackets: number }
 type ActivityChunk = {
   startMs: number
@@ -56,6 +63,22 @@ export function indexMapTraffic(chunks: readonly FlowActivityChunk[]): MapTraffi
   // A single finest available observation wins at each instant, never both LODs.
   for (const chunks of index.values()) chunks.sort((a, b) => a.bucketMs - b.bucketMs || b.updatedMs - a.updatedMs)
   return index
+}
+
+/** Workspace totals change more often than captured rate buckets or flow evidence. */
+export function createTrafficProfileCache() {
+  let previousKey = ''
+  let previousIndex: MapTrafficIndex | undefined
+  let profiles: Map<string, TrafficProfile> | undefined
+  return (scene: MapTimelineScene, index: MapTrafficIndex, anchorMs: number) => {
+    const key = JSON.stringify([anchorMs, scene.endpoints.map(endpoint => [endpoint.id, endpoint.availableFromMs, endpoint.flows])])
+    if (!profiles || index !== previousIndex || key !== previousKey) {
+      profiles = projectTrafficProfiles(scene, index, anchorMs)
+      previousIndex = index
+      previousKey = key
+    }
+    return profiles
+  }
 }
 
 export function projectTrafficProfiles(scene: MapTimelineScene, index: MapTrafficIndex, anchorMs: number): Map<string, TrafficProfile> {

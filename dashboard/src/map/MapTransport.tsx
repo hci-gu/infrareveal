@@ -19,12 +19,13 @@ type Props = {
   following: boolean
   onToggle: () => void
   onSeek: (frame: number) => void
+  onStep: (frames: number) => void
   onRate: (rate: number) => void
   onLive: () => void
   onFullscreen: () => void
 }
 
-export function MapTransport({ scene, bins, direction, endMs, frame, fps, playing, rate, live, following, onToggle, onSeek, onRate, onLive, onFullscreen }: Props) {
+export function MapTransport({ scene, bins, direction, endMs, frame, fps, playing, rate, live, following, onToggle, onSeek, onStep, onRate, onLive, onFullscreen }: Props) {
   const peak = waveformCeiling([bins], direction)
   const duration = Math.max(1, (endMs - scene.startMs) / 1000)
   const maxFrame = Math.max(1, Math.floor(duration * fps))
@@ -34,9 +35,9 @@ export function MapTransport({ scene, bins, direction, endMs, frame, fps, playin
     <div className="atlas-transport-heading"><span><MapIcon name="activity" size={14} />SESSION TIMELINE</span><span className="atlas-timeline-description">Captured wire rate · selection</span><span className="atlas-key-hint"><kbd>space</kbd> to play / pause</span></div>
     <div className="atlas-transport-body">
       <div className="atlas-playback-buttons">
-        <button type="button" className="atlas-icon-button atlas-skip" onClick={() => onSeek(Math.max(0, frame - fps * 10))} aria-label="Back 10 seconds" title="Back 10 seconds"><MapIcon name="rewind" size={19} /></button>
+        <button type="button" className="atlas-icon-button atlas-skip" onClick={() => onStep(-fps * 10)} aria-label="Back 10 seconds" title="Back 10 seconds"><MapIcon name="rewind" size={19} /></button>
         <button type="button" className="atlas-play-button" onClick={onToggle} aria-label={playing ? 'Pause playback' : 'Play session'} title={playing ? 'Pause (Space)' : 'Play (Space)'}><MapIcon name={playing ? 'pause' : 'play'} size={20} /></button>
-        <button type="button" className="atlas-icon-button atlas-skip" onClick={() => onSeek(Math.min(maxFrame, frame + fps * 10))} aria-label="Forward 10 seconds" title="Forward 10 seconds"><MapIcon name="forward" size={19} /></button>
+        <button type="button" className="atlas-icon-button atlas-skip" onClick={() => onStep(fps * 10)} aria-label="Forward 10 seconds" title="Forward 10 seconds"><MapIcon name="forward" size={19} /></button>
       </div>
       <div className="atlas-timeline">
         <div className="atlas-timeline-track" style={{ '--progress': `${progress}%` } as CSSProperties}>

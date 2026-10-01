@@ -4,6 +4,22 @@ import type { TrafficDirection } from './mapWorkspace'
 
 export type WireBin = { received: number; sent: number; complete: boolean; observed: boolean }
 export type WireRange = { from: number; to: number }
+
+/** A playhead or total change cannot invalidate immutable captured intervals. */
+export function createWireWaveformCache() {
+  const entries = new Map<string, { series: unknown[]; bins: WireBin[] }>()
+  return (connections: readonly MapConnection[], index: DestinationVolumeIndex, range: WireRange, count = 96) => {
+    const ordered = [...connections].sort((a, b) => a.flow.id.localeCompare(b.flow.id))
+    const key = JSON.stringify([range.from, range.to, count, index.fromMs ?? 0, ordered.map(c => [c.flow.id, c.startMs, c.endMs])])
+    const series = ordered.map(c => index.get(c.flow.id))
+    const cached = entries.get(key)
+    if (cached && series.every((value, i) => value === cached.series[i])) return cached.bins
+    const bins = wireWaveform(ordered, index, range, count)
+    entries.set(key, { series, bins })
+    if (entries.size > 64) entries.delete(entries.keys().next().value!)
+    return bins
+  }
+}
 /** Captured wire-byte averages, never interpolated lifetime counters or invented payload. */
 export function wireWaveform(connections: readonly MapConnection[], index: DestinationVolumeIndex, range: WireRange, count = 96): WireBin[] {
   const duration = range.to - range.from
@@ -23,7 +39,7 @@ export function wireWaveform(connections: readonly MapConnection[], index: Desti
         bins[i].received += interval.received * fraction * 1000 / size
         bins[i].sent += interval.sent * fraction * 1000 / size
         bins[i].observed ||= overlap > 0
-        bins[i].complete &&= !interval.partial
+        bins[i].complete &&= !interval.partial && !(index.fromMs && interval.start < index.fromMs && index.fromMs < interval.end)
         covered[i] += overlap
       }
     }

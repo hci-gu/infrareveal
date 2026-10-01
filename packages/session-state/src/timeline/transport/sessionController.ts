@@ -58,6 +58,7 @@ class SessionController {
   private unsubscribers: Array<() => void> = []
   private reconcileTimer = 0
   private reconcileController: AbortController | null = null
+  private lastReconcileAt = 0
   private tailCursor = 0
   private clockTimer = 0
   private batchTimer = 0
@@ -255,8 +256,13 @@ class SessionController {
 
   private startTimers(generation: number) {
     this.stopTimers()
+    this.lastReconcileAt = Date.now()
     this.clockTimer = window.setInterval(tickTimelineClock, 1000)
-    this.reconcileTimer = window.setInterval(() => this.reconcile(generation, false), 2_000)
+    // SSE delivers live changes. Poll quickly only while disconnected; healthy
+    // connections need an occasional snapshot to repair silently missed events.
+    this.reconcileTimer = window.setInterval(() => {
+      if (!this.unsubscribers.length || Date.now() - this.lastReconcileAt >= 10_000) void this.reconcile(generation, false)
+    }, 2_000)
   }
 
   private async reconcile(generation: number, full: boolean) {
@@ -265,6 +271,7 @@ class SessionController {
     const sessionId = state.selectedSessionId
     if (generation !== this.generation) return
     if (!sessionId) { void this.refresh(); return }
+    this.lastReconcileAt = Date.now()
     const controller = new AbortController()
     this.reconcileController = controller
     const signal = controller.signal

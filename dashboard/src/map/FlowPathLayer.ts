@@ -1,8 +1,8 @@
 import { ArcLayer } from '@deck.gl/layers'
 import { Geometry, Model } from '@luma.gl/engine'
-import type { Accessor } from '@deck.gl/core'
-import { trafficFragmentShader, trafficUniforms } from './FlowArcLayer'
-import { TRAFFIC_TRAVEL_SECONDS } from './mapTraffic'
+import type { Accessor, UpdateParameters } from '@deck.gl/core'
+import { trafficFragmentShader, trafficUniforms, trafficHistoryShader } from './FlowArcLayer'
+import { TRAFFIC_TRAVEL_SECONDS, trafficShaderClock } from './mapTraffic'
 
 type Props<T> = {
   time: number; phase: number; motion: number
@@ -12,7 +12,6 @@ type Props<T> = {
   getPreviousPosition: Accessor<T, number[]>
   getNextPosition: Accessor<T, number[]>
 }
-const SIDES = 12
 const vs = `#version 300 es
 #define SHADER_NAME traffic-path-vertex
 in vec2 positions;
@@ -35,15 +34,9 @@ out vec3 vEye;
 out float vRadius;
 out float vValid;
 
-float historyValue(int i) {
-  if (i < 4) return instanceRadii0[clamp(i, 0, 3)];
-  if (i < 8) return instanceRadii1[i - 4];
-  return instanceRadii2[clamp(i - 8, 0, 3)];
-}
+${trafficHistoryShader}
 float radiusAt(float progress) {
-  // Interpolate completed buckets; the previous newest sample becomes history[1].
-  // This keeps onset, rate changes, and silence continuous across bucket rollover.
-  float amount = mix(historyValue(1), historyValue(0), smoothstep(0.0, 1.0, traffic.phase));
+  float amount = transportedRadius(progress);
   float phase = progress * instanceDirection - traffic.clock * traffic.motion / ${TRAFFIC_TRAVEL_SECONDS}.0;
   float wave = pow(0.5 + 0.5 * cos(phase * 2.0 * PI), 4.0);
   // Only the two ends of the entire itinerary taper. Routers retain the passing volume.
@@ -85,7 +78,7 @@ void main() {
 export class FlowPathLayer<T> extends ArcLayer<T, Props<T>> {
   static layerName = 'FlowPathLayer'
   static defaultProps = {
-    ...ArcLayer.defaultProps, time: 0, phase: 0, motion: 1,
+    ...ArcLayer.defaultProps, numSegments: 160, time: 0, phase: 0, motion: 1,
     getRadii0: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii1: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii2: { type: 'accessor', value: [0, 0, 0, 0] },
@@ -110,7 +103,17 @@ export class FlowPathLayer<T> extends ArcLayer<T, Props<T>> {
     const shaders = super.getShaders()
     return { ...shaders, vs, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
   }
+  updateState(params: UpdateParameters<this>) {
+    super.updateState(params)
+    if (!params.changeFlags.extensionsChanged && params.props.numSegments !== params.oldProps.numSegments) {
+      this.state.model?.destroy()
+      this.state.model = this._getModel()
+      this.getAttributeManager()!.invalidateAll()
+    }
+  }
+
   protected _getModel(): Model {
+    const SIDES = this.props.numSegments <= 48 ? 6 : 12
     const positions = new Float32Array(2 * (SIDES + 1) * 2)
     const indices = new Uint16Array(SIDES * 6)
     for (let ring = 0; ring < 2; ring++) {
@@ -130,7 +133,7 @@ export class FlowPathLayer<T> extends ArcLayer<T, Props<T>> {
   draw() {
     const model = this.state.model
     if (!model) return
-    model.shaderInputs.setProps({ traffic: { clock: this.props.time, phase: this.props.phase, motion: this.props.motion } })
+    model.shaderInputs.setProps({ traffic: { clock: trafficShaderClock(this.props.time), phase: this.props.phase, motion: this.props.motion } })
     model.draw(this.context.renderPass)
   }
 }

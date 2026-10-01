@@ -1,10 +1,9 @@
 import { ArcLayer } from '@deck.gl/layers'
-import type { Accessor } from '@deck.gl/core'
+import type { Accessor, UpdateParameters } from '@deck.gl/core'
 import { Geometry, Model } from '@luma.gl/engine'
 import type { ShaderModule } from '@luma.gl/shadertools'
+import { trafficShaderClock, TRAFFIC_BUCKET_MS, TRAFFIC_TRAVEL_SECONDS } from './mapTraffic'
 
-const SEGMENTS = 160
-const SIDES = 12
 export const trafficUniforms = {
   name: 'traffic',
   vs: `layout(std140) uniform trafficUniforms {
@@ -25,6 +24,24 @@ type VolumeProps<T> = {
   getDirection: Accessor<T, number>
   getProgress: Accessor<T, number[]>
 }
+
+/** Shared temporal sampling for direct, country, and joined traceroute streams. */
+export const trafficHistoryShader = `
+float historyValue(int i) {
+  if (i < 4) return instanceRadii0[clamp(i, 0, 3)];
+  if (i < 8) return instanceRadii1[i - 4];
+  return instanceRadii2[clamp(i - 8, 0, 3)];
+}
+float transportedRadius(float progress) {
+  // New measurements enter at the sending end; older samples continue in flight.
+  // The extra bucket interpolates completed observations without rollover jumps.
+  float distance = instanceDirection > 0.0 ? progress : 1.0 - progress;
+  float age = 1.0 + distance * traffic.motion * ${TRAFFIC_TRAVEL_SECONDS * 1000 / TRAFFIC_BUCKET_MS}.0 - traffic.phase;
+  float index = clamp(age, 0.0, 10.999);
+  int bucket = int(floor(index));
+  return mix(historyValue(bucket), historyValue(bucket + 1), smoothstep(0.0, 1.0, fract(index)));
+}
+`
 
 const vertexShader = `#version 300 es
 #define SHADER_NAME traffic-volume-vertex
@@ -67,16 +84,11 @@ vec3 pointOnArc(float t) {
   float height = sqrt(max(0.0, t * (1.0 - t))) * angle * EARTH_RADIUS * instanceHeights;
   return vec3(lngLat, mix(instanceSourcePositions.z, instanceTargetPositions.z, t) + height);
 }
-float historyValue(int i) {
-  if (i < 4) return instanceRadii0[clamp(i, 0, 3)];
-  if (i < 8) return instanceRadii1[i - 4];
-  return instanceRadii2[clamp(i - 8, 0, 3)];
-}
+${trafficHistoryShader}
 float radiusAt(float t) {
   // Accent motion stays on the timeline clock, independent of sample updates.
   float pathProgress = mix(instanceProgress.x, instanceProgress.y, t);
-  // Smooth width over one bucket without resetting the travelling accent.
-  float amount = mix(historyValue(1), historyValue(0), smoothstep(0.0, 1.0, traffic.phase));
+  float amount = transportedRadius(pathProgress);
   float phase = pathProgress * instanceDirection * 2.0 - traffic.clock * traffic.motion * 0.5;
   float wave = pow(0.5 + 0.5 * cos(phase * 2.0 * PI), 2.0);
   float envelope = 0.12 + 0.88 * wave;
@@ -85,7 +97,7 @@ float radiusAt(float t) {
 }
 void main() {
   float t = positions.x;
-  float dt = 1.0 / ${SEGMENTS}.0;
+  float dt = 1.0 / max(2.0, arc.numSegments);
   vec3 world = pointOnArc(t);
   vec3 prevWorld = pointOnArc(max(0.0, t - dt));
   vec3 nextWorld = pointOnArc(min(1.0, t + dt));
@@ -139,7 +151,7 @@ void main() {
 export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
   static layerName = 'FlowArcLayer'
   static defaultProps = {
-    ...ArcLayer.defaultProps, time: 0, phase: 0, motion: 1,
+    ...ArcLayer.defaultProps, numSegments: 160, time: 0, phase: 0, motion: 1,
     getRadii0: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii1: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii2: { type: 'accessor', value: [0, 0, 0, 0] },
@@ -163,7 +175,18 @@ export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
     return { ...shaders, vs: vertexShader, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
   }
 
+  updateState(params: UpdateParameters<this>) {
+    super.updateState(params)
+    if (!params.changeFlags.extensionsChanged && params.props.numSegments !== params.oldProps.numSegments) {
+      this.state.model?.destroy()
+      this.state.model = this._getModel()
+      this.getAttributeManager()!.invalidateAll()
+    }
+  }
+
   protected _getModel(): Model {
+    const SEGMENTS = Math.max(2, Math.round(this.props.numSegments))
+    const SIDES = SEGMENTS <= 48 ? 6 : 12
     const positions = new Float32Array((SEGMENTS + 1) * (SIDES + 1) * 2)
     const indices = new Uint16Array(SEGMENTS * SIDES * 6)
     for (let i = 0; i <= SEGMENTS; i += 1) {
@@ -187,7 +210,7 @@ export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
   draw() {
     const model = this.state.model
     if (!model) return
-    model.shaderInputs.setProps({ traffic: { clock: this.props.time, phase: this.props.phase, motion: this.props.motion } })
+    model.shaderInputs.setProps({ arc: { numSegments: this.props.numSegments }, traffic: { clock: trafficShaderClock(this.props.time), phase: this.props.phase, motion: this.props.motion } })
     model.draw(this.context.renderPass)
   }
 }

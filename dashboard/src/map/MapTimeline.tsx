@@ -4,7 +4,7 @@ import { formatBytes, formatCursor } from './format'
 import { TrafficDirectionControl } from './TrafficDirectionControl'
 import type { WorkspaceProjection, WorkspaceState } from './mapWorkspace'
 import type { DestinationVolumeIndex } from './destinationVolumes'
-import { wireBars, wireWaveform, waveformCeiling } from './wireWaveform'
+import { wireBars, createWireWaveformCache, waveformCeiling } from './wireWaveform'
 
 const ROW_HEIGHT = 88
 export function MapTimeline({ data, state, onChange, index, startMs, endMs, cursorMs, onSeek, onTrack, loading, error }: {
@@ -22,11 +22,12 @@ export function MapTimeline({ data, state, onChange, index, startMs, endMs, curs
   const first = Math.min(Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 3), Math.max(0, data.rows.length - 1))
   // Bounded SVG work even for sessions containing thousands of service/location groups.
   const rows = data.rows.slice(first, first + 32)
-  const signature = rows.map(row => row.connections.map(c => c.flow.id).join(',')).join('|')
-  const waveforms = useMemo(() => rows.map(row => wireWaveform(row.connections, index, range)),
+  const waveform = useMemo(() => createWireWaveformCache(), [])
+  const signature = rows.map(row => row.connections.map(c => [c.flow.id, c.startMs, c.endMs].join(':')).join(',')).join('|')
+  const waveforms = useMemo(() => rows.map(row => waveform(row.connections, index, range)),
     // Connection identity and capture index own samples; cursor-only total changes do not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [signature, index, range.from, range.to])
+    [waveform, signature, index, range.from, range.to])
   const ceiling = waveformCeiling(waveforms, state.direction)
   const progress = Math.max(0, Math.min(100, (cursorMs - range.from) / Math.max(1, range.to - range.from) * 100))
   return <section className="atlas-detail-timeline" aria-label="Traffic timeline">

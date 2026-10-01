@@ -32,7 +32,7 @@ export function trafficPathStrips(paths: TrafficPath[]): TrafficPathStrip[] {
 }
 
 /** Bundle entire itineraries. A shared router does not create another origin-to-destination stream. */
-export function buildTrafficPaths(arcs: MapArc[]): TrafficPath[] {
+export function buildTrafficPaths(arcs: MapArc[], segments = 160): TrafficPath[] {
   const itineraries = new Map<string, MapArc[]>()
   for (const arc of arcs) {
     if (!arc.routeId) continue
@@ -62,14 +62,14 @@ export function buildTrafficPaths(arcs: MapArc[]): TrafficPath[] {
     const tracks = [...new Set(group.map(path => path.trackId ?? ''))].sort()
     for (const path of group) {
       const height = 0.045 + (tracks.length > 1 ? tracks.indexOf(path.trackId ?? '') / (tracks.length - 1) * 0.07 : 0)
-      Object.assign(path, sampleTrafficPath(path.positions, path.gaps, height))
+      Object.assign(path, sampleTrafficPath(path.positions, path.gaps, height, segments))
     }
   }
   return [...paths.values()]
 }
 
 /** The strip and the tube use these exact same vertices, including every router in sequence. */
-export function sampleTrafficPath(positions: MapPosition[], gaps: boolean[], height = 0.045) {
+export function sampleTrafficPath(positions: MapPosition[], gaps: boolean[], height = 0.045, segments = 160) {
   const samples: PathSample[] = []
   const legs: TrafficPath['legs'] = []
   const count = positions.length - 1
@@ -77,7 +77,7 @@ export function sampleTrafficPath(positions: MapPosition[], gaps: boolean[], hei
     const source = positions[leg], target = positions[leg + 1]
     const a = sphere(source), b = sphere(target)
     const angle = Math.acos(Math.max(-1, Math.min(1, a.reduce((sum, value, i) => sum + value * b[i], 0))))
-    const steps = Math.max(12, Math.ceil(160 / count), Math.ceil(angle * 180 / Math.PI))
+    const steps = Math.max(4, Math.ceil(segments / count), Math.ceil(angle * 180 / Math.PI * segments / 160))
     const path: PathPosition[] = []
     for (let step = 0; step <= steps; step++) {
       const t = step / steps

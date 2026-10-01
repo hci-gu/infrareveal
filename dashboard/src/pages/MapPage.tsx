@@ -11,6 +11,7 @@ import { Link, useParams } from 'react-router-dom'
 import {
   FPS,
   frameForTime,
+  parseEpoch,
   sessionTimelineStore,
   setTimelinePlayback,
   timeForFrame,
@@ -31,7 +32,7 @@ import { MapSettings } from '../map/MapSettings'
 import { useMapPreferences } from '../map/mapPreferences'
 import { projectWorkspace } from '../map/mapWorkspace'
 import type { WorkspaceState } from '../map/mapWorkspace'
-import { wireWaveform } from '../map/wireWaveform'
+import { createWireWaveformCache } from '../map/wireWaveform'
 import { themedAtlasStyle } from '../map/atlasStyle'
 import '../map/map.css'
 import '../map/workspace.css'
@@ -63,7 +64,10 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const lastCursorPublishRef = useRef(0)
   const { connectionState, data, timeline, error, refresh } = useGatewayData(sessionID)
   const trackPalette = useMemo(() => ({ sessionID, colors: new TrackColors() }), [sessionID])
-  const activityStartMs = timeline.epochMs + Math.floor(currentFrame / FPS / 30) * 30_000 - 30_000
+  // Retention moves the visible start, never the player's frame origin.
+  const playbackEpochMs = useMemo(() => parseEpoch(timeline.manifest?.startedAt, timeline.epochMs), [timeline.manifest?.startedAt, timeline.epochMs])
+  const cursorMs = timeForFrame(playbackEpochMs, currentFrame, FPS)
+  const activityStartMs = Math.floor(cursorMs / 30_000) * 30_000 - 30_000
   const activity = useFlowActivityRange(data.selectedSession?.id ?? null, activityStartMs, activityStartMs + 90_000)
   const routeData = useMemo(() => ({...data, routes: [...new Map([...data.routes, ...activity.routes].map(route => [route.id, route])).values()]}), [data, activity.routes])
   const scene = useMemo(
@@ -71,50 +75,46 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     [routeData, timeline.epochMs],
   )
   const contentEndMs = Math.max(scene.startMs + 1_000, scene.endMs, timeline.liveEdgeMs)
-  const contentDurationInFrames = Math.max(FPS, frameForTime(scene.startMs, contentEndMs, FPS) + 1)
+  const contentDurationInFrames = Math.max(FPS, frameForTime(playbackEpochMs, contentEndMs, FPS) + 1)
   // Playback needs a little headroom between clock ticks to avoid emitting
   // 'ended' at the live edge. The visible transport still uses contentEndMs.
   const durationInFrames = timeline.mode === 'live'
-    ? timeline.manifest?.ephemeral ? contentDurationInFrames + FPS * 3 : roundLiveDuration(contentDurationInFrames)
+    ? roundLiveDuration(contentDurationInFrames)
     : contentDurationInFrames
   // Request a bounded 90-second window at 500 ms LOD, moving every 30 seconds.
   const trackCatalog = useMemo(() => buildMapTrackCatalog({ ...routeData, dnsQueries: activity.dnsQueries }, trackPalette.colors), [activity.dnsQueries, routeData, trackPalette])
   const trafficIndex = useMemo(() => indexMapTraffic(activity.chunks), [activity.chunks])
   const destinationVolumes = useDestinationVolumes(scene.sessionId, timeline.mode === 'live', timeline.manifest?.ephemeral, timeline.epochMs)
-  const cursorMs = timeForFrame(scene.startMs, currentFrame, FPS)
   const projectionCursor = Math.floor(cursorMs / 250) * 250
   const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationVolumes.index, projectionCursor, workspace), [trackCatalog, scene, destinationVolumes.index, projectionCursor, workspace])
-  const playbackBins = useMemo(() => wireWaveform([...overview.byFlow.values()], destinationVolumes.index, { from: scene.startMs, to: contentEndMs }), [overview.byFlow, destinationVolumes.index, scene.startMs, contentEndMs])
+  const waveform = useMemo(() => createWireWaveformCache(), [])
+  const playbackBins = useMemo(() => kiosk && !workspace.expanded ? [] : waveform([...overview.byFlow.values()], destinationVolumes.index, { from: scene.startMs, to: contentEndMs }), [waveform, kiosk, workspace.expanded, overview.byFlow, destinationVolumes.index, scene.startMs, contentEndMs])
   const styledMap = useMemo(() => themedAtlasStyle(mapStyleUrl, theme, preferences.labels), [theme, preferences.labels])
-  const previousEpoch = useRef(scene.startMs)
   const timelineRef = useRef({
-    epochMs: scene.startMs,
+    epochMs: playbackEpochMs,
     liveEdgeMs: timeline.liveEdgeMs,
     mode: timeline.mode,
   })
 
   useEffect(() => {
     timelineRef.current = {
-      epochMs: scene.startMs,
+      epochMs: playbackEpochMs,
       liveEdgeMs: timeline.liveEdgeMs,
       mode: timeline.mode,
     }
-  }, [scene.startMs, timeline.liveEdgeMs, timeline.mode])
+  }, [playbackEpochMs, timeline.liveEdgeMs, timeline.mode])
 
-  // Rebase the player when the rolling origin moves, preserving absolute
-  // paused/replay time. Expired paused positions clamp to the retained edge.
+  // Only an expired replay position needs a seek. Ordinary retention ticks
+  // must not rewind frames, restart Remotion, or shift the travelling streams.
   useEffect(() => {
-    const oldEpoch = previousEpoch.current
-    previousEpoch.current = scene.startMs
     const player = playerRef.current
-    if (!timeline.manifest?.ephemeral || !player || oldEpoch === scene.startMs) return
-    const absolute = timeForFrame(oldEpoch, player.getCurrentFrame(), FPS)
-    const target = Math.min(contentDurationInFrames - 1, frameForTime(scene.startMs, absolute, FPS))
+    if (!timeline.manifest?.ephemeral || !player || initializedSessionRef.current !== scene.sessionId) return
+    if (timeForFrame(playbackEpochMs, player.getCurrentFrame(), FPS) >= scene.startMs) return
+    const target = frameForTime(playbackEpochMs, scene.startMs, FPS)
     programmaticSeekTargetRef.current = target
     player.seekTo(target)
     setCurrentFrame(target)
-  }, [scene.startMs, contentDurationInFrames, timeline.manifest?.ephemeral])
-
+  }, [scene.sessionId, scene.startMs, playbackEpochMs, timeline.manifest?.ephemeral])
 
   useEffect(() => {
     const container = mapContainerRef.current
@@ -130,7 +130,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const followLiveEdge = useCallback((forceSeek = false) => {
     const player = playerRef.current
     if (!player || timeline.mode !== 'live') return
-    const targetFrame = liveFrame(scene.startMs, timeline.liveEdgeMs, contentDurationInFrames)
+    const targetFrame = liveFrame(playbackEpochMs, timeline.liveEdgeMs, contentDurationInFrames)
     const shouldSeek = forceSeek || Math.abs(player.getCurrentFrame() - targetFrame) > FPS
     const shouldPlay = !player.isPlaying()
     if (shouldSeek || shouldPlay) {
@@ -146,25 +146,27 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     }
     if (shouldPlay) player.play()
     setTimelinePlayback({
-      cursorMs: timeForFrame(scene.startMs, targetFrame, FPS),
+      cursorMs: timeForFrame(playbackEpochMs, targetFrame, FPS),
       playback: 'following',
       rate: 1,
     })
-  }, [contentDurationInFrames, scene.startMs, timeline.liveEdgeMs, timeline.mode])
+  }, [contentDurationInFrames, playbackEpochMs, timeline.liveEdgeMs, timeline.mode])
 
   const seek = useCallback((frame: number) => {
-    const target = Math.max(0, Math.min(contentDurationInFrames - 1, frame))
+    const target = Math.max(frameForTime(playbackEpochMs, scene.startMs, FPS), Math.min(contentDurationInFrames - 1, frame))
     programmaticSeekTargetRef.current = null
     playerRef.current?.seekTo(target)
     setCurrentFrame(target)
-  }, [contentDurationInFrames])
+  }, [contentDurationInFrames, playbackEpochMs, scene.startMs])
 
-  const seekTime = useCallback((time: number) => seek(frameForTime(scene.startMs, time, FPS)), [scene.startMs, seek])
+  const seekTime = useCallback((time: number) => seek(frameForTime(playbackEpochMs, time, FPS)), [playbackEpochMs, seek])
 
   const inputProps = useMemo<MapCompositionProps>(() => ({
     scene,
     trackCatalog,
     fps: FPS,
+    playbackEpochMs,
+    cursorMs: projectionCursor,
     mapStyleUrl: styledMap,
     preferences, theme, workspace, overview, onWorkspace: updateWorkspace,
     endMs: contentEndMs, onSeekTime: seekTime,
@@ -175,16 +177,16 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     destinationIndex: destinationVolumes.index,
     destinationLoading: destinationVolumes.loading,
     destinationError: destinationVolumes.error,
-  }), [activity.loading, connectionState, scene, trackCatalog, trafficIndex, destinationVolumes.index, destinationVolumes.loading, destinationVolumes.error, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
+  }), [projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trackCatalog, trafficIndex, destinationVolumes.index, destinationVolumes.loading, destinationVolumes.error, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
   const togglePlayback = useCallback(() => {
     const player = playerRef.current
     if (!player) return
     if (player.isPlaying()) player.pause()
     else {
-      if (player.getCurrentFrame() >= contentDurationInFrames - 1) player.seekTo(0)
+      if (player.getCurrentFrame() >= contentDurationInFrames - 1) player.seekTo(frameForTime(playbackEpochMs, scene.startMs, FPS))
       player.play()
     }
-  }, [contentDurationInFrames])
+  }, [contentDurationInFrames, playbackEpochMs, scene.startMs])
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -215,7 +217,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
 
     const handleFrameUpdate: CallbackListener<'frameupdate'> = (event) => {
       const now = performance.now()
-      if (now - lastCursorPublishRef.current < 100) return
+      if (now - lastCursorPublishRef.current < 250) return
       lastCursorPublishRef.current = now
       setCurrentFrame(event.detail.frame)
       const current = timelineRef.current
@@ -244,7 +246,11 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       setTimelinePlayback({ playback: alreadyFollowing || atLiveEdge ? 'following' : 'playing' })
     }
     const handlePause = () => {
-      if (!followingCommandRef.current) setTimelinePlayback({ playback: 'paused' })
+      if (!followingCommandRef.current) {
+        const frame = player.getCurrentFrame()
+        setCurrentFrame(frame)
+        setTimelinePlayback({ cursorMs: timeForFrame(timelineRef.current.epochMs, frame, FPS), playback: 'paused' })
+      }
     }
     const handleEnded = () => {
       const frame = player.getCurrentFrame()
@@ -279,11 +285,11 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       followLiveEdge(true)
       return
     }
-    programmaticSeekTargetRef.current = 0
-    player.seekTo(0)
+    programmaticSeekTargetRef.current = frameForTime(playbackEpochMs, scene.startMs, FPS)
+    player.seekTo(frameForTime(playbackEpochMs, scene.startMs, FPS))
     player.play()
     setTimelinePlayback({ cursorMs: scene.startMs, playback: 'playing' })
-  }, [followLiveEdge, scene.sessionId, scene.startMs, timeline.mode, timeline.manifest])
+  }, [followLiveEdge, scene.sessionId, scene.startMs, playbackEpochMs, timeline.mode, timeline.manifest])
 
   useEffect(() => {
     const player = playerRef.current
@@ -312,7 +318,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
         <Link to="/" className="atlas-brand" aria-label="InfraReveal — all sessions"><span className="atlas-brand-mark"><MapIcon name="globe" size={23} /></span><span>infra<span>reveal</span><small>NETWORK OBSERVABILITY</small></span></Link>
         <div className="atlas-header-divider" />
         <nav className="atlas-breadcrumb" aria-label="Breadcrumb"><Link to="/" aria-label="All sessions"><MapIcon name="back" size={15} /><span>Sessions</span></Link><span className="atlas-breadcrumb-slash">/</span><span className="atlas-session-name" title={scene.sessionName}>{scene.sessionName}</span></nav>
-        <div className="atlas-header-right"><button type="button" className="atlas-icon-button" aria-label="Open display settings" title="Display settings" onClick={() => setSettingsOpen(true)}><MapIcon name="settings" /></button><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(timeForFrame(scene.startMs, currentFrame, FPS))}</strong><span>UTC</span></div></div>
+        <div className="atlas-header-right"><button type="button" className="atlas-icon-button" aria-label="Open display settings" title="Display settings" onClick={() => setSettingsOpen(true)}><MapIcon name="settings" /></button><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(cursorMs)}</strong><span>UTC</span></div></div>
       </header>
       {(error || fullscreenError) && <div className="atlas-connection-notice" role="status"><span>{error || fullscreenError}</span>{error ? <button type="button" onClick={() => void refresh()}>Retry connection</button> : <button type="button" onClick={() => setFullscreenError('')}>Dismiss</button>}</div>}
       {demo && <div className="atlas-demo-banner">
@@ -344,10 +350,11 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       </MapCompositionProvider>
       </div>
       <MapSettings open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />
-      {(!kiosk || workspace.expanded) && <MapTransport scene={scene} bins={playbackBins} direction={workspace.direction} endMs={contentEndMs} frame={currentFrame} fps={FPS}
+      {(!kiosk || workspace.expanded) && <MapTransport scene={scene} bins={playbackBins} direction={workspace.direction} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}
         live={timeline.mode === 'live'} following={timeline.playback === 'following'}
-        onToggle={togglePlayback} onSeek={seek} onRate={(rate) => setTimelinePlayback({
+        onToggle={togglePlayback} onSeek={frame => seekTime(timeForFrame(scene.startMs, frame, FPS))}
+        onStep={frames => seek((playerRef.current?.getCurrentFrame() ?? currentFrame) + frames)} onRate={(rate) => setTimelinePlayback({
           rate,
           // A faster/slower clock is playback; live following must run at real time.
           ...(rate !== 1 && timeline.playback === 'following' ? { playback: 'playing' } : {}),

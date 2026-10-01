@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react'
+import { memo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { formatBytes, formatCursor } from './format'
 import { MapIcon } from './MapIcon'
@@ -7,7 +7,7 @@ import { TrafficDirectionControl } from './TrafficDirectionControl'
 import type { WorkspaceProjection, WorkspaceState } from './mapWorkspace'
 import { directionLabel } from './mapWorkspace'
 
-export function MapOverview({ data, state, onChange, startMs, cursorMs, loading, error, selectedTrack, onTrack, activeOnly, onActiveOnly }: {
+export const MapOverview = memo(function MapOverview({ data, state, onChange, startMs, cursorMs, loading, error, selectedTrack, onTrack, activeOnly, onActiveOnly }: {
   data: WorkspaceProjection; state: WorkspaceState; onChange: (value: WorkspaceState) => void; startMs: number; cursorMs: number; loading: boolean; error: boolean
   selectedTrack: string | null; onTrack: (id: string | null) => void; activeOnly: boolean; onActiveOnly: (value: boolean) => void
 }) {
@@ -42,4 +42,4 @@ export function MapOverview({ data, state, onChange, startMs, cursorMs, loading,
       onPointerCancel={() => { drag.current = null; setDragWidth(null); setSnap(false) }} />}
     {snap && <div className="atlas-snap-target">Release to open the timeline<small>Keep direction, location, and playback position</small></div>}
   </aside>
-}
+})

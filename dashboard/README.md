@@ -58,11 +58,14 @@ slightly different arc heights make these shared routes distinguishable.
 
 The map requests a bounded 90-second activity window at 500 ms LOD. Fine samples
 are integrated into half-second display buckets, retaining short bursts; overlapping
-LODs are not counted twice. Tube width smoothly interpolates the two latest
-completed buckets over 500 ms, including burst onset and decay to silence. This
-visual smoothing adds up to one bucket of latency; numeric rates and totals are
-unchanged. The travelling accent uses a continuous timeline clock independent
-of bucket rollover.
+LODs are not counted twice. Tube width interpolates the captured history at each
+position along the route, carrying bursts from the sending end to the receiving
+end over an illustrative four seconds. A new quiet bucket or another burst does
+not erase traffic already travelling along the route. Interpolation adds up to
+one bucket of latency at the sending end; numeric rates and totals are unchanged.
+The travelling accent uses a continuous timeline clock independent of bucket
+rollover. Reduced-motion mode shows the interpolated current volume without
+transporting its history along the route.
 Complete sparse buckets mean silence. Missing/partial coverage is marked, and
 older sessions without samples use explicitly labeled average flow-byte estimates.
 The inspector shows recent payload rate or the estimated average as appropriate.
@@ -101,7 +104,8 @@ is identified in the hover details. Captured wire totals include headers and can
 differ from the conntrack counters in the overview/inspector. Router hops never
 contribute to destination totals, and route splits cannot count a flow twice.
 
-Bulge movement is illustrative, not measured packet travel speed or direction.
+Bulge speed is illustrative, not measured packet travel time. Direction follows
+the captured sent/received counters.
 The GPU mesh uses the Remotion frame clock and freezes when paused; reduced-motion
 preferences hold the geometry still while allowing traffic measurements to update.
 Saved traceroutes shape each connection's path using the responding, geolocated
@@ -147,3 +151,10 @@ playwright-cli run-code "$(cat dashboard/scripts/check-map-playback.js)"
 Run that command from the repository root. It checks live speed restoration,
 clock continuity while following and replaying, pause behavior, and GPU bucket
 boundaries. It changes only the local playback controls and returns to Live.
+
+For Raspberry Pi displays, open **Display settings → Rendering detail → Raspberry
+Pi**. **Automatic** selects the same lighter rendering on browsers with four or
+fewer logical CPU cores. Both projections retain full traffic measurements and
+playback controls. The Pi preset lowers Mercator geometry detail and caps canvas
+pixel density; Equal Earth uses cached SVG geography. See
+[test-support/README.md](test-support/README.md) for performance and GPU checks.

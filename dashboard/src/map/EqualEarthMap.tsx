@@ -1,4 +1,4 @@
-import { memo, useId, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import { memo, useEffect, useId, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { Ref } from 'react'
 import countries from './data/countries.json'
 import type { MapPosition, GatewayOrigin } from './mapModel'
@@ -6,8 +6,18 @@ import { equalEarth, equalEarthPath } from './equalEarth'
 import type { LocationTraffic, TrafficDirection } from './mapWorkspace'
 import { formatBytes } from './format'
 import { MapIcon } from './MapIcon'
+import type { CountryFootprint } from './countryFootprints'
 
 const geography = countries.map(country => ({ ...country, path: country.polygons.map(polygon => polygon.map(ring => equalEarthPath(ring as MapPosition[], true)).join('')).join('') }))
+const countryPaths = new Map(geography.map(country => [country.code, country.path]))
+function countryPath(country: CountryFootprint) {
+  let path = countryPaths.get(country.code)
+  if (path === undefined) {
+    path = country.polygons.map(polygon => polygon.map(ring => equalEarthPath(ring, true)).join('')).join('')
+    countryPaths.set(country.code, path)
+  }
+  return path
+}
 const graticule = [
   ...Array.from({ length: 13 }, (_, i) => equalEarthPath(Array.from({ length: 61 }, (_, j) => [i * 30 - 180, j * 3 - 90]))),
   ...Array.from({ length: 5 }, (_, i) => equalEarthPath(Array.from({ length: 121 }, (_, j) => [j * 3 - 180, i * 30 - 60]))),
@@ -18,7 +28,17 @@ export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, location
 }) {
   const id = useId().replace(/:/g, '')
   const svgRef = useRef<SVGSVGElement>(null)
-  const drag = useRef<{ x: number; y: number; dx: number; dy: number; moved: boolean } | null>(null)
+  const cameraGroup = useRef<SVGGElement>(null)
+  const panFrame = useRef(0)
+  const drag = useRef<{ x: number; y: number; dx: number; dy: number; panX: number; panY: number; scale: number; moved: boolean } | null>(null)
+  useEffect(() => () => cancelAnimationFrame(panFrame.current), [])
+  function finishPan() {
+    cancelAnimationFrame(panFrame.current)
+    panFrame.current = 0
+    const gesture = drag.current
+    drag.current = null
+    if (gesture) { const { panX: x, panY: y } = gesture; setCamera(current => ({ ...current, x, y })) }
+  }
   const [camera, setCamera] = useState({ zoom: 1, x: 0, y: 0 })
   useImperativeHandle(controlsRef, () => ({ fit: positions => {
     if (!positions.length) return
@@ -36,17 +56,28 @@ export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, location
   function zoom(delta: number) { setCamera(current => ({ ...current, zoom: Math.max(.75, Math.min(8, current.zoom * delta)) })) }
   return <div className="atlas-equal-earth" data-projection="equal-earth">
     <svg ref={svgRef} viewBox="0 0 1000 560" aria-label="Equal Earth traffic map" onWheel={event => { zoom(event.deltaY > 0 ? .9 : 1.1) }}
-      onPointerDown={event => { if (event.button !== 0 || (event.target as Element).closest('[data-map-location]')) return; drag.current = { x: event.clientX, y: event.clientY, dx: camera.x, dy: camera.y, moved: false }; event.currentTarget.setPointerCapture(event.pointerId) }}
-      onPointerMove={event => { if (!drag.current) return; const scale = 1000 / Math.max(1, event.currentTarget.getBoundingClientRect().width); const dx = event.clientX - drag.current.x, dy = event.clientY - drag.current.y; drag.current.moved ||= Math.abs(dx) + Math.abs(dy) > 4; setCamera(current => ({ ...current, x: drag.current!.dx + dx * scale, y: drag.current!.dy + dy * scale })) }}
-      onPointerUp={event => { drag.current = null; if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }} onPointerCancel={() => { drag.current = null }}>
+      onPointerDown={event => { if (event.button !== 0 || (event.target as Element).closest('[data-map-location]')) return; drag.current = { x: event.clientX, y: event.clientY, dx: camera.x, dy: camera.y, panX: camera.x, panY: camera.y, scale: 1000 / Math.max(1, event.currentTarget.getBoundingClientRect().width), moved: false }; event.currentTarget.setPointerCapture(event.pointerId) }}
+      onPointerMove={event => {
+        const gesture = drag.current
+        if (!gesture) return
+        const dx = event.clientX - gesture.x, dy = event.clientY - gesture.y
+        gesture.moved ||= Math.abs(dx) + Math.abs(dy) > 4
+        gesture.panX = gesture.dx + dx * gesture.scale
+        gesture.panY = gesture.dy + dy * gesture.scale
+        // One SVG transform per paint; React commits the camera when the drag ends.
+        if (!panFrame.current) panFrame.current = requestAnimationFrame(() => {
+          panFrame.current = 0
+          cameraGroup.current?.setAttribute('transform', cameraTransform(gesture.panX, gesture.panY, camera.zoom))
+        })
+      }}
+      onPointerUp={event => { finishPan(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }} onPointerCancel={finishPan}>
       <defs>{(['received', 'sent'] as const).map(key => <marker key={key} id={`${id}-${key}`} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke={`var(--atlas-${key === 'received' ? 'down' : 'up'})`} strokeWidth="1.5" /></marker>)}</defs>
-      <g transform={`translate(${500 + camera.x} ${280 + camera.y}) scale(${camera.zoom}) translate(-500 -280)`}>
-        {graticule.map((d, index) => <path key={index} d={d} className="atlas-earth-grid" />)}
-        {geography.map(country => <path key={`${country.code}:${country.name}`} d={country.path} className="atlas-earth-country" fillRule="evenodd" />)}
+      <g ref={cameraGroup} transform={cameraTransform(camera.x, camera.y, camera.zoom)}>
+        <WorldGeography />
         {mapped.map(location => {
           const [x, y] = equalEarth(location.position!)
           const country = location.country
-          const path = country?.polygons.map(polygon => polygon.map(ring => equalEarthPath(ring, true)).join('')).join('')
+          const path = country ? countryPath(country) : undefined
           const cy = Math.min(gy, y) - Math.max(18, Math.abs(gx - x) * .22)
           const dimmed = Boolean(selected && selected !== location.id)
           return <g key={location.id} className={dimmed ? 'is-dimmed' : ''} data-map-location={location.id} tabIndex={0} role="button" aria-pressed={selected === location.id} aria-label={`${location.label}, ${formatBytes(location.bytes)}, filter location`} onClick={() => select(location)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(selected === location.id ? null : location.id) } }}>
@@ -71,4 +102,11 @@ export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, location
     <div className="atlas-map-tools" aria-label="Equal Earth map controls"><button type="button" className="atlas-icon-button" onClick={() => zoom(1.3)} aria-label="Zoom in"><MapIcon name="plus" /></button><button type="button" className="atlas-icon-button" onClick={() => zoom(1 / 1.3)} aria-label="Zoom out"><MapIcon name="minus" /></button><button type="button" className="atlas-icon-button" onClick={fit} aria-label="Fit world"><MapIcon name="expand" /></button><button type="button" className="atlas-icon-button" aria-label="Center on gateway" onClick={() => setCamera({ zoom: 2, x: (500 - gx) * 2, y: (280 - gy) * 2 })}><MapIcon name="target" /></button></div>
     <a className="atlas-earth-credit" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a>
   </div>
+})
+
+function cameraTransform(x: number, y: number, zoom: number) {
+  return `translate(${500 + x} ${280 + y}) scale(${zoom}) translate(-500 -280)`
+}
+const WorldGeography = memo(function WorldGeography() {
+  return <>{graticule.map((d, index) => <path key={index} d={d} className="atlas-earth-grid" />)}{geography.map(country => <path key={`${country.code}:${country.name}`} d={country.path} className="atlas-earth-country" fillRule="evenodd" />)}</>
 })
