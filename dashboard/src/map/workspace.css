@@ -2,7 +2,7 @@
 .atlas-page{--atlas-bg:#0e1c23;--atlas-panel:#13252d;--atlas-surface:#1a3039;--atlas-border:#2b4149;--atlas-text:#e3eeeb;--atlas-muted:#96adb4;--atlas-down:#72dec7;--atlas-up:#efb378;--atlas-land:#213a43;--atlas-coast:#3b5660;--atlas-grid:#2a414a;--atlas-water:#101f28;--atlas-overview-width:290px}
 .atlas-page[data-theme=light]{--atlas-bg:#eaf0ed;--atlas-panel:#fafcf9;--atlas-surface:#e2ebe6;--atlas-border:#c8d6cd;--atlas-text:#233f40;--atlas-muted:#587577;--atlas-down:#167b6a;--atlas-up:#a85320;--atlas-land:#d2e0d8;--atlas-coast:#a6bbb3;--atlas-grid:#d0ded7;--atlas-water:#edf3ef;--atlas-teal:#167b6a;color-scheme:light}
 .atlas-header{height:66px;padding:0 22px;background:var(--atlas-panel)}
-.atlas-composition{background:var(--atlas-bg);color:var(--atlas-text)}
+.atlas-composition{position:absolute;inset:0;overflow:hidden;background:var(--atlas-bg);color:var(--atlas-text)}
 .atlas-map-surface{position:absolute;inset:0 0 0 var(--atlas-overview-width);overflow:hidden}
 .atlas-map-surface[hidden]{display:none}
 .atlas-map-heading{left:22px;top:23px;color:var(--atlas-muted);font-size:9px}
@@ -182,3 +182,13 @@
  .atlas-timeline-labels>span:nth-child(2),.atlas-timeline-labels>span:nth-child(4){display:none}
  .atlas-live-button{font-size:8px;padding:4px 6px}
 }
+
+/* Isolate static geography from changing overlays; avoid compositing filters on Pi. */
+.atlas-map-surface{background:var(--atlas-water);contain:layout paint}
+.atlas-equal-earth>svg{position:absolute;inset:0;isolation:isolate;transform:translateZ(0)}
+.atlas-equal-earth>svg.atlas-earth-basemap{pointer-events:none}
+.atlas-location-row,.atlas-track{content-visibility:auto;contain-intrinsic-size:auto 72px}
+.atlas-page[data-render-quality=raspberry-pi] :is(.atlas-view-switch,.atlas-map-tools,.atlas-selection,.atlas-empty,.atlas-track-inspector,.atlas-country-label){backdrop-filter:none;box-shadow:none;background:var(--atlas-panel)}
+.atlas-page[data-render-quality=raspberry-pi] .atlas-vignette{display:none}
+.atlas-page[data-render-quality=raspberry-pi] .atlas-settings::backdrop{backdrop-filter:none}
+.atlas-page[data-render-quality=raspberry-pi] button{transition:none}

@@ -61,16 +61,31 @@ production-build checks and [lab demo](lab-demo.md) for deployment and hardware 
 
 Display settings include Automatic, Raspberry Pi, and Full detail. Automatic uses
 Raspberry Pi detail on browsers reporting four or fewer logical CPU cores. This
-caps both Mercator canvases at one device pixel per CSS pixel and uses 48 segments
-and six tube sides instead of 160 segments and twelve sides. Changing detail does
-not change the captured measurements, retained history, or playback speed.
+uses a bundled country basemap and one WebGL canvas at one device pixel per CSS
+pixel, 32 curve segments and four tube sides. Full detail retains online tiles,
+160 segments and twelve tube sides. Pi mode omits decorative glow, blur and
+specular shading; country precision, unknown route spans and all measurements
+remain intact. Both projections and tiled geography load independently.
 
-`MapComposition` dispatches to separate Equal Earth and Mercator components. Only
-`AnimatedMercator` subscribes to Remotion's frame clock, updating traffic uniforms;
-the workspace projects data at a 250 ms cadence. Route geometry, country paths,
-and waveforms retain their caches across changes to playhead totals. Rate changes
-invalidate tube radii without rebuilding unchanged position attributes. Equal Earth
-panning changes one SVG transform per paint and commits React state on release.
+Mercator caches the Pi basemap as one locally drawn texture. Zooming refreshes a
+padded region at higher resolution, while small pans reuse it. Country labels
+remain separate and sharp. Only the current geography image is retained; changing
+traffic does not rasterize coastlines or borders again.
+
+`MapComposition` dispatches to Equal Earth and lazy-loaded Mercator components.
+`MapPlaybackClock` owns wall-clock playback without frame-driven React renders.
+The renderer reads clock uniforms directly and requests at most 30 animation
+paints per second, independent of replay speed. Pause, seek, long uptime and
+retention use the same absolute frame origin. Hidden maps and expanded timelines
+do not animate. UI/data publication is 250 ms in Full detail and 1000 ms on Pi;
+user actions are immediate. Streaming display notifications are coalesced, while
+the shared store accepts every event and preserves unchanged collection arrays.
+
+Equal Earth does not request detailed activity until an inspector or timeline
+needs it. Its static SVG geography has a separate paint surface; both camera
+transforms update together during drag. Route geometry, country paths and
+waveforms retain caches across playhead totals. Rate changes invalidate tube
+radii without rebuilding unchanged position attributes.
 
 Destination summaries use storage-revision deltas every five seconds. Only changed
 flows rebuild their prefix sums. The retention cutoff is applied at lookup time,

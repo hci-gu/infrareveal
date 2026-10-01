@@ -22,7 +22,7 @@ async (page) => {
     const draw = FlowArcLayer.prototype.draw;
     const samples = [];
     FlowArcLayer.prototype.draw = function (...args) {
-      if (this.props.id === 'traffic-streams') samples.push({ wall: performance.now(), clock: this.props.time });
+      if (this.props.id === 'traffic-streams') samples.push({ wall: performance.now(), clock: this.getAnimationTime().time });
       return draw.apply(this, args);
     };
     try {
@@ -31,7 +31,7 @@ async (page) => {
     if (samples.length < 2) throw new Error('No rendered animation frames were observed');
     const elapsed = (samples.at(-1).wall - samples[0].wall) / 1000;
     const advanced = samples.at(-1).clock - samples[0].clock;
-    const jumps = samples.slice(1).filter((sample, i) => sample.clock < samples[i].clock || sample.clock - samples[i].clock > 0.3).length;
+    const jumps = samples.slice(1).filter((sample, i) => sample.clock < samples[i].clock || Math.abs(sample.clock - samples[i].clock - (sample.wall - samples[i].wall) / 1000) > 0.1).length;
     return { elapsed, advanced, jumps, renders: samples.length };
   });
   const following = await measure();

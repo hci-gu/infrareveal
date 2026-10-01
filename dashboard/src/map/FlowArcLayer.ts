@@ -1,3 +1,5 @@
+import { trafficAnimationTime } from './mapPlaybackClock'
+import type { TrafficAnimation } from './mapPlaybackClock'
 import { ArcLayer } from '@deck.gl/layers'
 import type { Accessor, UpdateParameters } from '@deck.gl/core'
 import { Geometry, Model } from '@luma.gl/engine'
@@ -15,6 +17,7 @@ export const trafficUniforms = {
 } as const satisfies ShaderModule<{ phase: number; motion: number; clock: number }>
 
 type VolumeProps<T> = {
+  animation?: TrafficAnimation | null
   time: number
   phase: number
   motion: number
@@ -112,8 +115,12 @@ void main() {
   vec3 up = normalize(cross(side, tangent));
   vec3 radial = cos(positions.y) * side + sin(positions.y) * up;
   float radius = radiusAt(t);
+#ifdef LOW_DETAIL
+  vNormal = radial;
+#else
   float slope = (radiusAt(min(1.0, t + dt)) - radiusAt(max(0.0, t - dt))) / max(0.00001, length(after - before) * project.scale);
   vNormal = normalize(radial - tangent * slope);
+#endif
   vRadius = radius;
   vec3 position = center + side * project_pixel_size(instanceDirection * (radius + 1.0)) + radial * project_pixel_size(radius);
   vEye = project.cameraPosition - position;
@@ -138,10 +145,14 @@ void main() {
   if (vValid < 0.99 || vRadius < 0.18) discard;
   vec3 normal = normalize(vNormal);
   vec3 light = normalize(vec3(-0.35, -0.65, 0.9));
-  vec3 eye = normalize(vEye);
   float diffuse = max(0.0, dot(normal, light));
+#ifdef LOW_DETAIL
+  vec3 color = vColor.rgb * (0.55 + diffuse * 0.45);
+#else
+  vec3 eye = normalize(vEye);
   float shine = pow(max(0.0, dot(normalize(light + eye), normal)), 36.0);
   vec3 color = vColor.rgb * (0.3 + diffuse * 0.7) + mix(vColor.rgb, vec3(1.0), 0.7) * shine * 0.65;
+#endif
   fragColor = vec4(color, vColor.a * smoothstep(0.18, 0.65, vRadius));
   DECKGL_FILTER_COLOR(fragColor, geometry);
 }
@@ -151,7 +162,7 @@ void main() {
 export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
   static layerName = 'FlowArcLayer'
   static defaultProps = {
-    ...ArcLayer.defaultProps, numSegments: 160, time: 0, phase: 0, motion: 1,
+    ...ArcLayer.defaultProps, numSegments: 160, time: 0, phase: 0, motion: 1, animation: { type: 'object', value: null, compare: false },
     getRadii0: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii1: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii2: { type: 'accessor', value: [0, 0, 0, 0] },
@@ -172,7 +183,7 @@ export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
 
   getShaders() {
     const shaders = super.getShaders()
-    return { ...shaders, vs: vertexShader, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
+    return { ...shaders, defines: { ...shaders.defines, ...(this.props.numSegments <= 48 ? { LOW_DETAIL: 1 } : {}) }, vs: vertexShader, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
   }
 
   updateState(params: UpdateParameters<this>) {
@@ -186,7 +197,7 @@ export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
 
   protected _getModel(): Model {
     const SEGMENTS = Math.max(2, Math.round(this.props.numSegments))
-    const SIDES = SEGMENTS <= 48 ? 6 : 12
+    const SIDES = SEGMENTS <= 48 ? 4 : 12
     const positions = new Float32Array((SEGMENTS + 1) * (SIDES + 1) * 2)
     const indices = new Uint16Array(SEGMENTS * SIDES * 6)
     for (let i = 0; i <= SEGMENTS; i += 1) {
@@ -207,10 +218,13 @@ export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
     })
   }
 
+  getAnimationTime() { return trafficAnimationTime(this.props.animation, this.props.time, this.props.phase, TRAFFIC_BUCKET_MS) }
+
   draw() {
     const model = this.state.model
     if (!model) return
-    model.shaderInputs.setProps({ arc: { numSegments: this.props.numSegments }, traffic: { clock: trafficShaderClock(this.props.time), phase: this.props.phase, motion: this.props.motion } })
+    const { time, phase } = this.getAnimationTime()
+    model.shaderInputs.setProps({ arc: { numSegments: this.props.numSegments }, traffic: { clock: trafficShaderClock(time), phase, motion: this.props.motion } })
     model.draw(this.context.renderPass)
   }
 }

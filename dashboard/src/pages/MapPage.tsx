@@ -1,11 +1,7 @@
 import type { DemoStatus } from '@infrareveal/session-state'
 import { demoHealthMessage } from './demoHealth'
-import type { CallbackListener, PlayerRef } from '@remotion/player'
-import { Player } from '@remotion/player'
-import { setWorkerUrl } from 'maplibre-gl'
-// Bundle the worker's imports too; ?url alone copies an incomplete ESM entry.
-import mapLibreWorkerUrl from 'maplibre-gl/dist/maplibre-gl-worker.mjs?worker&url'
-import 'maplibre-gl/dist/maplibre-gl.css'
+import { MapPlaybackClock } from '../map/mapPlaybackClock'
+import type { PlaybackListener } from '../map/mapPlaybackClock'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useParams } from 'react-router-dom'
 import {
@@ -20,7 +16,7 @@ import {
 } from '@infrareveal/session-state'
 import { gatewayOrigin, mapStyleUrl } from '../config'
 import { buildMapTimelineScene } from '../map/mapModel'
-import { MapCompositionFromContext, MapCompositionProvider } from '../remotion/MapCompositionProvider'
+import { MapComposition } from '../remotion/MapComposition'
 import type { MapCompositionProps } from '../remotion/MapComposition'
 import { MapIcon } from '../map/MapIcon'
 import { MapTransport } from '../map/MapTransport'
@@ -29,7 +25,7 @@ import { indexMapTraffic } from '../map/mapTraffic'
 import { buildMapTrackCatalog, TrackColors } from '../map/mapTracks'
 import { useDestinationVolumes } from '../map/useDestinationVolumes'
 import { MapSettings } from '../map/MapSettings'
-import { useMapPreferences } from '../map/mapPreferences'
+import { mapRenderQuality, useMapPreferences } from '../map/mapPreferences'
 import { projectWorkspace } from '../map/mapWorkspace'
 import type { WorkspaceState } from '../map/mapWorkspace'
 import { createWireWaveformCache } from '../map/wireWaveform'
@@ -40,13 +36,15 @@ import '../map/workspace.css'
 const LIVE_DURATION_HEADROOM_SECONDS = 30
 const LIVE_EDGE_TOLERANCE_MS = 2_000
 
-setWorkerUrl(mapLibreWorkerUrl)
 
 export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: string; demo?: { status: DemoStatus; error: string } } = {}) {
   const { sessionID: routeSessionID = '' } = useParams()
   const sessionID = sessionIdOverride ?? routeSessionID
   const kiosk = Boolean(demo)
   const { preferences, setPreferences, theme } = useMapPreferences()
+  const renderQuality = mapRenderQuality(preferences.quality)
+  const publishMs = renderQuality.dataIntervalMs
+  const [inspectorOpen, setInspectorOpen] = useState(false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [view, setView] = useState<WorkspaceState & { sessionId: string }>({ sessionId: sessionID, direction: 'both', locationId: null, expanded: false })
   const workspace = useMemo<WorkspaceState>(() => view.sessionId === sessionID ? view : { direction: view.direction, locationId: null, expanded: false }, [view, sessionID])
@@ -56,19 +54,20 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const [size, setSize] = useState(() => ({ width: Math.max(320, window.innerWidth), height: Math.max(240, window.innerHeight - 208) }))
   const [currentFrame, setCurrentFrame] = useState(0)
   const [fullscreenError, setFullscreenError] = useState('')
-  const playerRef = useRef<PlayerRef>(null)
+  const [clock] = useState(() => new MapPlaybackClock(FPS))
+  const playerRef = useRef(clock)
   const initializedSessionRef = useRef<string | null>(null)
   const programmaticSeekTargetRef = useRef<number | null>(null)
   const followingCommandRef = useRef(false)
   const followingCommandTimerRef = useRef(0)
   const lastCursorPublishRef = useRef(0)
-  const { connectionState, data, timeline, error, refresh } = useGatewayData(sessionID)
+  const { connectionState, data, timeline, error, refresh } = useGatewayData(sessionID, true, publishMs)
   const trackPalette = useMemo(() => ({ sessionID, colors: new TrackColors() }), [sessionID])
   // Retention moves the visible start, never the player's frame origin.
   const playbackEpochMs = useMemo(() => parseEpoch(timeline.manifest?.startedAt, timeline.epochMs), [timeline.manifest?.startedAt, timeline.epochMs])
   const cursorMs = timeForFrame(playbackEpochMs, currentFrame, FPS)
   const activityStartMs = Math.floor(cursorMs / 30_000) * 30_000 - 30_000
-  const activity = useFlowActivityRange(data.selectedSession?.id ?? null, activityStartMs, activityStartMs + 90_000)
+  const activity = useFlowActivityRange(data.selectedSession?.id ?? null, activityStartMs, activityStartMs + 90_000, undefined, publishMs, preferences.projection === 'mercator' || workspace.expanded || inspectorOpen)
   const routeData = useMemo(() => ({...data, routes: [...new Map([...data.routes, ...activity.routes].map(route => [route.id, route])).values()]}), [data, activity.routes])
   const scene = useMemo(
     () => buildMapTimelineScene(routeData, gatewayOrigin, timeline.epochMs),
@@ -85,7 +84,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const trackCatalog = useMemo(() => buildMapTrackCatalog({ ...routeData, dnsQueries: activity.dnsQueries }, trackPalette.colors), [activity.dnsQueries, routeData, trackPalette])
   const trafficIndex = useMemo(() => indexMapTraffic(activity.chunks), [activity.chunks])
   const destinationVolumes = useDestinationVolumes(scene.sessionId, timeline.mode === 'live', timeline.manifest?.ephemeral, timeline.epochMs)
-  const projectionCursor = Math.floor(cursorMs / 250) * 250
+  const projectionCursor = timeline.playback === 'paused' ? cursorMs : Math.floor(cursorMs / publishMs) * publishMs
   const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationVolumes.index, projectionCursor, workspace), [trackCatalog, scene, destinationVolumes.index, projectionCursor, workspace])
   const waveform = useMemo(() => createWireWaveformCache(), [])
   const playbackBins = useMemo(() => kiosk && !workspace.expanded ? [] : waveform([...overview.byFlow.values()], destinationVolumes.index, { from: scene.startMs, to: contentEndMs }), [waveform, kiosk, workspace.expanded, overview.byFlow, destinationVolumes.index, scene.startMs, contentEndMs])
@@ -163,8 +162,9 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
 
   const inputProps = useMemo<MapCompositionProps>(() => ({
     scene,
+    onInspectorChange: setInspectorOpen,
     trackCatalog,
-    fps: FPS,
+    fps: FPS, clock, width: size.width, height: size.height,
     playbackEpochMs,
     cursorMs: projectionCursor,
     mapStyleUrl: styledMap,
@@ -177,7 +177,10 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     destinationIndex: destinationVolumes.index,
     destinationLoading: destinationVolumes.loading,
     destinationError: destinationVolumes.error,
-  }), [projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trackCatalog, trafficIndex, destinationVolumes.index, destinationVolumes.loading, destinationVolumes.error, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
+  }), [clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trackCatalog, trafficIndex, destinationVolumes.index, destinationVolumes.loading, destinationVolumes.error, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
+  useEffect(() => { clock.configure({ durationInFrames, rate: timeline.rate }) }, [clock, durationInFrames, timeline.rate])
+  useEffect(() => () => clock.dispose(), [clock])
+
   const togglePlayback = useCallback(() => {
     const player = playerRef.current
     if (!player) return
@@ -215,15 +218,15 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     const player = playerRef.current
     if (!player) return
 
-    const handleFrameUpdate: CallbackListener<'frameupdate'> = (event) => {
+    const handleFrameUpdate: PlaybackListener = (event) => {
       const now = performance.now()
-      if (now - lastCursorPublishRef.current < 250) return
+      if (now - lastCursorPublishRef.current < publishMs) return
       lastCursorPublishRef.current = now
       setCurrentFrame(event.detail.frame)
       const current = timelineRef.current
       setTimelinePlayback({ cursorMs: timeForFrame(current.epochMs, event.detail.frame, FPS) })
     }
-    const handleSeeked: CallbackListener<'seeked'> = (event) => {
+    const handleSeeked: PlaybackListener = (event) => {
       setCurrentFrame(event.detail.frame)
       const expected = programmaticSeekTargetRef.current
       if (expected !== null && Math.abs(expected - event.detail.frame) <= 1) {
@@ -257,7 +260,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       setCurrentFrame(frame)
       setTimelinePlayback({ cursorMs: timeForFrame(timelineRef.current.epochMs, frame, FPS), playback: 'paused' })
     }
-    const handleRateChange: CallbackListener<'ratechange'> = (event) => {
+    const handleRateChange: PlaybackListener = (event) => {
       setTimelinePlayback({ rate: event.detail.playbackRate })
     }
 
@@ -275,7 +278,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       player.removeEventListener('ended', handleEnded)
       player.removeEventListener('ratechange', handleRateChange)
     }
-  }, [])
+  }, [publishMs])
 
   useEffect(() => {
     const player = playerRef.current
@@ -307,6 +310,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       ref={pageRef}
       className={`atlas-page${kiosk ? " atlas-demo" : ""}${workspace.expanded ? " atlas-timeline-open" : ""}`}
       data-theme={theme}
+      data-render-quality={renderQuality.light ? 'raspberry-pi' : 'full'}
       data-projection={preferences.projection}
       data-direction={workspace.direction}
       data-session-id={scene.sessionId ?? ''}
@@ -327,27 +331,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
         {(demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow))) && <strong role="status" className="atlas-demo-warning">{demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow))}</strong>}
       </div>}
       <div ref={mapContainerRef} className="atlas-map-container">
-      <MapCompositionProvider value={inputProps}>
-      <Player
-        ref={playerRef}
-        acknowledgeRemotionLicense
-        component={MapCompositionFromContext}
-        durationInFrames={durationInFrames}
-        fps={FPS}
-        compositionWidth={size.width}
-        compositionHeight={size.height}
-        controls={false}
-        autoPlay
-        moveToBeginningWhenEnded={false}
-        initiallyMuted
-        clickToPlay={false}
-        doubleClickToFullscreen={false}
-        spaceKeyToPlayOrPause={false}
-        showVolumeControls={false}
-        playbackRate={timeline.rate}
-        style={{ height: '100%', width: '100%' }}
-      />
-      </MapCompositionProvider>
+      <MapComposition {...inputProps} />
       </div>
       <MapSettings open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />
       {(!kiosk || workspace.expanded) && <MapTransport scene={scene} bins={playbackBins} direction={workspace.direction} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}

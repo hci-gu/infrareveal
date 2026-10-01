@@ -20,13 +20,11 @@
     "@luma.gl/core": "^9.3.6",
     "@luma.gl/engine": "^9.3.6",
     "@luma.gl/shadertools": "^9.3.6",
-    "@remotion/player": "^4.0.520",
     "maplibre-gl": "^6.6.0",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "react-map-gl": "^8.1.2",
-    "react-router-dom": "^7.18.3",
-    "remotion": "^4.0.520"
+    "react-router-dom": "^7.18.3"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

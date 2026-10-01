@@ -21,6 +21,7 @@ playwright-cli run-code --filename dashboard/test-support/browser-workspace.js
 playwright-cli run-code --filename dashboard/test-support/browser-map-drag.js
 playwright-cli run-code --filename dashboard/test-support/browser-map-worker.js
 playwright-cli run-code --filename dashboard/test-support/browser-workspace-demo.js
+playwright-cli run-code --filename dashboard/test-support/browser-render-budget.js
 ```
 
 The workspace check adds synthetic captured wire counters and mixed city/country/
@@ -30,6 +31,9 @@ appearance, and mobile layouts. Screenshots go to `output/playwright`; create th
 directory before running. Use a fresh browser session for each complete run.
 The demo check verifies that expanded replay stays paused and returning resumes
 live following. These checks do not replace a Pi/network soak test.
+The render-budget check counts actual WebGL calls: traffic must draw while playing
+and stop while paused or covered by the expanded timeline. It also checks that
+Equal Earth does not load Mercator and the Pi preset does not load tiled geography.
 
 The drag regression check runs on an Equal Earth map. It queues multiple pointer
 moves and then releases or cancels the drag in the same browser task, verifying
@@ -87,6 +91,17 @@ animation frame, Equal Earth prepares no Mercator data, and unchanged Mercator
 routes are not resampled. These are local browser measurements, not Pi FPS results.
 
 Against Vite, `browser-map-quality.js` switches Full detail to Raspberry Pi at 2×
-pixel density. It checks actual GPU mesh sizes, both canvas resolutions, fresh
-radius attributes after capture updates, and preference persistence. Run playback
+pixel density. It checks actual GPU mesh sizes, single-canvas Pi rendering and full-detail canvas resolutions, fresh
+radius attributes after capture updates, cached basemap geometry, label alignment,
+fresh geography at higher zoom, and preference persistence. Run playback
 checks with the browser in front; background/occluded windows throttle rendering.
+
+`mapPlaybackClock.test.ts` covers dropped paints, exact pause/seek, replay rate,
+long uptime and live duration extension without React. `displayUpdates.test.ts`
+checks that event bursts publish their latest state and unchanged collections
+retain identity. The rolling browser check distinguishes clock jumps from real
+paint delays and samples paused clocks without forcing continuous redraws.
+
+The second-pass plan is in `docs/implementation-guides/map-performance-pass-2.txt`.
+Actual display-Pi profiles use the same browser, resolution and quality setting;
+record GPU renderer, draw count, frame cadence, long tasks and session size.

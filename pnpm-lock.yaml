@@ -37,9 +37,6 @@ importers:
       '@luma.gl/shadertools':
         specifier: ^9.3.6
         version: 9.3.6(@luma.gl/core@9.3.6)
-      '@remotion/player':
-        specifier: ^4.0.520
-        version: 4.0.520(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       maplibre-gl:
         specifier: ^6.6.0
         version: 6.6.0
@@ -55,9 +52,6 @@ importers:
       react-router-dom:
         specifier: ^7.18.3
         version: 7.18.3(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
-      remotion:
-        specifier: ^4.0.520
-        version: 4.0.520(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
     devDependencies:
       '@eslint/js':
         specifier: ^10.0.1

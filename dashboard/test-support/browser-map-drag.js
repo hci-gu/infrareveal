@@ -24,6 +24,7 @@ async (page) => {
       if (errors.length) throw new Error(errors.join('\n'));
       if (!await map.count()) throw new Error(`${end} crashed the map`);
       const after = await map.locator(':scope > g').getAttribute('transform');
+      if (await page.locator('.atlas-earth-basemap > g').getAttribute('transform') !== after) throw new Error('Static geography and traffic camera diverged');
       if (after === before || /NaN/.test(after)) throw new Error(`${end} lost the final drag position`);
       await map.dispatchEvent('pointermove', { pointerId: 1, clientX: x + 200, clientY: y + 100 });
       if (await map.locator(':scope > g').getAttribute('transform') !== after) throw new Error(`${end} left dragging active`);

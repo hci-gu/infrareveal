@@ -1,17 +1,35 @@
-import { memo, useMemo } from 'react'
+import { memo, useEffect, useRef } from 'react'
 import DeckGL from '@deck.gl/react'
-import type { DeckGLProps } from '@deck.gl/react'
-import { useCurrentFrame } from 'remotion'
-import { timeForFrame } from '@infrareveal/session-state'
-import { FlowArcLayer } from '../map/FlowArcLayer'
-import { FlowPathLayer } from '../map/FlowPathLayer'
-import { TRAFFIC_BUCKET_MS } from '../map/mapTraffic'
+import type { DeckGLProps, DeckGLRef } from '@deck.gl/react'
+import type { MapPlaybackClock } from '../map/mapPlaybackClock'
 
-/** The video clock reaches only the shader uniforms, never the sidebar or geometry. */
-export const AnimatedMercator = memo(function AnimatedMercator({ fps, playbackEpochMs, trafficAnchorMs, layers, ...props }: DeckGLProps & { fps: number; playbackEpochMs: number; trafficAnchorMs: number }) {
-  const frame = useCurrentFrame()
-  const animated = useMemo(() => layers?.flat().map(layer => layer instanceof FlowArcLayer || layer instanceof FlowPathLayer
-    ? layer.clone({ time: frame / fps, phase: (timeForFrame(playbackEpochMs, frame, fps) - trafficAnchorMs) / TRAFFIC_BUCKET_MS }) : layer),
-  [layers, frame, fps, playbackEpochMs, trafficAnchorMs])
-  return <DeckGL {...props} layers={animated} />
+/** Only shader uniforms read the playback clock. No React/layer props at frame rate. */
+export const AnimatedMercator = memo(function AnimatedMercator({ clock, active, ...props }: DeckGLProps & { clock: MapPlaybackClock; active: boolean }) {
+  const deck = useRef<DeckGLRef>(null)
+  useEffect(() => {
+    let lastPaint = -Infinity
+    const redraw = () => {
+      // Fixed wall-clock slots avoid dropping every other paint when a slow
+      // frame lands just before a sliding 33 ms deadline. Replay rate stays free.
+      const slot = Math.floor(performance.now() * 30 / 1000)
+      if (active && !document.hidden && slot !== lastPaint) {
+        lastPaint = slot
+        deck.current?.deck?.redraw('traffic clock')
+      }
+    }
+    const seek = () => { lastPaint = -Infinity; redraw() }
+    clock.addEventListener('frameupdate', redraw)
+    clock.addEventListener('seeked', seek)
+    clock.addEventListener('pause', seek)
+    clock.addEventListener('ended', seek)
+    document.addEventListener('visibilitychange', redraw)
+    return () => {
+      clock.removeEventListener('frameupdate', redraw)
+      clock.removeEventListener('seeked', seek)
+      clock.removeEventListener('pause', seek)
+      clock.removeEventListener('ended', seek)
+      document.removeEventListener('visibilitychange', redraw)
+    }
+  }, [active, clock])
+  return <DeckGL ref={deck} {...props} />
 })

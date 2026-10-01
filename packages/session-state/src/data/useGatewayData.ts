@@ -1,4 +1,7 @@
-import { useCallback, useEffect, useMemo, useState, useId } from 'react'
+import { emptyGatewayData } from './pocketbaseClient'
+import { coalescedSelector, stableGatewayData } from './displayUpdates'
+import type { SessionTimelineState } from '../timeline/store/sessionStore'
+import { useCallback, useEffect, useMemo, useState, useId, useSyncExternalStore } from 'react'
 import { useStore } from 'zustand'
 import {
   selectDetailGatewayData,
@@ -9,11 +12,20 @@ import {
 import { chooseLOD, sessionController } from '../timeline/transport/sessionController'
 import { parseEpoch } from '../timeline/domain/time'
 
+const emptyActivity = emptyGatewayData()
+
+function useDisplayVersion(kind: 'overview' | 'detail', intervalMs: number) {
+  const source = useMemo(() => coalescedSelector(sessionTimelineStore,
+    (state: SessionTimelineState) => `${state.selectedSessionId}:${state.sessionVersion}:${kind === 'overview' ? state.overviewVersion : state.detailVersion}`,
+    state => state.selectedSessionId, intervalMs), [kind, intervalMs])
+  return useSyncExternalStore(source.subscribe, source.getSnapshot, source.getSnapshot)
+}
+
 /** React adapter for the shared session runtime. */
-export function useGatewayData(requestedSessionId?: string | null, enabled = true) {
+export function useGatewayData(requestedSessionId?: string | null, enabled = true, publishIntervalMs = 0) {
   const [fallbackEpochMs] = useState(() => Date.now())
-  const sessionVersion = useStore(sessionTimelineStore, (state) => state.sessionVersion)
-  const overviewVersion = useStore(sessionTimelineStore, (state) => state.overviewVersion)
+  const overviewVersion = useDisplayVersion('overview', publishIntervalMs)
+  const stabilize = useMemo(() => stableGatewayData(), [])
   const connectionState = useStore(sessionTimelineStore, (state) => state.connectionState)
   const error = useStore(sessionTimelineStore, (state) => state.error)
   const manifest = useStore(sessionTimelineStore, (state) => state.manifest)
@@ -31,10 +43,9 @@ export function useGatewayData(requestedSessionId?: string | null, enabled = tru
   const data = useMemo(
     () => {
       void overviewVersion
-      void sessionVersion
-      return selectOverviewGatewayData()
+      return stabilize(selectOverviewGatewayData())
     },
-    [overviewVersion, sessionVersion],
+    [overviewVersion, stabilize],
   )
   const refresh = useCallback(async () => {
     if (enabled) await sessionController.refresh()
@@ -55,8 +66,11 @@ export function useFlowActivityRange(
   startMs: number,
   endMs: number,
   flowIds?: string[],
+  publishIntervalMs = 0,
+  enabled = true,
 ) {
-  const detailVersion = useStore(sessionTimelineStore, (state) => state.detailVersion)
+  const detailVersion = useDisplayVersion('detail', publishIntervalMs)
+  const stabilize = useMemo(() => stableGatewayData(), [])
   const loadingPageCount = useStore(sessionTimelineStore, (state) => state.loadingPageKeys.size)
   const owner = useId()
   const [refreshKey, setRefreshKey] = useState(0)
@@ -69,7 +83,7 @@ export function useFlowActivityRange(
 
   useEffect(() => {
     let cancelled = false
-    if (!sessionId || endMs <= startMs || explicitlyEmpty) return
+    if (!enabled || !sessionId || endMs <= startMs || explicitlyEmpty) return
     const requestedFlowIDs = flowIdKey ? flowIdKey.split(',') : []
     const prefetchMs = 30_000
     sessionController.ensureDetailRange(startMs - prefetchMs, endMs + prefetchMs, requestedFlowIDs, lod, owner)
@@ -82,16 +96,17 @@ export function useFlowActivityRange(
         }
       })
     return () => { cancelled = true; sessionController.releaseDetailRange(owner) }
-  }, [endMs, explicitlyEmpty, flowIdKey, lod, owner, refreshKey, requestKey, sessionId, startMs])
+  }, [enabled, endMs, explicitlyEmpty, flowIdKey, lod, owner, refreshKey, requestKey, sessionId, startMs])
 
   const data = useMemo(
     () => {
       void detailVersion
-      return explicitlyEmpty
+      if (!enabled || !sessionId) return emptyActivity
+      return stabilize(explicitlyEmpty
         ? { ...selectDetailGatewayData(startMs, endMs, []), flowActivityChunks: [], flowActivityWindows: [] }
-        : selectDetailGatewayData(startMs, endMs, flowIdKey ? flowIdKey.split(',') : undefined)
+        : selectDetailGatewayData(startMs, endMs, flowIdKey ? flowIdKey.split(',') : undefined))
     },
-    [detailVersion, endMs, explicitlyEmpty, flowIdKey, startMs],
+    [enabled, sessionId, detailVersion, endMs, explicitlyEmpty, flowIdKey, startMs, stabilize],
   )
   const clear = useCallback(() => {
     sessionController.clearDetail()
@@ -105,8 +120,8 @@ export function useFlowActivityRange(
     windows: data.flowActivityWindows,
     dnsQueries: data.dnsQueries,
     gateEvents: data.gateEvents,
-    loading: !explicitlyEmpty && loadingPageCount > 0,
-    loaded: Boolean(sessionId && !explicitlyEmpty && completedRequest === requestKey && loadingPageCount === 0 && !error),
+    loading: enabled && !explicitlyEmpty && loadingPageCount > 0,
+    loaded: Boolean(enabled && sessionId && !explicitlyEmpty && completedRequest === requestKey && loadingPageCount === 0 && !error),
     error,
     clear,
   }

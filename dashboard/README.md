@@ -1,8 +1,8 @@
 # InfraReveal dashboard
 
-Remotion-powered session map using the shared `@infrareveal/session-state` runtime.
+Interactive session map using the shared `@infrareveal/session-state` runtime.
 The first map slice renders geolocated destinations and active route arcs for the
-current Remotion frame. The same cursor logic works for recorded playback and a
+current playback cursor. The same cursor logic works for recorded playback and a
 live-following session.
 
 The index at `/` lists the available sessions without loading timeline detail.
@@ -106,7 +106,7 @@ contribute to destination totals, and route splits cannot count a flow twice.
 
 Bulge speed is illustrative, not measured packet travel time. Direction follows
 the captured sent/received counters.
-The GPU mesh uses the Remotion frame clock and freezes when paused; reduced-motion
+The GPU mesh reads a lightweight wall-clock player and freezes when paused; reduced-motion
 preferences hold the geometry still while allowing traffic measurements to update.
 Saved traceroutes shape each connection's path using the responding, geolocated
 hops in TTL order. Small hollow markers identify intermediate routers. Unknown
@@ -132,9 +132,9 @@ Space plays/pauses, left/right arrows move ten seconds, and the timeline slider
 retains its native keyboard behavior. Playback supports 0.5×, 1×, 2×, and 4× speed.
 For a live session, playback follows the live edge until the viewer pauses or
 seeks backwards or selects a speed other than 1×. The status changes to `Behind live`, and the `Go live` control
-seeks to the moving edge and resumes playback at 1×. Map data updates arrive
-through a separate React context, keeping Remotion’s video configuration stable
-so refreshing observations does not restart its playback scheduler. The shared transport also supports
+seeks to the moving edge and resumes playback at 1×. The playback clock runs independently of React and data refreshes. Shader time is
+read directly when drawing, while displayed totals update at four times per second
+(or once per second with the Pi preset). Paused and hidden views do not animate. The shared transport also supports
 gateways that still expose only PocketBase collection routes; those compatibility
 queries remain bounded to the requested timeline window.
 
@@ -155,6 +155,9 @@ boundaries. It changes only the local playback controls and returns to Live.
 For Raspberry Pi displays, open **Display settings → Rendering detail → Raspberry
 Pi**. **Automatic** selects the same lighter rendering on browsers with four or
 fewer logical CPU cores. Both projections retain full traffic measurements and
-playback controls. The Pi preset lowers Mercator geometry detail and caps canvas
-pixel density; Equal Earth uses cached SVG geography. See
+playback controls. The Pi preset uses a local country basemap, one WebGL canvas at native CSS pixel
+resolution, 32 curve segments and four tube sides. Full detail retains online
+map tiles and detailed shading. Static Mercator geography is rendered once and
+refreshed for zoomed regions; country labels remain sharp. Equal Earth separates cached geography from its
+changing traffic overlay; Mercator code and tile workers load only when needed. See
 [test-support/README.md](test-support/README.md) for performance and GPU checks.

@@ -28,6 +28,7 @@ export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, location
 }) {
   const id = useId().replace(/:/g, '')
   const svgRef = useRef<SVGSVGElement>(null)
+  const baseCameraGroup = useRef<SVGGElement>(null)
   const cameraGroup = useRef<SVGGElement>(null)
   const panFrame = useRef(0)
   const drag = useRef<{ x: number; y: number; dx: number; dy: number; panX: number; panY: number; scale: number; moved: boolean } | null>(null)
@@ -55,6 +56,7 @@ export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, location
   const fit = () => setCamera({ zoom: 1, x: 0, y: 0 })
   function zoom(delta: number) { setCamera(current => ({ ...current, zoom: Math.max(.75, Math.min(8, current.zoom * delta)) })) }
   return <div className="atlas-equal-earth" data-projection="equal-earth">
+    <svg className="atlas-earth-basemap" viewBox="0 0 1000 560" aria-hidden="true"><g ref={baseCameraGroup} transform={cameraTransform(camera.x, camera.y, camera.zoom)}><WorldGeography /></g></svg>
     <svg ref={svgRef} viewBox="0 0 1000 560" aria-label="Equal Earth traffic map" onWheel={event => { zoom(event.deltaY > 0 ? .9 : 1.1) }}
       onPointerDown={event => { if (event.button !== 0 || (event.target as Element).closest('[data-map-location]')) return; drag.current = { x: event.clientX, y: event.clientY, dx: camera.x, dy: camera.y, panX: camera.x, panY: camera.y, scale: 1000 / Math.max(1, event.currentTarget.getBoundingClientRect().width), moved: false }; event.currentTarget.setPointerCapture(event.pointerId) }}
       onPointerMove={event => {
@@ -67,13 +69,14 @@ export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, location
         // One SVG transform per paint; React commits the camera when the drag ends.
         if (!panFrame.current) panFrame.current = requestAnimationFrame(() => {
           panFrame.current = 0
-          cameraGroup.current?.setAttribute('transform', cameraTransform(gesture.panX, gesture.panY, camera.zoom))
+          const transform = cameraTransform(gesture.panX, gesture.panY, camera.zoom)
+          cameraGroup.current?.setAttribute('transform', transform)
+          baseCameraGroup.current?.setAttribute('transform', transform)
         })
       }}
       onPointerUp={event => { finishPan(); if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId) }} onPointerCancel={finishPan}>
       <defs>{(['received', 'sent'] as const).map(key => <marker key={key} id={`${id}-${key}`} viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto"><path d="M1 1L9 5L1 9" fill="none" stroke={`var(--atlas-${key === 'received' ? 'down' : 'up'})`} strokeWidth="1.5" /></marker>)}</defs>
       <g ref={cameraGroup} transform={cameraTransform(camera.x, camera.y, camera.zoom)}>
-        <WorldGeography />
         {mapped.map(location => {
           const [x, y] = equalEarth(location.position!)
           const country = location.country

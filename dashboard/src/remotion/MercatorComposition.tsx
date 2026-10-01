@@ -1,3 +1,5 @@
+import type { MapProps } from 'react-map-gl/maplibre'
+import { bundledBasemap } from '../map/bundledBasemap'
 import { FlyToInterpolator, WebMercatorViewport } from '@deck.gl/core'
 import type { Color, MapViewState, PickingInfo } from '@deck.gl/core'
 import { ArcLayer, ColumnLayer, PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers'
@@ -5,9 +7,7 @@ import { AnimatedMercator } from './AnimatedMercator'
 import type { MapCompositionProps } from './MapComposition'
 import { mapRenderQuality } from '../map/mapPreferences'
 import { createMapGeometryCache, sameTrafficArcGeometry, sameTrafficPathGeometry } from '../map/mapGeometryCache'
-import { useCallback, useEffect, useMemo, useState } from 'react'
-import MapLibre from 'react-map-gl/maplibre'
-import { AbsoluteFill, useVideoConfig } from 'remotion'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useState } from 'react'
 import type { MapHopPoint, MapPoint, MapPosition } from '../map/mapModel'
 import { projectMapFrame } from '../map/mapModel'
 import { FlowArcLayer } from '../map/FlowArcLayer'
@@ -32,14 +32,16 @@ import { countryFitPositions, countryFootprint } from '../map/countryFootprints'
 import { columnMetersPerPixel, projectDestinationVolumes, directionalColumns } from '../map/destinationVolumes'
 import type { DestinationColumn, DestinationVolume, DirectionalColumn } from '../map/destinationVolumes'
 
+const TiledBasemap = lazy(() => import('../map/TiledBasemap'))
+function FullBasemap(props: MapProps) { return <Suspense fallback={null}><TiledBasemap {...props} /></Suspense> }
+
 const TEAL: Color = [88, 222, 192, 235]
 const GRATICULE: MapPosition[][] = [
   ...Array.from({ length: 13 }, (_, index) => [[-180 + index * 30, -80], [-180 + index * 30, 80]] as MapPosition[]),
   ...Array.from({ length: 5 }, (_, index) => Array.from({ length: 37 }, (_, x) => [-180 + x * 10, -60 + index * 30] as MapPosition)),
 ]
 
-export function MercatorComposition({ cursorMs, preferences, theme, workspace, overview, onWorkspace, onSeekTime, endMs, scene, trackCatalog, fps, playbackEpochMs, mapStyleUrl, unavailable, loading, trafficIndex, trafficLoading, destinationIndex, destinationLoading, destinationError }: MapCompositionProps) {
-  const { width: compositionWidth, height: compositionHeight } = useVideoConfig()
+export function MercatorComposition({ cursorMs, preferences, theme, workspace, overview, onWorkspace, onSeekTime, endMs, scene, trackCatalog, clock, width: compositionWidth, height: compositionHeight, playbackEpochMs, mapStyleUrl, unavailable, loading, trafficIndex, trafficLoading, destinationIndex, destinationLoading, destinationError }: MapCompositionProps) {
   const width = compositionWidth > 760 ? compositionWidth - 290 : compositionWidth
   const height = compositionWidth > 760 ? compositionHeight : Math.max(100, compositionHeight - 260)
   const projectedCursorMs = cursorMs
@@ -148,6 +150,11 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
     return () => window.removeEventListener('keydown', onKey)
   }, [workspace, onWorkspace])
 
+  const animation = useMemo(() => ({ clock, epochMs: playbackEpochMs, anchorMs: trafficAnchorMs }), [clock, playbackEpochMs, trafficAnchorMs])
+
+  const basemap = useMemo(() => quality.light ? bundledBasemap(theme, preferences.labels,
+    new WebMercatorViewport({ ...viewState, width, height })) : [], [quality.light, theme, preferences.labels, viewState, width, height])
+
   const layers = useMemo(() => {
     if (workspace.expanded) return []
     const routeOpacity = (arc: BundledMapArc) => trackOpacity(arc.trackId, selection)
@@ -171,6 +178,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
     }
     const countryOpacity = (code: string) => !selection || countryVolumes.get(code)?.tracks.some(track => track.trackId === selection) ? 1 : 0.12
     return [
+      ...basemap,
       new CountryFootprintLayer({
         id: 'country-footprints', data: countryPolygons, getPolygon: shape => shape.polygon, pickable: true,
         getFillColor: shape => alpha(countryColor(shape.countryCode), (0.16 + Math.min(0.2, Math.log2(1 + (countryVolumes.get(shape.countryCode)?.bytes ?? 0) / 4096) * 0.015)) * countryOpacity(shape.countryCode)),
@@ -187,7 +195,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
         getTargetColor: arc => alpha(neutralColor(), 0.4 * routeOpacity(arc)),
       }),
       new CountryFlowArcLayer<TrafficArc>({
-        ...arcProps, ...volumeProps, id: 'country-traffic', data: countryTraffic, time: 0, motion: reducedMotion ? 0 : 1,
+        ...arcProps, ...volumeProps, id: 'country-traffic', data: countryTraffic, animation, time: 0, motion: reducedMotion ? 0 : 1,
         phase: 0,
         getRadii0: arc => arc.radii.slice(0, 4), getRadii1: arc => arc.radii.slice(4, 8), getRadii2: arc => arc.radii.slice(8, 12),
         getDirection: arc => arc.direction ?? 1,
@@ -221,7 +229,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
         updateTriggers: { getColor: [selection, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
       ...volumeLayers.map(({ focused, data }) => new FlowArcLayer<TrafficArc>({
-        ...arcProps, ...volumeProps, data, id: focused ? 'traffic-streams' : 'muted-traffic-streams', time: 0, motion: reducedMotion ? 0 : 1,
+        ...arcProps, ...volumeProps, data, id: focused ? 'traffic-streams' : 'muted-traffic-streams', animation, time: 0, motion: reducedMotion ? 0 : 1,
         phase: 0,
         getRadii0: (arc) => arc.radii.slice(0, 4), getRadii1: (arc) => arc.radii.slice(4, 8), getRadii2: (arc) => arc.radii.slice(8, 12),
         getProgress: (arc) => [arc.progressStart ?? 0, arc.progressEnd ?? 1],
@@ -232,7 +240,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
       })),
       ...pathVolumeLayers.map(({ focused, data }) => new FlowPathLayer<TrafficPathEdge>({
         id: focused ? 'traceroute-streams' : 'muted-traceroute-streams', data, numSegments: quality.segments,
-        time: 0, motion: reducedMotion ? 0 : 1, phase: 0,
+        animation, time: 0, motion: reducedMotion ? 0 : 1, phase: 0,
         getSourcePosition: edge => edge.sourcePosition, getTargetPosition: edge => edge.targetPosition,
         getPreviousPosition: edge => edge.previousPosition, getNextPosition: edge => edge.nextPosition,
         getProgress: edge => edge.progress,
@@ -275,7 +283,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
       }),
       ...columnLayers.map(({ focused, data }) => new ColumnLayer<DirectionalColumn>({
         id: focused ? 'destination-columns' : 'muted-destination-columns', data, pickable: true,
-        diskResolution: 6, radius: 6, radiusUnits: 'pixels', angle: 30, extruded: true, flatShading: true,
+        diskResolution: quality.light ? 4 : 6, radius: 6, radiusUnits: 'pixels', angle: 30, extruded: true, flatShading: true,
         getPosition: column => [column.destination.position[0] + column.direction * 7 * 360 / (512 * 2 ** viewState.zoom), column.destination.position[1], column.base * columnMetersPerPixel(column.destination.position[1], viewState.zoom)],
         getElevation: column => column.height * columnMetersPerPixel(column.destination.position[1], viewState.zoom),
         getFillColor: column => alpha(flowColor(column.direction), 0.92 * trackOpacity(column.trackId, selection)),
@@ -312,11 +320,12 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
         background: true, getBackgroundColor: [10, 23, 32, 230], backgroundPadding: [7, 4],
         getTextAnchor: 'middle', getAlignmentBaseline: 'center', parameters: { depthCompare: 'always' },
       }),
-    ]
-  }, [quality.segments, trafficProfiles, routes, measuredSpans, unknownSpans, tracedStrips, pathVolumeLayers, origin, reducedMotion, selection, showTraffic, visibleHops, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryRoutes, countryTraffic, cityPoints, direction, theme, workspace.expanded, preferences.labels])
+    ].filter(layer => layer.props.visible !== false && ('image' in layer.props || !Array.isArray(layer.props.data) || layer.props.data.length > 0)
+      && (!quality.light || !['route-glow', 'destination-halos', 'gateway-ring', 'route-hop-order'].includes(layer.id)))
+  }, [basemap, animation, quality.light, quality.segments, trafficProfiles, routes, measuredSpans, unknownSpans, tracedStrips, pathVolumeLayers, origin, reducedMotion, selection, showTraffic, visibleHops, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryRoutes, countryTraffic, cityPoints, direction, theme, workspace.expanded, preferences.labels])
 
   function moveTo(next: Partial<MapViewState>) {
-    setViewState((current) => ({ ...current, ...next, transitionDuration: reducedMotion ? 0 : 700, transitionInterpolator: new FlyToInterpolator() }))
+    setViewState((current) => ({ ...current, ...next, transitionDuration: reducedMotion || quality.light ? 0 : 700, transitionInterpolator: new FlyToInterpolator() }))
   }
 
   function fitNetwork(trackId?: string) {
@@ -345,9 +354,9 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
   }
 
   return (
-    <AbsoluteFill className="atlas-composition" data-map-zoom={viewState.zoom.toFixed(2)} data-map-pitch={viewState.pitch} data-route-mode={showRoutes ? 'traceroute' : 'direct'} data-selected-track={selection || undefined} data-track-count={trackFrame.tracks.length} data-destination-count={destinations.length} data-country-count={countryDestinations.length} data-city-column-count={columns.length} data-destination-bytes={Math.round(destinations.reduce((sum, destination) => sum + directionalBytes(destination, direction), 0))} data-workspace={workspace.expanded ? 'timeline' : 'map'} data-location-filter={workspace.locationId ?? ''}>
+    <div className="atlas-composition" data-map-zoom={viewState.zoom.toFixed(2)} data-map-pitch={viewState.pitch} data-route-mode={showRoutes ? 'traceroute' : 'direct'} data-selected-track={selection || undefined} data-track-count={trackFrame.tracks.length} data-destination-count={destinations.length} data-country-count={countryDestinations.length} data-city-column-count={columns.length} data-destination-bytes={Math.round(destinations.reduce((sum, destination) => sum + directionalBytes(destination, direction), 0))} data-workspace={workspace.expanded ? 'timeline' : 'map'} data-location-filter={workspace.locationId ?? ''}>
       <div className="atlas-map-surface" hidden={workspace.expanded}>
-      <AnimatedMercator fps={fps} playbackEpochMs={playbackEpochMs} trafficAnchorMs={trafficAnchorMs} useDevicePixels={quality.pixelRatio ?? true}
+      <AnimatedMercator clock={clock} active={!workspace.expanded && showTraffic && !reducedMotion && (trafficArcs.length + countryTraffic.length + tracedTraffic.length > 0)} useDevicePixels={quality.pixelRatio ?? true} deviceProps={{ webgl: { antialias: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' } }}
         controller={{ dragRotate: true, touchRotate: true }} viewState={viewState}
         onViewStateChange={({ viewState: next }) => setViewState(next as MapViewState)}
         layers={layers} getTooltip={info => {
@@ -367,9 +376,10 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
           } }}
         getCursor={({ isDragging, isHovering }) => isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'}
       >
-        <MapLibre key={quality.pixelRatio ?? 'device'} pixelRatio={quality.pixelRatio} mapStyle={mapStyleUrl} minZoom={-1} attributionControl={{ compact: true }}
-          onError={() => setMapError(true)} onIdle={() => setMapError(false)} />
+        {!quality.light && <FullBasemap key={quality.pixelRatio ?? 'device'} pixelRatio={quality.pixelRatio} mapStyle={mapStyleUrl} minZoom={-1} attributionControl={{ compact: true }}
+          onError={() => setMapError(true)} onIdle={() => setMapError(false)} />}
       </AnimatedMercator>
+      {quality.light && <a className="atlas-earth-credit" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a>}
       {preferences.labels && <CountryLabels direction={direction} destinations={countryDestinations} viewState={viewState} width={width} height={height} selection={selection} selectedCountry={selectedCountry} colors={trackCatalog.colors} onCountry={id => { setSelectedCountry(id); onWorkspace({ ...workspace, locationId: id }) }} onTrack={selectTrack} />}
       <div className="atlas-vignette" />
 
@@ -385,7 +395,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
 
 
       {scene.endpoints.length === 0 && <div className="atlas-empty"><MapIcon name="globe" size={30} /><h2>{unavailable ? 'Session data unavailable' : loading ? 'Connecting to your session' : 'No mapped destinations yet'}</h2><p>{unavailable ? 'Check the gateway connection and try again.' : loading ? 'Loading the network view…' : 'Geolocated traffic will appear here as it is observed.'}</p></div>}
-      {mapError && <div className="atlas-map-error" role="status">Basemap tiles are unavailable. Traffic is still shown.</div>}
+      {mapError && !quality.light && <div className="atlas-map-error" role="status">Basemap tiles are unavailable. Traffic is still shown.</div>}
 
       <div className="atlas-map-tools" aria-label="Map controls">
         <button type="button" className="atlas-icon-button" onClick={() => moveTo({ zoom: Math.min(16, viewState.zoom + 1) })} aria-label="Zoom in" title="Zoom in"><MapIcon name="plus" /></button>
@@ -399,7 +409,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
       <MapOverview data={overview} state={workspace} onChange={onWorkspace} startMs={scene.startMs} cursorMs={projectedCursorMs} loading={destinationLoading} error={destinationError} selectedTrack={selection} onTrack={selectTrack} activeOnly={activeOnly} onActiveOnly={setActiveOnly} />
       {workspace.expanded && <MapTimeline data={overview} state={workspace} onChange={onWorkspace} index={destinationIndex} startMs={scene.startMs} endMs={endMs} cursorMs={cursorMs} onSeek={onSeekTime} onTrack={selectTrack} loading={destinationLoading} error={destinationError} />}
       {selected && selectedTraffic && <MapTrackInspector key={selected.id} direction={direction} track={selected} catalog={trackCatalog} cursorMs={projectedCursorMs} traffic={selectedTraffic} onClose={() => selectTrack(null)} onFit={() => { fitNetwork(selected.id); if (workspace.expanded) onWorkspace({ ...workspace, expanded: false }) }} />}
-    </AbsoluteFill>
+    </div>
   )
 }
 

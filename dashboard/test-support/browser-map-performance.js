@@ -3,12 +3,14 @@ async (page) => {
   const counters = ['MapPage', 'MapComposition', 'MapOverview', 'EqualEarthMap', 'projectWorkspace', 'wireWaveform', 'projectMapFrame', 'projectTrafficProfiles', 'projectDestinationVolumes', 'buildTrafficPaths', 'indexDestinationVolumes'];
   const bypass = { projectMapFrame: '{points:[],arcs:[],hops:[]}', projectTrafficProfiles: 'new Map()', projectDestinationVolumes: '[]' };
   await page.unrouteAll({ behavior: 'wait' });
-  await page.route('**/assets/MapPage-*.js', async route => {
+  const instrumented = new Set();
+  await page.route('**/assets/*.js', async route => {
     const response = await route.fetch();
     let body = await response.text();
     for (const name of counters) {
       const signature = new RegExp('function ' + name + '\\([^\\n]*\\) \\{');
-      if (!signature.test(body)) throw new Error('Missing instrumentation seam: ' + name);
+      if (!signature.test(body)) continue;
+      instrumented.add(name);
       body = body.replace(signature, match => match + '\n(globalThis.__mapPerfCalls ??= {})[' + JSON.stringify(name) + '] = (globalThis.__mapPerfCalls[' + JSON.stringify(name) + '] ?? 0) + 1;' + (bypass[name] ? '\nif (globalThis.__mapPerfSkipMercator) return ' + bypass[name] + ';' : ''));
     }
     await route.fulfill({ response, body });
@@ -81,9 +83,10 @@ async (page) => {
   await page.locator('#map-projection').selectOption('mercator');
   await page.getByRole('button',{name:'Done',exact:true}).click();
   await page.getByRole('button',{name:'Play session',exact:true}).click();
-  await page.locator('.maplibregl-canvas').waitFor();
+  await page.locator('#deckgl-overlay').waitFor();
   await page.waitForTimeout(2500);
   await sample('mercator-raspberry-pi-playing');
+  for (const name of counters) if (!instrumented.has(name)) throw new Error('Missing instrumentation seam: ' + name);
   const earth = results[0];
   if ((earth.calls.MapOverview ?? 0) > 100) throw new Error('Sidebar is following the animation clock');
   if (earth.calls.projectMapFrame || earth.calls.buildTrafficPaths || earth.calls.projectTrafficProfiles || earth.calls.projectDestinationVolumes) throw new Error('Equal Earth prepared the inactive Mercator projection');

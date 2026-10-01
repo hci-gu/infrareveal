@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { AbsoluteFill } from 'remotion'
 import type { MapCompositionProps } from './MapComposition'
 import { EqualEarthMap } from '../map/EqualEarthMap'
 import type { EqualEarthControls } from '../map/EqualEarthMap'
@@ -13,11 +12,12 @@ import { projectTrafficProfiles, TRAFFIC_BUCKET_MS } from '../map/mapTraffic'
 import { trackTraffic } from '../map/mapTracks'
 
 /** Equal Earth needs locations and totals, never a Mercator scene or tube geometry. */
-export function EqualEarthComposition({ preferences, workspace, overview, onWorkspace, onSeekTime, cursorMs, endMs, scene, trackCatalog, unavailable, loading, trafficIndex, destinationIndex, destinationLoading, destinationError }: MapCompositionProps) {
+export function EqualEarthComposition({ onInspectorChange, preferences, workspace, overview, onWorkspace, onSeekTime, cursorMs, endMs, scene, trackCatalog, unavailable, loading, trafficIndex, destinationIndex, destinationLoading, destinationError }: MapCompositionProps) {
   const controls = useRef<EqualEarthControls>(null)
   const [activeOnly, setActiveOnly] = useState(false)
   const [showTraffic, setShowTraffic] = useState(true)
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  useEffect(() => { onInspectorChange(Boolean(selectedId)); return () => onInspectorChange(false) }, [selectedId, onInspectorChange])
   const selected = overview.tracks.find(track => track.id === selectedId)
   const selectTrack = useCallback((id: string | null) => {
     setSelectedId(id)
@@ -39,7 +39,7 @@ export function EqualEarthComposition({ preferences, workspace, overview, onWork
     return () => window.removeEventListener('keydown', onKey)
   }, [workspace, onWorkspace])
   const quality = destinationLoading ? 'loading' : destinationError ? 'unavailable' : overview.total.estimated ? 'estimated' : overview.total.partial ? 'partial' : 'captured'
-  return <AbsoluteFill className="atlas-composition" data-selected-track={selected?.id} data-track-count={overview.tracks.length} data-destination-count={locations.length} data-workspace={workspace.expanded ? 'timeline' : 'map'} data-location-filter={workspace.locationId ?? ''}>
+  return <div className="atlas-composition" data-selected-track={selected?.id} data-track-count={overview.tracks.length} data-destination-count={locations.length} data-workspace={workspace.expanded ? 'timeline' : 'map'} data-location-filter={workspace.locationId ?? ''}>
     <div className="atlas-map-surface" hidden={workspace.expanded}>
       <EqualEarthMap controlsRef={controls} locations={locations} origin={scene.origin} direction={workspace.direction} selected={workspace.locationId} onSelect={selectLocation} labels={preferences.labels} showTraffic={showTraffic} />
       <div className="atlas-vignette" />
@@ -54,5 +54,5 @@ export function EqualEarthComposition({ preferences, workspace, overview, onWork
       controls.current?.fit([[scene.origin.longitude, scene.origin.latitude], ...locations.filter(location => location.connections.some(connection => connection.id === selected.id)).flatMap(location => location.country ? countryFitPositions(location.country) : location.position ? [location.position] : [])])
       if (workspace.expanded) onWorkspace({ ...workspace, expanded: false })
     }} />}
-  </AbsoluteFill>
+  </div>
 }

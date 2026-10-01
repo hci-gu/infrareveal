@@ -1,10 +1,13 @@
+import { trafficAnimationTime } from './mapPlaybackClock'
+import type { TrafficAnimation } from './mapPlaybackClock'
 import { ArcLayer } from '@deck.gl/layers'
 import { Geometry, Model } from '@luma.gl/engine'
 import type { Accessor, UpdateParameters } from '@deck.gl/core'
 import { trafficFragmentShader, trafficUniforms, trafficHistoryShader } from './FlowArcLayer'
-import { TRAFFIC_TRAVEL_SECONDS, trafficShaderClock } from './mapTraffic'
+import { TRAFFIC_BUCKET_MS, TRAFFIC_TRAVEL_SECONDS, trafficShaderClock } from './mapTraffic'
 
 type Props<T> = {
+  animation?: TrafficAnimation | null
   time: number; phase: number; motion: number
   getRadii0: Accessor<T, number[]>; getRadii1: Accessor<T, number[]>; getRadii2: Accessor<T, number[]>
   getDirection: Accessor<T, number>
@@ -61,8 +64,12 @@ void main() {
   vec3 radial = cos(positions.y) * side + sin(positions.y) * up;
   float progress = mix(instanceProgress.x, instanceProgress.y, t);
   float radius = radiusAt(progress);
+#ifdef LOW_DETAIL
+  vNormal = radial;
+#else
   float slope = (radiusAt(instanceProgress.y) - radiusAt(instanceProgress.x)) / max(0.00001, length(after - before) * project.scale);
   vNormal = normalize(radial - tangent * slope);
+#endif
   vRadius = radius;
   vec3 position = center + side * project_pixel_size(instanceDirection * (radius + 1.0)) + radial * project_pixel_size(radius);
   vEye = project.cameraPosition - position;
@@ -78,7 +85,7 @@ void main() {
 export class FlowPathLayer<T> extends ArcLayer<T, Props<T>> {
   static layerName = 'FlowPathLayer'
   static defaultProps = {
-    ...ArcLayer.defaultProps, numSegments: 160, time: 0, phase: 0, motion: 1,
+    ...ArcLayer.defaultProps, numSegments: 160, time: 0, phase: 0, motion: 1, animation: { type: 'object', value: null, compare: false },
     getRadii0: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii1: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii2: { type: 'accessor', value: [0, 0, 0, 0] },
@@ -101,7 +108,7 @@ export class FlowPathLayer<T> extends ArcLayer<T, Props<T>> {
   }
   getShaders() {
     const shaders = super.getShaders()
-    return { ...shaders, vs, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
+    return { ...shaders, defines: { ...shaders.defines, ...(this.props.numSegments <= 48 ? { LOW_DETAIL: 1 } : {}) }, vs, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
   }
   updateState(params: UpdateParameters<this>) {
     super.updateState(params)
@@ -113,7 +120,7 @@ export class FlowPathLayer<T> extends ArcLayer<T, Props<T>> {
   }
 
   protected _getModel(): Model {
-    const SIDES = this.props.numSegments <= 48 ? 6 : 12
+    const SIDES = this.props.numSegments <= 48 ? 4 : 12
     const positions = new Float32Array(2 * (SIDES + 1) * 2)
     const indices = new Uint16Array(SIDES * 6)
     for (let ring = 0; ring < 2; ring++) {
@@ -130,10 +137,13 @@ export class FlowPathLayer<T> extends ArcLayer<T, Props<T>> {
       geometry: new Geometry({ topology: 'triangle-list', attributes: { positions: { size: 2, value: positions } }, indices }),
     })
   }
+  getAnimationTime() { return trafficAnimationTime(this.props.animation, this.props.time, this.props.phase, TRAFFIC_BUCKET_MS) }
+
   draw() {
     const model = this.state.model
     if (!model) return
-    model.shaderInputs.setProps({ traffic: { clock: trafficShaderClock(this.props.time), phase: this.props.phase, motion: this.props.motion } })
+    const { time, phase } = this.getAnimationTime()
+    model.shaderInputs.setProps({ traffic: { clock: trafficShaderClock(time), phase, motion: this.props.motion } })
     model.draw(this.context.renderPass)
   }
 }

@@ -31,5 +31,5 @@ export function useMapPreferences() {
 
 export function mapRenderQuality(quality: MapPreferences['quality'], cores = typeof navigator === 'undefined' ? 8 : navigator.hardwareConcurrency) {
   const light = quality === 'raspberry-pi' || (quality === 'auto' && cores > 0 && cores <= 4)
-  return { segments: light ? 48 : 160, pixelRatio: light ? 1 : undefined }
+  return { light, segments: light ? 32 : 160, pixelRatio: light ? 1 : undefined, dataIntervalMs: light ? 1000 : 250 }
 }

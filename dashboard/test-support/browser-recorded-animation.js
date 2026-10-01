@@ -1,6 +1,7 @@
 // Vite dashboard on port 5188, standard gateway fixture on 8095.
 async (page) => {
   await page.bringToFront();
+  await page.setViewportSize({width:1280,height:800});
   const api = 'http://127.0.0.1:8095';
   await page.request.post(api + '/__fixture', { data: { count: 4, routes: true } });
   const manifest = await (await page.request.get(api + '/api/infrareveal/sessions/recorded-session/manifest')).json();
@@ -26,7 +27,7 @@ async (page) => {
         if (id === 'traffic-streams' || id === 'traceroute-streams') {
           if (!models.has(id)) models.set(id, new Set());
           models.get(id).add(this.state.model);
-          observations.push({ id, wall: performance.now(), clock: this.props.time, count: this.props.data.length });
+          observations.push({ id, wall: performance.now(), clock: this.getAnimationTime().time, count: this.props.data.length });
         }
         return draw.apply(this, args);
       };

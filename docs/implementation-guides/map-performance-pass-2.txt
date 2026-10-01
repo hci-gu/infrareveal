@@ -1,0 +1,122 @@
+Map dashboard performance pass 2 - 2026-10-01
+
+Objective
+Make the dashboard substantially cheaper to run on a Raspberry Pi 4 (4 GB), in
+both Equal Earth and Mercator, without changing evidence, byte totals or playback
+semantics. Implement and deploy this plan; no approval checkpoint is requested.
+
+Baseline
+The previous improvements are committed as d62a8da. A repeatable 24-flow fixture
+with six geographic locations and country evidence is available. In an eight-
+second local Chromium sample with 6x CPU throttling, Equal Earth spends 535 ms
+in JavaScript; Mercator's existing Pi preset spends 3936 ms. Profiles still show
+video-player React work and substantial WebGL submission and buffer binding.
+These figures are not Pi FPS. The gateway has 3.4 GB available memory, no swap
+use, no thermal throttling and no dashboard browser process. The display Pi was subsequently found at 10.77.0.113 (demo-rpi). Its Broadcom
+V3D GPU acceleration works, and no thermal or voltage throttling was recorded.
+
+Ranked hypotheses, predicted results and implementation
+
+1. Per-frame React/player work is avoidable.
+   Prediction: a monotonic playback clock plus renderer-owned shader time removes
+   React work at animation frequency while preserving pause, seek, rate, recorded
+   end, live following and rolling-retention behavior.
+   Implement a tested clock, pass it directly to the renderer, publish UI time at
+   a bounded rate, and remove the interactive dashboard's Remotion dependency.
+
+2. GPU submission and shader complexity dominate Mercator.
+   Prediction: a single-context Pi basemap, cheaper volume shading, bounded mesh
+   complexity, fewer decorative/empty layers and no invisible traffic instances
+   reduce draw calls and vertex work substantially.
+   Use bundled country geography for the Pi basemap; keep full-detail tiles as
+   the Full detail option. Preserve approximate routes, their unknown spans,
+   directional volume and in-flight bursts. Keep country/city evidence distinct.
+
+3. Live updates cause more derived-data work than the display needs.
+   Prediction: bounded publication and stable unchanged collection references
+   reduce scene/catalog rebuilds during streaming updates without dropping events.
+   Coalesce map data revisions, preserve references where records are unchanged,
+   avoid unnecessary detail loading in Equal Earth, and keep immediate user actions.
+
+4. Equal Earth's paint surface and Pi effects cost more than their visual value.
+   Prediction: separate static geography from the changing overlay and omit blur/
+   large shadows on the Pi preset; traffic changes no longer repaint all geography.
+   Keep drag/zoom transforms synchronized, accessibility and theme switching intact.
+
+5. Hidden and inactive views still consume resources.
+   Prediction: animation stops when hidden, paused or in the expanded timeline;
+   Equal Earth no longer downloads/initializes Mercator's graphics stack.
+   Load projections on demand, stop unnecessary redraws, and resume with correct
+   time instead of accumulating delayed animation frames.
+
+Acceptance and deployment
+- Add failing tests at clock/data seams before their implementation.
+- Repeat local CPU profiles with the same fixture and viewport.
+- Check actual render counts, draw calls, mesh/shader behavior and idle redraws.
+- Exercise live/recorded pause, seek, rate, retention, routes, filters, totals,
+  settings persistence, both themes, interaction and mobile layouts.
+- Run workspace tests/lint and a production build; no debug hooks in production.
+- Back up the current Pi image/source, deploy only the dashboard and necessary
+  shared frontend source, compare served assets and smoke-test live Pi data.
+- Record measured improvements and any remaining display-hardware limitation.
+
+Completed and deployed - 2026-10-01
+All five areas above are implemented. Hardware profiling identified an additional
+cost in repeatedly drawing static Mercator geography. Pi mode now rasterizes that
+geography once and uses one texture; zooming refreshes a padded, detailed region.
+Country labels remain sharp. It retains full canvas resolution and every original
+coastline coordinate. Pi camera buttons move directly to avoid expensive flyovers.
+Animation uses fixed wall-clock slots, preventing cadence drift on slow frames.
+
+Physical display-Pi comparison
+- Raspberry Pi 4 Model B Rev 1.4, 4 GB, Raspberry Pi OS 13, Chromium 152.
+- Broadcom V3D hardware rendering; 1920 x 1138 browser content, device scale 1.
+- Same recorded fixture: 24 flows, six locations/tracks, three routes, including
+  a country-only destination. Ten-second foreground samples; Pi quality selected.
+- The original dashboard was taken out of rendering before the comparison.
+  Diagnostic traffic was intercepted only in the test browser; gateway records
+  were untouched.
+- Final measurement used assets served by the deployed dashboard.
+
+                                    Before        Deployed
+Mercator rendered frames/second        9.0            24.9
+Mercator GL draw calls / 10 s         15240            4921
+Mercator long tasks / 10 s               46              10
+Mercator long-task time (ms)           3050             843
+Equal Earth JavaScript time (ms)       1191             225
+Equal Earth browser RAF / second       59.8            59.2
+
+Mercator rendered about 2.8 times as many frames. Equal Earth used
+81% less JavaScript time. These are controlled samples on the actual display Pi,
+not a guarantee for all traffic volumes or a claim of 60 FPS. Mercator's total
+JavaScript time was 5866 -> 6488 ms while rendering substantially more frames.
+A live before sample independently reproduced 9.1 FPS. Its traffic later expired
+from the rolling window; the empty after sample was excluded from comparisons.
+Lower canvas resolution and omitting labels were also tried in the diagnostic
+browser; their small gains did not justify the visual loss, so neither was shipped.
+
+Verification
+- 232 workspace tests, workspace lint and dashboard TypeScript/build passed.
+- Browser checks passed for pause/seek/rate, rolling retention, recorded clock
+  continuity, route geometry, byte totals, filters, themes, settings and mobile.
+- GPU checks passed for mesh detail, fresh rate buffers, one Pi WebGL canvas,
+  basemap alignment and refreshed detailed geography at higher zoom.
+- Production draw-budget check: 738 draw calls while playing; zero paused and
+  zero while the expanded timeline covers the map. Lazy asset checks passed.
+- Final Pi browser reported no JavaScript errors. Served assets and deployed
+  source were compared byte-for-byte with the validated local files.
+
+Deployment
+Gateway: /home/pi/Documents/infrareveal
+Image: infrareveal-dashboard:performance-pass2-final-20261001
+SHA256: a0c9a4af0e4d8443283a9f39e8f59e3bc301d1c284ed5cab14407883982b5457
+Only the dashboard container was recreated. Gateway Wi-Fi/capture stayed running.
+Backups: /home/pi/infrareveal-map-performance-pass2-20261001
+Previous image: infrareveal-dashboard:before-performance-pass2-20261001
+Source and dependency changes are present locally and on the gateway; no commit
+or push was made. Raw measurements/screenshots are in output/playwright locally.
+
+Cleanup
+The diagnostic browser, SSH forwards, temporary firewall rule and local fixture/
+preview servers were closed. The dashboard was reopened in the display Pi's normal
+Chromium profile using its Wayland desktop. No GPU or boot configuration changed.

@@ -47,9 +47,9 @@ describe('map work independent of the animation clock', () => {
 
   it('chooses lighter rendering on a four-core device while preserving an explicit preference', () => {
     expect(parseMapPreferences(null).quality).toBe('auto')
-    expect(mapRenderQuality('auto', 4)).toEqual({ segments: 48, pixelRatio: 1 })
+    expect(mapRenderQuality('auto', 4)).toMatchObject({ light: true, segments: 32, pixelRatio: 1, dataIntervalMs: 1000 })
     expect(mapRenderQuality('full', 4).segments).toBe(160)
-    expect(mapRenderQuality('raspberry-pi', 16).segments).toBe(48)
+    expect(mapRenderQuality('raspberry-pi', 16).segments).toBe(32)
     expect(mapRenderQuality('auto', 16).segments).toBe(160)
   })
 })
