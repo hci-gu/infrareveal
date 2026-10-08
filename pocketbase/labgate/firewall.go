@@ -30,7 +30,7 @@ func (ExecCommandRunner) Run(ctx context.Context, name string, arguments ...stri
 
 type RuleManager interface {
 	Prepare(context.Context) error
-	SetClients(context.Context, []netip.Addr) error
+	Activate(context.Context, RuleSelection) error
 	ClearClients(context.Context) error
 	Cleanup(context.Context) error
 	Ready() bool
@@ -39,10 +39,6 @@ type RuleSelection struct {
 	Mode    Mode
 	Clients []netip.Addr
 	Strict  *netmeta.FlowTuple
-}
-type ModeRuleManager interface {
-	RuleManager
-	Activate(context.Context, RuleSelection) error
 }
 
 type FirewallConfig struct {
@@ -181,9 +177,6 @@ func (rules *FirewallRules) configureMode(ctx context.Context, selection RuleSel
 	return rules.runner.Run(ctx, "iptables", "-w", "-A", labDNSChain, "-j", "RETURN")
 }
 
-func (rules *FirewallRules) SetClients(ctx context.Context, clients []netip.Addr) error {
-	return rules.Activate(ctx, RuleSelection{Mode: ModeFlow, Clients: clients})
-}
 func (rules *FirewallRules) ClearClients(ctx context.Context) error {
 	return rules.runner.Run(ctx, "ipset", "flush", labClientSet)
 }

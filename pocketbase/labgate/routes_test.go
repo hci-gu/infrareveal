@@ -167,7 +167,7 @@ func newRouteFixture(t *testing.T) *routeFixture {
 	}
 	config := testConfig()
 	queue := NewFakeQueue()
-	controller, err := NewController(context.Background(), config, queue, nil, nil)
+	controller, err := NewController(context.Background(), config, queue, nil, nil, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

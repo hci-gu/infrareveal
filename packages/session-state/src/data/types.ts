@@ -167,7 +167,7 @@ export type RouteAlternative = {
   located_hops: number
   probe_details?: RouteProbeDetails
 }
-export type InterfaceEvidence = {geo?: {lat: number; lon: number; accuracy_km?: number; geo_version?: string}; geo_available_at?: string; geo_source?: string; ptr_source?: string; asn_source?: string; ptr?: string; origin_asn?: number; organization?: string; prefix?: string; source: string; version: string; available_at: string; confidence: string}
+export type InterfaceEvidence = {geo?: {lat: number; lon: number; city?: string; country?: string; accuracy_km?: number; geo_version?: string}; geo_available_at?: string; geo_source?: string; ptr_source?: string; asn_source?: string; ptr?: string; origin_asn?: number; organization?: string; prefix?: string; source: string; version: string; available_at: string; confidence: string}
 export type RouteEvidenceUpdate = {kind: 'confirmed' | 'enriched' | 'network_invalidated'; available_at: string; value: Record<string, unknown>}
 export type Route = {
   schema_version?: number
@@ -268,6 +268,15 @@ export type Session = {
 
 export type TimelineLOD = '50ms' | '500ms' | '1s' | '5s' | 'overview'
 
+export type SessionWindowRequest = {
+  sessionId: string
+  fromMs: number
+  toMs: number
+  lod: TimelineLOD
+  flowIds?: string[]
+  signal?: AbortSignal
+}
+
 export type SessionManifest = {
   sessionId: string
   name: string
@@ -320,3 +329,6 @@ export type GatewayData = {
 }
 
 export type ConnectionState = 'loading' | 'live' | 'polling' | 'offline' | 'error'
+
+/** Compact persisted wire totals; map-specific aggregation stays with its consumer. */
+export type ActivityChunkSummary = Pick<FlowActivityChunk, 'id' | 'session' | 'flow' | 'chunk_start' | 'chunk_ms' | 'wire_bytes_in' | 'wire_bytes_out' | 'capture_complete' | 'dropped_events' | 'updated_at_source' | 'updated'>

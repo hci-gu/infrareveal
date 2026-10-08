@@ -36,6 +36,13 @@ func runPacketCapture(
 	if err := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_RCVBUF, 4*1024*1024); err != nil {
 		return err
 	}
+	// The receive owner must also own Close. Closing a descriptor from another
+	// goroutine can leave its blocking receive alive and later close a reused
+	// descriptor. A short idle timeout makes cancellation joinable without that
+	// race or an extra polling syscall for every captured packet.
+	if err := unix.SetsockoptTimeval(fd, unix.SOL_SOCKET, unix.SO_RCVTIMEO, &unix.Timeval{Usec: 100_000}); err != nil {
+		return err
+	}
 	// BPF trims the skb before recvmsg: MSG_TRUNC only reports the snapped
 	// length. AUXDATA preserves the original length without copying payload.
 	if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_AUXDATA, 1); err != nil {
@@ -48,26 +55,17 @@ func runPacketCapture(
 		return err
 	}
 
-	done := make(chan struct{})
-	go func() {
-		select {
-		case <-ctx.Done():
-			_ = unix.Close(fd)
-		case <-done:
-		}
-	}()
-	defer close(done)
 	onReady()
 
 	buffer := make([]byte, packetCaptureHeaderBytes)
 	control := make([]byte, unix.CmsgSpace(packetAuxdataBytes))
 	for {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
 		n, controlLength, flags, _, err := unix.Recvmsg(fd, buffer, control, unix.MSG_TRUNC)
 		if err != nil {
-			if ctx.Err() != nil || errors.Is(err, unix.EBADF) {
-				return ctx.Err()
-			}
-			if errors.Is(err, unix.EINTR) {
+			if errors.Is(err, unix.EINTR) || errors.Is(err, unix.EAGAIN) {
 				continue
 			}
 			return err

@@ -1,4 +1,4 @@
-import { emptyGatewayData } from './pocketbaseClient'
+import { emptyGatewayData } from './sessionData'
 import { coalescedSelector, stableGatewayData } from './displayUpdates'
 import type { SessionTimelineState } from '../timeline/store/sessionStore'
 import { useCallback, useEffect, useMemo, useState, useId, useSyncExternalStore } from 'react'

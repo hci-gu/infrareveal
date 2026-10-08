@@ -30,10 +30,6 @@ func main() {
 	if err != nil {
 		fail(err)
 	}
-	readyQueue, ok := packetQueue.(labgate.ReadyPacketQueue)
-	if !ok {
-		fail(labgate.ErrUnsupported)
-	}
 	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer cancel()
 	errors := make(chan error, 1)
@@ -52,7 +48,7 @@ func main() {
 		})
 	}()
 	select {
-	case <-readyQueue.Ready():
+	case <-packetQueue.Ready():
 		fmt.Println("READY")
 	case err := <-errors:
 		fail(err)

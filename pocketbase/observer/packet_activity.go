@@ -3,10 +3,12 @@ package observer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -52,7 +54,11 @@ func PacketActivityConfigFromEnv(defaultInterface string) PacketActivityConfig {
 }
 
 type activityPersistRequest struct {
-	snapshot ActivityChunkSnapshot
+	snapshot       ActivityChunkSnapshot
+	status         *ActivityCaptureStatus
+	windowStart    time.Time
+	windowDuration time.Duration
+	windowDrops    int64
 }
 
 type activityPersistAck struct {
@@ -67,100 +73,133 @@ type captureStateEvent struct {
 	err     error
 }
 
-func StartPacketActivityObserver(
-	ctx context.Context,
-	app *pocketbase.PocketBase,
-	scope ObservationScope,
-	sessionID func() string,
-	config PacketActivityConfig,
-	trace debugtrace.Sink,
-) {
-	trace = usableTraceSink(trace)
-	events := make(chan PacketActivityEvent, config.EventQueueSize)
-	persistRequests := make(chan activityPersistRequest, config.PersistenceQueueSize)
-	persistAcks := make(chan activityPersistAck, config.PersistenceQueueSize)
-	captureState := make(chan captureStateEvent, 8)
-	var droppedEvents atomic.Int64
+type packetSource func(context.Context, string, ObservationScope, func(), func(PacketActivityEvent)) error
 
+// Only the aggregation owner touches chunks/generations. One private writer owns
+// every blocking save, including health windows. Bounded queues preserve capture
+// backpressure and Close drains accepted events before joining the writer.
+type packetPipeline struct {
+	config              PacketActivityConfig
+	sessionID           func() string
+	trace               debugtrace.Sink
+	events              chan PacketActivityEvent
+	requests            chan activityPersistRequest
+	acks                chan activityPersistAck
+	states              chan captureStateEvent
+	dropped             atomic.Int64
+	stopCapture         context.CancelFunc
+	aggregateDone, done chan struct{}
+	err                 error
+	closeOnce           sync.Once
+}
+
+func startPacketPipeline(app *pocketbase.PocketBase, scope ObservationScope, sessionID func() string, config PacketActivityConfig, trace debugtrace.Sink, source packetSource) *packetPipeline {
+	if config.EventQueueSize <= 0 {
+		config.EventQueueSize = 8192
+	}
+	if config.PersistenceQueueSize <= 0 {
+		config.PersistenceQueueSize = 256
+	}
+	if config.FlushInterval <= 0 {
+		config.FlushInterval = 400 * time.Millisecond
+	}
+	if config.BucketDuration <= 0 {
+		config.BucketDuration = 50 * time.Millisecond
+	}
+	if config.ChunkDuration <= 0 {
+		config.ChunkDuration = 5 * time.Second
+	}
+	if config.PendingTTL <= 0 {
+		config.PendingTTL = 5 * time.Second
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	p := &packetPipeline{config: config, sessionID: sessionID, trace: usableTraceSink(trace), events: make(chan PacketActivityEvent, config.EventQueueSize), requests: make(chan activityPersistRequest, config.PersistenceQueueSize), acks: make(chan activityPersistAck, config.PersistenceQueueSize), states: make(chan captureStateEvent, 8), stopCapture: cancel, aggregateDone: make(chan struct{}), done: make(chan struct{})}
 	go func() {
+		defer close(p.events)
+		if !config.Enabled || source == nil {
+			<-ctx.Done()
+			return
+		}
 		for {
+			err := source(ctx, config.Interface, scope, func() {
+				select {
+				case p.states <- captureStateEvent{running: true}:
+				default:
+				}
+			}, func(event PacketActivityEvent) {
+				event.SessionID = sessionID()
+				if event.SessionID != "" {
+					enqueuePacketActivity(p.events, event, &p.dropped)
+				}
+			})
+			if ctx.Err() != nil {
+				return
+			}
+			select {
+			case p.states <- captureStateEvent{err: err}:
+			default:
+			}
 			select {
 			case <-ctx.Done():
 				return
-			case request := <-persistRequests:
-				result, err := persistActivityChunk(app, request.snapshot)
-				ack := activityPersistAck{
-					key: request.snapshot.Key, generation: request.snapshot.Generation,
-					result: result, err: err,
-				}
-				select {
-				case persistAcks <- ack:
-				case <-ctx.Done():
-					return
-				}
+			case <-time.After(5 * time.Second):
 			}
 		}
 	}()
-
-	if config.Enabled {
-		go func() {
-			for {
-				err := runPacketCapture(ctx, config.Interface, scope, func() {
-					select {
-					case captureState <- captureStateEvent{running: true}:
-					default:
-					}
-				}, func(event PacketActivityEvent) {
-					event.SessionID = sessionID()
-					if event.SessionID == "" {
-						return
-					}
-					enqueuePacketActivity(events, event, &droppedEvents)
-				})
-				if ctx.Err() != nil {
-					return
+	go func() { p.err = p.aggregate(); close(p.aggregateDone); close(p.requests) }()
+	go func() {
+		defer close(p.done)
+		var healthErr error
+		for request := range p.requests {
+			var err error
+			if request.status != nil {
+				err = upsertActivityCaptureStatus(app, *request.status)
+				if err == nil {
+					err = upsertActivityCaptureWindow(app, request.status.SessionID, request.windowStart, request.windowDuration, request.status.Running, request.windowDrops, request.status.LastError)
 				}
-				select {
-				case captureState <- captureStateEvent{running: false, err: err}:
-				default:
+				if err != nil && healthErr == nil {
+					healthErr = err
 				}
+				if err != nil {
+					log.Printf("packet activity health persistence: %v", err)
+				}
+			} else {
+				result, err := persistActivityChunk(app, request.snapshot)
+				ack := activityPersistAck{key: request.snapshot.Key, generation: request.snapshot.Generation, result: result, err: err}
 				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(5 * time.Second):
+				case p.acks <- ack:
+				case <-p.aggregateDone:
 				}
 			}
-		}()
+		}
+		p.err = errors.Join(p.err, healthErr)
+	}()
+	return p
+}
+func (p *packetPipeline) Close(ctx context.Context) error {
+	p.closeOnce.Do(p.stopCapture)
+	select {
+	case <-p.done:
+		return p.err
+	case <-ctx.Done():
+		return fmt.Errorf("packet activity drain: %w", ctx.Err())
 	}
-
-	go runPacketActivityPipeline(ctx, app, sessionID, config, events, persistRequests, persistAcks, captureState, &droppedEvents, trace)
 }
 
-func runPacketActivityPipeline(
-	ctx context.Context,
-	app *pocketbase.PocketBase,
-	sessionID func() string,
-	config PacketActivityConfig,
-	events <-chan PacketActivityEvent,
-	persistRequests chan<- activityPersistRequest,
-	persistAcks <-chan activityPersistAck,
-	captureState <-chan captureStateEvent,
-	droppedEvents *atomic.Int64,
-	trace debugtrace.Sink,
-) {
+func (p *packetPipeline) aggregate() error {
+	config, sessionID, trace := p.config, p.sessionID, p.trace
+	events, persistRequests, persistAcks, captureState, droppedEvents := p.events, p.requests, p.acks, p.states, &p.dropped
 	aggregator := NewActivityAggregator(config.BucketDuration, config.ChunkDuration, config.MaxPendingChunks)
 	flushTicker := time.NewTicker(config.FlushInterval)
 	statusTicker := time.NewTicker(2 * time.Second)
-	retentionTicker := time.NewTicker(time.Minute)
 	defer flushTicker.Stop()
 	defer statusTicker.Stop()
-	defer retentionTicker.Stop()
 
 	inFlight := make(map[string]uint64)
 	lastDropped := int64(0)
 	// Matching failures have a known flow key and are not capture-queue loss.
 	// Keep them out of the counter that marks every active chunk incomplete.
-	var unmatchedEvents atomic.Int64
+	var unmatchedEvents int64
 	lastEventAt := time.Time{}
 	running := false
 	lastError := ""
@@ -179,9 +218,9 @@ func runPacketActivityPipeline(
 			Summary: debugtrace.Summary{DroppedEvents: traceCount(dropped), CaptureComplete: &captureComplete},
 		})
 	}
-	defer emitHealth(time.Now().UTC(), false, droppedEvents.Load())
+	defer func() { emitHealth(time.Now().UTC(), false, droppedEvents.Load()) }()
 
-	reportStatus := func(now time.Time) {
+	statusRequest := func(now time.Time) activityPersistRequest {
 		activeSessionID := sessionID()
 		currentWindowStart := now.UTC().Truncate(config.ChunkDuration)
 		if activeSessionID != windowSessionID {
@@ -193,31 +232,47 @@ func runPacketActivityPipeline(
 				delete(windowDrops, start)
 			}
 		}
-		if err := upsertActivityCaptureStatus(app, ActivityCaptureStatus{
-			SessionID: activeSessionID, Interface: config.Interface, Enabled: config.Enabled,
-			Running: running, DroppedEvents: droppedEvents.Load(), LastError: lastError,
-			UnmatchedEvents: unmatchedEvents.Load(),
-			LastEventAt:     lastEventAt,
-		}); err != nil {
-			log.Printf("packet activity status error: %v", err)
-		}
-		if err := upsertActivityCaptureWindow(
-			app,
-			activeSessionID,
-			currentWindowStart,
-			config.ChunkDuration,
-			running,
-			windowDrops[currentWindowStart],
-			lastError,
-		); err != nil {
-			log.Printf("packet activity window error: %v", err)
+		request := activityPersistRequest{status: &ActivityCaptureStatus{
+			SessionID: activeSessionID, Interface: config.Interface, Enabled: config.Enabled, Running: running,
+			DroppedEvents: droppedEvents.Load(), LastError: lastError, UnmatchedEvents: unmatchedEvents, LastEventAt: lastEventAt,
+		}, windowStart: currentWindowStart, windowDuration: config.ChunkDuration, windowDrops: windowDrops[currentWindowStart]}
+		return request
+	}
+	reportStatus := func(now time.Time) {
+		select {
+		case persistRequests <- statusRequest(now):
+		default:
 		}
 	}
 
+	accountDrops := func(now time.Time) {
+		currentDropped := droppedEvents.Load()
+		if delta := currentDropped - lastDropped; delta > 0 {
+			aggregator.MarkCaptureDrop(delta, now)
+			windowDrops[now.UTC().Truncate(config.ChunkDuration)] += delta
+			log.Printf("packet activity dropped %d metadata events under backpressure (total %d)", delta, currentDropped)
+			emitHealth(now.UTC(), false, currentDropped)
+			lastDropped = currentDropped
+		}
+	}
+	var draining bool
+	var deadline <-chan time.Time
 	for {
+		if draining {
+			accountDrops(time.Now())
+		}
+		if draining && len(inFlight) == 0 && aggregator.dirtyCount() == 0 {
+			running = false
+			select {
+			case persistRequests <- statusRequest(time.Now()):
+				return nil
+			case <-deadline:
+				return fmt.Errorf("packet activity final health persistence queue did not drain")
+			}
+		}
 		select {
-		case <-ctx.Done():
-			return
+		case <-deadline:
+			return fmt.Errorf("packet activity final drain left %d dirty chunks (%s)", aggregator.dirtyCount(), lastError)
 		case state := <-captureState:
 			running = state.running
 			if state.err != nil {
@@ -229,7 +284,13 @@ func runPacketActivityPipeline(
 			}
 			reportStatus(time.Now())
 			emitHealth(time.Now().UTC(), state.running && state.err == nil, droppedEvents.Load())
-		case event := <-events:
+		case event, ok := <-events:
+			if !ok {
+				events = nil
+				draining = true
+				deadline = time.After(min(8*time.Second, max(3*time.Second, config.PendingTTL+config.FlushInterval)))
+				continue
+			}
 			lastEventAt = event.ObservedAt
 			tracePacketActivity(trace, event)
 			if !aggregator.Add(event) {
@@ -246,22 +307,15 @@ func runPacketActivityPipeline(
 				lastError = ""
 			}
 			if ack.result == activityFlowPending {
-				if expirePendingActivity(aggregator, ack.key, config.PendingTTL, time.Now(), &unmatchedEvents) {
-					log.Printf("packet activity expired unmatched chunk %s after %s without an in-scope conntrack flow (unmatched observations total %d)", ack.key, config.PendingTTL, unmatchedEvents.Load())
+				if expirePendingActivityCount(aggregator, ack.key, config.PendingTTL, time.Now(), &unmatchedEvents) {
+					log.Printf("packet activity expired unmatched chunk %s after %s without an in-scope conntrack flow (unmatched observations total %d)", ack.key, config.PendingTTL, unmatchedEvents)
 				}
 				continue
 			}
 			aggregator.MarkPersisted(ack.key, ack.generation, time.Now())
 		case now := <-flushTicker.C:
 			aggregator.PrunePersisted(now)
-			currentDropped := droppedEvents.Load()
-			if delta := currentDropped - lastDropped; delta > 0 {
-				aggregator.MarkCaptureDrop(delta, now)
-				windowDrops[now.UTC().Truncate(config.ChunkDuration)] += delta
-				log.Printf("packet activity dropped %d metadata events under backpressure (total %d)", delta, currentDropped)
-				emitHealth(now.UTC(), false, currentDropped)
-				lastDropped = currentDropped
-			}
+			accountDrops(now)
 			queueFull := false
 			for _, snapshot := range aggregator.DirtySnapshots() {
 				if _, busy := inFlight[snapshot.Key]; busy {
@@ -280,13 +334,6 @@ func runPacketActivityPipeline(
 			}
 		case now := <-statusTicker.C:
 			reportStatus(now)
-		case <-retentionTicker.C:
-			deleted, err := pruneExpiredActivityChunks(app, time.Now().Add(-config.Retention), 500)
-			if err != nil {
-				log.Printf("packet activity retention error: %v", err)
-			} else if deleted > 0 {
-				log.Printf("packet activity retention removed %d expired chunks", deleted)
-			}
 		}
 	}
 }
@@ -309,15 +356,10 @@ func enqueuePacketActivity(events chan<- PacketActivityEvent, event PacketActivi
 	}
 }
 
-func expirePendingActivity(aggregator *ActivityAggregator, key string, ttl time.Duration, now time.Time, unmatched *atomic.Int64) bool {
-	for _, snapshot := range aggregator.DirtySnapshots() {
-		if snapshot.Key == key && now.Sub(snapshot.FirstObservedAt) > ttl {
-			unmatched.Add(snapshot.PacketsIn + snapshot.PacketsOut)
-			aggregator.Drop(snapshot.Key)
-			return true
-		}
-	}
-	return false
+func expirePendingActivityCount(aggregator *ActivityAggregator, key string, ttl time.Duration, now time.Time, unmatched *int64) bool {
+	count, expired := aggregator.ExpirePending(key, ttl, now)
+	*unmatched += count
+	return expired
 }
 
 func envBool(name string, fallback bool) bool {

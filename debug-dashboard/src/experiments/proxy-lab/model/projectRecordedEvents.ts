@@ -10,6 +10,7 @@ import type {
 } from '@infrareveal/session-state'
 import { decodeActivityChunk } from '../../../shared/activity/decodeActivityChunk'
 import type { PipelineDirection, PipelineEvent, PipelineEventSummary } from '../types'
+import { gateEventID } from './gateEventIdentity'
 
 export type RecordedEventRange = { fromMs: number; toMs: number }
 
@@ -218,12 +219,12 @@ function projectGateEvent(gate: GateEvent): PipelineEvent[] {
     payloadBytes: gate.payload_bytes, tcpFlags: gate.tcp_flags,
   }
   const events = [recordedEvent({
-    id: `${traceId}:queued`, sessionId: gate.session, traceId, kind: 'gate', stage: 'gate_queue',
+    id: gateEventID(gate.decision_id, 'queued'), sessionId: gate.session, traceId, kind: 'gate', stage: 'gate_queue',
     direction: gate.direction ?? 'client_to_remote', occurredAtMs: queuedAtMs, timing: 'observed', summary,
   })]
   if (gate.state !== 'queued') {
     events.push(recordedEvent({
-      id: `${traceId}:verdict`, sessionId: gate.session, traceId, parentId: `${traceId}:queued`,
+      id: gateEventID(gate.decision_id, 'verdict'), sessionId: gate.session, traceId, parentId: gateEventID(gate.decision_id, 'queued'),
       kind: 'gate', stage: gate.state === 'rejected' ? 'gate_queue' : 'forward',
       direction: gate.direction ?? 'client_to_remote', occurredAtMs: timestamp(gate.decided_at) ?? queuedAtMs + Math.max(0, gate.wait_ms),
       timing: 'observed', summary: { ...summary, verdict: gate.state, verdictSource: gate.verdict_source },

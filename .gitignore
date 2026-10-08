@@ -11,6 +11,7 @@ node_modules/
 *.tsbuildinfo
 .playwright-cli/
 output/playwright/
+output/pocketbase-restructuring/
 
 # Deployment configuration and persistent state
 .env

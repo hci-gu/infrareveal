@@ -49,8 +49,6 @@ type controllerResponse struct {
 
 type cachedVerdict struct {
 	Verdict   Verdict
-	State     DecisionState
-	Source    VerdictSource
 	ExpiresAt time.Time
 }
 
@@ -72,7 +70,13 @@ type Controller struct {
 	arrivals        chan QueuedPacket
 	queueInfo       chan error
 	done            chan struct{}
+	queueDone       chan struct{}
+	closeDone       chan struct{}
 	closeOnce       sync.Once
+	closeErr        error
+	shutdownErr     error
+	intakeMu        sync.RWMutex
+	stopping        bool
 	idCounter       atomic.Uint64
 	ingressBypasses atomic.Uint64
 	activeGate      atomic.Pointer[activeGateIdentity]
@@ -102,11 +106,7 @@ type controllerState struct {
 	strictTerminated bool
 }
 
-func NewController(parent context.Context, config Config, queue PacketQueue, trace debugtrace.Sink, audit AuditSink) (*Controller, error) {
-	return NewControllerWithRules(parent, config, queue, nil, trace, audit)
-}
-
-func NewControllerWithRules(parent context.Context, config Config, queue PacketQueue, rules RuleManager, trace debugtrace.Sink, audit AuditSink) (*Controller, error) {
+func NewController(parent context.Context, config Config, queue PacketQueue, rules RuleManager, trace debugtrace.Sink, audit AuditSink) (*Controller, error) {
 	config = config.withDefaults()
 	if err := config.Validate(); err != nil {
 		return nil, err
@@ -121,44 +121,62 @@ func NewControllerWithRules(parent context.Context, config Config, queue PacketQ
 	controller := &Controller{
 		config: config, queue: queue, rules: rules, trace: trace, audit: audit, ctx: ctx, cancel: cancel,
 		commands: make(chan controllerCommand), arrivals: make(chan QueuedPacket, config.MaxHeldPackets),
-		queueInfo: make(chan error, 2), done: make(chan struct{}),
+		queueInfo: make(chan error, 2), done: make(chan struct{}), queueDone: make(chan struct{}), closeDone: make(chan struct{}),
 	}
 	go controller.run()
 	if config.Enabled && queue != nil {
-		go func() {
-			started := make(chan error, 1)
-			go func() { started <- queue.Start(ctx, controller.ingest) }()
-			if readyQueue, ok := queue.(ReadyPacketQueue); ok {
-				select {
-				case <-readyQueue.Ready():
-					controller.queueInfo <- nil
-				case err := <-started:
-					if ctx.Err() == nil {
-						controller.queueInfo <- err
-					}
-					return
-				case <-ctx.Done():
-					return
-				}
-			} else {
-				controller.queueInfo <- nil
-			}
-			err := <-started
-			if ctx.Err() == nil {
-				controller.queueInfo <- err
-			}
-		}()
+		go controller.runQueue()
+	} else {
+		close(controller.queueDone)
 	}
 	return controller, nil
+}
+
+func (controller *Controller) runQueue() {
+	defer close(controller.queueDone)
+	started := make(chan error, 1)
+	go func() { started <- controller.queue.Start(controller.ctx, controller.ingest) }()
+	report := func(err error) {
+		select {
+		case controller.queueInfo <- err:
+		case <-controller.ctx.Done():
+		}
+	}
+	var err error
+	select {
+	case <-controller.queue.Ready():
+		report(nil)
+		err = <-started
+	case err = <-started:
+	case <-controller.ctx.Done():
+		// Close also closes the adapter before joining this worker.
+		<-started
+		return
+	}
+	if controller.ctx.Err() == nil {
+		if err == nil {
+			err = fmt.Errorf("packet queue stopped: %w", ErrUnavailable)
+		}
+		report(err)
+	}
 }
 
 func (controller *Controller) ingest(packet QueuedPacket) {
 	if packet.OccurredAt.IsZero() {
 		packet.OccurredAt = time.Now()
 	}
+	controller.intakeMu.RLock()
+	if controller.stopping || controller.ctx.Err() != nil {
+		controller.intakeMu.RUnlock()
+		err := controller.queue.SetVerdict(packet.ID, VerdictAccept)
+		controller.emitBypass(packet, SourceShutdown, "gate is stopping", err)
+		return
+	}
 	select {
 	case controller.arrivals <- packet:
+		controller.intakeMu.RUnlock()
 	default:
+		controller.intakeMu.RUnlock()
 		// The user-space queue is full. Fail open immediately; recording is
 		// best-effort and cannot precede the kernel verdict.
 		err := controller.queue.SetVerdict(packet.ID, VerdictAccept)
@@ -218,23 +236,30 @@ func (controller *Controller) AcceptNext(ctx context.Context, count int, actor s
 }
 
 func (controller *Controller) Close(ctx context.Context) error {
-	var closeErr error
 	controller.closeOnce.Do(func() {
-		result := controller.request(ctx, controllerCommand{kind: commandShutdown})
-		closeErr = result.err
-		controller.cancel()
-		if controller.queue != nil {
-			if err := controller.queue.Close(); closeErr == nil {
-				closeErr = err
-			}
-		}
-		select {
-		case <-controller.done:
-		case <-ctx.Done():
-			closeErr = errors.Join(closeErr, ctx.Err())
-		}
+		controller.stopIntake()
+		go controller.close()
 	})
-	return closeErr
+	select {
+	case <-controller.closeDone:
+		return controller.closeErr
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (controller *Controller) close() {
+	defer close(controller.closeDone)
+	// A caller timeout only limits its wait. Keep the adapter and audit sink
+	// available until the actor has drained its accepted packets and rules.
+	controller.request(context.Background(), controllerCommand{kind: commandShutdown})
+	controller.cancel()
+	<-controller.done
+	controller.closeErr = controller.shutdownErr
+	if controller.queue != nil {
+		controller.closeErr = errors.Join(controller.closeErr, controller.queue.Close())
+	}
+	<-controller.queueDone
 }
 
 func (controller *Controller) request(ctx context.Context, command controllerCommand) controllerResponse {
@@ -281,6 +306,7 @@ func (controller *Controller) run() {
 			if queueErr == nil {
 				state.listener = true
 			} else {
+				state.listener = false
 				controller.degrade(&state, queueErr)
 			}
 		case now := <-watchdogs.C:
@@ -292,7 +318,7 @@ func (controller *Controller) run() {
 				return
 			}
 		case <-controller.ctx.Done():
-			controller.releaseAll(&state, DecisionDrained, SourceShutdown, "controller context closed")
+			controller.shutdownErr = controller.shutdown(&state)
 			return
 		}
 	}
@@ -373,24 +399,37 @@ func (controller *Controller) handleCommand(state *controllerState, command cont
 		}
 		return controllerResponse{status: controller.status(state)}, false
 	case commandShutdown:
-		state.state = StateDraining
-		controller.drainArrivals(state)
-		controller.releaseAll(state, DecisionDrained, SourceShutdown, "shutdown")
-		if err := controller.clearRuleClients(); err != nil {
-			state.lastError = err.Error()
-		}
-		if controller.rules != nil {
-			cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-			if err := controller.rules.Cleanup(cleanupCtx); err != nil {
-				state.lastError = err.Error()
-			}
-			cancel()
-		}
-		controller.clearArmState(state)
-		return controllerResponse{status: controller.status(state)}, true
+		controller.shutdownErr = controller.shutdown(state)
+		return controllerResponse{status: controller.status(state), err: controller.shutdownErr}, true
 	default:
 		return controllerResponse{err: ErrInvalidTransition}, false
 	}
+}
+
+func (controller *Controller) shutdown(state *controllerState) error {
+	controller.stopIntake()
+	state.state = StateDraining
+	controller.drainArrivals(state)
+	controller.releaseAll(state, DecisionDrained, SourceShutdown, "shutdown")
+	err := controller.clearRuleClients()
+	if controller.rules != nil {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		err = errors.Join(err, controller.rules.Cleanup(cleanupCtx))
+		cancel()
+	}
+	if err != nil {
+		state.lastError = err.Error()
+	}
+	controller.clearArmState(state)
+	return err
+}
+
+func (controller *Controller) stopIntake() {
+	// Once this returns, earlier callbacks have either queued their packet or
+	// accepted it. Later callbacks accept directly instead of racing the drain.
+	controller.intakeMu.Lock()
+	controller.stopping = true
+	controller.intakeMu.Unlock()
 }
 
 func (controller *Controller) drainArrivals(state *controllerState) {
@@ -448,12 +487,7 @@ func (controller *Controller) arm(state *controllerState, request ArmRequest) er
 		}
 		sort.Slice(selected, func(i, j int) bool { return selected[i].Less(selected[j]) })
 		ruleCtx, cancel := context.WithTimeout(controller.ctx, 2*time.Second)
-		var err error
-		if modeRules, ok := controller.rules.(ModeRuleManager); ok {
-			err = modeRules.Activate(ruleCtx, RuleSelection{Mode: request.Mode, Clients: selected, Strict: request.Strict})
-		} else {
-			err = controller.rules.SetClients(ruleCtx, selected)
-		}
+		err := controller.rules.Activate(ruleCtx, RuleSelection{Mode: request.Mode, Clients: selected, Strict: request.Strict})
 		cancel()
 		if err != nil {
 			cleanupErr := controller.clearRuleClients()
@@ -548,27 +582,7 @@ func (controller *Controller) handlePacket(state *controllerState, packet Queued
 		controller.acceptBypass(state, packet, SourceOverflow, "gate capacity reached")
 		return
 	}
-	queuedAt := packet.OccurredAt
-	decisionID := fmt.Sprintf("gate-%d-%d", queuedAt.UnixMilli(), controller.idCounter.Add(1))
-	decision := &Decision{
-		ID: decisionID, SessionID: state.sessionID, FlowKey: flowKey, Tuple: packet.Tuple,
-		ClientIP: packet.Tuple.ClientIP.String(), ClientPort: packet.Tuple.ClientPort,
-		RemoteIP: packet.Tuple.RemoteIP.String(), RemotePort: packet.Tuple.RemotePort,
-		Protocol: packet.Tuple.Protocol, Mode: state.mode, Direction: packet.Direction, WireBytes: packet.WireBytes, PayloadBytes: packet.PayloadBytes, PacketCount: 1, TCPFlags: packet.TCPFlags,
-		QueuedAt: queuedAt, Deadline: queuedAt.Add(controller.decisionTimeout(state.mode)), State: DecisionQueued,
-		packetIDs: []uint32{packet.ID},
-	}
-	state.pendingByDecisionID[decisionID] = decision
-	state.decisionByFlowKey[flowKey] = decisionID
-	state.packetToDecision[packet.ID] = decisionID
-	if !controller.audit.TryQueued(decision.clone()) {
-		state.lastError = "gate audit queue full"
-	}
-	controller.emitDecision(*decision, "waiting")
-	if state.strictAutoAccept > 0 {
-		state.strictAutoAccept--
-		controller.applyTerminal(state, decision, DecisionApproved, VerdictAccept, SourceOperator, "operator", "strict accept-next", time.Now())
-	}
+	controller.queueDecision(state, packet)
 }
 
 func (controller *Controller) handleStrictPacket(state *controllerState, packet QueuedPacket) {
@@ -580,33 +594,48 @@ func (controller *Controller) handleStrictPacket(state *controllerState, packet 
 		controller.acceptBypass(state, packet, SourceOverflow, "strict packet capacity reached")
 		return
 	}
+	controller.queueDecision(state, packet)
+}
+
+func (controller *Controller) queueDecision(state *controllerState, packet QueuedPacket) {
 	queuedAt := packet.OccurredAt
-	decisionID := fmt.Sprintf("strict-%d-%d", queuedAt.UnixMilli(), controller.idCounter.Add(1))
+	prefix := "gate"
+	if state.mode == ModeStrict {
+		prefix = "strict"
+	}
+	decisionID := fmt.Sprintf("%s-%d-%d", prefix, queuedAt.UnixMilli(), controller.idCounter.Add(1))
 	decision := &Decision{
 		ID: decisionID, SessionID: state.sessionID, FlowKey: packet.Tuple.Key(), Tuple: packet.Tuple,
 		ClientIP: packet.Tuple.ClientIP.String(), ClientPort: packet.Tuple.ClientPort,
 		RemoteIP: packet.Tuple.RemoteIP.String(), RemotePort: packet.Tuple.RemotePort,
 		Protocol: packet.Tuple.Protocol, Mode: state.mode, Direction: packet.Direction, WireBytes: packet.WireBytes, PayloadBytes: packet.PayloadBytes, PacketCount: 1, TCPFlags: packet.TCPFlags,
-		QueuedAt: queuedAt, Deadline: queuedAt.Add(controller.config.EstablishedTimeout), State: DecisionQueued,
+		QueuedAt: queuedAt, Deadline: queuedAt.Add(controller.decisionTimeout(state.mode)), State: DecisionQueued,
 		packetIDs: []uint32{packet.ID},
 	}
 	state.pendingByDecisionID[decisionID] = decision
+	if state.mode != ModeStrict {
+		state.decisionByFlowKey[decision.FlowKey] = decisionID
+	}
 	state.packetToDecision[packet.ID] = decisionID
 	if !controller.audit.TryQueued(decision.clone()) {
 		state.lastError = "gate audit queue full"
 	}
-	controller.emitDecision(*decision, "waiting")
-	if state.strictAutoAccept > 0 {
+	controller.emitDecision(*decision, "queued")
+	if state.mode == ModeStrict && state.strictAutoAccept > 0 {
 		state.strictAutoAccept--
 		controller.applyTerminal(state, decision, DecisionApproved, VerdictAccept, SourceOperator, "operator", "strict accept-next", time.Now())
 	}
 }
 
 func (controller *Controller) decisionTimeout(mode Mode) time.Duration {
-	if mode == ModeDNS {
+	switch mode {
+	case ModeStrict:
+		return controller.config.EstablishedTimeout
+	case ModeDNS:
 		return controller.config.DNSTimeout
+	default:
+		return controller.config.FlowTimeout
 	}
-	return controller.config.FlowTimeout
 }
 
 func (controller *Controller) decide(state *controllerState, command DecisionCommand) (DecisionResult, error) {
@@ -630,7 +659,7 @@ func (controller *Controller) decide(state *controllerState, command DecisionCom
 
 func (controller *Controller) expire(state *controllerState, now time.Time) {
 	for _, decision := range pendingSnapshotPointers(state) {
-		if !now.Before(decision.Deadline) {
+		if decision.State == DecisionQueued && !now.Before(decision.Deadline) {
 			controller.applyTerminal(state, decision, DecisionExpired, VerdictAccept, SourceWatchdog, "", "safety timeout", now)
 			state.watchdogReleases++
 		}
@@ -649,29 +678,19 @@ func (controller *Controller) releaseAll(state *controllerState, terminalState D
 }
 
 func (controller *Controller) applyTerminal(state *controllerState, decision *Decision, terminalState DecisionState, verdict Verdict, source VerdictSource, actor, reason string, decidedAt time.Time) Decision {
-	var verdictErr error
-	for _, packetID := range append([]uint32(nil), decision.packetIDs...) {
-		if err := controller.queue.SetVerdict(packetID, verdict); err != nil {
-			verdictErr = errors.Join(verdictErr, err)
-		}
-		delete(state.packetToDecision, packetID)
+	// A failed verdict can drain the remaining decisions during an outer
+	// watchdog/drain pass. Do not apply a second terminal transition to them.
+	if _, pending := state.pendingByDecisionID[decision.ID]; !pending {
+		return *decision
 	}
-	delete(state.pendingByDecisionID, decision.ID)
-	delete(state.decisionByFlowKey, decision.FlowKey)
-	decision.State, decision.Verdict, decision.Source = terminalState, verdict, source
-	decision.Actor, decision.Reason, decision.DecidedAt = actor, reason, decidedAt
-	decision.WaitMS = max(0, decidedAt.Sub(decision.QueuedAt).Milliseconds())
+	_, verdictErr := controller.applyPacketVerdicts(state, decision, verdict)
 	// Flow admission caches a verdict for the lifetime of the admitted flow.
 	// DNS is datagram/query-oriented and strict mode is packet-oriented, so a
 	// terminal decision must not silently approve the next item on that tuple.
 	if decision.Mode == ModeFlow {
-		state.decisionCache[decision.FlowKey] = cachedVerdict{Verdict: verdict, State: terminalState, Source: source, ExpiresAt: decidedAt.Add(controller.config.DecisionCache)}
+		state.decisionCache[decision.FlowKey] = cachedVerdict{Verdict: verdict, ExpiresAt: decidedAt.Add(controller.config.DecisionCache)}
 	}
-	controller.rememberTerminal(state, *decision)
-	controller.emitDecision(*decision, "verdict")
-	if !controller.audit.TryTerminal(decision.clone()) {
-		state.lastError = "gate audit queue full"
-	}
+	controller.recordTerminal(state, decision, terminalState, verdict, source, actor, reason, decidedAt)
 	if verdictErr != nil {
 		controller.degrade(state, verdictErr)
 	}
@@ -691,6 +710,33 @@ func (controller *Controller) applyTerminal(state *controllerState, decision *De
 	return *decision
 }
 
+// Kernel verdicts always precede terminal persistence and trace work.
+func (controller *Controller) applyPacketVerdicts(state *controllerState, decision *Decision, verdict Verdict) (int, error) {
+	var result error
+	errorsCount := 0
+	for _, packetID := range decision.packetIDs {
+		if err := controller.queue.SetVerdict(packetID, verdict); err != nil {
+			result = errors.Join(result, err)
+			errorsCount++
+		}
+		delete(state.packetToDecision, packetID)
+	}
+	return errorsCount, result
+}
+
+func (controller *Controller) recordTerminal(state *controllerState, decision *Decision, terminalState DecisionState, verdict Verdict, source VerdictSource, actor, reason string, decidedAt time.Time) {
+	delete(state.pendingByDecisionID, decision.ID)
+	delete(state.decisionByFlowKey, decision.FlowKey)
+	decision.State, decision.Verdict, decision.Source = terminalState, verdict, source
+	decision.Actor, decision.Reason, decision.DecidedAt = actor, reason, decidedAt
+	decision.WaitMS = max(0, decidedAt.Sub(decision.QueuedAt).Milliseconds())
+	controller.rememberTerminal(state, *decision)
+	controller.emitDecision(*decision, "verdict")
+	if !controller.audit.TryTerminal(decision.clone()) {
+		state.lastError = "gate audit queue full"
+	}
+}
+
 func (controller *Controller) rememberTerminal(state *controllerState, decision Decision) {
 	state.terminalByID[decision.ID] = decision.clone()
 	state.terminalOrder = append(state.terminalOrder, decision.ID)
@@ -705,8 +751,7 @@ func (controller *Controller) acceptBypass(state *controllerState, packet Queued
 	if source == SourceOverflow {
 		state.overflowBypasses++
 	}
-	controller.emitBypassForSession(state.sessionID, packet, source, reason, err)
-	if !controller.auditBypass(state.sessionID, state.mode, packet, source, reason, err) {
+	if !controller.recordBypass(state.sessionID, state.mode, packet, source, reason, err) {
 		state.lastError = "gate audit queue full"
 	}
 	if err != nil {
@@ -717,19 +762,19 @@ func (controller *Controller) acceptBypass(state *controllerState, packet Queued
 func (controller *Controller) emitBypass(packet QueuedPacket, source VerdictSource, reason string, verdictErr error) {
 	identity := controller.activeGate.Load()
 	if identity == nil {
-		controller.emitBypassForSession("", packet, source, reason, verdictErr)
+		controller.recordBypass("", "", packet, source, reason, verdictErr)
 		return
 	}
 	mode := packet.QueueMode
 	if mode == "" {
 		mode = identity.mode
 	}
-	controller.emitBypassForSession(identity.sessionID, packet, source, reason, verdictErr)
-	controller.auditBypass(identity.sessionID, mode, packet, source, reason, verdictErr)
+	controller.recordBypass(identity.sessionID, mode, packet, source, reason, verdictErr)
 }
 
-func (controller *Controller) auditBypass(sessionID string, mode Mode, packet QueuedPacket, source VerdictSource, reason string, verdictErr error) bool {
+func (controller *Controller) recordBypass(sessionID string, mode Mode, packet QueuedPacket, source VerdictSource, reason string, verdictErr error) bool {
 	if sessionID == "" || source != SourceOverflow {
+		controller.emitBypassForSession(sessionID, packet, source, verdictErr, "")
 		return true
 	}
 	decidedAt := time.Now()
@@ -747,6 +792,7 @@ func (controller *Controller) auditBypass(sessionID string, mode Mode, packet Qu
 		Verdict: VerdictAccept, Source: source, Reason: truncateAuditReason(reason), DecidedAt: decidedAt,
 		WaitMS: max(0, decidedAt.Sub(packet.OccurredAt).Milliseconds()),
 	}
+	controller.emitBypassForSession(sessionID, packet, source, verdictErr, decision.ID)
 	return controller.audit.TryTerminal(decision)
 }
 
@@ -758,15 +804,19 @@ func truncateAuditReason(reason string) string {
 	return reason[:maxAuditReasonLength]
 }
 
-func (controller *Controller) emitBypassForSession(sessionID string, packet QueuedPacket, source VerdictSource, reason string, verdictErr error) {
+func (controller *Controller) emitBypassForSession(sessionID string, packet QueuedPacket, source VerdictSource, verdictErr error, decisionID string) {
 	clientPort, remotePort := packet.Tuple.ClientPort, packet.Tuple.RemotePort
 	wireBytes, payloadBytes, packetCount := uint64(packet.WireBytes), uint64(packet.PayloadBytes), uint64(1)
 	verdict := string(VerdictAccept)
 	if verdictErr != nil {
 		verdict = "error"
 	}
+	id, parentID := fmt.Sprintf("gate-bypass:%d:%d", packet.ID, packet.OccurredAt.UnixMilli()), ""
+	if decisionID != "" {
+		id, parentID = fmt.Sprintf("gate:%s:verdict", decisionID), fmt.Sprintf("gate:%s:queued", decisionID)
+	}
 	controller.trace.TryEmit(debugtrace.Event{
-		ID:        fmt.Sprintf("gate-bypass:%d:%d", packet.ID, packet.OccurredAt.UnixMilli()),
+		ID: id, ParentID: parentID,
 		SessionID: fallbackSession(sessionID), TraceID: fallbackTraceID(packet.Tuple.Key()), Kind: debugtrace.KindGate,
 		Stage: debugtrace.StageGateQueue, Direction: traceDirection(packet.Direction),
 		OccurredAtMs: packet.OccurredAt.UnixMilli(), Timing: debugtrace.TimingObserved,
@@ -774,14 +824,17 @@ func (controller *Controller) emitBypassForSession(sessionID string, packet Queu
 			RemoteIP: packet.Tuple.RemoteIP.String(), RemotePort: &remotePort, FlowKey: packet.Tuple.Key(), WireBytes: &wireBytes,
 			PayloadBytes: &payloadBytes, PacketCount: &packetCount, TCPFlags: &packet.TCPFlags, Verdict: verdict, VerdictSource: string(source)},
 	})
-	_ = reason // reserved for durable audit; trace summaries stay allowlisted.
 }
 
 func (controller *Controller) emitDecision(decision Decision, phase string) {
 	clientPort, remotePort := decision.ClientPort, decision.RemotePort
 	packetCount := uint64(decision.PacketCount)
+	parentID := ""
+	if phase == "verdict" {
+		parentID = fmt.Sprintf("gate:%s:queued", decision.ID)
+	}
 	controller.trace.TryEmit(debugtrace.Event{
-		ID: fmt.Sprintf("gate-%s:%s", phase, decision.ID), SessionID: decision.SessionID,
+		ID: fmt.Sprintf("gate:%s:%s", decision.ID, phase), ParentID: parentID, SessionID: decision.SessionID,
 		TraceID: decision.FlowKey, Kind: debugtrace.KindGate, Stage: debugtrace.StageGateQueue,
 		Direction: traceDirection(decision.Direction), OccurredAtMs: eventTime(decision, phase).UnixMilli(), Timing: debugtrace.TimingObserved,
 		Summary: debugtrace.Summary{Protocol: decision.Protocol, ClientIP: decision.ClientIP, ClientPort: &clientPort,
@@ -826,21 +879,9 @@ func (controller *Controller) degrade(state *controllerState, err error) {
 }
 
 func (controller *Controller) applyTerminalNoDegrade(state *controllerState, decision *Decision, terminalState DecisionState, source VerdictSource, reason string, decidedAt time.Time) {
-	for _, packetID := range append([]uint32(nil), decision.packetIDs...) {
-		if err := controller.queue.SetVerdict(packetID, VerdictAccept); err != nil {
-			state.verdictErrors++
-		}
-		delete(state.packetToDecision, packetID)
-	}
-	delete(state.pendingByDecisionID, decision.ID)
-	delete(state.decisionByFlowKey, decision.FlowKey)
-	decision.State, decision.Verdict, decision.Source, decision.Reason = terminalState, VerdictAccept, source, reason
-	decision.DecidedAt, decision.WaitMS = decidedAt, max(0, decidedAt.Sub(decision.QueuedAt).Milliseconds())
-	controller.rememberTerminal(state, *decision)
-	controller.emitDecision(*decision, "verdict")
-	if !controller.audit.TryTerminal(decision.clone()) {
-		state.lastError = "gate audit queue full"
-	}
+	errorsCount, _ := controller.applyPacketVerdicts(state, decision, VerdictAccept)
+	state.verdictErrors += uint64(errorsCount)
+	controller.recordTerminal(state, decision, terminalState, VerdictAccept, source, "", reason, decidedAt)
 }
 
 func (controller *Controller) status(state *controllerState) Status {

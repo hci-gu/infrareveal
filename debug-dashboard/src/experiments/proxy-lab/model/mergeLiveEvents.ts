@@ -1,5 +1,6 @@
 import type { PipelineEvent, PipelineStreamMessage } from '../types'
 import { comparePipelineEvents } from './projectRecordedEvents'
+import { normalizeGateEvent } from './gateEventIdentity'
 
 export const LIVE_EVENT_RETENTION_MS = 30_000
 
@@ -15,7 +16,7 @@ export function mergeLiveEvents(
   const liveByIdentity = new Map<string, PipelineEvent>()
   const seenSequences = new Set<number>()
   const cutoff = liveEdgeMs - retentionMs
-  const orderedLive = Array.from(ephemeralEvents).sort(comparePipelineEvents)
+  const orderedLive = Array.from(ephemeralEvents, normalizeGateEvent).sort(comparePipelineEvents)
   for (const event of orderedLive) {
     if (seenSequences.has(event.sequence) || event.occurredAtMs < cutoff) continue
     seenSequences.add(event.sequence)
@@ -61,6 +62,9 @@ export function gapEvent(message: PipelineStreamMessage): PipelineEvent {
 }
 
 function stableEventIdentity(event: PipelineEvent) {
+  // A decision's queued and verdict phases can share a stage and timestamp
+  // bucket. Bypass packets also have distinct source IDs and must stay distinct.
+  if (event.kind === 'gate') return normalizeGateEvent(event).id
   const flowRecord = event.id.match(/^flow(?:-discovered:|:)([^:]+)(?::discovered)?$/)
   if (flowRecord) return `flow-record:${flowRecord[1]}`
   const dnsRecord = event.id.match(/^dns(?:-query:|:)([^:]+)(?::query)?$/)

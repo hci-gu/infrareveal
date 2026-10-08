@@ -41,7 +41,7 @@ func (config Config) LogEffective() {
 }
 
 func (config Config) withDefaults() Config {
-	defaults := ConfigFromEnv()
+	defaults := Config{RingEvents: 20_000, Retention: 30 * time.Second, IngressBuffer: 8192, SubscriberBuffer: 256, BatchInterval: 50 * time.Millisecond, MaxBatch: 200, MaxSubscribers: 32}
 	defaults.Enabled = config.Enabled
 	if config.RingEvents > 0 {
 		defaults.RingEvents = config.RingEvents

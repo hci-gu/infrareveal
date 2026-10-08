@@ -1,4 +1,4 @@
-export { emptyGatewayData, getGatewayData, pb } from '@infrareveal/session-state'
+export { emptyGatewayData, pb } from '@infrareveal/session-state'
 export type {
   ConnectionState,
   Destination,

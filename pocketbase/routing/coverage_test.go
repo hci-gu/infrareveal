@@ -69,7 +69,7 @@ func TestCoverageRetainsReplyWithoutUsingWrappedRTT(t *testing.T) {
 func TestCoverageUsesSingleTaskAndPreservesOutputOnCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	calls := 0
-	p := coverageProbe{run: func(ctx context.Context, args []string) ([]byte, error) {
+	p := scamperProbe{run: func(ctx context.Context, args []string) ([]byte, error) {
 		calls++
 		cancel()
 		return []byte(`{"type":"trace","dst":"9.9.9.9","firsthop":1,"hop_count":4,"probe_count":6,"stop_reason":"HOPLIMIT","hops":[{"addr":"1.1.1.1","probe_ttl":1,"rtt":1,"icmp_type":11,"icmp_code":0}]}`), context.Canceled
@@ -81,7 +81,7 @@ func TestCoverageUsesSingleTaskAndPreservesOutputOnCancellation(t *testing.T) {
 }
 
 func TestCoverageFitsSilentWaitsAndReportsUnprobedTail(t *testing.T) {
-	p := coverageProbe{deadline: 45 * time.Second, run: func(_ context.Context, args []string) ([]byte, error) {
+	p := scamperProbe{deadline: 45 * time.Second, run: func(_ context.Context, args []string) ([]byte, error) {
 		if !strings.Contains(strings.Join(args, " "), "-m 20") {
 			t.Fatalf("unfinishable whole task: %v", args)
 		}
@@ -94,29 +94,15 @@ func TestCoverageFitsSilentWaitsAndReportsUnprobedTail(t *testing.T) {
 	}
 }
 
-func TestCoverageCannotReplaceRichEvidenceWithSparseRefresh(t *testing.T) {
-	now := time.Now()
-	old := snapshot{Attempt: "rich", Reached: true, Measured: now.Add(-time.Minute), ProbedTTL: 10, Hops: []Hop{{TTL: 1, Address: "192.0.2.1"}, {TTL: 2, Address: "192.0.2.2"}, {TTL: 10, Address: "203.0.113.9"}}}
-	next := snapshot{Attempt: "sparse", Reached: true, Measured: now, ProbedTTL: 10, Hops: []Hop{{TTL: 1, Address: "192.0.2.1"}, {TTL: 10, Address: "203.0.113.9"}}}
-	if betterSnapshot(old, next) {
-		t.Fatal("sparse refresh erased richer evidence")
-	}
-	old.Reached = false
-	next.Reached = false
-	next.ProbedTTL = 2
-	if betterSnapshot(old, next) {
-		t.Fatal("a short partial prefix erased a longer partial path")
-	}
-}
 func TestAlternateMethodsRemainSeparateUsefulPaths(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
-	repo := repository{app: app}
+	repo := evidenceStore{app: app}
 	now := time.Now()
 	tgt := target{"9.9.9.9", "tcp", 443}
 	for i, method := range []string{"tcp:443", "icmp-paris"} {
 		s := snapshot{Attempt: method, Revision: 1, Method: method, Measured: now, Finished: now, Reached: true, Hops: []Hop{{TTL: 5, Address: []string{"1.1.1.1", "8.8.8.8"}[i]}, {TTL: 8, Address: tgt.IP}}}
-		if _, err := repo.publish(tgt.key("network"), "network", session, tgt, cacheEntry{}, s, "reached", "measured", now.Add(time.Duration(i)*time.Second)); err != nil {
+		if _, err := repo.publish(publication{Binding: routeBinding{Session: session, Network: "network", Target: tgt}, Cache: cacheEntry{}, Snapshot: s, Provenance: "measured"}, now.Add(time.Duration(i)*time.Second)); err != nil {
 			t.Fatal(err)
 		}
 	}

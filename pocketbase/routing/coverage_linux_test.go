@@ -19,7 +19,7 @@ func TestLinuxSilentTraceFinishesWithinBudget(t *testing.T) {
 	}
 	// The router still answers TTL 1, but forwards to a silent destination.
 	// The production command must flush that evidence before its deadline.
-	result := (coverageProbe{deadline: 45 * time.Second}).Run(context.Background(), target{"10.249.2.2", "udp", 49999}, probePlan{Method: "udp-paris"}, func(snapshot) {})
+	result := (scamperProbe{deadline: 45 * time.Second}).Run(context.Background(), target{"10.249.2.2", "udp", 49999}, probePlan{Method: "udp-paris"}, func(snapshot) {})
 	if result.Error != "" || result.replies() != 1 || result.ProbedTTL < 16 || result.StopReason != "HOPLIMIT" {
 		t.Fatalf("silent trace lost its initial reply at the deadline: %+v", result)
 	}
@@ -40,16 +40,16 @@ func TestLinuxWholeTaskBoundaries(t *testing.T) {
 	if mode == "cancel" {
 		deadline = 300 * time.Millisecond
 	}
-	result := (coverageProbe{deadline: deadline}).Run(context.Background(), dst, probePlan{Method: method}, func(snapshot) {})
+	result := (scamperProbe{deadline: deadline}).Run(context.Background(), dst, probePlan{Method: method}, func(snapshot) {})
 	if mode == "v6-udp-paris" {
 		if result.ProbeCount != 0 || !strings.Contains(result.Error, "unsupported probe method") {
 			t.Fatal("unqualified method launched", result)
 		}
 		dst.Protocol = "udp"
-		if methods := qualityMethods(dst); len(methods) != 1 || methods[0] != "icmp-paris" {
+		if methods := probeMethods(dst); len(methods) != 1 || methods[0] != "icmp-paris" {
 			t.Fatal("missing qualified fallback", methods)
 		}
-		result = (coverageProbe{deadline: deadline}).Run(context.Background(), dst, probePlan{}, func(snapshot) {})
+		result = (scamperProbe{deadline: deadline}).Run(context.Background(), dst, probePlan{}, func(snapshot) {})
 	}
 	if mode == "cancel" {
 		if result.Error == "" || result.Reached || result.ProbedTTL != 0 || len(result.Hops) != 1 || result.Hops[0].State != "unknown" {
@@ -86,8 +86,8 @@ func TestLinuxCoverageNetwork(t *testing.T) {
 	if method != "tcp" && method != "udp-paris" && method != "icmp-paris" {
 		t.Fatal("unknown namespace test case")
 	}
-	probe := coverageProbe{deadline: 12 * time.Second}
-	result := probe.Run(ctx, target, probePlan{Quality: true, Method: method, Sequence: 4242, SourcePort: 45551}, func(snapshot) {})
+	probe := scamperProbe{deadline: 12 * time.Second}
+	result := probe.Run(ctx, target, probePlan{Method: method, Sequence: 4242, SourcePort: 45551}, func(snapshot) {})
 	if !result.Reached || result.replies() != 2 || result.Hops[0].Address != "10.249.1.1" || result.ProbeCount <= 2 {
 		t.Fatalf("coverage did not recover the dropped router response: %+v", result)
 	}

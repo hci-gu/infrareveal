@@ -5,6 +5,7 @@ package observer
 import (
 	"context"
 	"encoding/binary"
+	"errors"
 	"net"
 	"os"
 	"testing"
@@ -48,6 +49,37 @@ func TestPacketOriginalLength(t *testing.T) {
 	}
 }
 
+func TestPacketCaptureStopsWithoutTraffic(t *testing.T) {
+	if os.Getenv("INFRAREVEAL_PACKET_CAPTURE_TEST") != "1" {
+		t.Skip("requires isolated Linux network namespace; set INFRAREVEAL_PACKET_CAPTURE_TEST=1")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ready, stopped := make(chan struct{}), make(chan error, 1)
+	go func() {
+		stopped <- runPacketCapture(ctx, "lo", NewObservationScope("10.0.0.0/24", "10.0.0.1"), func() { close(ready) }, func(PacketActivityEvent) {})
+	}()
+	select {
+	case <-ready:
+	case err := <-stopped:
+		t.Fatalf("capture failed to start: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatal("capture did not start")
+	}
+	// Let the receive block on an idle socket before cancellation. There is no
+	// injected frame to wake it; clear and shutdown must still be able to join.
+	time.Sleep(30 * time.Millisecond)
+	cancel()
+	select {
+	case err := <-stopped:
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("capture returned %v, want cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("idle capture did not stop after cancellation")
+	}
+}
+
 // Run inside an isolated Linux network namespace with CAP_NET_RAW. This covers
 // the actual BPF -> socket receive -> parser boundary, including snap truncation.
 func TestPacketCaptureCountsLargeHeaderOnlyFrames(t *testing.T) {
@@ -65,13 +97,22 @@ func TestPacketCaptureCountsLargeHeaderOnlyFrames(t *testing.T) {
 	}{
 		{"tcp-download", buildIPv4TCPFrame("93.184.216.34", "10.0.0.50", 443, 53000, make([]byte, 1460), 0x18, false), NewObservationScope("10.0.0.", "10.0.0.1")},
 		{"udp-download", buildIPv4UDPFrame("93.184.216.34", "10.0.0.50", 443, 53000, make([]byte, 1400), false), NewObservationScope("10.0.0.", "10.0.0.1")},
-		{"ipv6-download", buildIPv6UDPFrame("2606:4700:4700::1111", "fd00::50", 443, 53000, make([]byte, 1400)), NewObservationScope("fd00:", "fd00::1")},
+		{"ipv6-download", buildIPv6UDPFrame("2606:4700:4700::1111", "fd00::50", 443, 53000, make([]byte, 1400)), NewObservationScope("fd00::/64", "fd00::1")},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
+			done := make(chan struct{})
+			t.Cleanup(func() {
+				cancel()
+				select {
+				case <-done:
+				case <-time.After(time.Second):
+					t.Error("capture worker did not stop")
+				}
+			})
 			ready, captured, failed := make(chan struct{}), make(chan PacketActivityEvent, 8), make(chan error, 1)
 			go func() {
+				defer close(done)
 				failed <- runPacketCapture(ctx, "lo", test.scope, func() { close(ready) }, func(event PacketActivityEvent) {
 					select {
 					case captured <- event:

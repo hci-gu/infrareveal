@@ -1,12 +1,12 @@
 import { parseEpoch } from '@infrareveal/session-state'
-import type { FlowActivityChunk } from '@infrareveal/session-state'
+import type { ActivityChunkSummary } from '@infrareveal/session-state'
 import type { MapPosition, MapTimelineScene } from './mapModel'
 import type { MapConnection } from './mapTracks'
 import { hasMapCoordinates } from './mapRoutes'
 import { countryFootprint } from './countryFootprints'
 import type { CountryFootprint } from './countryFootprints'
 
-export type VolumeChunk = Pick<FlowActivityChunk, 'id' | 'session' | 'flow' | 'chunk_start' | 'chunk_ms' | 'wire_bytes_in' | 'wire_bytes_out' | 'capture_complete' | 'dropped_events' | 'updated_at_source' | 'updated'>
+export type VolumeChunk = ActivityChunkSummary
 type Interval = { start: number; end: number; received: number; sent: number; partial: boolean }
 type VolumeSeries = { intervals: Interval[]; received: number[]; sent: number[]; partial: number[] }
 export type DestinationVolumeIndex = Map<string, VolumeSeries> & { fromMs?: number }

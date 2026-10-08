@@ -17,10 +17,6 @@ type NFQueueConfig struct {
 	Mode           Mode
 }
 
-func packetMetadata(packetID uint32, prefix []byte, capturedLength uint32, occurredAt time.Time, clientSubnet netip.Prefix) (QueuedPacket, error) {
-	return packetMetadataForMode(packetID, prefix, capturedLength, occurredAt, clientSubnet, ModeFlow)
-}
-
 func packetMetadataForMode(packetID uint32, prefix []byte, capturedLength uint32, occurredAt time.Time, clientSubnet netip.Prefix, mode Mode) (QueuedPacket, error) {
 	parsed, err := netmeta.ParseIPPacket(prefix)
 	if err != nil {

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Route, SessionWindow } from './types'
-import { emptyGatewayData } from './pocketbaseClient'
+import { emptyGatewayData } from './sessionData'
 import { routeForFlowAt, routeStateLabel, routeTopology } from './routeEvidence'
 import { applyRealtimeBatch, applySessionWindow, clearDetailPages, resetSessionTimeline, sessionTimelineStore } from '../timeline/store/sessionStore'
 

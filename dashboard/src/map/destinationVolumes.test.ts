@@ -1,11 +1,10 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { describe, expect, it } from 'vitest'
 import { emptyGatewayData } from '@infrareveal/session-state'
 import type { Flow } from '@infrareveal/session-state'
 import { buildMapTimelineScene } from './mapModel'
 import { buildMapTrackCatalog, projectMapTracks, sceneForTracks } from './mapTracks'
 import { columnMetersPerPixel, connectionVolume, destinationHeight, indexDestinationVolumes, projectDestinationVolumes } from './destinationVolumes'
 import type { VolumeChunk } from './destinationVolumes'
-import { readVolumeChunks } from './useDestinationVolumes'
 
 const epoch = Date.parse('2026-09-10T10:00:00Z')
 const iso = (ms: number) => new Date(epoch + ms).toISOString()
@@ -155,33 +154,5 @@ describe('accumulated destination traffic', () => {
     scene.endpoints[0].position = [0, 51]
     scene.endpoints[1].position = [37, 0]
     expect(projectDestinationVolumes(scene, connections, new Map(), epoch + 10_000)).toHaveLength(2)
-  })
-})
-
-afterEach(() => vi.unstubAllGlobals())
-describe('destination summary transport', () => {
-  it('paginates compact summaries and filters live updates by storage revision', async () => {
-    const first = Array.from({ length: 500 }, (_, i) => chunk({ id: `a${String(i).padStart(3, '0')}` }))
-    const fetcher = vi.fn().mockResolvedValueOnce({ ok: true, json: async () => ({ items: first }) }).mockResolvedValueOnce({ ok: true, json: async () => ({ items: [chunk({ id: 'b' }), chunk({ id: 'wrong-session', session: 'other' })] }) })
-    vi.stubGlobal('fetch', fetcher)
-    const result = await readVolumeChunks('s', epoch + 100_000, new AbortController().signal)
-    expect(result).toHaveLength(501)
-    const params = new URL(fetcher.mock.calls[1][0]).searchParams
-    expect(params.get('fields')).not.toContain('samples')
-    expect(params.get('filter')).toContain('id > "a499"')
-    expect(params.get('filter')).toContain('updated >= "2026-09-10 10:01:10.000Z"')
-  })
-
-  it('requests only retained summaries, including the boundary chunk', async () => {
-    const fetcher = vi.fn().mockResolvedValue({ ok: true, json: async () => ({ items: [chunk(), chunk({ id: 'new', chunk_start: iso(5000) })] }) })
-    vi.stubGlobal('fetch', fetcher)
-    const result = await readVolumeChunks('s', 0, new AbortController().signal, epoch + 6000)
-    expect(result.map(record => record.id)).toEqual(['new'])
-    expect(new URL(fetcher.mock.calls[0][0]).searchParams.get('filter')).toContain('chunk_start >=')
-  })
-
-  it('does not return incomplete history after a page fails', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 503 }))
-    await expect(readVolumeChunks('s', 0, new AbortController().signal)).rejects.toThrow('503')
   })
 })

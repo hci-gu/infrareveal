@@ -1,6 +1,7 @@
 package observer
 
 import (
+	"myapp/debugtrace"
 	"reflect"
 	"testing"
 	"time"
@@ -101,22 +102,22 @@ func TestCorrelateActivitySessionReplacesTemporalGroups(t *testing.T) {
 	session := createActivityTestSession(t, app, true)
 	record := createActivityTestFlow(t, app, session.Id, "tcp|10.0.0.50|53000|93.184.216.34|443")
 	flow := flowObservationFromRecord(record)
-	_, err := upsertAttribution(app, flow, AttributionConclusion{CandidateHostname: "gateway.discord.gg", SourceSignal: "dns_answer", Confidence: "medium", ObservedAt: flow.Start})
+	_, _, err := installAttribution(app, flow, AttributionConclusion{CandidateHostname: "gateway.discord.gg", SourceSignal: "dns_answer", Confidence: "medium", ObservedAt: flow.Start}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	old := ActivityEpisodeConclusion{Key: "old-timing-group", SessionID: session.Id, ClientIP: flow.ClientIP, SiteKey: "spotify", Label: "Spotify", AnchorHostname: "api.spotify.com", Start: flow.Start, LastSeen: flow.Start, Confidence: "high"}
-	ids, err := syncActivityEpisodes(app, session.Id, []ActivityEpisodeConclusion{old})
+	ids, err := syncActivityEpisodes(app, session.Id, []ActivityEpisodeConclusion{old}, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = syncFlowAssociations(app, session.Id, []FlowAssociationConclusion{{FlowID: flow.ID, EpisodeKey: old.Key, ParentSiteKey: "spotify", ParentLabel: "Spotify", Relationship: "temporally_associated", Confidence: "medium", Score: 90, ObservedAt: flow.Start}}, ids)
+	err = syncFlowAssociations(app, session.Id, []FlowAssociationConclusion{{FlowID: flow.ID, EpisodeKey: old.Key, ParentSiteKey: "spotify", ParentLabel: "Spotify", Relationship: "temporally_associated", Confidence: "medium", Score: 90, ObservedAt: flow.Start}}, ids, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
 	var groupID, linkID string
 	for tick := 0; tick < 2; tick++ {
-		if err := correlateActivitySession(app, session.Id); err != nil {
+		if _, err := deriveSession(app, NewObservationScope("10.0.0.", "10.0.0.1"), session.Id, debugtrace.NopSink{}); err != nil {
 			t.Fatal(err)
 		}
 		groups, err := app.FindAllRecords("activity_episodes")

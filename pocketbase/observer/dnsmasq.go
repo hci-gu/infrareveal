@@ -53,19 +53,6 @@ type DNSMasqIngestor struct {
 	trace          debugtrace.Sink
 }
 
-func StartDNSMasqIngestor(ctx context.Context, app *pocketbase.PocketBase, path string, scope ObservationScope, sessionID func() string, trace debugtrace.Sink) {
-	ingestor := &DNSMasqIngestor{
-		app:            app,
-		scope:          scope,
-		path:           path,
-		sessionID:      sessionID,
-		recentByName:   make(map[string][]recentDNSQuery),
-		recentBySerial: make(map[string][]recentDNSQuery),
-		trace:          usableTraceSink(trace),
-	}
-	go ingestor.run(ctx)
-}
-
 func (d *DNSMasqIngestor) run(ctx context.Context) {
 	for {
 		if err := d.follow(ctx); err != nil && !errors.Is(err, context.Canceled) {
@@ -105,7 +92,11 @@ func (d *DNSMasqIngestor) follow(ctx context.Context) error {
 				if err := resetDNSLogAtEOF(file, reader); err != nil {
 					log.Printf("DNS spool rotation: %v", err)
 				}
-				time.Sleep(300 * time.Millisecond)
+				select {
+				case <-ctx.Done():
+					return ctx.Err()
+				case <-time.After(300 * time.Millisecond):
+				}
 				continue
 			}
 			return err

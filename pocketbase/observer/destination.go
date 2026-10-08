@@ -1,17 +1,11 @@
 package observer
 
 import (
-	"bufio"
-	"bytes"
 	"context"
 	"database/sql"
 	"errors"
-	"fmt"
-	"log"
 	"net"
 	"net/netip"
-	"regexp"
-	"strconv"
 	"strings"
 	"time"
 
@@ -23,10 +17,7 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-const (
-	destinationEnrichmentInterval = 3 * time.Second
-	destinationRefreshInterval    = 15 * time.Minute
-)
+const destinationRefreshInterval = 15 * time.Minute
 
 type DestinationObservation struct {
 	IP              string
@@ -34,88 +25,6 @@ type DestinationObservation struct {
 	DestinationPort int
 	Protocol        string
 	LastSeen        time.Time
-}
-
-type RouteHop struct {
-	TTL      int       `json:"ttl"`
-	Address  string    `json:"address"`
-	Missing  bool      `json:"missing"`
-	Timings  []float64 `json:"timings"`
-	City     string    `json:"city,omitempty"`
-	Country  string    `json:"country,omitempty"`
-	Lat      float64   `json:"lat,omitempty"`
-	Lon      float64   `json:"lon,omitempty"`
-	Hostname string    `json:"hostname,omitempty"`
-}
-
-type RouteResult struct {
-	Method   string
-	Hops     []RouteHop
-	Complete bool
-	Error    string
-}
-
-func StartDestinationEnricher(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID func() string, trace debugtrace.Sink) {
-	trace = usableTraceSink(trace)
-	go func() {
-		ticker := time.NewTicker(destinationEnrichmentInterval)
-		defer ticker.Stop()
-
-		for {
-			activeSessionID := sessionID()
-			if activeSessionID != "" {
-				if err := enrichDestinationRecords(app, geoipDB, scope, activeSessionID, trace); err != nil {
-					log.Printf("destination enricher error: %v", err)
-				}
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-			}
-		}
-	}()
-
-}
-
-func sessionDestinationObservations(app *pocketbase.PocketBase, scope ObservationScope, sessionID string) ([]DestinationObservation, error) {
-	flowRecords, err := app.FindAllRecords("flows", dbx.HashExp{"session": sessionID})
-	if err != nil {
-		return nil, err
-	}
-	return uniqueDestinationObservations(flowRecords, scope), nil
-}
-
-func enrichDestinationRecords(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, scope ObservationScope, sessionID string, trace debugtrace.Sink) error {
-	observations, err := sessionDestinationObservations(app, scope, sessionID)
-	if err != nil {
-		return err
-	}
-	for _, observation := range uniqueDestinationIPs(observations) {
-		record, changed, err := upsertDestination(app, geoipDB, observation)
-		if err != nil {
-			return err
-		}
-		if changed {
-			emitDestinationTrace(trace, observation, record)
-		}
-	}
-	return nil
-}
-
-func uniqueDestinationIPs(observations []DestinationObservation) []DestinationObservation {
-	seen := make(map[string]DestinationObservation)
-	for _, observation := range observations {
-		existing, ok := seen[observation.IP]
-		if !ok || observation.LastSeen.After(existing.LastSeen) {
-			seen[observation.IP] = observation
-		}
-	}
-	result := make([]DestinationObservation, 0, len(seen))
-	for _, observation := range seen {
-		result = append(result, observation)
-	}
-	return result
 }
 
 func uniqueDestinationObservations(records []*core.Record, scope ObservationScope) []DestinationObservation {
@@ -139,7 +48,7 @@ func uniqueDestinationObservations(records []*core.Record, scope ObservationScop
 		if net.ParseIP(observation.IP) == nil {
 			continue
 		}
-		key := routeKey(observation)
+		key := observation.IP
 		existing, ok := seen[key]
 		if !ok || observation.LastSeen.After(existing.LastSeen) {
 			seen[key] = observation
@@ -153,7 +62,7 @@ func uniqueDestinationObservations(records []*core.Record, scope ObservationScop
 	return observations
 }
 
-func upsertDestination(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, observation DestinationObservation) (*core.Record, bool, error) {
+func upsertDestination(ctx context.Context, app *pocketbase.PocketBase, geoipDB *geoip2.Reader, observation DestinationObservation) (*core.Record, bool, error) {
 	nowTime := time.Now().UTC()
 	now := nowTime.Format(time.RFC3339)
 	record, err := app.FindFirstRecordByFilter("destinations", "ip={:ip}", dbx.Params{"ip": observation.IP})
@@ -176,7 +85,7 @@ func upsertDestination(app *pocketbase.PocketBase, geoipDB *geoip2.Reader, obser
 	lastEnriched := record.GetDateTime("enriched_at").Time()
 	shouldRefresh := lastEnriched.IsZero() || nowTime.Sub(lastEnriched) >= destinationRefreshInterval
 	if shouldRefresh {
-		if refreshedName := lookupReverseDNS(observation.IP); refreshedName != "" {
+		if refreshedName := lookupReverseDNS(ctx, observation.IP); refreshedName != "" {
 			reverseName = refreshedName
 		}
 		record.Set("enriched_at", now)
@@ -236,52 +145,8 @@ func knownDestinationProvider(observation DestinationObservation) (organization,
 	return "", ""
 }
 
-func ParseTracerouteOutput(output []byte) []RouteHop {
-	scanner := bufio.NewScanner(bytes.NewReader(output))
-	hops := []RouteHop{}
-	lineRE := regexp.MustCompile(`^\s*(\d+)\s+(.+)$`)
-	ipRE := regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
-	timeRE := regexp.MustCompile(`([0-9]+(?:\.[0-9]+)?)\s*ms`)
-
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		matches := lineRE.FindStringSubmatch(line)
-		if len(matches) != 3 {
-			continue
-		}
-
-		ttl, _ := strconv.Atoi(matches[1])
-		body := matches[2]
-		hop := RouteHop{TTL: ttl}
-
-		if strings.Contains(body, "*") && !ipRE.MatchString(body) {
-			hop.Missing = true
-		}
-		if ipMatch := ipRE.FindString(body); ipMatch != "" {
-			hop.Address = ipMatch
-		}
-		for _, timing := range timeRE.FindAllStringSubmatch(body, -1) {
-			value, err := strconv.ParseFloat(timing[1], 64)
-			if err == nil {
-				hop.Timings = append(hop.Timings, value)
-			}
-		}
-		hops = append(hops, hop)
-	}
-
-	return hops
-}
-
-func routeComplete(hops []RouteHop, destinationIP string) bool {
-	if len(hops) == 0 {
-		return false
-	}
-	last := hops[len(hops)-1]
-	return last.Address == destinationIP
-}
-
-func lookupReverseDNS(ip string) string {
-	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+func lookupReverseDNS(parent context.Context, ip string) string {
+	ctx, cancel := context.WithTimeout(parent, 500*time.Millisecond)
 	defer cancel()
 	names, err := net.DefaultResolver.LookupAddr(ctx, ip)
 	if err != nil || len(names) == 0 {
@@ -300,8 +165,4 @@ func providerLabel(reverseName string) string {
 		return reverseName
 	}
 	return strings.Join(parts[len(parts)-2:], ".")
-}
-
-func routeKey(observation DestinationObservation) string {
-	return fmt.Sprintf("%s|%s|%d", observation.IP, strings.ToLower(observation.Protocol), observation.DestinationPort)
 }

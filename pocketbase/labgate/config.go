@@ -37,23 +37,39 @@ type Config struct {
 	KernelSettings     map[string]string
 }
 
-func ConfigFromEnv() Config {
+func defaultConfig() Config {
 	return Config{
-		Enabled:            gateBoolEnv("LAB_GATE_ENABLED", false),
-		QueueNumber:        uint16(gateIntEnv("LAB_GATE_QUEUE_NUM", defaultQueueNumber, 1, 65535)),
-		StrictQueueNumber:  uint16(gateIntEnv("LAB_GATE_STRICT_QUEUE_NUM", defaultStrictQueueNumber, 1, 65535)),
-		DNSQueueNumber:     uint16(gateIntEnv("LAB_GATE_DNS_QUEUE_NUM", defaultDNSQueueNumber, 1, 65535)),
-		MaxPendingFlows:    gateIntEnv("LAB_GATE_MAX_PENDING_FLOWS", 128, 1, 1024),
-		MaxHeldPackets:     gateIntEnv("LAB_GATE_MAX_HELD_PACKETS", 768, 8, 8192),
-		FlowTimeout:        time.Duration(gateIntEnv("LAB_GATE_FLOW_TIMEOUT_MS", 10_000, 100, 60_000)) * time.Millisecond,
-		EstablishedTimeout: time.Duration(gateIntEnv("LAB_GATE_ESTABLISHED_TIMEOUT_MS", 500, 100, 10_000)) * time.Millisecond,
-		DNSTimeout:         time.Duration(gateIntEnv("LAB_GATE_DNS_TIMEOUT_MS", 2_000, 100, 15_000)) * time.Millisecond,
-		DecisionCache:      time.Duration(gateIntEnv("LAB_GATE_DECISION_CACHE_SECONDS", 120, 1, 900)) * time.Second,
-		FailOpen:           gateBoolEnv("LAB_GATE_FAIL_OPEN", true),
+		QueueNumber: defaultQueueNumber, StrictQueueNumber: defaultStrictQueueNumber, DNSQueueNumber: defaultDNSQueueNumber,
+		MaxPendingFlows: 128, MaxHeldPackets: 768,
+		FlowTimeout: 10 * time.Second, EstablishedTimeout: 500 * time.Millisecond, DNSTimeout: 2 * time.Second,
+		DecisionCache: 120 * time.Second, FailOpen: true,
+	}
+}
+
+func ConfigFromEnv() Config {
+	defaults := defaultConfig()
+	return Config{
+		Enabled:            gateBoolEnv("LAB_GATE_ENABLED", defaults.Enabled),
+		QueueNumber:        uint16(gateIntEnv("LAB_GATE_QUEUE_NUM", int(defaults.QueueNumber), 1, 65535)),
+		StrictQueueNumber:  uint16(gateIntEnv("LAB_GATE_STRICT_QUEUE_NUM", int(defaults.StrictQueueNumber), 1, 65535)),
+		DNSQueueNumber:     uint16(gateIntEnv("LAB_GATE_DNS_QUEUE_NUM", int(defaults.DNSQueueNumber), 1, 65535)),
+		MaxPendingFlows:    gateIntEnv("LAB_GATE_MAX_PENDING_FLOWS", defaults.MaxPendingFlows, 1, 1024),
+		MaxHeldPackets:     gateIntEnv("LAB_GATE_MAX_HELD_PACKETS", defaults.MaxHeldPackets, 8, 8192),
+		FlowTimeout:        time.Duration(gateIntEnv("LAB_GATE_FLOW_TIMEOUT_MS", int(defaults.FlowTimeout/time.Millisecond), 100, 60_000)) * time.Millisecond,
+		EstablishedTimeout: time.Duration(gateIntEnv("LAB_GATE_ESTABLISHED_TIMEOUT_MS", int(defaults.EstablishedTimeout/time.Millisecond), 100, 10_000)) * time.Millisecond,
+		DNSTimeout:         time.Duration(gateIntEnv("LAB_GATE_DNS_TIMEOUT_MS", int(defaults.DNSTimeout/time.Millisecond), 100, 15_000)) * time.Millisecond,
+		DecisionCache:      time.Duration(gateIntEnv("LAB_GATE_DECISION_CACHE_SECONDS", int(defaults.DecisionCache/time.Second), 1, 900)) * time.Second,
+		FailOpen:           gateBoolEnv("LAB_GATE_FAIL_OPEN", defaults.FailOpen),
 		ControlTokenFile:   strings.TrimSpace(os.Getenv("LAB_GATE_CONTROL_TOKEN_FILE")),
 		AllowedOrigins:     splitCSV(os.Getenv("LAB_GATE_ALLOWED_ORIGINS")),
 		KernelSettings:     ReadKernelSettings(),
 	}
+}
+
+// ValidateConfig applies the controller's defaults before validating, so the
+// gateway can reject unsafe configuration before preparing firewall resources.
+func ValidateConfig(config Config) error {
+	return config.withDefaults().Validate()
 }
 
 func (config Config) Validate() error {
@@ -79,7 +95,7 @@ func (config Config) Validate() error {
 }
 
 func (config Config) withDefaults() Config {
-	defaults := ConfigFromEnv()
+	defaults := defaultConfig()
 	defaults.Enabled = config.Enabled
 	defaults.FailOpen = config.FailOpen
 	if config.QueueNumber != 0 {

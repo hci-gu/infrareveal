@@ -87,7 +87,8 @@ Consumers must validate versions, counts, bucket sizes, chunk bounds and flow id
 
 | Area | Location |
 | --- | --- |
-| Capture lifecycle, queues, flow resolution and retention | `pocketbase/observer/packet_activity.go` |
+| Capture lifecycle, queues and bounded write drain | `pocketbase/observer/runtime.go`, `pocketbase/observer/packet_activity.go` |
+| Observation expiry and maintenance ordering | `pocketbase/observer/retention.go`, `pocketbase/gateway/maintenance.go` |
 | Linux socket and original wire-length handling | `pocketbase/observer/packet_activity_linux.go` |
 | Packet parsing and normalization | `pocketbase/observer/packet_parser.go`, `pocketbase/netmeta` |
 | Pure bucketing | `pocketbase/observer/activity_buckets.go` |

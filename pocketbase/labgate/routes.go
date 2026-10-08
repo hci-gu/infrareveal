@@ -31,6 +31,63 @@ type ControlRouteConfig struct {
 	ClientSubnet   netip.Prefix
 }
 
+type statusResponse struct {
+	RequestID string `json:"requestId"`
+	Status    Status `json:"status"`
+}
+
+type pendingResponse struct {
+	RequestID string        `json:"requestId"`
+	Decisions []decisionDTO `json:"decisions"`
+}
+
+type decisionResponse struct {
+	RequestID       string      `json:"requestId"`
+	Result          decisionDTO `json:"result"`
+	AlreadyTerminal bool        `json:"alreadyTerminal"`
+	Status          Status      `json:"status"`
+	Error           string      `json:"error,omitempty"`
+}
+
+type approveAllResponse struct {
+	RequestID string        `json:"requestId"`
+	Results   []decisionDTO `json:"results"`
+	Status    Status        `json:"status"`
+}
+
+type errorResponse struct {
+	RequestID string `json:"requestId"`
+	Error     string `json:"error"`
+}
+
+// decisionDTO preserves the control protocol's epoch-millisecond timestamps.
+// The policy Decision and durable gate_events record use their own time types.
+type decisionDTO struct {
+	ID            string            `json:"id"`
+	FlowKey       string            `json:"flowKey"`
+	SessionID     string            `json:"sessionId"`
+	ClientIP      string            `json:"clientIp"`
+	RemoteIP      string            `json:"remoteIp"`
+	ClientPort    uint16            `json:"clientPort"`
+	RemotePort    uint16            `json:"remotePort"`
+	Protocol      string            `json:"protocol"`
+	Mode          Mode              `json:"mode"`
+	Direction     netmeta.Direction `json:"direction"`
+	PacketCount   int               `json:"packetCount"`
+	WireBytes     uint32            `json:"wireBytes"`
+	PayloadBytes  uint32            `json:"payloadBytes"`
+	TCPFlags      uint16            `json:"tcpFlags"`
+	QueuedAtMS    int64             `json:"queuedAtMs"`
+	DeadlineMS    int64             `json:"deadlineMs"`
+	State         DecisionState     `json:"state"`
+	Verdict       Verdict           `json:"verdict"`
+	VerdictSource VerdictSource     `json:"verdictSource"`
+	Actor         string            `json:"actor"`
+	Reason        string            `json:"reason"`
+	DecidedAtMS   int64             `json:"decidedAtMs"`
+	WaitMS        int64             `json:"waitMs"`
+}
+
 func LoadControlToken(path string) ([]byte, error) {
 	if strings.TrimSpace(path) == "" {
 		return nil, errors.New("control token file is not configured")
@@ -100,7 +157,7 @@ func (routes *controlRoutes) status(event *core.RequestEvent) error {
 	if err != nil {
 		return routes.controllerError(event, requestID, err)
 	}
-	return event.JSON(http.StatusOK, map[string]any{"requestId": requestID, "status": status})
+	return event.JSON(http.StatusOK, statusResponse{RequestID: requestID, Status: status})
 }
 
 func (routes *controlRoutes) pending(event *core.RequestEvent) error {
@@ -112,7 +169,7 @@ func (routes *controlRoutes) pending(event *core.RequestEvent) error {
 	if err != nil {
 		return routes.controllerError(event, requestID, err)
 	}
-	return event.JSON(http.StatusOK, map[string]any{"requestId": requestID, "decisions": decisionsForAPI(pending)})
+	return event.JSON(http.StatusOK, pendingResponse{RequestID: requestID, Decisions: decisionsForAPI(pending)})
 }
 
 type armBody struct {
@@ -164,7 +221,7 @@ func (routes *controlRoutes) arm(event *core.RequestEvent) error {
 	if err != nil {
 		return routes.controllerError(event, requestID, err)
 	}
-	return event.JSON(http.StatusOK, map[string]any{"requestId": requestID, "status": status})
+	return event.JSON(http.StatusOK, statusResponse{RequestID: requestID, Status: status})
 }
 
 type commandBody struct {
@@ -199,7 +256,7 @@ func (routes *controlRoutes) simple(kind commandKind) func(*core.RequestEvent) e
 		if err != nil {
 			return routes.controllerError(event, requestID, err)
 		}
-		return event.JSON(http.StatusOK, map[string]any{"requestId": requestID, "status": status})
+		return event.JSON(http.StatusOK, statusResponse{RequestID: requestID, Status: status})
 	}
 }
 
@@ -226,9 +283,9 @@ func (routes *controlRoutes) decision(event *core.RequestEvent) error {
 		return routes.controllerError(event, requestID, err)
 	}
 	status, _ := routes.controller.Status(event.Request.Context())
-	payload := map[string]any{"requestId": requestID, "result": decisionForAPI(result.Decision), "alreadyTerminal": result.AlreadyTerminal, "status": status}
+	payload := decisionResponse{RequestID: requestID, Result: decisionForAPI(result.Decision), AlreadyTerminal: result.AlreadyTerminal, Status: status}
 	if result.AlreadyTerminal {
-		payload["error"] = "decision is already terminal"
+		payload.Error = "decision is already terminal"
 		return event.JSON(http.StatusConflict, payload)
 	}
 	return event.JSON(http.StatusOK, payload)
@@ -247,12 +304,12 @@ func (routes *controlRoutes) approveAll(event *core.RequestEvent) error {
 	if err != nil {
 		return routes.controllerError(event, requestID, err)
 	}
-	decisions := make([]map[string]any, 0, len(results))
+	decisions := make([]decisionDTO, 0, len(results))
 	for _, result := range results {
 		decisions = append(decisions, decisionForAPI(result.Decision))
 	}
 	status, _ := routes.controller.Status(event.Request.Context())
-	return event.JSON(http.StatusOK, map[string]any{"requestId": requestID, "results": decisions, "status": status})
+	return event.JSON(http.StatusOK, approveAllResponse{RequestID: requestID, Results: decisions, Status: status})
 }
 
 type acceptNextBody struct {
@@ -276,7 +333,7 @@ func (routes *controlRoutes) acceptNext(event *core.RequestEvent) error {
 	if err != nil {
 		return routes.controllerError(event, requestID, err)
 	}
-	return event.JSON(http.StatusOK, map[string]any{"requestId": requestID, "status": status})
+	return event.JSON(http.StatusOK, statusResponse{RequestID: requestID, Status: status})
 }
 
 func (routes *controlRoutes) authorizeMutation(event *core.RequestEvent, requestID string) bool {
@@ -388,30 +445,30 @@ func (routes *controlRoutes) controllerError(event *core.RequestEvent, requestID
 }
 
 func (routes *controlRoutes) respondError(event *core.RequestEvent, status int, requestID, message string) error {
-	return event.JSON(status, map[string]any{"requestId": requestID, "error": message})
+	return event.JSON(status, errorResponse{RequestID: requestID, Error: message})
 }
 
-func decisionsForAPI(decisions []Decision) []map[string]any {
-	result := make([]map[string]any, 0, len(decisions))
+func decisionsForAPI(decisions []Decision) []decisionDTO {
+	result := make([]decisionDTO, 0, len(decisions))
 	for _, decision := range decisions {
 		result = append(result, decisionForAPI(decision))
 	}
 	return result
 }
 
-func decisionForAPI(decision Decision) map[string]any {
+func decisionForAPI(decision Decision) decisionDTO {
 	decidedAtMS := int64(0)
 	if !decision.DecidedAt.IsZero() {
 		decidedAtMS = decision.DecidedAt.UnixMilli()
 	}
-	return map[string]any{
-		"id": decision.ID, "flowKey": decision.FlowKey, "sessionId": decision.SessionID,
-		"clientIp": decision.ClientIP, "remoteIp": decision.RemoteIP, "clientPort": decision.ClientPort,
-		"remotePort": decision.RemotePort, "protocol": decision.Protocol, "mode": decision.Mode, "direction": decision.Direction, "packetCount": decision.PacketCount,
-		"wireBytes": decision.WireBytes, "payloadBytes": decision.PayloadBytes,
-		"tcpFlags": decision.TCPFlags, "queuedAtMs": decision.QueuedAt.UnixMilli(), "deadlineMs": decision.Deadline.UnixMilli(),
-		"state": decision.State, "verdict": decision.Verdict, "verdictSource": decision.Source,
-		"actor": decision.Actor, "reason": decision.Reason, "decidedAtMs": decidedAtMS, "waitMs": decision.WaitMS,
+	return decisionDTO{
+		ID: decision.ID, FlowKey: decision.FlowKey, SessionID: decision.SessionID,
+		ClientIP: decision.ClientIP, RemoteIP: decision.RemoteIP, ClientPort: decision.ClientPort,
+		RemotePort: decision.RemotePort, Protocol: decision.Protocol, Mode: decision.Mode, Direction: decision.Direction, PacketCount: decision.PacketCount,
+		WireBytes: decision.WireBytes, PayloadBytes: decision.PayloadBytes,
+		TCPFlags: decision.TCPFlags, QueuedAtMS: decision.QueuedAt.UnixMilli(), DeadlineMS: decision.Deadline.UnixMilli(),
+		State: decision.State, Verdict: decision.Verdict, VerdictSource: decision.Source,
+		Actor: decision.Actor, Reason: decision.Reason, DecidedAtMS: decidedAtMS, WaitMS: decision.WaitMS,
 	}
 }
 

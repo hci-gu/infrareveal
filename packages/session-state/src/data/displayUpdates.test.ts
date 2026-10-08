@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { createStore } from 'zustand/vanilla'
 import { coalescedSelector, stableGatewayData } from './displayUpdates'
-import { emptyGatewayData } from './pocketbaseClient'
+import { emptyGatewayData } from './sessionData'
 
 afterEach(() => vi.useRealTimers())
 describe('bounded display publications', () => {

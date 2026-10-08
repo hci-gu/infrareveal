@@ -9,6 +9,8 @@ Start with the [project README](../README.md) for setup and deployment, [CONTEXT
 
 ## Implementation and operations
 
+- [PocketBase architecture](implementation-guides/pocketbase-architecture.md): lifecycle ownership, observation derivation, maintenance and transport contracts.
+
 - [Two-network Pi deployment](implementation-guides/pi-deployment.md): admin Wi-Fi, local UI/API hosting, ARMv7/ARM64 builds, migration and updates.
 
 - [Flow activity bursts](implementation-guides/flow-activity-bursts.md): capture, aggregation, persistence, quality and visualization contracts.
@@ -17,6 +19,7 @@ Start with the [project README](../README.md) for setup and deployment, [CONTEXT
 
 ## Validation procedures
 
+- [PocketBase restructuring](validation/pocketbase-restructuring.md): compatibility comparison, local verification and remaining physical gateway checks.
 - [Dashboard browser checks](validation/debug-dashboard.md): fixtures, interaction, accessibility, performance and lifecycle checks.
 - [Flow activity on Raspberry Pi](validation/flow-activity-raspberry-pi.md): raw capture, timing, privacy and resource measurements.
 - [Proxy Lab on Raspberry Pi](validation/proxy-lab-raspberry-pi.md): namespace, failure, soak, client and recovery checks.

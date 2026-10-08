@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react'
 import { pb, sessionTimelineStore, timelineStartMs } from '@infrareveal/session-state'
 import type { DestinationVolumeIndex, VolumeChunk } from './destinationVolumes'
 import { VolumeSummaryCache } from './volumeSummaryCache'
-export { readVolumeChunks } from './volumeSummaryCache'
 
 const emptyIndex: DestinationVolumeIndex = new Map()
 type State = { sessionId: string; index: DestinationVolumeIndex; loading: boolean; error: boolean }

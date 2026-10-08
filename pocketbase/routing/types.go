@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -62,6 +61,23 @@ type target struct {
 	Port         int
 }
 
+// A binding keeps the source context and the observed endpoint together across
+// admission, a running probe, publication retries, and cache reuse.
+type routeBinding struct {
+	Session string
+	Network string
+	Target  target
+}
+
+func (b routeBinding) key() string { return b.Target.key(b.Network) }
+
+type publication struct {
+	Binding    routeBinding
+	Snapshot   snapshot
+	Cache      cacheEntry
+	Provenance string
+}
+
 func (t target) binding() string           { return fmt.Sprintf("%s|%s|%d", t.IP, t.Protocol, t.Port) }
 func (t target) method() string            { return fmt.Sprintf("%s:%d", t.Protocol, t.Port) }
 func (t target) key(network string) string { return hash(network + "|v2|" + t.binding()) }
@@ -100,47 +116,55 @@ func (s snapshot) replies() int {
 	return n
 }
 
+// Only accepted evidence is reusable. Older JSON may contain obsolete retry
+// state; decoding deliberately ignores it without changing the retained snapshot.
 type cacheEntry struct {
-	QualityNext  time.Time           `json:"quality_next"`
-	QualityIndex int                 `json:"quality_index"`
-	Methods      map[string]snapshot `json:"methods,omitempty"`
-	Best         snapshot            `json:"best"`
-	Last         snapshot            `json:"last"`
-	FreshUntil   time.Time           `json:"fresh_until"`
-	ValidUntil   time.Time           `json:"valid_until"`
-	RetryAt      time.Time           `json:"retry_at"`
-	Failures     int                 `json:"failures"`
+	Best       snapshot  `json:"best"`
+	FreshUntil time.Time `json:"fresh_until"`
+	ValidUntil time.Time `json:"valid_until"`
 }
 type Config struct {
-	Workers, MaxPending                                                                         int
-	Interval, FastDeadline, QualityDeadline, FreshTTL, StaleTTL                                 time.Duration
+	MaxPending                                                                                  int
+	Interval, ProbeDeadline, FreshTTL, StaleTTL                                                 time.Duration
 	Engine                                                                                      string
+	ASNDBPath                                                                                   string
 	MaxTargets, MaxAttempts, HourlyAttempts, ManualAttempts, MaxSnapshots, MaxUpdates, MaxBytes int
 	MinBytes                                                                                    int64
 	Cooldown                                                                                    time.Duration
 }
 
-func ConfigFromEnv() Config {
-	engine := os.Getenv("ROUTE_ENGINE")
-	if engine != "legacy" && engine != "off" {
-		engine = "v2"
-	}
-	return Config{Workers: 1, MaxPending: 256, Interval: 250 * time.Millisecond,
-		FastDeadline: 45 * time.Second, QualityDeadline: 45 * time.Second, FreshTTL: 10 * time.Minute, StaleTTL: time.Hour,
-		Engine: engine, MaxTargets: envInt("ROUTE_MAX_TARGETS", 20, 1, 100), MaxAttempts: envInt("ROUTE_MAX_ATTEMPTS", 40, 1, 200),
-		HourlyAttempts: envInt("ROUTE_HOURLY_ATTEMPTS", 40, 1, 200), ManualAttempts: 10,
-		MaxSnapshots: envInt("ROUTE_MAX_SNAPSHOTS", 100, 1, 100), MaxUpdates: 100, MaxBytes: envInt("ROUTE_MAX_BYTES", 16*1024*1024, 65536, 16*1024*1024),
+func defaultConfig() Config {
+	return Config{MaxPending: 256, Interval: 250 * time.Millisecond,
+		ProbeDeadline: 45 * time.Second, FreshTTL: 10 * time.Minute, StaleTTL: time.Hour,
+		Engine: "v2", ASNDBPath: "./geoip/asn.mmdb", MaxTargets: 20, MaxAttempts: 40,
+		HourlyAttempts: 40, ManualAttempts: 10,
+		MaxSnapshots: 100, MaxUpdates: 100, MaxBytes: 16 * 1024 * 1024,
 		MinBytes: 1024 * 1024, Cooldown: 30 * time.Minute}
 }
 
+func ConfigFromEnv() Config {
+	c := defaultConfig()
+	if engine := os.Getenv("ROUTE_ENGINE"); engine == "legacy" || engine == "off" {
+		c.Engine = engine
+	}
+	if path := os.Getenv("ROUTE_ASN_DB"); path != "" {
+		c.ASNDBPath = path
+	}
+	c.MaxTargets = envInt("ROUTE_MAX_TARGETS", c.MaxTargets, 1, 100)
+	c.MaxAttempts = envInt("ROUTE_MAX_ATTEMPTS", c.MaxAttempts, 1, 200)
+	c.HourlyAttempts = envInt("ROUTE_HOURLY_ATTEMPTS", c.HourlyAttempts, 1, 200)
+	c.MaxSnapshots = envInt("ROUTE_MAX_SNAPSHOTS", c.MaxSnapshots, 1, 100)
+	c.MaxBytes = envInt("ROUTE_MAX_BYTES", c.MaxBytes, 65536, 16*1024*1024)
+	return c
+}
+
 type probePlan struct {
-	Quality    bool
 	Method     string
 	Sequence   uint32
 	SourcePort int
 }
 
-func qualityMethods(t target) []string {
+func probeMethods(t target) []string {
 	if t.Protocol == "udp" {
 		// Bookworm 20211212 loses UDPv6 Paris reply correlation in the shipped
 		// Linux namespace fixture. Use the qualified approximation, never a
@@ -151,15 +175,6 @@ func qualityMethods(t target) []string {
 		return []string{"udp-paris", "icmp-paris"}
 	}
 	return []string{"tcp", "icmp-paris"}
-}
-func methodProtocol(method string) string {
-	if strings.HasPrefix(method, "tcp") {
-		return "tcp"
-	}
-	if strings.HasPrefix(method, "udp") {
-		return "udp"
-	}
-	return "icmp"
 }
 func (s snapshot) located() int {
 	n := 0
@@ -183,28 +198,6 @@ func (s snapshot) coverage() float64 {
 		return 0
 	}
 	return float64(s.replies()) / float64(n)
-}
-func betterSnapshot(old, next snapshot) bool {
-	if next.replies() == 0 {
-		return false
-	}
-	if old.replies() == 0 {
-		return true
-	}
-	if old.Attempt == next.Attempt {
-		return true
-	}
-	if old.Reached != next.Reached {
-		return next.Reached
-	}
-	if !old.Reached && old.replies() != next.replies() {
-		return next.replies() > old.replies()
-	}
-	if old.coverage() != next.coverage() {
-		return next.coverage() > old.coverage()
-	}
-
-	return next.Measured.After(old.Measured)
 }
 func envInt(name string, fallback, minValue, maxValue int) int {
 	if n, e := strconv.Atoi(os.Getenv(name)); e == nil && n >= minValue && n <= maxValue {

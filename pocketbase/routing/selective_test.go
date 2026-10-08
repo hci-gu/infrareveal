@@ -9,11 +9,14 @@ import (
 	"time"
 )
 
-func startTestCoordinator(t *testing.T, app core.App, session string, p prober) *Coordinator {
+func startTestCoordinator(t *testing.T, app core.App, session string, p prober, configs ...Config) *Coordinator {
 	t.Helper()
 	config := ConfigFromEnv()
+	if len(configs) > 0 {
+		config = configs[0]
+	}
 	config.Interval = 10 * time.Millisecond
-	c := &Coordinator{intake: map[string]Flow{}, reset: make(chan chan struct{}), done: make(chan struct{}), repo: repository{app: app}, config: config, probe: p, session: func() string { return session }, network: func() (string, error) { return "network", nil }}
+	c := &Coordinator{intake: map[string]Flow{}, reset: make(chan chan struct{}), done: make(chan struct{}), stop: make(chan struct{}), requests: make(chan manualRequest, 10), repo: evidenceStore{app: app}, config: config, probe: p, session: func() string { return session }, network: func() (string, error) { return "network", nil }}
 	ctx, cancel := context.WithCancel(context.Background())
 	go c.run(ctx)
 	t.Cleanup(func() { cancel(); <-c.done })
@@ -82,23 +85,22 @@ func TestEvidencePolicyTable(t *testing.T) {
 func TestReachedAccessPrefixDoesNotEndMethodComparison(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
-	repo := repository{app: app}
-	config := ConfigFromEnv()
+	repo := evidenceStore{app: app}
 	tgt := target{"162.159.130.234", "tcp", 443}
 	now := time.Now()
-	a, err := repo.reserve(session, "network", tgt, config, false, now)
+	a, err := repo.reserve(routeBinding{Session: session, Network: "network", Target: tgt}, false, now)
 	if err != nil || a.Reason != "" {
 		t.Fatalf("first admission: %+v %v", a, err)
 	}
 	s := snapshot{Attempt: a.Attempt, Method: "tcp:443", Started: now, Measured: now, Finished: now, Status: "reached", Reached: true, ProbedTTL: 11,
 		Hops: []Hop{{TTL: 1, Address: "192.168.10.1"}, {TTL: 2, Address: "130.241.190.9"}, {TTL: 3, EndTTL: 10, Missing: true, State: "no_reply"}, {TTL: 11, Address: tgt.IP}}}
-	if _, err = repo.publish(tgt.key("network"), "network", session, tgt, cacheEntry{}, s, s.Status, "measured", now); err != nil {
+	if _, err = repo.publish(publication{Binding: routeBinding{Session: session, Network: "network", Target: tgt}, Cache: cacheEntry{}, Snapshot: s, Provenance: "measured"}, now); err != nil {
 		t.Fatal(err)
 	}
 	if rows, err := app.FindAllRecords("routes"); err != nil || len(rows) != 0 {
 		t.Fatalf("access plus endpoint created useful routes: %d %v", len(rows), err)
 	}
-	second, err := repo.reserve(session, "network", tgt, config, false, now.Add(time.Second))
+	second, err := repo.reserve(routeBinding{Session: session, Network: "network", Target: tgt}, false, now.Add(time.Second))
 	if err != nil || second.Reason != "" || second.Method != "icmp-paris" {
 		t.Fatalf("sparse endpoint stopped the alternate: %+v %v", second, err)
 	}
@@ -119,16 +121,16 @@ func TestAdmittedComparisonContinuesAfterActivityExpires(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
 	tgt := target{"151.101.3.6", "udp", 443}
-	repo := repository{app: app}
+	repo := evidenceStore{app: app}
 	// Persist a first attempt as if the process restarted after its 45-second
 	// timeout. The remaining method must not require another browsing burst.
 	now := time.Now()
-	a, err := repo.reserve(session, "network", tgt, ConfigFromEnv(), false, now.Add(-time.Minute))
+	a, err := repo.reserve(routeBinding{Session: session, Network: "network", Target: tgt}, false, now.Add(-time.Minute))
 	if err != nil || a.Reason != "" {
 		t.Fatalf("first admission: %+v %v", a, err)
 	}
 	s := snapshot{Attempt: a.Attempt, Method: a.Method, Finished: now, Measured: now, Status: "failed", Error: "context deadline exceeded"}
-	if _, err = repo.publish(tgt.key("network"), "network", session, tgt, cacheEntry{}, s, s.Status, "measured", now); err != nil {
+	if _, err = repo.publish(publication{Binding: routeBinding{Session: session, Network: "network", Target: tgt}, Cache: cacheEntry{}, Snapshot: s, Provenance: "measured"}, now); err != nil {
 		t.Fatal(err)
 	}
 	p := idleComparisonProbe{make(chan string, 3)}
@@ -153,9 +155,10 @@ func TestAdmittedComparisonContinuesAfterActivityExpires(t *testing.T) {
 func TestConcurrentAdmissionCannotOverspendSessionTargets(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
-	repo := repository{app: app}
+	repo := evidenceStore{app: app}
 	config := ConfigFromEnv()
 	config.MaxTargets = 5
+	repo.config = config
 	var wg sync.WaitGroup
 	results := make(chan admission, 20)
 	errs := make(chan error, 20)
@@ -163,7 +166,7 @@ func TestConcurrentAdmissionCannotOverspendSessionTargets(t *testing.T) {
 		wg.Add(1)
 		go func(i int) {
 			defer wg.Done()
-			a, err := repo.reserve(session, fmt.Sprint("n", i), target{"9.9.9.9", "tcp", 443}, config, false, time.Now())
+			a, err := repo.reserve(routeBinding{Session: session, Network: fmt.Sprint("n", i), Target: target{"9.9.9.9", "tcp", 443}}, false, time.Now())
 			results <- a
 			errs <- err
 		}(i)
@@ -221,12 +224,12 @@ func TestAccessConsensusNeedsThreeDistinctDestinations(t *testing.T) {
 func Test5200PublicationsDoNotBecomeRoutes(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
-	repo := repository{app: app}
+	repo := evidenceStore{app: app}
 	tgt := target{"9.9.9.9", "tcp", 443}
 	at := time.Now()
 	for i := 0; i < 5200; i++ {
 		s := snapshot{Attempt: "silent", Revision: i, Status: "probing", Method: "tcp:443", Measured: at, Hops: []Hop{{TTL: 1, Missing: true, State: "no_reply"}}}
-		if _, e := repo.publish(tgt.key("n"), "n", session, tgt, cacheEntry{}, s, "probing", "measured", at); e != nil {
+		if _, e := repo.publish(publication{Binding: routeBinding{Session: session, Network: "n", Target: tgt}, Cache: cacheEntry{}, Snapshot: s, Provenance: "measured"}, at); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -237,7 +240,7 @@ func Test5200PublicationsDoNotBecomeRoutes(t *testing.T) {
 		}
 	}
 	s := useful(at, "good")
-	entry, e := repo.publish(tgt.key("n"), "n", session, tgt, cacheEntry{}, s, "reached", "measured", at)
+	entry, e := repo.publish(publication{Binding: routeBinding{Session: session, Network: "n", Target: tgt}, Cache: cacheEntry{}, Snapshot: s, Provenance: "measured"}, at)
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -245,7 +248,7 @@ func Test5200PublicationsDoNotBecomeRoutes(t *testing.T) {
 		s.Attempt = fmt.Sprint(i)
 		s.Measured = at.Add(time.Duration(i) * time.Second)
 		s.Finished = s.Measured
-		_, e = repo.publish(tgt.key("n"), "n", session, tgt, entry, s, "reached", "measured", s.Measured)
+		_, e = repo.publish(publication{Binding: routeBinding{Session: session, Network: "n", Target: tgt}, Cache: entry, Snapshot: s, Provenance: "measured"}, s.Measured)
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -260,26 +263,25 @@ func Test5200PublicationsDoNotBecomeRoutes(t *testing.T) {
 func TestFiveSilentComparisonsPauseNetworkAndSurviveRestart(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
-	repo := repository{app: app}
-	c := ConfigFromEnv()
+	repo := evidenceStore{app: app}
 	now := time.Now()
 	for i := 0; i < 5; i++ {
 		tgt := target{fmt.Sprintf("8.8.8.%d", i+1), "tcp", 443}
 		for j := 0; j < 2; j++ {
 			now = now.Add(time.Second)
-			a, e := repo.reserve(session, "network", tgt, c, false, now)
+			a, e := repo.reserve(routeBinding{Session: session, Network: "network", Target: tgt}, false, now)
 			if e != nil || a.Reason != "" {
 				t.Fatalf("admission: %+v %v", a, e)
 			}
 			s := snapshot{Attempt: a.Attempt, Method: a.Method, Measured: now, Finished: now, Status: "unavailable"}
-			if _, e = repo.publish(tgt.key("network"), "network", session, tgt, cacheEntry{}, s, s.Status, "measured", now); e != nil {
+			if _, e = repo.publish(publication{Binding: routeBinding{Session: session, Network: "network", Target: tgt}, Cache: cacheEntry{}, Snapshot: s, Provenance: "measured"}, now); e != nil {
 				t.Fatal(e)
 			}
 		}
 	}
 	second := testSession(t, app)
-	freshRepo := repository{app: app}
-	a, e := freshRepo.reserve(second, "network", target{"9.9.9.9", "tcp", 443}, c, false, now.Add(time.Second))
+	freshRepo := evidenceStore{app: app}
+	a, e := freshRepo.reserve(routeBinding{Session: second, Network: "network", Target: target{"9.9.9.9", "tcp", 443}}, false, now.Add(time.Second))
 	if e != nil || a.Reason != "visibility_paused" {
 		t.Fatalf("lost persistent suppression: %+v %v", a, e)
 	}
@@ -292,12 +294,11 @@ func TestFiveSilentComparisonsPauseNetworkAndSurviveRestart(t *testing.T) {
 func TestPersistentAdmissionBudgets(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
-	repo := repository{app: app}
-	c := ConfigFromEnv()
+	repo := evidenceStore{app: app}
 	now := time.Now()
 	admitted := 0
 	for i := 0; i < 1000; i++ {
-		a, e := repo.reserve(session, "network", target{fmt.Sprintf("8.1.%d.%d", i/250, i%250+1), "tcp", 443}, c, false, now.Add(time.Duration(i)*time.Second))
+		a, e := repo.reserve(routeBinding{Session: session, Network: "network", Target: target{fmt.Sprintf("8.1.%d.%d", i/250, i%250+1), "tcp", 443}}, false, now.Add(time.Duration(i)*time.Second))
 		if e != nil {
 			t.Fatal(e)
 		}
@@ -308,12 +309,12 @@ func TestPersistentAdmissionBudgets(t *testing.T) {
 	if admitted != 20 {
 		t.Fatalf("admitted %d", admitted)
 	}
-	fresh := repository{app: app}
+	fresh := evidenceStore{app: app}
 	_, b, e := loadSessionBudget(app, session)
 	if e != nil || b.Attempts != 20 {
 		t.Fatal(b, e)
 	}
-	a, e := fresh.reserve(session, "network", target{"9.9.9.9", "tcp", 443}, c, false, now.Add(time.Hour))
+	a, e := fresh.reserve(routeBinding{Session: session, Network: "network", Target: target{"9.9.9.9", "tcp", 443}}, false, now.Add(time.Hour))
 	if e != nil || a.Reason != "target_budget" {
 		t.Fatal(a, e)
 	}
@@ -323,13 +324,13 @@ func TestSnapshotAndByteLimits(t *testing.T) {
 	session := testSession(t, app)
 	c := ConfigFromEnv()
 	c.MaxSnapshots = 2
-	repo := repository{app: app, config: c}
+	repo := evidenceStore{app: app, config: c}
 	tgt := target{"9.9.9.9", "tcp", 443}
 	now := time.Now()
 	for i := 0; i < 10; i++ {
 		s := useful(now, fmt.Sprint(i))
 		s.Hops[1].Address = fmt.Sprintf("8.8.8.%d", i+1)
-		if _, e := repo.publish(tgt.key("n"), "n", session, tgt, cacheEntry{}, s, "reached", "measured", now); e != nil {
+		if _, e := repo.publish(publication{Binding: routeBinding{Session: session, Network: "n", Target: tgt}, Cache: cacheEntry{}, Snapshot: s, Provenance: "measured"}, now); e != nil {
 			t.Fatal(e)
 		}
 	}
@@ -342,7 +343,7 @@ func TestSnapshotAndByteLimits(t *testing.T) {
 func TestTerminalRetriesAndNetworkRestartAreIdempotent(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
-	repo := repository{app: app}
+	repo := evidenceStore{app: app}
 	now := time.Now()
 	tgt := target{"9.9.9.9", "tcp", 443}
 	if err := repo.activateNetwork(session, "old", now); err != nil {
@@ -351,7 +352,7 @@ func TestTerminalRetriesAndNetworkRestartAreIdempotent(t *testing.T) {
 	s := useful(now, "one")
 	for _, id := range []string{"one", "two", "one", "two"} {
 		s.Attempt = id
-		if _, err := repo.publish(tgt.key("old"), "old", session, tgt, cacheEntry{}, s, "reached", "measured", now); err != nil {
+		if _, err := repo.publish(publication{Binding: routeBinding{Session: session, Network: "old", Target: tgt}, Cache: cacheEntry{}, Snapshot: s, Provenance: "measured"}, now); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -359,7 +360,7 @@ func TestTerminalRetriesAndNetworkRestartAreIdempotent(t *testing.T) {
 	if b.Duplicates != 1 || len(b.Completed) != 2 {
 		t.Fatalf("duplicate terminal callbacks changed counters: %+v", b)
 	}
-	fresh := repository{app: app}
+	fresh := evidenceStore{app: app}
 	if err := fresh.activateNetwork(session, "new", now.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
@@ -377,11 +378,11 @@ func TestByteLimitAndTerminalStateSurviveRejectedGeometry(t *testing.T) {
 	session := testSession(t, app)
 	c := ConfigFromEnv()
 	c.MaxBytes = 9000
-	repo := repository{app: app, config: c}
+	repo := evidenceStore{app: app, config: c}
 	now := time.Now()
 	tgt := target{"9.9.9.9", "tcp", 443}
 	s := useful(now, "large")
-	if _, err := repo.publish(tgt.key("n"), "n", session, tgt, cacheEntry{}, s, "reached", "measured", now); err != nil {
+	if _, err := repo.publish(publication{Binding: routeBinding{Session: session, Network: "n", Target: tgt}, Cache: cacheEntry{}, Snapshot: s, Provenance: "measured"}, now); err != nil {
 		t.Fatal(err)
 	}
 	rows, _ := app.FindAllRecords("routes")
@@ -395,7 +396,7 @@ func TestByteLimitAndTerminalStateSurviveRejectedGeometry(t *testing.T) {
 func TestExpiredVisibilityPauseAllowsOnlyOneFailedTrial(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
-	repo := repository{app: app}
+	repo := evidenceStore{app: app}
 	now := time.Now()
 	tgt := target{"9.9.9.9", "tcp", 443}
 	n := networkBudget{PausedUntil: now.Add(-time.Second), NoGain: []string{"1", "2", "3", "4", "5"}}
@@ -403,15 +404,15 @@ func TestExpiredVisibilityPauseAllowsOnlyOneFailedTrial(t *testing.T) {
 	if err := saveState(app, rec, n); err != nil {
 		t.Fatal(err)
 	}
-	a, err := repo.reserve(session, "n", tgt, ConfigFromEnv(), false, now)
+	a, err := repo.reserve(routeBinding{Session: session, Network: "n", Target: tgt}, false, now)
 	if err != nil || a.Reason != "" {
 		t.Fatal(a, err)
 	}
 	s := snapshot{Attempt: a.Attempt, Method: a.Method, Status: "unavailable", Measured: now, Finished: now}
-	if _, err := repo.publish(tgt.key("n"), "n", session, tgt, cacheEntry{}, s, s.Status, "measured", now); err != nil {
+	if _, err := repo.publish(publication{Binding: routeBinding{Session: session, Network: "n", Target: tgt}, Cache: cacheEntry{}, Snapshot: s, Provenance: "measured"}, now); err != nil {
 		t.Fatal(err)
 	}
-	next, err := repo.reserve(session, "n", target{"8.8.8.8", "tcp", 443}, ConfigFromEnv(), false, now.Add(time.Second))
+	next, err := repo.reserve(routeBinding{Session: session, Network: "n", Target: target{"8.8.8.8", "tcp", 443}}, false, now.Add(time.Second))
 	if err != nil || next.Reason != "visibility_paused" {
 		t.Fatal(next, err)
 	}

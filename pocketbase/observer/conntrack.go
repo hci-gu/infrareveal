@@ -14,7 +14,6 @@ import (
 
 	"myapp/debugtrace"
 	"myapp/netmeta"
-	"myapp/routing"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
@@ -41,7 +40,7 @@ type ConntrackSampler struct {
 	suppressed    map[string]struct{}
 	trace         debugtrace.Sink
 	routeSession  string
-	routeObserver func(routing.Flow)
+	routeObserver func(CommittedFlow)
 }
 
 func (f FlowSample) Key() string {
@@ -61,50 +60,41 @@ func NewConntrackSampler(path string, scope ObservationScope) *ConntrackSampler 
 	}
 }
 
-func StartConntrackSampler(ctx context.Context, app *pocketbase.PocketBase, path string, scope ObservationScope, sessionID func() string, trace debugtrace.Sink, routeObservers ...func(routing.Flow)) *ConntrackSampler {
-	sampler := NewConntrackSampler(path, scope)
-	sampler.trace = usableTraceSink(trace)
-	if len(routeObservers) > 0 {
-		sampler.routeObserver = routeObservers[0]
-	}
-	accountingPath := os.Getenv("CONNTRACK_ACCOUNTING_PATH")
-	if accountingPath == "" {
-		accountingPath = "/proc/sys/net/netfilter/nf_conntrack_acct"
-	}
-	if enabled, err := ensureConntrackAccounting(accountingPath); err != nil {
-		log.Printf("conntrack accounting unavailable at %s: %v; byte and packet counters may remain zero", accountingPath, err)
-	} else if enabled {
-		log.Printf("conntrack accounting enabled at %s; new flows will include byte and packet counters", accountingPath)
-	}
+// CommittedFlow describes a stored observation without depending on route scheduling.
+type CommittedFlow struct {
+	Baseline                  bool
+	ID, Session, IP, Protocol string
+	Port                      int
+	Bytes                     int64
+	At                        time.Time
+}
 
-	go func() {
-		ticker := time.NewTicker(time.Duration(boundedEnvInt("CONNTRACK_SAMPLE_MS", 1000, 250, 5000)) * time.Millisecond)
-		defer ticker.Stop()
+func (sampler *ConntrackSampler) run(ctx context.Context, app *pocketbase.PocketBase, sessionID func() string, interval time.Duration) {
 
-		var loggedMissing bool
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				sessionID := sessionID()
-				if sessionID == "" {
-					continue
-				}
-				err := sampler.sampleAndPersist(app, sessionID)
-				if err != nil {
-					if !loggedMissing {
-						log.Printf("conntrack observer unavailable at %s: %v", path, err)
-						loggedMissing = true
-					}
-					continue
-				}
-				loggedMissing = false
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	var loggedMissing bool
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			sessionID := sessionID()
+			if sessionID == "" {
+				continue
 			}
+			err := sampler.sampleAndPersist(app, sessionID)
+			if err != nil {
+				if !loggedMissing {
+					log.Printf("conntrack observer unavailable at %s: %v", sampler.path, err)
+					loggedMissing = true
+				}
+				continue
+			}
+			loggedMissing = false
 		}
-	}()
-
-	return sampler
+	}
 }
 
 func (sampler *ConntrackSampler) SuppressCurrentFlows() error {
@@ -168,7 +158,7 @@ func (sampler *ConntrackSampler) sampleAndPersist(app *pocketbase.PocketBase, se
 			return err
 		}
 		if sampler.routeObserver != nil {
-			sampler.routeObserver(routing.Flow{Baseline: baselineSession, ID: result.RecordID, Session: sessionID, IP: sample.DestinationIP, Protocol: sample.Protocol, Port: sample.DestinationPort, Bytes: sample.BytesIn + sample.BytesOut, At: result.ObservedAt})
+			sampler.routeObserver(CommittedFlow{Baseline: baselineSession, ID: result.RecordID, Session: sessionID, IP: sample.DestinationIP, Protocol: sample.Protocol, Port: sample.DestinationPort, Bytes: sample.BytesIn + sample.BytesOut, At: result.ObservedAt})
 		}
 		if result.Created {
 			wireBytes := traceCount(sample.BytesOut + sample.BytesIn)

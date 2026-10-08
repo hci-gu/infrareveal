@@ -34,11 +34,10 @@ type interfaceEnricher struct {
 	cache   map[string]InterfaceEvidence
 }
 
-func newInterfaceEnricher() *interfaceEnricher {
+func newInterfaceEnricher(path string) *interfaceEnricher {
 	e := &interfaceEnricher{cache: map[string]InterfaceEvidence{}, version: "unavailable"}
-	path := os.Getenv("ROUTE_ASN_DB")
 	if path == "" {
-		path = "./geoip/asn.mmdb"
+		path = defaultConfig().ASNDBPath
 	}
 	if db, err := maxminddb.Open(path); err == nil {
 		e.asn = db

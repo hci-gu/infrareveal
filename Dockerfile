@@ -8,12 +8,12 @@ COPY pocketbase/go.mod pocketbase/go.sum ./
 RUN go mod download
 
 COPY pocketbase/*.go ./
-COPY pocketbase/lib ./lib
 COPY pocketbase/migrations ./migrations
 COPY pocketbase/observer ./observer
+COPY pocketbase/gateway ./gateway
+COPY pocketbase/timeline ./timeline
 COPY pocketbase/routing ./routing
 COPY pocketbase/cmd/route-diagnose ./cmd/route-diagnose
-COPY pocketbase/parser ./parser
 COPY pocketbase/debugtrace ./debugtrace
 COPY pocketbase/labgate ./labgate
 COPY pocketbase/netmeta ./netmeta

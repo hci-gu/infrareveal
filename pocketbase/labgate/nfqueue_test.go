@@ -11,7 +11,7 @@ import (
 
 func TestPacketMetadataCopiesOnlyHeaderSummary(t *testing.T) {
 	packetBytes := makeIPv4TCPPacket("10.0.0.2", "1.1.1.1", 50123, 443, 0x02, 900)
-	metadata, err := packetMetadata(12, packetBytes[:40], uint32(len(packetBytes)), time.Unix(100, 0), netip.MustParsePrefix("10.0.0.0/24"))
+	metadata, err := packetMetadataForMode(12, packetBytes[:40], uint32(len(packetBytes)), time.Unix(100, 0), netip.MustParsePrefix("10.0.0.0/24"), ModeFlow)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,11 +26,11 @@ func TestPacketMetadataCopiesOnlyHeaderSummary(t *testing.T) {
 
 func TestPacketMetadataRejectsUnorientedAndMalformed(t *testing.T) {
 	subnet := netip.MustParsePrefix("10.0.0.0/24")
-	if _, err := packetMetadata(1, []byte{0x45}, 1, time.Now(), subnet); err == nil {
+	if _, err := packetMetadataForMode(1, []byte{0x45}, 1, time.Now(), subnet, ModeFlow); err == nil {
 		t.Fatal("truncated packet accepted")
 	}
 	packet := makeIPv4TCPPacket("1.1.1.1", "8.8.8.8", 1000, 443, 0x02, 0)
-	if _, err := packetMetadata(1, packet, uint32(len(packet)), time.Now(), subnet); err == nil {
+	if _, err := packetMetadataForMode(1, packet, uint32(len(packet)), time.Now(), subnet, ModeFlow); err == nil {
 		t.Fatal("unoriented packet accepted")
 	}
 }

@@ -60,7 +60,7 @@ func TestActivityRetentionPreservesActiveSessions(t *testing.T) {
 	createActivityTestChunkRecord(t, app, active.Id, createActivityTestFlow(t, app, active.Id, "tcp|10.0.0.50|1|1.1.1.1|443").Id, old)
 	createActivityTestChunkRecord(t, app, inactive.Id, createActivityTestFlow(t, app, inactive.Id, "tcp|10.0.0.51|2|1.0.0.1|443").Id, old)
 
-	deleted, err := pruneExpiredActivityChunks(app, time.Now().Add(-24*time.Hour), 200)
+	deleted, err := PruneInactiveActivity(app, time.Now().Add(-24*time.Hour), 200)
 	if err != nil {
 		t.Fatalf("prune activity chunks: %v", err)
 	}

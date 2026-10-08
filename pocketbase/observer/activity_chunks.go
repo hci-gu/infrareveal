@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/pocketbase/dbx"
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -64,12 +63,7 @@ func persistActivityChunk(app core.App, snapshot ActivityChunkSnapshot) (activit
 	}
 	record.Set("bucket_ms", snapshot.BucketMS)
 	record.Set("chunk_ms", snapshot.ChunkMS)
-	record.Set("samples", map[string]any{
-		"version":   1,
-		"bucket_ms": snapshot.BucketMS,
-		"chunk_ms":  snapshot.ChunkMS,
-		"samples":   samples,
-	})
+	record.Set("samples", ActivitySamplePayload{Version: 1, BucketMS: snapshot.BucketMS, ChunkMS: snapshot.ChunkMS, Samples: samples})
 	record.Set("wire_bytes_out", snapshot.WireBytesOut)
 	record.Set("wire_bytes_in", snapshot.WireBytesIn)
 	record.Set("payload_bytes_out", snapshot.PayloadBytesOut)
@@ -174,7 +168,7 @@ func upsertActivityCaptureStatus(app core.App, status ActivityCaptureStatus) err
 	return app.Save(record)
 }
 
-func pruneExpiredActivityChunks(app *pocketbase.PocketBase, cutoff time.Time, limit int) (int, error) {
+func PruneInactiveActivity(app core.App, cutoff time.Time, limit int) (int, error) {
 	if limit <= 0 {
 		limit = 200
 	}

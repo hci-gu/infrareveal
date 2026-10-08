@@ -21,6 +21,7 @@ type MultiplexQueue struct {
 	ready     chan struct{}
 	readyOnce sync.Once
 	closeOnce sync.Once
+	closeErr  error
 	mu        sync.Mutex
 	owners    map[uint32]packetOwner
 	nextID    atomic.Uint32
@@ -43,7 +44,11 @@ func (queue *MultiplexQueue) Ready() <-chan struct{} { return queue.ready }
 
 func (queue *MultiplexQueue) Start(ctx context.Context, handler func(QueuedPacket)) error {
 	runCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
+	var workers sync.WaitGroup
+	defer func() {
+		cancel()
+		workers.Wait()
+	}()
 	type result struct {
 		mode Mode
 		err  error
@@ -52,25 +57,24 @@ func (queue *MultiplexQueue) Start(ctx context.Context, handler func(QueuedPacke
 	ready := make(chan Mode, len(queue.queues))
 	for mode, child := range queue.queues {
 		mode, child := mode, child
+		workers.Add(2)
 		go func() {
-			go func() {
-				results <- result{mode, child.Start(runCtx, func(packet QueuedPacket) {
-					virtualID := queue.nextID.Add(1)
-					queue.mu.Lock()
-					queue.owners[virtualID] = packetOwner{queue: child, realID: packet.ID}
-					queue.mu.Unlock()
-					packet.ID, packet.QueueMode = virtualID, mode
-					handler(packet)
-				})}
-			}()
-			if readyChild, ok := child.(ReadyPacketQueue); ok {
-				select {
-				case <-readyChild.Ready():
-					ready <- mode
-				case <-runCtx.Done():
-				}
-			} else {
+			defer workers.Done()
+			results <- result{mode, child.Start(runCtx, func(packet QueuedPacket) {
+				virtualID := queue.nextID.Add(1)
+				queue.mu.Lock()
+				queue.owners[virtualID] = packetOwner{queue: child, realID: packet.ID}
+				queue.mu.Unlock()
+				packet.ID, packet.QueueMode = virtualID, mode
+				handler(packet)
+			})}
+		}()
+		go func() {
+			defer workers.Done()
+			select {
+			case <-child.Ready():
 				ready <- mode
+			case <-runCtx.Done():
 			}
 		}()
 	}
@@ -126,16 +130,15 @@ func (queue *MultiplexQueue) Stats() QueueStats {
 }
 
 func (queue *MultiplexQueue) Close() error {
-	var result error
 	queue.closeOnce.Do(func() {
 		for _, child := range queue.queues {
-			result = errors.Join(result, child.Close())
+			queue.closeErr = errors.Join(queue.closeErr, child.Close())
 		}
 		queue.mu.Lock()
 		clear(queue.owners)
 		queue.mu.Unlock()
 	})
-	return result
+	return queue.closeErr
 }
 
-var _ ReadyPacketQueue = (*MultiplexQueue)(nil)
+var _ PacketQueue = (*MultiplexQueue)(nil)

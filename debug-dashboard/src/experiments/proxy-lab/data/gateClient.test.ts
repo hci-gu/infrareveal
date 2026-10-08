@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { GateClient } from './gateClient'
+import fixture from '../../../../../testdata/gate-event-contract-v1.json'
+import type { GateDecision } from '../types'
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -64,3 +66,22 @@ function statusFixture() {
     queue: { queueDepth: 0, kernelDrops: 0, userDrops: 0, parseBypass: 0 },
   }
 }
+
+describe('gate control wire contract', () => {
+  it('reads the shared decision response without losing mode, byte counts or terminal reconciliation', async () => {
+    const decision = fixture.controlDecision as GateDecision
+    const fetchMock = vi.fn(async (_input: unknown, options?: RequestInit) => {
+      expect(new Headers(options?.headers).get('Authorization')).toBe('Bearer fixture-token')
+      return Response.json(options?.method === 'POST'
+        ? { requestId: 'fixture-request', result: decision, alreadyTerminal: true }
+        : { requestId: 'fixture-request', decisions: [decision] })
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const client = new GateClient('fixture-token', 'http://gateway.test/')
+    expect(await client.pending()).toEqual([decision])
+    const result = await client.decide(decision.id, 'drop', 'fixture')
+    expect(result).toEqual({ requestId: 'fixture-request', result: decision, alreadyTerminal: true })
+    expect(fetchMock.mock.calls[1][1]?.body).toBe(JSON.stringify({ verdict: 'drop', actor: 'fixture' }))
+    expect(decision.decidedAtMs! - decision.queuedAtMs).toBe(decision.waitMs)
+  })
+})

@@ -14,7 +14,7 @@ import (
 	"time"
 )
 
-type commandProbe struct {
+type tracerouteProbe struct {
 	deadline   time.Duration
 	executable string
 }
@@ -88,7 +88,7 @@ func (b *outputBuffer) copy() ([]byte, bool) {
 	return bytes.Clone(b.b.Bytes()), b.overflow
 }
 
-func (p commandProbe) Run(parent context.Context, t target, plan probePlan, publish func(snapshot)) snapshot {
+func (p tracerouteProbe) Run(parent context.Context, t target, plan probePlan, publish func(snapshot)) snapshot {
 	deadline := p.deadline
 	outstanding, wait := "1", "1"
 

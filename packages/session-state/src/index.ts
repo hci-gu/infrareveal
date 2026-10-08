@@ -4,14 +4,11 @@ export type { FlowTrackIdentity, FlowTrackIndex } from './data/flowTracks'
 
 export {
   clearGatewayData,
-  createCollectionSessionManifest,
   emptyGatewayData,
-  formatPocketBaseDate,
-  getGatewayData,
-  getCollectionSessionWindow,
   getSessionManifest,
   getSessions,
   getSessionWindow,
+  readActivityChunkSummaries,
   pb,
 } from './data/pocketbaseClient'
 export type { ClearGatewayDataResult, RealtimeEvent } from './data/pocketbaseClient'
@@ -54,7 +51,7 @@ export { getRouteDiscoveryStatus } from './data/pocketbaseClient'
 export type { RouteDiscoveryStatus } from './data/pocketbaseClient'
 
 export { routeTopology, routeCollectionStateLabel, applyRouteEvidenceAt, previousRouteForFlowAt } from './data/routeEvidence'
-export { measureRoute, extendRouteBudget, getRouteOutcomes } from './data/pocketbaseClient'
+export { measureRoute, extendRouteBudget } from './data/pocketbaseClient'
 export { useRouteDiscovery } from './data/useRouteDiscovery'
 
 export { getDemoStatus } from "./data/pocketbaseClient"

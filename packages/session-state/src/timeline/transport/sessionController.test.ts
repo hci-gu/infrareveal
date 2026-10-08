@@ -3,6 +3,7 @@ import type { SessionWindow } from '../../data/types'
 import { resetSessionTimeline, sessionTimelineStore } from '../store/sessionStore'
 import { sessionController } from './sessionController'
 import { getSessions, getSessionManifest, getSessionWindow, pb } from '../../data/pocketbaseClient'
+import contract from '../../../../../testdata/session-timeline-contract-v1.json'
 vi.mock('../../data/pocketbaseClient', () => ({ getSessionWindow: vi.fn(), getCollectionSessionWindow: vi.fn(), getSessions: vi.fn(), getSessionManifest: vi.fn(), createCollectionSessionManifest: vi.fn(), pb: { collection: vi.fn() } }))
 const requests: { signal: AbortSignal; resolve: () => void; reject: (e: Error) => void }[] = []
 beforeEach(() => {
@@ -18,6 +19,17 @@ beforeEach(() => {
 })
 afterEach(() => { sessionController.dispose(); vi.useRealTimers(); vi.unstubAllGlobals() })
 describe('detail request owners', () => {
+  it('keeps gate history when more than 200 selected flows require separate requests', async () => {
+    const window = contract.window as unknown as SessionWindow
+    resetSessionTimeline(contract.session.id, [contract.session])
+    vi.mocked(getSessionWindow).mockResolvedValueOnce({ ...window, gateEvents: [{ ...window.gateEvents[0], id: 'gate-batch-one' }] })
+      .mockResolvedValueOnce({ ...window, gateEvents: [{ ...window.gateEvents[0], id: 'gate-batch-two' }] })
+    const flowIds = [window.flows[0].id, ...Array.from({ length: 200 }, (_, index) => `flow-${index}`)]
+    await sessionController.ensureDetailRange(Date.parse(window.range.from), Date.parse(window.range.to), flowIds, '50ms')
+    expect([...sessionTimelineStore.getState().entities.gateEvents.keys()]).toEqual(['gate-batch-one', 'gate-batch-two'])
+    expect([...sessionTimelineStore.getState().pages.values()][0].ownership.gateEvents.size).toBe(2)
+  })
+
   it('lets the visible window and a pinned inspector load independently', async () => {
     const visible = sessionController.ensureDetailRange(0, 1000, ['visible'], '50ms', 'tracks')
     const pinned = sessionController.ensureDetailRange(120000, 121000, ['selected'], '50ms', 'inspector')

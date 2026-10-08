@@ -2,8 +2,6 @@ package observer
 
 import (
 	"context"
-	"sync"
-	"sync/atomic"
 	"testing"
 	"time"
 
@@ -30,44 +28,21 @@ func TestUnmatchedActivityDoesNotBecomeCaptureLoss(t *testing.T) {
 			orphan.FlowKey = "tcp|10.0.0.50|63995|104.16.185.241|443"
 			orphan.WireBytes, orphan.PayloadBytes = 54, 0
 
-			ctx, cancel := context.WithCancel(context.Background())
-			var workers sync.WaitGroup
-			t.Cleanup(func() { cancel(); workers.Wait() })
-			events := make(chan PacketActivityEvent, 2)
-			requests := make(chan activityPersistRequest, 16)
-			acks := make(chan activityPersistAck, 16)
-			states := make(chan captureStateEvent, 1)
-			var dropped atomic.Int64
-			if queueLoss {
-				full := make(chan PacketActivityEvent, 1)
-				enqueuePacketActivity(full, healthy, &dropped)
-				enqueuePacketActivity(full, healthy, &dropped)
-			}
-			events <- orphan
-			events <- healthy
-			states <- captureStateEvent{running: true}
 			config := PacketActivityConfig{Enabled: true, Interface: "fixture", BucketDuration: 50 * time.Millisecond, ChunkDuration: 5 * time.Second, MaxPendingChunks: 16, FlushInterval: 10 * time.Millisecond, PendingTTL: 5 * time.Second}
-			workers.Add(2)
-			go func() {
-				defer workers.Done()
-				runPacketActivityPipeline(ctx, app, func() string { return session.Id }, config, events, requests, acks, states, &dropped, debugtrace.NopSink{})
-			}()
-			go func() {
-				defer workers.Done()
-				for {
-					select {
-					case <-ctx.Done():
-						return
-					case request := <-requests:
-						result, err := persistActivityChunk(app, request.snapshot)
-						select {
-						case acks <- activityPersistAck{key: request.snapshot.Key, generation: request.snapshot.Generation, result: result, err: err}:
-						case <-ctx.Done():
-							return
-						}
-					}
+			pipeline := startPacketPipeline(app, NewObservationScope("10.0.0.", "10.0.0.1"), func() string { return session.Id }, config, debugtrace.NopSink{}, nil)
+			t.Cleanup(func() {
+				ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+				defer cancel()
+				if err := pipeline.Close(ctx); err != nil {
+					t.Error(err)
 				}
-			}()
+			})
+			if queueLoss {
+				pipeline.dropped.Add(1)
+			}
+			pipeline.events <- orphan
+			pipeline.events <- healthy
+			pipeline.states <- captureStateEvent{running: true}
 			deadline := time.Now().Add(4 * time.Second)
 			for time.Now().Before(deadline) {
 				status, err := app.FindFirstRecordByFilter("flow_activity_status", "session={:session}", map[string]any{"session": session.Id})
@@ -76,8 +51,8 @@ func TestUnmatchedActivityDoesNotBecomeCaptureLoss(t *testing.T) {
 					if queueLoss {
 						wantDropped = 1
 					}
-					if status.GetInt("dropped_events") != wantDropped || dropped.Load() != int64(wantDropped) {
-						t.Fatalf("unmatched expiry counted as queue loss: status=%d counter=%d want=%d", status.GetInt("dropped_events"), dropped.Load(), wantDropped)
+					if status.GetInt("dropped_events") != wantDropped || pipeline.dropped.Load() != int64(wantDropped) {
+						t.Fatalf("unmatched expiry counted as queue loss: status=%d counter=%d want=%d", status.GetInt("dropped_events"), pipeline.dropped.Load(), wantDropped)
 					}
 					chunks, err := app.FindAllRecords("flow_activity_chunks")
 					if err != nil || len(chunks) != 1 {
@@ -101,7 +76,7 @@ func TestUnmatchedActivityDoesNotBecomeCaptureLoss(t *testing.T) {
 				}
 				time.Sleep(20 * time.Millisecond)
 			}
-			t.Fatalf("unmatched diagnostic was not recorded separately; capture drops=%d", dropped.Load())
+			t.Fatalf("unmatched diagnostic was not recorded separately; capture drops=%d", pipeline.dropped.Load())
 		})
 	}
 }

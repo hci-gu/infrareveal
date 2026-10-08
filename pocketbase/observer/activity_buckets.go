@@ -198,3 +198,23 @@ func saturatingAdd(left, right int64) int64 {
 	}
 	return left + right
 }
+
+// ExpirePending avoids materializing and sorting every dirty chunk for one ack.
+func (aggregator *ActivityAggregator) ExpirePending(key string, ttl time.Duration, now time.Time) (int64, bool) {
+	state := aggregator.chunks[key]
+	if state == nil || !state.dirty || now.Sub(state.FirstObservedAt) <= ttl {
+		return 0, false
+	}
+	delete(aggregator.chunks, key)
+	return state.PacketsIn + state.PacketsOut, true
+}
+
+func (aggregator *ActivityAggregator) dirtyCount() int {
+	count := 0
+	for _, state := range aggregator.chunks {
+		if state.dirty {
+			count++
+		}
+	}
+	return count
+}

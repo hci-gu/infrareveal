@@ -72,14 +72,14 @@ func TestFirewallClientValidationUsesArgumentArrays(t *testing.T) {
 		t.Fatal(err)
 	}
 	clients := []netip.Addr{netip.MustParseAddr("10.0.0.2"), netip.MustParseAddr("10.0.0.3")}
-	if err := rules.SetClients(context.Background(), clients); err != nil {
+	if err := rules.Activate(context.Background(), RuleSelection{Mode: ModeFlow, Clients: clients}); err != nil {
 		t.Fatal(err)
 	}
 	if findCommand(runner.commands, "ipset", []string{"add", labClientSet, "10.0.0.2", "-exist"}) < 0 {
 		t.Fatal("client was not added as a distinct argument")
 	}
 	before := len(runner.commands)
-	if err := rules.SetClients(context.Background(), []netip.Addr{netip.MustParseAddr("192.168.1.2")}); err == nil {
+	if err := rules.Activate(context.Background(), RuleSelection{Mode: ModeFlow, Clients: []netip.Addr{netip.MustParseAddr("192.168.1.2")}}); err == nil {
 		t.Fatal("out-of-subnet client accepted")
 	}
 	if !reflect.DeepEqual(runner.commands[len(runner.commands)-1], recordedCommand{"ipset", []string{"flush", labClientSet}}) || len(runner.commands) <= before {

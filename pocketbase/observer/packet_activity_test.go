@@ -55,3 +55,9 @@ func TestPacketActivityConfigValidatesEnvironment(t *testing.T) {
 		t.Fatalf("expected explicit capture interface, got %q", config.Interface)
 	}
 }
+
+func expirePendingActivity(aggregator *ActivityAggregator, key string, ttl time.Duration, now time.Time, unmatched *atomic.Int64) bool {
+	count, expired := aggregator.ExpirePending(key, ttl, now)
+	unmatched.Add(count)
+	return expired
+}

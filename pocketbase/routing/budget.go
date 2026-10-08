@@ -21,7 +21,7 @@ type bindingBudget struct {
 }
 
 func (v bindingBudget) comparisonPending(t target) bool {
-	return v.Attempts > 0 && v.Attempts < len(qualityMethods(t)) && !v.Useful
+	return v.Attempts > 0 && v.Attempts < len(probeMethods(t)) && !v.Useful
 }
 
 type sessionBudget struct {
@@ -62,6 +62,7 @@ type outcome struct {
 	Error      string `json:"error,omitempty"`
 }
 type admission struct {
+	Binding                 routeBinding
 	Method, Attempt, Reason string
 	Sequence                uint32
 	SourcePort              int
@@ -143,19 +144,12 @@ func loadSessionBudgetAt(app core.App, session string, now time.Time) (*core.Rec
 	}
 	return r, b, e
 }
-func (r repository) budgets(session, network string, t target) (sessionBudget, networkBudget, error) {
-	_, b, e := loadSessionBudget(r.app, session)
-	if e != nil {
-		return b, networkBudget{}, e
-	}
-	n := networkBudget{}
-	_, e = loadState(r.app, networkKey(network, t), &n)
-	return b, n, e
-}
 
 // reserve charges before starting the process. Crashes and cancelled starts never
 // refund probe allowances. The transaction is also the multi-caller admission lock.
-func (r repository) reserve(session, network string, t target, c Config, manual bool, now time.Time) (admission, error) {
+func (r evidenceStore) reserve(binding routeBinding, manual bool, now time.Time) (admission, error) {
+	session, network, t := binding.Session, binding.Network, binding.Target
+	c := r.limits()
 	if network == "unknown" || network == "" {
 		return admission{Reason: "network_unavailable"}, nil
 	}
@@ -216,7 +210,7 @@ func (r repository) reserve(session, network string, t target, c Config, manual 
 			if v.Useful {
 				return reject("useful_path_saved")
 			}
-			if v.Attempts >= len(qualityMethods(t)) {
+			if v.Attempts >= len(probeMethods(t)) {
 				return reject("comparison_finished")
 			}
 			if b.Attempts >= c.MaxAttempts+b.ExtraAttempts {
@@ -232,10 +226,10 @@ func (r repository) reserve(session, network string, t target, c Config, manual 
 				return reject("target_budget")
 			}
 		}
-		methods := qualityMethods(t)
+		methods := probeMethods(t)
 		method := methods[min(v.Attempts, len(methods)-1)]
 		if manual {
-			method = qualityMethods(t)[0]
+			method = probeMethods(t)[0]
 		}
 		// Negative state outlives session changes. The alternate gets its own key.
 		negative := struct {
@@ -291,13 +285,13 @@ func (r repository) reserve(session, network string, t target, c Config, manual 
 		if err := saveState(app, ir, identity); err != nil {
 			return err
 		}
-		result = admission{Method: method, Attempt: attempt, Sequence: identity.Sequence, SourcePort: 40000 + int(identity.Sequence%20000)}
+		result = admission{Binding: binding, Method: method, Attempt: attempt, Sequence: identity.Sequence, SourcePort: 40000 + int(identity.Sequence%20000)}
 		return nil
 	})
 	return result, err
 }
 
-func (r repository) extend(session string) error {
+func (r evidenceStore) extend(session string) error {
 	return r.app.RunInTransaction(func(app core.App) error {
 		active, err := app.FindRecordById("sessions", session)
 		if err != nil || !active.GetBool("active") {

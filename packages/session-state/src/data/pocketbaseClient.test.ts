@@ -1,7 +1,7 @@
+import { formatPocketBaseDate } from './collectionTransport'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { Flow, SessionWindow } from './types'
 import {
-  formatPocketBaseDate,
   getCollectionSessionWindow,
   getSessionManifest,
   getSessionWindow,

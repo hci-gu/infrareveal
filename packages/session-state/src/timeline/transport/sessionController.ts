@@ -1,3 +1,4 @@
+import { mergeSessionWindows } from '../../data/sessionData'
 import {
   createCollectionSessionManifest,
   getCollectionSessionWindow,
@@ -350,7 +351,7 @@ class SessionController {
         flowIds: batch,
         signal,
       })
-      merged = merged ? mergeWindows(merged, window) : window
+      merged = merged ? mergeSessionWindows(merged, window) : window
     }
     if (signal.aborted || !merged || sessionTimelineStore.getState().selectedSessionId !== sessionId) return
     applySessionWindow(merged, {
@@ -427,28 +428,6 @@ function chunk<T>(values: T[], size: number) {
   const result: T[][] = []
   for (let index = 0; index < values.length; index += size) result.push(values.slice(index, index + size))
   return result
-}
-
-function mergeWindows(target: SessionWindow, incoming: SessionWindow) {
-  const result = { ...target }
-  result.flows = mergeById(target.flows, incoming.flows)
-  result.dnsQueries = mergeById(target.dnsQueries, incoming.dnsQueries)
-  result.attributions = mergeById(target.attributions, incoming.attributions)
-  result.activityEpisodes = mergeById(target.activityEpisodes, incoming.activityEpisodes)
-  result.flowAssociations = mergeById(target.flowAssociations, incoming.flowAssociations)
-  result.flowActivityChunks = mergeById(target.flowActivityChunks, incoming.flowActivityChunks)
-  result.flowActivityWindows = mergeById(target.flowActivityWindows, incoming.flowActivityWindows)
-  result.flowActivityStatuses = mergeById(target.flowActivityStatuses, incoming.flowActivityStatuses)
-  result.destinations = mergeById(target.destinations, incoming.destinations)
-  result.routes = mergeById(target.routes, incoming.routes)
-  result.watermark = incoming.watermark || target.watermark
-  return result
-}
-
-function mergeById<T extends { id: string }>(left: T[], right: T[]) {
-  const records = new Map(left.map((record) => [record.id, record]))
-  for (const record of right) records.set(record.id, record)
-  return Array.from(records.values())
 }
 
 function normalizeError(error: unknown) {

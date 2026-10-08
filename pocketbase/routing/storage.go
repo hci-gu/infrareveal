@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"strings"
 	"time"
 
@@ -15,7 +16,7 @@ import (
 	"myapp/netmeta"
 )
 
-type repository struct {
+type evidenceStore struct {
 	app        core.App
 	geo        *geoip2.Reader
 	geoVersion string
@@ -23,14 +24,22 @@ type repository struct {
 	config     Config
 }
 
-func (r repository) limits() Config {
+func newEvidenceStore(app core.App, geo *geoip2.Reader, config Config) evidenceStore {
+	version := "unknown"
+	if f, err := os.Stat("./geoip/city.mmdb"); err == nil {
+		version = fmt.Sprintf("%d/%d", f.Size(), f.ModTime().Unix())
+	}
+	return evidenceStore{app: app, geo: geo, geoVersion: version, locations: map[string]*Location{}, config: config}
+}
+
+func (r evidenceStore) limits() Config {
 	if r.config.MaxSnapshots == 0 {
-		return ConfigFromEnv()
+		return defaultConfig()
 	}
 	return r.config
 }
 
-func (r repository) activateNetwork(session, network string, now time.Time) error {
+func (r evidenceStore) activateNetwork(session, network string, now time.Time) error {
 	if session == "" || network == "unknown" {
 		return nil
 	}
@@ -60,7 +69,7 @@ func (r repository) activateNetwork(session, network string, now time.Time) erro
 			}
 		}
 		for previous := range old {
-			if err := (repository{app: app}).invalidateSession(session, previous, now); err != nil {
+			if err := (evidenceStore{app: app}).invalidateSession(session, previous, now); err != nil {
 				return err
 			}
 		}
@@ -72,7 +81,7 @@ func (r repository) activateNetwork(session, network string, now time.Time) erro
 
 // One epoch event invalidates all evidence from the old source context, including
 // bindings no longer in the demand queue. It is never a fake empty route.
-func (r repository) invalidateSession(session, network string, now time.Time) error {
+func (r evidenceStore) invalidateSession(session, network string, now time.Time) error {
 	if session == "" {
 		return nil
 	}
@@ -99,7 +108,7 @@ func (r repository) invalidateSession(session, network string, now time.Time) er
 		return app.Save(rec)
 	})
 }
-func (r repository) location(ip string) *Location {
+func (r evidenceStore) location(ip string) *Location {
 	if !netmeta.PublicAddress(ip) || r.geo == nil {
 		return nil
 	}
@@ -122,7 +131,7 @@ func (r repository) location(ip string) *Location {
 	}
 	return loc
 }
-func (r repository) enrich(s snapshot, t target) snapshot {
+func (r evidenceStore) enrich(s snapshot, t target) snapshot {
 	s.Hops = append([]Hop(nil), s.Hops...)
 	for i := range s.Hops {
 		h := &s.Hops[i]
@@ -155,7 +164,7 @@ func (r repository) enrich(s snapshot, t target) snapshot {
 	s.Location = r.location(t.IP)
 	return s
 }
-func (r repository) load(key string) (cacheEntry, error) {
+func (r evidenceStore) load(key string) (cacheEntry, error) {
 	rec, e := r.app.FindFirstRecordByFilter("route_cache", "cache_key={:key}", dbx.Params{"key": key})
 	if errors.Is(e, sql.ErrNoRows) {
 		return cacheEntry{}, nil
@@ -183,8 +192,6 @@ func saveCache(app core.App, key string, e cacheEntry, now time.Time) error {
 		return err
 	}
 	// No duplicate per-method copies or raw failed hop arrays in cache.
-	e.Methods = nil
-	e.Last = snapshot{}
 	rec.Set("entry", e)
 	rec.Set("last_used_at", date(now))
 	return app.Save(rec)
@@ -210,7 +217,10 @@ func compactHops(hops []Hop) []Hop {
 
 // publish is the single persistent path gate. Progress without a new useful
 // path writes nothing; terminal failures get one mutable outcome, not a route.
-func (r repository) publish(key, network, session string, t target, entry cacheEntry, s snapshot, state, provenance string, now time.Time) (cacheEntry, error) {
+func (r evidenceStore) publish(p publication, now time.Time) (cacheEntry, error) {
+	key, network, session, t := p.Binding.key(), p.Binding.Network, p.Binding.Session, p.Binding.Target
+	entry, s, provenance := p.Cache, p.Snapshot, p.Provenance
+	state := s.Status
 	if session == "" {
 		return entry, nil
 	}
@@ -273,7 +283,7 @@ func (r repository) publish(key, network, session string, t target, entry cacheE
 					if state == "failed" && capabilityFailure(s.Error) {
 						n.CapabilityUntil = now.Add(5 * time.Minute)
 					}
-					if v.Attempts >= len(qualityMethods(t)) && !capabilityFailure(s.Error) {
+					if v.Attempts >= len(probeMethods(t)) && !capabilityFailure(s.Error) {
 						found := false
 						for _, ip := range n.NoGain {
 							if ip == t.IP {
@@ -444,7 +454,6 @@ func (r repository) publish(key, network, session string, t target, entry cacheE
 		entry.Best = shown
 		entry.FreshUntil = fresh
 		entry.ValidUntil = valid
-		entry.Last = snapshot{}
 		if e = saveCache(app, key, entry, now); e != nil {
 			return e
 		}
@@ -453,7 +462,12 @@ func (r repository) publish(key, network, session string, t target, entry cacheE
 		}
 		return saveState(app, sr, b)
 	})
-	return entry, err
+	if err != nil {
+		// The transaction may have reached cache construction before a later save
+		// failed. Never expose that uncommitted evidence to the scheduler.
+		return p.Cache, err
+	}
+	return entry, nil
 }
 func capabilityFailure(message string) bool {
 	s := strings.ToLower(message)
@@ -528,18 +542,6 @@ func writeEvidenceUpdate(app core.App, session, network, routeID, kind, identity
 	b.Updates++
 	b.Bytes += len(data) + 512
 	return nil
-}
-func (r repository) prune(now time.Time) error {
-	_, e := r.app.DB().NewQuery(`DELETE FROM route_cache WHERE id IN (SELECT id FROM route_cache ORDER BY last_used_at DESC LIMIT -1 OFFSET 1000) OR last_used_at < {:cut}`).Bind(dbx.Params{"cut": now.Add(-24 * time.Hour).UTC().Format("2006-01-02 15:04:05.000Z")}).Execute()
-	if e != nil {
-		return e
-	}
-	_, e = r.app.DB().NewQuery(`DELETE FROM route_budget_state WHERE (key LIKE 'negative:%' OR key LIKE 'network:%') AND julianday(available_at) < julianday({:cut})`).Bind(dbx.Params{"cut": date(now.Add(-24 * time.Hour))}).Execute()
-	if e != nil {
-		return e
-	}
-	_, e = r.app.DB().NewQuery(`DELETE FROM route_observations WHERE julianday(measured_at) < julianday({:cut}) AND NOT EXISTS (SELECT 1 FROM routes WHERE observation_id=route_observations.id)`).Bind(dbx.Params{"cut": date(now.Add(-24 * time.Hour))}).Execute()
-	return e
 }
 func probeDetails(s snapshot) map[string]any {
 	replies := 0

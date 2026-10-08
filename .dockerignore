@@ -11,7 +11,6 @@ data
 
 pocketbase/.DS_Store
 pocketbase/infra-reveal
-pocketbase/install-go.sh
 pocketbase/notes.txt
 pocketbase/pb_data
 **/__pycache__

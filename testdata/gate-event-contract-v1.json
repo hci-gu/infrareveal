@@ -1,0 +1,150 @@
+{
+  "record": {
+    "id": "gatefixture0001",
+    "session": "sessionfixture1",
+    "decision_id": "decision-fixture",
+    "flow_key": "tcp|10.0.0.50|53000|1.1.1.1|443",
+    "client_ip": "10.0.0.50",
+    "destination_ip": "1.1.1.1",
+    "source_port": 53000,
+    "destination_port": 443,
+    "protocol": "tcp",
+    "mode": "flow",
+    "direction": "client_to_remote",
+    "wire_bytes": 60,
+    "payload_bytes": 0,
+    "tcp_flags": 2,
+    "packet_count": 1,
+    "state": "rejected",
+    "actor": "fixture",
+    "reason": "contract test",
+    "verdict_source": "operator",
+    "queued_at": "2026-09-10T12:00:00.010Z",
+    "decided_at": "2026-09-10T12:00:00.025Z",
+    "wait_ms": 15,
+    "created": "2026-09-10T12:00:00.010Z",
+    "updated": "2026-09-10T12:00:00.025Z"
+  },
+  "live": [
+    {
+      "id": "gate:decision-fixture:queued",
+      "sequence": 41,
+      "sessionId": "sessionfixture1",
+      "traceId": "tcp|10.0.0.50|53000|1.1.1.1|443",
+      "kind": "gate",
+      "stage": "gate_queue",
+      "direction": "client_to_remote",
+      "occurredAtMs": 1789041600010,
+      "timing": "observed",
+      "summary": {
+        "protocol": "tcp",
+        "clientIp": "10.0.0.50",
+        "clientPort": 53000,
+        "remoteIp": "1.1.1.1",
+        "remotePort": 443,
+        "flowKey": "tcp|10.0.0.50|53000|1.1.1.1|443",
+        "packetCount": 1,
+        "tcpFlags": 2
+      }
+    },
+    {
+      "id": "gate:decision-fixture:verdict",
+      "sequence": 42,
+      "sessionId": "sessionfixture1",
+      "traceId": "tcp|10.0.0.50|53000|1.1.1.1|443",
+      "kind": "gate",
+      "stage": "gate_queue",
+      "direction": "client_to_remote",
+      "occurredAtMs": 1789041600025,
+      "timing": "observed",
+      "summary": {
+        "protocol": "tcp",
+        "clientIp": "10.0.0.50",
+        "clientPort": 53000,
+        "remoteIp": "1.1.1.1",
+        "remotePort": 443,
+        "flowKey": "tcp|10.0.0.50|53000|1.1.1.1|443",
+        "packetCount": 1,
+        "tcpFlags": 2,
+        "verdict": "drop",
+        "verdictSource": "operator"
+      },
+      "parentId": "gate:decision-fixture:queued"
+    }
+  ],
+  "legacyLive": [
+    {
+      "id": "gate-waiting:decision-fixture",
+      "sequence": 41,
+      "sessionId": "sessionfixture1",
+      "traceId": "tcp|10.0.0.50|53000|1.1.1.1|443",
+      "kind": "gate",
+      "stage": "gate_queue",
+      "direction": "client_to_remote",
+      "occurredAtMs": 1789041600010,
+      "timing": "observed",
+      "summary": {
+        "protocol": "tcp",
+        "clientIp": "10.0.0.50",
+        "clientPort": 53000,
+        "remoteIp": "1.1.1.1",
+        "remotePort": 443,
+        "flowKey": "tcp|10.0.0.50|53000|1.1.1.1|443",
+        "packetCount": 1,
+        "tcpFlags": 2
+      }
+    },
+    {
+      "id": "gate-verdict:decision-fixture",
+      "sequence": 42,
+      "sessionId": "sessionfixture1",
+      "traceId": "tcp|10.0.0.50|53000|1.1.1.1|443",
+      "kind": "gate",
+      "stage": "gate_queue",
+      "direction": "client_to_remote",
+      "occurredAtMs": 1789041600025,
+      "timing": "observed",
+      "summary": {
+        "protocol": "tcp",
+        "clientIp": "10.0.0.50",
+        "clientPort": 53000,
+        "remoteIp": "1.1.1.1",
+        "remotePort": 443,
+        "flowKey": "tcp|10.0.0.50|53000|1.1.1.1|443",
+        "packetCount": 1,
+        "tcpFlags": 2,
+        "verdict": "drop",
+        "verdictSource": "operator"
+      }
+    }
+  ],
+  "expectedIDs": [
+    "gate:decision-fixture:queued",
+    "gate:decision-fixture:verdict"
+  ],
+  "controlDecision": {
+    "id": "decision-fixture",
+    "sessionId": "sessionfixture1",
+    "flowKey": "tcp|10.0.0.50|53000|1.1.1.1|443",
+    "clientIp": "10.0.0.50",
+    "remoteIp": "1.1.1.1",
+    "clientPort": 53000,
+    "remotePort": 443,
+    "protocol": "tcp",
+    "mode": "flow",
+    "direction": "client_to_remote",
+    "wireBytes": 60,
+    "payloadBytes": 0,
+    "packetCount": 1,
+    "tcpFlags": 2,
+    "queuedAtMs": 1789041600010,
+    "deadlineMs": 1789041610010,
+    "state": "rejected",
+    "verdict": "drop",
+    "verdictSource": "operator",
+    "actor": "fixture",
+    "reason": "contract test",
+    "decidedAtMs": 1789041600025,
+    "waitMs": 15
+  }
+}

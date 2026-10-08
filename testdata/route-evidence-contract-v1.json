@@ -1,0 +1,212 @@
+{
+  "route": {
+    "id": "routefixture001",
+    "session": "sessionfixture1",
+    "destination": "destfixture0001",
+    "destination_ip": "1.1.1.1",
+    "destination_port": 443,
+    "protocol": "tcp",
+    "method": "tcp:443",
+    "complete": false,
+    "error": "",
+    "completed_at": "2026-09-10 12:00:01.000Z",
+    "available_at": "2026-09-10 12:00:01.000Z",
+    "measured_at": "2026-09-10 11:59:59.000Z",
+    "fresh_until": "2026-09-10 12:00:02.000Z",
+    "valid_until": "2026-09-10 12:00:04.000Z",
+    "network_context": "network-fixture",
+    "status": "partial",
+    "provenance": "cache",
+    "hops": [
+      {
+        "ttl": 1,
+        "address": "9.9.9.9",
+        "missing": false,
+        "timings": [
+          2.5
+        ],
+        "lat": 59.3,
+        "lon": 18.0,
+        "city": "Stockholm",
+        "country": "Sweden",
+        "replies": [
+          {
+            "address": "9.9.9.9",
+            "rtt_ms": 2.5,
+            "probe_id": 1
+          }
+        ]
+      },
+      {
+        "ttl": 2,
+        "address": "8.8.8.8",
+        "missing": false,
+        "timings": [
+          4
+        ],
+        "replies": [
+          {
+            "address": "8.8.8.8",
+            "rtt_ms": 4,
+            "probe_id": 2
+          }
+        ]
+      }
+    ],
+    "alternate_routes": [
+      {
+        "method": "icmp-paris",
+        "hops": [
+          {
+            "ttl": 1,
+            "address": "9.9.9.10",
+            "missing": false,
+            "timings": [
+              3
+            ]
+          }
+        ],
+        "destination_reached": false,
+        "measured_at": "2026-09-10 11:59:58.000Z",
+        "responding_hops": 1,
+        "located_hops": 0
+      }
+    ]
+  },
+  "legacyRoute": {
+    "id": "legacyfixture01",
+    "session": "sessionfixture1",
+    "destination": "destfixture0001",
+    "destination_ip": "1.1.1.1",
+    "destination_port": 443,
+    "protocol": "tcp",
+    "method": "tcp:443",
+    "complete": false,
+    "error": "",
+    "completed_at": "2026-09-10 12:00:00.500Z",
+    "available_at": "",
+    "measured_at": "",
+    "fresh_until": "2026-09-10 12:00:02.000Z",
+    "valid_until": "2026-09-10 12:00:04.000Z",
+    "network_context": "network-fixture",
+    "status": "partial",
+    "provenance": "cache",
+    "hops": [
+      {
+        "ttl": 1,
+        "address": "9.9.9.9",
+        "missing": false,
+        "timings": [
+          1
+        ],
+        "lat": 59.3,
+        "lon": 18.0
+      }
+    ],
+    "alternate_routes": [
+      {
+        "method": "icmp-paris",
+        "hops": [
+          {
+            "ttl": 1,
+            "address": "9.9.9.10",
+            "missing": false,
+            "timings": [
+              3
+            ]
+          }
+        ],
+        "destination_reached": false,
+        "measured_at": "2026-09-10 11:59:58.000Z",
+        "responding_hops": 1,
+        "located_hops": 0
+      }
+    ]
+  },
+  "updates": [
+    {
+      "id": "beforefixture01",
+      "session": "sessionfixture1",
+      "network_context": "network-fixture",
+      "binding_key": "",
+      "kind": "network_invalidated",
+      "available_at": "2026-09-10T12:00:00.900Z",
+      "value": {},
+      "key": "fixture-beforefixture01"
+    },
+    {
+      "id": "confirmfixture1",
+      "session": "sessionfixture1",
+      "network_context": "network-fixture",
+      "binding_key": "routefixture001",
+      "kind": "confirmed",
+      "available_at": "2026-09-10T14:00:03+02:00",
+      "value": {
+        "fresh_until": "2026-09-10T12:00:10Z",
+        "valid_until": "2026-09-10T12:00:15Z"
+      },
+      "key": "fixture-confirmfixture1"
+    },
+    {
+      "id": "enrichfixture01",
+      "session": "sessionfixture1",
+      "network_context": "network-fixture",
+      "binding_key": "routefixture001",
+      "kind": "enriched",
+      "available_at": "2026-09-10 12:00:04.000Z",
+      "value": {
+        "2": {
+          "8.8.8.8": {
+            "geo": {
+              "lat": 50.1,
+              "lon": 8.7,
+              "city": "Frankfurt",
+              "country": "Germany",
+              "accuracy_km": 100,
+              "geo_version": "fixture"
+            },
+            "geo_available_at": "2026-09-10T12:00:04Z",
+            "available_at": "2026-09-10T12:00:04Z",
+            "source": "fixture",
+            "version": "1",
+            "confidence": "approximate"
+          }
+        }
+      },
+      "key": "fixture-enrichfixture01"
+    },
+    {
+      "id": "invalidate00001",
+      "session": "sessionfixture1",
+      "network_context": "network-fixture",
+      "binding_key": "",
+      "kind": "network_invalidated",
+      "available_at": "2026-09-10T11:00:05-01:00",
+      "value": {},
+      "key": "fixture-invalidate00001"
+    },
+    {
+      "id": "othersession001",
+      "session": "sessionfixture2",
+      "network_context": "network-fixture",
+      "binding_key": "routefixture001",
+      "kind": "confirmed",
+      "available_at": "2026-09-10T12:00:02Z",
+      "value": {
+        "valid_until": "2099-01-01T00:00:00Z"
+      },
+      "key": "fixture-othersession001"
+    }
+  ],
+  "expectedAttachedKinds": [
+    "confirmed",
+    "enriched",
+    "network_invalidated"
+  ],
+  "cursors": {
+    "beforeConfirmation": "2026-09-10T12:00:02Z",
+    "afterConfirmation": "2026-09-10T12:00:03.500Z",
+    "afterEnrichment": "2026-09-10T12:00:04.500Z",
+    "afterInvalidation": "2026-09-10T12:00:05.500Z"
+  }
+}

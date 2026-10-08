@@ -1,19 +1,11 @@
 package observer
 
 import (
-	"context"
-	"database/sql"
-	"errors"
 	"fmt"
-	"log"
 	"net"
 	"strings"
 	"time"
 
-	"myapp/debugtrace"
-
-	"github.com/pocketbase/dbx"
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -49,77 +41,6 @@ type AttributionConclusion struct {
 	Explanation       string
 	DNSQueryID        string
 	ObservedAt        time.Time
-}
-
-func StartFlowCorrelator(ctx context.Context, app *pocketbase.PocketBase, scope ObservationScope, sessionID func() string, trace debugtrace.Sink) {
-	trace = usableTraceSink(trace)
-	go func() {
-		ticker := time.NewTicker(3 * time.Second)
-		defer ticker.Stop()
-
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-ticker.C:
-				sessionID := sessionID()
-				if sessionID == "" {
-					continue
-				}
-				if err := correlateSession(app, scope, sessionID, trace); err != nil {
-					log.Printf("flow correlator error: %v", err)
-					continue
-				}
-				if err := correlateActivitySession(app, sessionID); err != nil {
-					log.Printf("activity correlator error: %v", err)
-				}
-			}
-		}
-	}()
-}
-
-func correlateSession(app *pocketbase.PocketBase, scope ObservationScope, sessionID string, trace debugtrace.Sink) error {
-	flowRecords, err := app.FindAllRecords("flows", dbx.HashExp{"session": sessionID})
-	if err != nil {
-		return err
-	}
-
-	dnsRecords, err := app.FindAllRecords("dns_queries", dbx.HashExp{"session": sessionID})
-	if err != nil {
-		return err
-	}
-
-	dnsObservations := make([]DNSObservation, 0, len(dnsRecords))
-	for _, record := range dnsRecords {
-		dnsObservations = append(dnsObservations, dnsObservationFromRecord(record))
-	}
-
-	for _, record := range flowRecords {
-		flow := flowObservationFromRecord(record)
-		if !scope.Includes(flow.Protocol, flow.ClientIP, flow.DestinationIP, flow.DestinationPort) {
-			continue
-		}
-		conclusion := AttributeFlow(flow, dnsObservations, dnsAttributionWindow)
-		changed, err := upsertAttribution(app, flow, conclusion)
-		if err != nil {
-			return err
-		}
-		if changed {
-			trace.TryEmit(debugtrace.Event{
-				ID:        traceEventID("flow-attribution", flow.ID, conclusion.ObservedAt),
-				SessionID: flow.SessionID, TraceID: "flow:" + flow.ID,
-				Kind: debugtrace.KindAttribution, Stage: debugtrace.StageAttribution,
-				OccurredAtMs: conclusion.ObservedAt.UnixMilli(), ProcessedAtMs: traceProcessedNow(), Timing: debugtrace.TimingDerived,
-				Summary: debugtrace.Summary{
-					Protocol: flow.Protocol, ClientIP: flow.ClientIP, ClientPort: tracePort(flow.SourcePort),
-					RemoteIP: flow.DestinationIP, RemotePort: tracePort(flow.DestinationPort), FlowKey: flow.FlowKey,
-					Hostname: conclusion.CandidateHostname, Confidence: conclusion.Confidence,
-				},
-			})
-		}
-	}
-
-	return nil
 }
 
 func AttributeFlow(flow FlowObservation, dnsObservations []DNSObservation, window time.Duration) AttributionConclusion {
@@ -248,46 +169,6 @@ func hasReducedVisibilityPort(flow FlowObservation) bool {
 	default:
 		return false
 	}
-}
-
-func upsertAttribution(app *pocketbase.PocketBase, flow FlowObservation, conclusion AttributionConclusion) (bool, error) {
-	created := false
-	record, err := app.FindFirstRecordByFilter(
-		"flow_attributions",
-		"flow={:flow}",
-		dbx.Params{"flow": flow.ID},
-	)
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			return false, err
-		}
-		collection, err := app.FindCollectionByNameOrId("flow_attributions")
-		if err != nil {
-			return false, err
-		}
-		record = core.NewRecord(collection)
-		created = true
-		record.Set("session", flow.SessionID)
-		record.Set("flow", flow.ID)
-	} else if !shouldReplaceAttribution(record.GetString("confidence"), record.GetString("candidate_hostname"), conclusion) {
-		return false, nil
-	}
-	materialChange := created ||
-		record.GetString("candidate_hostname") != conclusion.CandidateHostname ||
-		record.GetString("source_signal") != conclusion.SourceSignal ||
-		record.GetString("confidence") != conclusion.Confidence ||
-		record.GetString("dns_query") != conclusion.DNSQueryID
-
-	record.Set("candidate_hostname", conclusion.CandidateHostname)
-	record.Set("source_signal", conclusion.SourceSignal)
-	record.Set("confidence", conclusion.Confidence)
-	record.Set("explanation", conclusion.Explanation)
-	record.Set("dns_query", conclusion.DNSQueryID)
-	record.Set("observed_at", conclusion.ObservedAt.UTC().Format(time.RFC3339))
-	if err := app.Save(record); err != nil {
-		return false, err
-	}
-	return materialChange, nil
 }
 
 func shouldReplaceAttribution(existingConfidence, existingHostname string, next AttributionConclusion) bool {

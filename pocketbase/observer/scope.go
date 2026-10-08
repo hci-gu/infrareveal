@@ -11,6 +11,8 @@ import (
 type ObservationScope struct {
 	ClientPrefix string
 	GatewayIP    string
+	prefixes     []netip.Prefix
+	gateways     map[string]bool
 }
 
 func NewObservationScope(clientPrefix, gatewayIP string) ObservationScope {
@@ -20,7 +22,12 @@ func NewObservationScope(clientPrefix, gatewayIP string) ObservationScope {
 	if gatewayIP == "" {
 		gatewayIP = inferredGatewayIP(clientPrefix)
 	}
-	return ObservationScope{ClientPrefix: clientPrefix, GatewayIP: gatewayIP}
+	scope := ObservationScope{ClientPrefix: clientPrefix, GatewayIP: gatewayIP, gateways: map[string]bool{}}
+	scope.prefixes = parseClientPrefixes(clientPrefix)
+	for _, gateway := range strings.Split(gatewayIP, ",") {
+		scope.gateways[strings.TrimSpace(gateway)] = true
+	}
+	return scope
 }
 
 func (scope ObservationScope) Includes(protocol, clientIP, destinationIP string, destinationPort int) bool {
@@ -30,12 +37,13 @@ func (scope ObservationScope) Includes(protocol, clientIP, destinationIP string,
 	if scope.ClientPrefix != "" && !scope.ContainsClient(clientIP) {
 		return false
 	}
-	for _, gateway := range strings.Split(scope.GatewayIP, ",") {
-		gateway = strings.TrimSpace(gateway)
-		if clientIP == gateway || destinationIP == gateway {
-			return false
-		}
+	if scope.gateways == nil {
+		scope = NewObservationScope(scope.ClientPrefix, scope.GatewayIP)
 	}
+	if scope.gateways[clientIP] || scope.gateways[destinationIP] {
+		return false
+	}
+
 	if !isPublicDestination(destinationIP) {
 		return false
 	}
@@ -55,18 +63,31 @@ func (scope ObservationScope) ContainsClient(value string) bool {
 		return false
 	}
 	ip = ip.Unmap()
-	for _, part := range strings.Split(scope.ClientPrefix, ",") {
-		part = strings.TrimSpace(part)
-		// Compatibility with CLIENT_IP_PREFIX=10.0.0.; internally match a CIDR.
-		if strings.HasSuffix(part, ".") {
-			part += "0/24"
-		}
-		if prefix, err := netip.ParsePrefix(part); err == nil && prefix.Contains(ip) {
+	prefixes := scope.prefixes
+	if prefixes == nil {
+		prefixes = parseClientPrefixes(scope.ClientPrefix)
+	}
+	for _, prefix := range prefixes {
+		if prefix.Contains(ip) {
 			return true
 		}
 	}
 	return false
 }
+func parseClientPrefixes(value string) []netip.Prefix {
+	prefixes := make([]netip.Prefix, 0)
+	for _, part := range strings.Split(value, ",") {
+		part = strings.TrimSpace(part)
+		if strings.HasSuffix(part, ".") {
+			part += "0/24"
+		}
+		if prefix, err := netip.ParsePrefix(part); err == nil {
+			prefixes = append(prefixes, prefix)
+		}
+	}
+	return prefixes
+}
+
 func isPublicDestination(value string) bool { return netmeta.PublicAddress(value) }
 
 func isInfrastructureFlow(protocol string, destinationPort int) bool {

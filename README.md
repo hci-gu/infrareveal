@@ -19,6 +19,7 @@ What you get
 
 See the [documentation index](docs/README.md) for architecture decisions, current guides and repeatable validation procedures.
 
+- [PocketBase architecture](docs/implementation-guides/pocketbase-architecture.md): module boundaries, lifecycle, maintenance and compatibility contracts.
 - [Flow activity bursts](docs/implementation-guides/flow-activity-bursts.md): implemented metadata-only capture and visualization of fine-grained traffic inside long-lived connections.
 - [Flow activity validation](docs/validation/flow-activity-raspberry-pi.md): repeatable privacy, load, growth, and browser-comparison checks for the target Pi.
 - [Proxy Lab implementation and operations](docs/implementation-guides/proxy-lab.md): passive replay/live tracing plus the opt-in flow, strict-packet, and DNS gates.
@@ -26,6 +27,23 @@ See the [documentation index](docs/README.md) for architecture decisions, curren
 - [Dashboard browser validation](docs/validation/debug-dashboard.md): fixture, interaction, accessibility, performance and lifecycle checks.
 - [Live route discovery](docs/implementation-guides/live-route-discovery.md): finite useful-path collection, topology display, budgets and diagnostics.
 - [Live route validation](docs/validation/live-route-discovery.md): timing targets, cache/replay checks and pending Pi measurements.
+
+## PocketBase development
+
+The supported gateway build uses the pinned Go toolchain in [Dockerfile](Dockerfile),
+for both ARMv7 and ARM64. For native development, install the toolchain declared
+in [pocketbase/go.mod](pocketbase/go.mod) (currently Go 1.27.1), then run:
+
+```bash
+cd pocketbase
+go mod download
+go test ./...
+go run . serve
+```
+
+The old `pocketbase/install-go.sh` installer has been retired. It pinned a different
+Go version and modified shell startup files; the module and Dockerfile now define
+the supported toolchain.
 
 ## Frontend workspace
 
@@ -154,7 +172,7 @@ The gateway forwards web traffic normally through NAT. Classic DNS traffic from 
 
 The activity overlay passively counts packet headers on the AP interface into sparse directional buckets. Pale bars remain conntrack connection lifetimes; amber and cyan marks show client-to-remote and remote-to-client transfer activity. The gateway immediately discards the bounded packet prefix used for parsing and stores only counts, times, tuple keys, flags, and byte totals. It does not store packet contents or claim that encrypted bursts are HTTP resources or response times. Hatched regions mean capture was missing or lossy and are excluded from idle-time calculations.
 
-For supported site/app families, the backend also derives conservative activity episodes. Confirmed first-party and CNAME-linked flows are grouped directly; a third-party hostname is associated only when the same client freshly resolves and opens it within a short window of confirmed activity. The original endpoint is always preserved, inferred children are visibly marked, and provider-only, unresolved, pre-existing, DNS-less, or ambiguous traffic is left independent.
+The backend groups flows with medium or high confidence hostname evidence by registered domain, using explicit aliases from `domain_groups.json` where configured. Group identity stays stable within a client and session. DNS timing helps attribute a hostname to a flow; timing and connection gaps do not establish group membership. Unresolved or low confidence traffic remains independent. See the [domain grouping contract](docs/implementation-guides/domain-grouping.md).
 
 Destination context is enriched independently from reverse DNS, known provider networks, and the bundled GeoIP database. Slow traceroute work runs separately so it cannot delay identity labels. Routes are traceroute approximations from the gateway to the observed destination IP and port; they are not exact proof of the client application path.
 

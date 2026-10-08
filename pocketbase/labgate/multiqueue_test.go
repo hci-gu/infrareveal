@@ -2,9 +2,44 @@ package labgate
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 )
+
+func TestMultiplexQueueStartupFailureCancelsAndJoinsOtherQueues(t *testing.T) {
+	startupErr := errors.New("queue startup failed")
+	finished := make(chan struct{})
+	other := &controlledQueue{FakeQueue: NewFakeQueue(), finished: finished}
+	queue, err := NewMultiplexQueue(map[Mode]PacketQueue{
+		ModeFlow:   &failedQueue{FakeQueue: NewFakeQueue(), err: startupErr},
+		ModeStrict: other,
+		ModeDNS:    NewFakeQueue(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := queue.Start(testContext(t), func(QueuedPacket) {}); !errors.Is(err, startupErr) {
+		t.Fatalf("startup failure = %v", err)
+	}
+	select {
+	case <-finished:
+	default:
+		t.Fatal("startup returned before the other queue stopped")
+	}
+	select {
+	case <-queue.Ready():
+		t.Fatal("failed queue group reported readiness")
+	default:
+	}
+}
+
+type failedQueue struct {
+	*FakeQueue
+	err error
+}
+
+func (queue *failedQueue) Start(context.Context, func(QueuedPacket)) error { return queue.err }
 
 func TestMultiplexQueueOwnsCollidingKernelPacketIDs(t *testing.T) {
 	children := map[Mode]PacketQueue{

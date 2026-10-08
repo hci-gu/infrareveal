@@ -15,7 +15,7 @@ Remotion is a deterministic view of the shared millisecond session cursor. Recor
 
 ## Runtime components
 
-- `pocketbase/debugtrace`: non-blocking event/burst ingress, coalescing, sequence IDs, time/count-bounded ring, per-subscriber buffers, gap messages, and SSE reconnect.
+- `pocketbase/debugtrace`: non-blocking event/burst ingress, coalescing, sequence IDs, time/count-bounded ring, per-subscriber buffers and replay gaps. `pocketbase/gateway/trace.go` owns the SSE HTTP adapter and reconnect route.
 - `pocketbase/netmeta`: bounded IPv4/TCP/UDP header parsing, canonical tuple, and direction.
 - `pocketbase/labgate`: serialized policy controller, three NFQUEUE adapters behind a virtual-ID multiplexer, idempotent firewall manager, watchdogs, bounded audit writer, and authenticated routes.
 - `packages/session-state`: shared PocketBase transport, normalized entities, temporal indexes, bounded detail-page cache, realtime reconciliation, and one playback clock for both dashboards.

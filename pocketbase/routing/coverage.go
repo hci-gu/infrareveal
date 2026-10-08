@@ -17,13 +17,13 @@ import (
 	"time"
 )
 
-type coverageProbe struct {
+type scamperProbe struct {
 	deadline   time.Duration
 	executable string
 	run        func(context.Context, []string) ([]byte, error)
 }
 
-func (p coverageProbe) Run(parent context.Context, t target, plan probePlan, publish func(snapshot)) snapshot {
+func (p scamperProbe) Run(parent context.Context, t target, plan probePlan, publish func(snapshot)) snapshot {
 	budget := p.deadline
 	if budget <= 0 {
 		budget = 45 * time.Second
@@ -38,7 +38,7 @@ func (p coverageProbe) Run(parent context.Context, t target, plan probePlan, pub
 	}
 	method := plan.Method
 	if method == "" {
-		method = qualityMethods(t)[0]
+		method = probeMethods(t)[0]
 	}
 	label := method
 	if method != "icmp-paris" {
@@ -109,7 +109,7 @@ func (p coverageProbe) Run(parent context.Context, t target, plan probePlan, pub
 	}
 	return s
 }
-func (p coverageProbe) execute(ctx context.Context, args []string) ([]byte, error) {
+func (p scamperProbe) execute(ctx context.Context, args []string) ([]byte, error) {
 	binary := p.executable
 	if binary == "" {
 		binary = "scamper"

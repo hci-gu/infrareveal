@@ -17,6 +17,16 @@ type auditItem struct {
 	flush    chan struct{}
 }
 
+// RetainSession expires completed audit records through the caller's app,
+// which may be scoped to the maintenance transaction. Pending decisions stay.
+func RetainSession(app core.App, session string, cutoff time.Time) error {
+	_, err := app.DB().NewQuery("DELETE FROM gate_events WHERE session={:session} AND queued_at < {:cut} AND state != 'queued'").Bind(dbx.Params{
+		"session": session,
+		"cut":     cutoff.UTC().Format("2006-01-02 15:04:05.000Z"),
+	}).Execute()
+	return err
+}
+
 // AuditWriter owns persistence ordering and is deliberately separated from
 // kernel verdicts by a bounded non-blocking queue.
 type AuditWriter struct {
@@ -26,6 +36,7 @@ type AuditWriter struct {
 	closeOnce      sync.Once
 	mu             sync.RWMutex
 	closed         bool
+	stop           chan struct{}
 	done           chan struct{}
 	dropsMu        sync.Mutex
 	dropsBySession map[string]uint64
@@ -35,7 +46,7 @@ func NewAuditWriter(app core.App, capacity int) *AuditWriter {
 	if capacity < 8 {
 		capacity = 8
 	}
-	writer := &AuditWriter{app: app, items: make(chan auditItem, capacity), done: make(chan struct{}), dropsBySession: make(map[string]uint64)}
+	writer := &AuditWriter{app: app, items: make(chan auditItem, capacity), stop: make(chan struct{}), done: make(chan struct{}), dropsBySession: make(map[string]uint64)}
 	go writer.run()
 	return writer
 }
@@ -67,21 +78,21 @@ func (writer *AuditWriter) try(item auditItem) bool {
 // Flush waits until all audit items accepted before this call have completed.
 // It is used only after traffic has been drained, never on the verdict path.
 func (writer *AuditWriter) Flush(ctx context.Context) error {
-	writer.mu.RLock()
-	if writer.closed {
-		writer.mu.RUnlock()
-		return nil
-	}
 	ack := make(chan struct{})
+	// Never wait for channel capacity while holding the intake lock: Close
+	// would queue behind that lock and block the verdict actor's next Try call.
 	select {
 	case writer.items <- auditItem{flush: ack}:
-		writer.mu.RUnlock()
+	case <-writer.stop:
 	case <-ctx.Done():
-		writer.mu.RUnlock()
 		return ctx.Err()
 	}
 	select {
 	case <-ack:
+		return nil
+	case <-writer.done:
+		// Close has completed every accepted item, including those before a
+		// flush barrier that raced with intake sealing.
 		return nil
 	case <-ctx.Done():
 		return ctx.Err()
@@ -108,7 +119,7 @@ func (writer *AuditWriter) Close(ctx context.Context) error {
 	writer.closeOnce.Do(func() {
 		writer.mu.Lock()
 		writer.closed = true
-		close(writer.items)
+		close(writer.stop)
 		writer.mu.Unlock()
 	})
 	select {
@@ -121,27 +132,43 @@ func (writer *AuditWriter) Close(ctx context.Context) error {
 
 func (writer *AuditWriter) run() {
 	defer close(writer.done)
-	for item := range writer.items {
-		if item.flush != nil {
-			close(item.flush)
-			continue
-		}
-		var err error
-		for attempt := 0; attempt < 3; attempt++ {
-			if item.terminal {
-				err = writer.persistTerminal(item.decision)
-			} else {
-				err = writer.persistQueued(item.decision)
+	for {
+		select {
+		case item := <-writer.items:
+			writer.persist(item)
+		case <-writer.stop:
+			// Close sealed Try intake before signalling stop. Drain all work
+			// it accepted without closing the channel beneath Flush callers.
+			for {
+				select {
+				case item := <-writer.items:
+					writer.persist(item)
+				default:
+					return
+				}
 			}
-			if err == nil {
-				break
-			}
-			time.Sleep(time.Duration(20*(attempt+1)) * time.Millisecond)
-		}
-		if err != nil {
-			writer.recordDrop(item.decision.SessionID)
 		}
 	}
+}
+
+func (writer *AuditWriter) persist(item auditItem) {
+	if item.flush != nil {
+		close(item.flush)
+		return
+	}
+	var err error
+	for attempt := 0; attempt < 3; attempt++ {
+		if item.terminal {
+			err = writer.persistTerminal(item.decision)
+		} else {
+			err = writer.persistQueued(item.decision)
+		}
+		if err == nil {
+			return
+		}
+		time.Sleep(time.Duration(20*(attempt+1)) * time.Millisecond)
+	}
+	writer.recordDrop(item.decision.SessionID)
 }
 
 func (writer *AuditWriter) persistQueued(decision Decision) error {

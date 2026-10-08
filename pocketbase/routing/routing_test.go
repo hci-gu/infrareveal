@@ -80,8 +80,7 @@ func TestCoordinatorProgressiveCacheReuseAndReset(t *testing.T) {
 	p := scriptedProbe{starts: make(chan target, 20), finish: make(chan struct{})}
 	config := ConfigFromEnv()
 	config.Interval = 10 * time.Millisecond
-	config.Workers = 1
-	c := &Coordinator{intake: map[string]Flow{}, reset: make(chan chan struct{}), done: make(chan struct{}), repo: repository{app: app}, config: config, probe: p, session: func() string { return session.Load().(string) }, network: func() (string, error) { return "test-network", nil }}
+	c := &Coordinator{intake: map[string]Flow{}, reset: make(chan chan struct{}), done: make(chan struct{}), stop: make(chan struct{}), requests: make(chan manualRequest, 10), repo: evidenceStore{app: app}, config: config, probe: p, session: func() string { return session.Load().(string) }, network: func() (string, error) { return "test-network", nil }}
 	ctx, cancel := context.WithCancel(context.Background())
 	go c.run(ctx)
 	t.Cleanup(func() { cancel(); <-c.done })
@@ -138,22 +137,21 @@ func TestCoordinatorProgressiveCacheReuseAndReset(t *testing.T) {
 func TestRepositoryFailedRefreshKeepsAgeAndEvidence(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
-	repo := repository{app: app}
+	repo := evidenceStore{app: app}
 	now := time.Now().UTC()
 	target := target{"9.9.9.9", "tcp", 443}
 	best := snapshot{Attempt: "good", Revision: 1, Started: now, Measured: now, Finished: now, Method: "tcp:443", Reached: true, Hops: []Hop{{TTL: 1, Address: "1.1.1.1", State: "reply"}, {TTL: 2, Address: "9.9.9.9", State: "reply"}}}
-	entry := cacheEntry{Best: best, Last: best, FreshUntil: now.Add(time.Minute), ValidUntil: now.Add(time.Hour)}
-	entry, err := repo.publish("key", "network", session, target, entry, best, "reached", "measured", now)
+	entry := cacheEntry{Best: best, FreshUntil: now.Add(time.Minute), ValidUntil: now.Add(time.Hour)}
+	entry, err := repo.publish(publication{Binding: routeBinding{Session: session, Network: "network", Target: target}, Cache: entry, Snapshot: best, Provenance: "measured"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}
 	failed := snapshot{Attempt: "failure", Revision: 1, Error: "timeout", Measured: now.Add(time.Second), Finished: now.Add(time.Second)}
-	entry.Last = failed
-	_, err = repo.publish("key", "network", session, target, entry, failed, "cached", "measured", now.Add(time.Second))
+	_, err = repo.publish(publication{Binding: routeBinding{Session: session, Network: "network", Target: target}, Cache: entry, Snapshot: failed, Provenance: "measured"}, now.Add(time.Second))
 	if err != nil {
 		t.Fatal(err)
 	}
-	restored, err := repo.load("key")
+	restored, err := repo.load(target.key("network"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -179,7 +177,7 @@ func TestProbePublishesUnterminatedHopBeforeExit(t *testing.T) {
 	}
 	began := time.Now()
 	early := false
-	s := (commandProbe{deadline: time.Second, executable: path}).Run(context.Background(), target{"9.9.9.9", "tcp", 443}, probePlan{}, func(s snapshot) {
+	s := (tracerouteProbe{deadline: time.Second, executable: path}).Run(context.Background(), target{"9.9.9.9", "tcp", 443}, probePlan{}, func(s snapshot) {
 		if len(s.Hops) == 1 && time.Since(began) < 350*time.Millisecond {
 			early = true
 		}
@@ -191,7 +189,7 @@ func TestProbePublishesUnterminatedHopBeforeExit(t *testing.T) {
 func TestProbeRetainsPartialRepliesOnDeadline(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "traceroute")
 	_ = os.WriteFile(path, []byte("#!/bin/sh\nprintf '\\n 1  2001:4860:4860::8888  2.0 ms\\n 2  *'\nexec sleep 2\n"), 0700)
-	s := (commandProbe{deadline: 200 * time.Millisecond, executable: path}).Run(context.Background(), target{"2001:4860:4860::8844", "udp", 443}, probePlan{}, func(snapshot) {})
+	s := (tracerouteProbe{deadline: 200 * time.Millisecond, executable: path}).Run(context.Background(), target{"2001:4860:4860::8844", "udp", 443}, probePlan{}, func(snapshot) {})
 	if s.replies() != 1 || s.Reached || s.Error != context.DeadlineExceeded.Error() || s.Hops[1].State != "no_reply" || s.Hops[2].State != "unknown" {
 		t.Fatalf("lost partial evidence: %#v", s)
 	}
@@ -209,7 +207,7 @@ func TestParserRejectsIncompleteTimingAndPreservesUnreachable(t *testing.T) {
 func TestNetworkInvalidatesBindingsAbsentFromDemandMemory(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
-	repo := repository{app: app}
+	repo := evidenceStore{app: app}
 	if err := repo.invalidateSession(session, "old", time.Now()); err != nil {
 		t.Fatal(err)
 	}
@@ -223,8 +221,8 @@ func TestNetworkInvalidatesBindingsAbsentFromDemandMemory(t *testing.T) {
 func TestPendingStateCreatesNoRoute(t *testing.T) {
 	app := testApp(t)
 	session := testSession(t, app)
-	repo := repository{app: app}
-	if _, err := repo.publish("key", "network", session, target{"9.9.9.9", "tcp", 443}, cacheEntry{}, snapshot{}, "queued", "measured", time.Now()); err != nil {
+	repo := evidenceStore{app: app}
+	if _, err := repo.publish(publication{Binding: routeBinding{Session: session, Network: "network", Target: target{"9.9.9.9", "tcp", 443}}, Cache: cacheEntry{}, Snapshot: snapshot{}, Provenance: "measured"}, time.Now()); err != nil {
 		t.Fatal(err)
 	}
 	records, _ := app.FindAllRecords("routes")
@@ -235,7 +233,6 @@ func TestPendingStateCreatesNoRoute(t *testing.T) {
 
 func TestRetentionUsesExactTimeAcrossDateFormats(t *testing.T) {
 	app := testApp(t)
-	repo := repository{app: app}
 	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 	for _, age := range []time.Duration{23 * time.Hour, 25 * time.Hour} {
 		key := age.String()
@@ -243,7 +240,7 @@ func TestRetentionUsesExactTimeAcrossDateFormats(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	if err := repo.prune(now); err != nil {
+	if err := RetainShared(app, now.Add(-24*time.Hour), now.Add(-24*time.Hour)); err != nil {
 		t.Fatal(err)
 	}
 	records, _ := app.FindAllRecords("route_cache")
@@ -297,8 +294,8 @@ func TestWorkerBudgetSurvivesResetWhileCancelledProcessesDrain(t *testing.T) {
 	session := testSession(t, app)
 	p := &drainingProbe{starts: make(chan struct{}, 8)}
 	config := ConfigFromEnv()
-	config.Workers, config.Interval = 2, 10*time.Millisecond
-	c := &Coordinator{intake: map[string]Flow{}, reset: make(chan chan struct{}), done: make(chan struct{}), repo: repository{app: app}, config: config, probe: p, session: func() string { return session }, network: func() (string, error) { return "network", nil }}
+	config.Interval = 10 * time.Millisecond
+	c := &Coordinator{intake: map[string]Flow{}, reset: make(chan chan struct{}), done: make(chan struct{}), stop: make(chan struct{}), requests: make(chan manualRequest, 10), repo: evidenceStore{app: app}, config: config, probe: p, session: func() string { return session }, network: func() (string, error) { return "network", nil }}
 	ctx, cancel := context.WithCancel(context.Background())
 	go c.run(ctx)
 	t.Cleanup(func() { cancel(); <-c.done; eventually(t, func() bool { return p.active.Load() == 0 }) })

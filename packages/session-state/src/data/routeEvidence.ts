@@ -1,5 +1,6 @@
 import type { Flow, Route } from './types'
 import { parseEpoch } from '../timeline/domain/time'
+import { normalizeRouteRecord } from './routeRecords'
 
 export const routeAvailableAt = (route: Route) => parseEpoch(route.available_at || route.completed_at, Infinity)
 export const routeBindingKey = (route: Pick<Route, 'session' | 'destination_ip' | 'destination_port' | 'protocol'>) =>
@@ -50,11 +51,11 @@ export function applyRouteEvidenceAt(route: Route, cursorMs: number): Route {
   for (const event of [...(route.evidence_updates ?? [])].sort((a,b) => parseEpoch(a.available_at, Infinity)-parseEpoch(b.available_at, Infinity))) {
     const at = parseEpoch(event.available_at, Infinity)
     if (at > cursorMs || at < routeAvailableAt(route)) continue
-    if (event.kind === 'network_invalidated') return {...result, status:'invalidated'}
+    if (event.kind === 'network_invalidated') return normalizeRouteRecord({...result, status:'invalidated'}, cursorMs)
     if (event.kind === 'confirmed') result = {...result, fresh_until: String(event.value.fresh_until || result.fresh_until || ''), valid_until: String(event.value.valid_until || result.valid_until || '')}
     if (event.kind === 'enriched') result = {...result, hops: result.hops?.map(hop => ({...hop, interface_evidence: (event.value[String(hop.ttl)] as NonNullable<Route['hops']>[number]['interface_evidence']) ?? hop.interface_evidence})) ?? null}
   }
-  return result
+  return normalizeRouteRecord(result, cursorMs)
 }
 
 export function routeTopology(route: Route) {

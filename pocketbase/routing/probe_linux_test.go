@@ -17,7 +17,7 @@ func TestShippedLinuxTraceroute(t *testing.T) {
 	}
 	for _, protocol := range []string{"tcp", "udp"} {
 		t.Run(protocol, func(t *testing.T) {
-			s := (commandProbe{deadline: 3 * time.Second}).Run(context.Background(), target{"127.0.0.1", protocol, 49999}, probePlan{}, func(snapshot) {})
+			s := (tracerouteProbe{deadline: 3 * time.Second}).Run(context.Background(), target{"127.0.0.1", protocol, 49999}, probePlan{}, func(snapshot) {})
 			if !s.Reached || s.replies() != 1 || s.Error != "" {
 				t.Fatalf("real Linux probe: %+v", s)
 			}

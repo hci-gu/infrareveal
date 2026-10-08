@@ -19,12 +19,12 @@ func TestEphemeralRouteAllowanceRenewsWithoutBypassingNetworkLimit(t *testing.T)
 	c.MaxAttempts = 2
 	c.HourlyAttempts = 2
 	now := time.Now().UTC()
-	// A reconstructed repository each hour models restarts during three days.
+	// A reconstructed evidenceStore each hour models restarts during three days.
 	for hour := 0; hour < 72; hour++ {
-		repo := repository{app: app}
+		repo := evidenceStore{app: app, config: c}
 		at := now.Add(time.Duration(hour) * time.Hour)
 		for i := 0; i < 3; i++ {
-			a, err := repo.reserve(session, "network", target{fmt.Sprintf("8.1.%d.%d", hour, i+1), "tcp", 443}, c, false, at.Add(time.Duration(i)*time.Second))
+			a, err := repo.reserve(routeBinding{Session: session, Network: "network", Target: target{fmt.Sprintf("8.1.%d.%d", hour, i+1), "tcp", 443}}, false, at.Add(time.Duration(i)*time.Second))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -54,14 +54,13 @@ func TestEphemeralStorageUsesRetainedEvidence(t *testing.T) {
 		t.Fatal(err)
 	}
 	now := time.Now().UTC()
-	repo := repository{app: app}
+	repo := evidenceStore{app: app}
 	tgt := target{"9.9.9.9", "tcp", 443}
-	c := ConfigFromEnv()
-	a, err := repo.reserve(session, "network", tgt, c, false, now)
+	a, err := repo.reserve(routeBinding{Session: session, Network: "network", Target: tgt}, false, now)
 	if err != nil || a.Reason != "" {
 		t.Fatal(a, err)
 	}
-	_, err = repo.publish(tgt.key("network"), "network", session, tgt, cacheEntry{}, useful(now, a.Attempt), "reached", "probe", now)
+	_, err = repo.publish(publication{Binding: routeBinding{Session: session, Network: "network", Target: tgt}, Cache: cacheEntry{}, Snapshot: useful(now, a.Attempt), Provenance: "probe"}, now)
 	if err != nil {
 		t.Fatal(err)
 	}

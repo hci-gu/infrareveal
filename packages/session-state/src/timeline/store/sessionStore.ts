@@ -19,7 +19,8 @@ import type {
   SessionWindow,
   TimelineLOD,
 } from '../../data/types'
-import { emptyGatewayData } from '../../data/pocketbaseClient'
+import { emptyGatewayData } from '../../data/sessionData'
+import { normalizeRouteRecord, routeEvidenceIdentity } from '../../data/routeRecords'
 import { retentionWindowMs, parseEpoch } from '../domain/time'
 import { TemporalBucketIndex } from './temporalIndex'
 
@@ -564,10 +565,13 @@ function upsertEntity(state: SessionTimelineState, collection: keyof EntityMaps,
   }
   const map = state.entities[collection] as Map<string, RecordBase>
   const existing = map.get(incoming.id)
-  if (collection === 'routes' && existing) {
-    // A realtime row or an older window must not erase separately loaded events.
-    const events = [...((existing as Route).evidence_updates ?? []), ...((incoming as Route).evidence_updates ?? [])]
-    incoming = {...incoming, evidence_updates: [...new Map(events.map(event => [JSON.stringify(event), event])).values()]} as Route
+  if (collection === 'routes') {
+    incoming = normalizeRouteRecord(incoming as Route)
+    if (existing) {
+      // A realtime row or an older window must not erase separately loaded events.
+      const events = [...((existing as Route).evidence_updates ?? []), ...((incoming as Route).evidence_updates ?? [])]
+      incoming = {...incoming, evidence_updates: [...new Map(events.map(event => [routeEvidenceIdentity(event), event])).values()]} as Route
+    }
   }
   const incomingRevision = entityRevision(collection, incoming)
   const tombstoneKey = entityKey(collection, incoming.id)

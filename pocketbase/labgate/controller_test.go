@@ -78,7 +78,7 @@ func TestControllerStateMachineAndArmGuards(t *testing.T) {
 func TestDisarmRuleFailureStaysVisibleFailOpenAndRetryable(t *testing.T) {
 	config := testConfig()
 	queue, rules := NewFakeQueue(), &flakyRuleManager{clearFailures: 1}
-	controller, err := NewControllerWithRules(context.Background(), config, queue, rules, &traceCollector{}, &auditCollector{})
+	controller, err := NewController(context.Background(), config, queue, rules, &traceCollector{}, &auditCollector{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -504,8 +504,8 @@ type flakyRuleManager struct {
 	clearFailures int
 }
 
-func (*flakyRuleManager) Prepare(context.Context) error                  { return nil }
-func (*flakyRuleManager) SetClients(context.Context, []netip.Addr) error { return nil }
+func (*flakyRuleManager) Prepare(context.Context) error                 { return nil }
+func (*flakyRuleManager) Activate(context.Context, RuleSelection) error { return nil }
 func (rules *flakyRuleManager) ClearClients(context.Context) error {
 	if rules.clearFailures > 0 {
 		rules.clearFailures--
@@ -519,7 +519,7 @@ func (*flakyRuleManager) Ready() bool                   { return true }
 func newTestController(t *testing.T, config Config) (*Controller, *FakeQueue, *traceCollector, *auditCollector) {
 	t.Helper()
 	queue, traces, audit := NewFakeQueue(), &traceCollector{}, &auditCollector{}
-	controller, err := NewController(context.Background(), config, queue, traces, audit)
+	controller, err := NewController(context.Background(), config, queue, nil, traces, audit)
 	if err != nil {
 		t.Fatal(err)
 	}

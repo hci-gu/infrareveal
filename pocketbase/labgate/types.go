@@ -73,15 +73,11 @@ type QueueStats struct {
 }
 
 type PacketQueue interface {
+	Ready() <-chan struct{}
 	Start(context.Context, func(QueuedPacket)) error
 	SetVerdict(packetID uint32, verdict Verdict) error
 	Stats() QueueStats
 	Close() error
-}
-
-type ReadyPacketQueue interface {
-	PacketQueue
-	Ready() <-chan struct{}
 }
 
 type DecisionState string

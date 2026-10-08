@@ -1,0 +1,354 @@
+{
+  "session": {
+    "id": "sessionfixture1",
+    "created": "2026-09-10T12:00:00.000Z",
+    "updated": "2026-09-10T12:00:10.000Z",
+    "name": "Contract recording",
+    "active": false,
+    "ephemeral": false,
+    "retention_minutes": 5,
+    "started_at": "2026-09-10T12:00:00.000Z",
+    "ended_at": "2026-09-10T12:00:10.000Z",
+    "gate_audit_complete": true,
+    "gate_audit_drops": 0
+  },
+  "manifest": {
+    "sessionId": "sessionfixture1",
+    "name": "Contract recording",
+    "startedAt": "2026-09-10T12:00:00.000Z",
+    "endedAt": "2026-09-10T12:00:10.000Z",
+    "active": false,
+    "ephemeral": false,
+    "retentionMinutes": 5,
+    "serverNow": "2026-09-10T12:00:10.000Z",
+    "watermark": "2026-09-10T12:00:10.000Z",
+    "counts": {
+      "flows": 1,
+      "dns_queries": 1,
+      "flow_attributions": 1,
+      "activity_episodes": 1,
+      "flow_associations": 1,
+      "flow_activity_chunks": 1,
+      "flow_activity_windows": 1,
+      "routes": 1,
+      "gate_events": 1
+    },
+    "coverage": {
+      "from": "2026-09-10T12:00:00.000Z",
+      "to": "2026-09-10T12:00:10.000Z"
+    },
+    "gateAuditComplete": true,
+    "gateAuditDrops": 0
+  },
+  "window": {
+    "range": {
+      "from": "2026-09-10T12:00:00.000Z",
+      "to": "2026-09-10T12:00:10.000Z"
+    },
+    "lod": "50ms",
+    "watermark": "2026-09-10T12:00:10.000Z",
+    "flows": [
+      {
+        "id": "flowfixture0001",
+        "created": "2026-09-10T12:00:00.000Z",
+        "updated": "2026-09-10T12:00:09.000Z",
+        "session": "sessionfixture1",
+        "client_ip": "10.0.0.50",
+        "destination_ip": "1.1.1.1",
+        "source_port": 53000,
+        "destination_port": 443,
+        "protocol": "tcp",
+        "state": "ESTABLISHED",
+        "start": "2026-09-10T12:00:00.000Z",
+        "last_seen": "2026-09-10T12:00:09.000Z",
+        "bytes_out": 120,
+        "bytes_in": 220,
+        "packets_out": 1,
+        "packets_in": 2,
+        "flow_key": "tcp|10.0.0.50|53000|1.1.1.1|443"
+      }
+    ],
+    "dnsQueries": [
+      {
+        "id": "dnsfixture00001",
+        "created": "2026-09-10T12:00:00.000Z",
+        "session": "sessionfixture1",
+        "client_ip": "10.0.0.50",
+        "query_name": "www.example.com",
+        "query_type": "A",
+        "answers": [
+          "1.1.1.1"
+        ],
+        "aliases": [
+          "edge.example.net"
+        ],
+        "timestamp": "2026-09-10T12:00:00.000Z"
+      }
+    ],
+    "attributions": [
+      {
+        "id": "attrfixture0001",
+        "session": "sessionfixture1",
+        "flow": "flowfixture0001",
+        "candidate_hostname": "www.example.com",
+        "source_signal": "dns_answer",
+        "confidence": "medium",
+        "explanation": "Fixture DNS evidence",
+        "dns_query": "dnsfixture00001",
+        "observed_at": "2026-09-10T12:00:00.000Z"
+      }
+    ],
+    "activityEpisodes": [
+      {
+        "id": "groupfixture001",
+        "session": "sessionfixture1",
+        "episode_key": "sessionfixture1|10.0.0.50|domain:example.com",
+        "client_ip": "10.0.0.50",
+        "site_key": "example.com",
+        "label": "example.com",
+        "anchor_hostname": "www.example.com",
+        "start": "2026-09-10T12:00:00.000Z",
+        "last_seen": "2026-09-10T12:00:09.000Z",
+        "confidence": "medium",
+        "explanation": "Fixture registered domain"
+      }
+    ],
+    "flowAssociations": [
+      {
+        "id": "assocfixture001",
+        "session": "sessionfixture1",
+        "flow": "flowfixture0001",
+        "episode": "groupfixture001",
+        "parent_site_key": "example.com",
+        "parent_label": "example.com",
+        "relationship": "first_party",
+        "confidence": "medium",
+        "score": 80,
+        "explanation": "Fixture association",
+        "observed_at": "2026-09-10T12:00:00.000Z"
+      }
+    ],
+    "flowActivityChunks": [
+      {
+        "id": "chunkfixture001",
+        "session": "sessionfixture1",
+        "flow": "flowfixture0001",
+        "flow_key": "tcp|10.0.0.50|53000|1.1.1.1|443",
+        "chunk_start": "2026-09-10T12:00:00.000Z",
+        "bucket_ms": 50,
+        "chunk_ms": 5000,
+        "samples": {
+          "version": 1,
+          "bucket_ms": 50,
+          "chunk_ms": 5000,
+          "samples": [
+            [
+              0,
+              100,
+              200,
+              1,
+              2
+            ]
+          ]
+        },
+        "wire_bytes_out": 120,
+        "wire_bytes_in": 220,
+        "payload_bytes_out": 100,
+        "payload_bytes_in": 200,
+        "packets_out": 1,
+        "packets_in": 2,
+        "tcp_flags_out": 2,
+        "tcp_flags_in": 18,
+        "capture_complete": true,
+        "dropped_events": 0,
+        "updated_at_source": "2026-09-10T12:00:00.025Z",
+        "chunk_key": "sessionfixture1|tcp|10.0.0.50|53000|1.1.1.1|443|2026-09-10T12:00:00Z"
+      }
+    ],
+    "flowActivityWindows": [
+      {
+        "id": "windowfixture01",
+        "session": "sessionfixture1",
+        "window_key": "fixture-window",
+        "window_start": "2026-09-10T12:00:00.000Z",
+        "window_ms": 5000,
+        "capture_running": true,
+        "capture_complete": true,
+        "dropped_events": 0,
+        "last_error": ""
+      }
+    ],
+    "flowActivityStatuses": [
+      {
+        "id": "statusfixture01",
+        "session": "sessionfixture1",
+        "interface": "fixture",
+        "enabled": true,
+        "running": false,
+        "dropped_events": 0,
+        "unmatched_events": 1,
+        "last_error": "",
+        "last_event_at": "2026-09-10T12:00:00.025Z",
+        "reported_at": "2026-09-10T12:00:10.000Z"
+      }
+    ],
+    "destinations": [
+      {
+        "id": "destfixture0001",
+        "ip": "1.1.1.1",
+        "reverse_dns": "edge.example.com",
+        "asn": 0,
+        "organization": "",
+        "provider_label": "example.com",
+        "city": "",
+        "country": "",
+        "lat": 0,
+        "lon": 0,
+        "last_seen": "2026-09-10T12:00:09.000Z"
+      }
+    ],
+    "routes": [
+      {
+        "id": "routefixture001",
+        "session": "sessionfixture1",
+        "destination": "destfixture0001",
+        "destination_ip": "1.1.1.1",
+        "destination_port": 443,
+        "protocol": "tcp",
+        "method": "tcp:443",
+        "complete": false,
+        "error": "",
+        "completed_at": "2026-09-10 12:00:01.000Z",
+        "available_at": "2026-09-10 12:00:01.000Z",
+        "measured_at": "2026-09-10 11:59:59.000Z",
+        "fresh_until": "2026-09-10 12:00:02.000Z",
+        "valid_until": "2026-09-10 12:00:04.000Z",
+        "network_context": "network-fixture",
+        "status": "partial",
+        "provenance": "cache",
+        "hops": [
+          {
+            "ttl": 1,
+            "address": "9.9.9.9",
+            "missing": false,
+            "timings": [
+              2.5
+            ],
+            "lat": 59.3,
+            "lon": 18.0,
+            "city": "Stockholm",
+            "country": "Sweden",
+            "replies": [
+              {
+                "address": "9.9.9.9",
+                "rtt_ms": 2.5,
+                "probe_id": 1
+              }
+            ]
+          },
+          {
+            "ttl": 2,
+            "address": "8.8.8.8",
+            "missing": false,
+            "timings": [
+              4
+            ],
+            "replies": [
+              {
+                "address": "8.8.8.8",
+                "rtt_ms": 4,
+                "probe_id": 2
+              }
+            ]
+          }
+        ],
+        "alternate_routes": [
+          {
+            "method": "icmp-paris",
+            "hops": [
+              {
+                "ttl": 1,
+                "address": "9.9.9.10",
+                "missing": false,
+                "timings": [
+                  3
+                ]
+              }
+            ],
+            "destination_reached": false,
+            "measured_at": "2026-09-10 11:59:58.000Z",
+            "responding_hops": 1,
+            "located_hops": 0
+          }
+        ],
+        "evidence_updates": [
+          {
+            "kind": "confirmed",
+            "available_at": "2026-09-10T14:00:03+02:00",
+            "value": {
+              "fresh_until": "2026-09-10T12:00:10Z",
+              "valid_until": "2026-09-10T12:00:15Z"
+            }
+          },
+          {
+            "kind": "enriched",
+            "available_at": "2026-09-10 12:00:04.000Z",
+            "value": {
+              "2": {
+                "8.8.8.8": {
+                  "geo": {
+                    "lat": 50.1,
+                    "lon": 8.7,
+                    "city": "Frankfurt",
+                    "country": "Germany",
+                    "accuracy_km": 100,
+                    "geo_version": "fixture"
+                  },
+                  "geo_available_at": "2026-09-10T12:00:04Z",
+                  "available_at": "2026-09-10T12:00:04Z",
+                  "source": "fixture",
+                  "version": "1",
+                  "confidence": "approximate"
+                }
+              }
+            }
+          },
+          {
+            "kind": "network_invalidated",
+            "available_at": "2026-09-10T11:00:05-01:00",
+            "value": {}
+          }
+        ]
+      }
+    ],
+    "gateEvents": [
+      {
+        "id": "gatefixture0001",
+        "session": "sessionfixture1",
+        "decision_id": "decision-fixture",
+        "flow_key": "tcp|10.0.0.50|53000|1.1.1.1|443",
+        "client_ip": "10.0.0.50",
+        "destination_ip": "1.1.1.1",
+        "source_port": 53000,
+        "destination_port": 443,
+        "protocol": "tcp",
+        "mode": "flow",
+        "direction": "client_to_remote",
+        "wire_bytes": 60,
+        "payload_bytes": 0,
+        "tcp_flags": 2,
+        "packet_count": 1,
+        "state": "rejected",
+        "actor": "fixture",
+        "reason": "contract test",
+        "verdict_source": "operator",
+        "queued_at": "2026-09-10T12:00:00.010Z",
+        "decided_at": "2026-09-10T12:00:00.025Z",
+        "wait_ms": 15,
+        "created": "2026-09-10T12:00:00.010Z",
+        "updated": "2026-09-10T12:00:00.025Z"
+      }
+    ],
+    "nextCursor": null
+  }
+}
