@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { MapPlaybackClock } from './mapPlaybackClock'
+import { MapPlaybackClock, trafficAnimationTime } from './mapPlaybackClock'
 
 function harness() {
   let now = 0
@@ -10,6 +10,20 @@ function harness() {
 }
 
 describe('map playback independent of React frames', () => {
+  it('paints between timeline frames at slow replay rates without republishing React time', () => {
+    const h = harness(); let paints = 0; let publications = 0
+    h.clock.configure({ durationInFrames: 300, rate: .5 })
+    h.clock.addEventListener('animationframe', () => { paints++ })
+    h.clock.addEventListener('frameupdate', () => { publications++ })
+    h.clock.play(); h.advance(16); h.advance(16)
+    expect(paints).toBe(2)
+    expect(publications).toBe(0)
+    expect(h.clock.getTimeSeconds()).toBeCloseTo(.016)
+    expect(trafficAnimationTime({ clock: h.clock, epochMs: 1000, anchorMs: 1000 }, 0, 0, 500)).toEqual({ time: .016, phase: .032 })
+    h.clock.pause(); h.advance(1000)
+    expect(paints).toBe(2)
+    expect(h.clock.getTimeSeconds()).toBeCloseTo(.016)
+  })
   it('keeps real elapsed time across dropped display frames and a long frame origin', () => {
     const h = harness()
     h.clock.configure({ durationInFrames: 30 * 100_000, rate: 1 })

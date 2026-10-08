@@ -25,7 +25,7 @@ async (page) => {
   });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto(app + '/map/recorded-session');
-  await page.evaluate(() => { localStorage.removeItem('infrareveal.map.display.v1'); });
+  await page.evaluate(() => { localStorage.setItem('infrareveal.map.display.v1', JSON.stringify({quality: 'full'})); });
   await page.reload();
   await page.locator('.atlas-location-row').first().waitFor();
   await page.getByRole('button', { name: 'Pause playback', exact: true }).click();

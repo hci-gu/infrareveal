@@ -1,0 +1,66 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index cf76de5d11e2dab2ecc23f441b8a09c7163726e5..097f0f4d7d660a1c7a9d5290136e3035470cd1d2 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -4747,9 +4747,6 @@ var UniformBlock = class {
+   setUniforms(uniforms) {
+     for (const [key, value] of Object.entries(uniforms)) {
+       this._setUniform(key, value);
+-      if (!this.needsRedraw) {
+-        this.setNeedsRedraw(`${this.name}.${key}=${value}`);
+-      }
+     }
+   }
+   setNeedsRedraw(reason) {
+@@ -4768,6 +4765,7 @@ var UniformBlock = class {
+     }
+     this.uniforms[key] = arrayCopy(value);
+     this.modifiedUniforms[key] = true;
++    this.setNeedsRedraw(`${this.name}.${key} changed`);
+     this.modified = true;
+   }
+ };
+diff --git a/dist/portable/uniform-block.js b/dist/portable/uniform-block.js
+index 00d8e0522ee274d5eed0534b7dd7625e8e46fd3e..5da665dbdf9fd0afc2042bce782801b9b62dd4b5 100644
+--- a/dist/portable/uniform-block.js
++++ b/dist/portable/uniform-block.js
+@@ -31,9 +31,6 @@ export class UniformBlock {
+     setUniforms(uniforms) {
+         for (const [key, value] of Object.entries(uniforms)) {
+             this._setUniform(key, value);
+-            if (!this.needsRedraw) {
+-                this.setNeedsRedraw(`${this.name}.${key}=${value}`);
+-            }
+         }
+     }
+     setNeedsRedraw(reason) {
+@@ -53,6 +50,7 @@ export class UniformBlock {
+         }
+         this.uniforms[key] = arrayCopy(value);
+         this.modifiedUniforms[key] = true;
++        this.setNeedsRedraw(`${this.name}.${key} changed`);
+         this.modified = true;
+     }
+ }
+diff --git a/src/portable/uniform-block.ts b/src/portable/uniform-block.ts
+index fe45c7d6d300da136d066bc1db7e7f0cbe3b6e71..fcefedf8b87f450d091b1fdd83f6032ce44b4afb 100644
+--- a/src/portable/uniform-block.ts
++++ b/src/portable/uniform-block.ts
+@@ -54,9 +54,6 @@ export class UniformBlock<
+   setUniforms(uniforms: Partial<TUniforms>): void {
+     for (const [key, value] of Object.entries(uniforms)) {
+       this._setUniform(key, value);
+-      if (!this.needsRedraw) {
+-        this.setNeedsRedraw(`${this.name}.${key}=${value}`);
+-      }
+     }
+   }
+ 
+@@ -79,6 +76,7 @@ export class UniformBlock<
+     }
+     this.uniforms[key] = arrayCopy(value);
+     this.modifiedUniforms[key] = true;
++    this.setNeedsRedraw(`${this.name}.${key} changed`);
+     this.modified = true;
+   }
+ }

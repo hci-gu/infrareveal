@@ -1,0 +1,169 @@
+Mercator performance pass 3 — 2026-10-01
+
+Plan
+1. Replay the same 24-flow, six-location, three-route fixture on the display Pi
+   against the deployed pass-2 build. Record actual draw rate, frame latency,
+   long tasks and CPU work. Keep resolution and data identical for comparisons.
+2. Test the highest-ranked finding: luma.gl 9.3.6 marks unchanged uniform blocks
+   dirty on every draw. Add a regression at the real UniformStore/upload seam,
+   then apply a reproducible, version-pinned dependency patch if it helps.
+3. Measure remaining repeated static-layer and React/data work. Test one change
+   at a time; retain improvements supported by measurements. Preserve routes,
+   direction, byte totals, picking, camera controls and both quality modes.
+4. Remove the instructional Connect to banner. Keep capture/connection warnings
+   visible only when there is a problem.
+5. Restore the bottom transport in the normal demo map and keep pause/seek state
+   when expanding or collapsing the timeline. Verify both projections and mobile.
+6. Run regression checks, production build and physical-display replay. Deploy
+   only the dashboard with a rollback image; verify served assets and live UI.
+
+Ranked predictions
+- Avoiding unchanged uniform uploads should reduce bufferSubData calls and JS
+  time even with exactly the same meshes, layers, resolution and visual detail.
+- If static layer submission still dominates, caching it should reduce draw
+  calls and CPU time between scene/camera changes without losing interactions.
+- If React/data projection dominates, separating unchanged projections from
+  playback publication should remove periodic long tasks rather than GPU cost.
+
+Measurement caveat
+The gateway USB radio faulted again on port 1-1.2 at approximately 12:36 UTC,
+with USB -71 errors and malformed frames. Network stalls must not be counted as
+rendering results. A temporary Ethernet connection has been requested while
+implementation and local verification continue.
+
+Implemented and measured
+- Patched luma.gl/core 9.3.6's UniformBlock dirty flag at the changed-value seam.
+  Source, ESM and CommonJS implementations are patched via pnpm; the lockfile
+  records its hash, and both Docker builders copy patches before installing.
+  An actual UniformStore regression verifies first upload, unchanged blocks,
+  partial updates, and in-place typed-array edits.
+- Cached Mercator's ground geography, footprints and route guides in a single
+  screen-sized framebuffer, within the existing WebGL context. Camera, size,
+  layer, visibility and loading changes invalidate it. Columns, markers, labels
+  and animated streams still draw normally; original country geometry remains
+  available to GPU picking. The cache is released on quality change/unmount.
+  Full detail retains its ordinary MapLibre rendering. This uses Deck's exported
+  experimental _LayersPass API, verified with the locked 9.3.11 version; retain
+  the cache browser regression when upgrading Deck. At the tested 1630x777
+  canvas the RGBA and depth/stencil attachments use approximately 10 MB total.
+- Decoupled animation paints from quantized timeline frame notifications. One
+  30 Hz paint gate now reads continuous playback time, including at half speed;
+  React retains its bounded publication rate and paused/hidden maps stay idle.
+- Removed the Connect to/retention instruction banner while retaining actual
+  capture or connection warnings. Restored the normal demo map's timeline,
+  keyboard controls, waveform and explicit Go live behavior. Expanding/collapsing
+  retains replay. Removed the obsolete guard that ignored immediate pause clicks.
+
+Final paired hardware measurement (no CPU sampling profiler)
+Device: display Pi 4, 4 GB; Chromium 152, Broadcom V3D GPU, no throttling flags.
+Same 1920x953 browser, 1630x777 canvas, Pi detail, perspective, labels, replay
+position and fixture: 24 flows, six locations including one country, three routes.
+Each sample ran for 10 seconds; old production assets and final production
+assets were replayed in the same browser. Radio-failed attempts were excluded.
+
+                              Before        After
+Traffic draw FPS                28.1         29.8
+Browser animation callbacks/s   50.8         57.6
+JavaScript time, ms              6662         3508  (-47%)
+Browser task time, ms            7708         4516
+95th percentile RAF gap, ms        35           23
+GPU draw calls                  5529         4074
+GPU bufferSubData calls        27052         1204  (-96%)
+Long tasks / total ms          10/775        9/507
+
+An earlier paired run measured 21.8 -> 29.4 draw FPS; the old double paint gate
+varied with clock phase. The new build remained close to the 30 FPS paint limit.
+These are controlled replay measurements, not a claim of identical FPS for all
+traffic loads, camera interactions or network conditions. No pixel-ratio, route
+mesh, evidence or byte-total reductions were made in this pass.
+
+Validation
+- 236 tests pass (36 shared runtime, 98 dashboard, 102 debug dashboard).
+- Workspace lint/type checks and dashboard production build pass.
+- pnpm 11.25.0 frozen-lockfile offline install accepts the dependency patch.
+- Production workspace browser checks cover both projections, filters, shared
+  totals, playback, expanded timeline, theme/label preferences and mobile layout.
+- Real GPU checks verify full/Pi mesh switching, live radius uploads, one Pi
+  canvas, coastline/label alignment, high-zoom texture refresh and preference
+  persistence. Cache checks verify no background redraw on eight unchanged
+  paints, country picking, camera/size/traffic refresh and full-quality cleanup.
+- Render budget: 680 draws while playing, zero paused, zero while expanded;
+  Equal Earth and Pi mode continue to avoid loading their unused graphics code.
+- Ignored raw evidence: output/playwright/pass3-comparison-final.json and the
+  pass3-*-cpu.json, pass3-quality.txt, pass3-cache-test.txt and browser logs.
+
+The Wi-Fi fault remains separate. The adapter produced further -71 and malformed
+frame errors after the port change; scoped USB recovery restored access. The
+new port cannot yet be considered a permanent hardware repair.
+
+Deployment verification also reproduced stale HTML caching in Chromium: the
+running server served the new hashes, but an ordinary navigation reused the old
+entry page and its banner/hidden transport. A forced reload confirmed the new UI.
+The Nginx SPA entry now sends Cache-Control: no-cache so later navigations must
+revalidate it. Existing already-cached entry pages need their first reload; the
+physical display is refreshed as part of deployment verification.
+
+Deployment completed
+- Gateway image: infrareveal-dashboard:performance-pass3-20261001 (also :local).
+  Image ID: 710378fb21e08d0251aa04a7411e2cbadc99722ad006120f06de20bb302c09ce.
+- Dashboard alone recreated; proxy/capture and debug dashboard kept running.
+- All 13 served assets verified by SHA-256, and a subsequent production rebuild
+  matched those assets byte-for-byte. Nginx configuration and HTML no-cache header
+  verified. /demo, /api/health and /api/infrareveal/demo returned HTTP 200.
+- On the actual display Pi, the real live session showed 12 locations, Mercator,
+  visible transport, no instruction banner, no uncaught errors and live following.
+  Pause/seek, expand/collapse and Go live were verified against real rolling
+  retention; a paused absolute time stays fixed while the relative slider moves
+  with the retained window. Both projections also pass the demo regression.
+- Rollback image: infrareveal-dashboard:before-performance-pass3-20261001.
+  Source/asset archives, hashes and measurements are in
+  /home/pi/infrareveal-map-performance-pass3-20261001 on the gateway. The original
+  Nginx configuration is nginx-before.conf alongside source-before.tgz.
+
+Follow-up: Active now and outage recovery, 2026-10-01
+The production demo uses real capture. The user's phone generated real flows and
+packet chunks; two dashboard clock bugs were exposed after another USB outage.
+1. The backend advances manifest.startedAt with the retained history window.
+   MapPage incorrectly reused that moving boundary as its playback frame origin.
+   A paused clock advanced 20 seconds during a 13-second check against the real
+   gateway. Eventually it displayed a future instant, making Active now empty.
+   MapPage now pins the first frame origin for each session; only the visible
+   retention boundary moves. Earlier fixture checks did not move startedAt as
+   production does and therefore missed this regression.
+2. An outage longer than the animation headroom emitted ended and changed live
+   following to paused. The next reconnect could not resume automatically.
+   Reaching this temporary bound now preserves live intent. An explicit user
+   pause still sets paused, and recorded playback still stops normally.
+
+browser-live-clock.js first reproduced the moving paused clock, then reproduced
+the outage failure after the first fix. With both fixes it passes the moving
+manifest, Active now, 65-second outage/reconnect and explicit-pause checks in
+Mercator/Pi mode. These are isolated browser fixtures, removed on completion;
+production records and the physical display never use those test responses.
+All 98 dashboard tests, lint and the production build pass.
+
+Deployed image: infrareveal-dashboard:live-clock-fix-20261001, also :local.
+Image ID: 1af1d9b06c1b849679d53b983caf9b726894a6a8d9c860a81cc5a28d2cf28f0f.
+Rollback: infrareveal-dashboard:before-live-clock-fix-20261001.
+Source/image backups: /home/pi/infrareveal-live-clock-fix-20261001.
+All 13 served asset hashes match the local build; /demo and API health return
+200, with the HTML no-cache header. Main asset: index-BaXERXu6.js.
+The normal display browser was refreshed to the deployed demo. At 13:53:44 UTC
+its physical screen showed Mercator, Live session, the correct live clock,
+18 locations and real captured totals of 67.1 MB received / 7.4 MB sent.
+At 13:56:12 UTC a separate Chromium instance on the display Pi showed 13 active
+tracks from the real gateway in following mode, and the user confirmed fresh
+phone traffic appeared on the physical display. The diagnostic headless instance
+could not create WebGL with its GLES flags; its track/clock checks verify the
+shared UI, not GPU drawing. The normal Wayland browser rendered the map normally.
+A real-gateway replay at 13:41:55 also showed 13 active tracks and retained that
+exact paused time across a 13-second check and manifest refresh before Go live.
+
+Cleanup: the temporary headless browser/profile on the display was removed,
+the local preview/test browser stopped, and all SSH tunnels were closed. The
+normal display browser remained running; its final health request returned 200
+in 9.3 ms. Gateway SSH subsequently stopped sending its banner even though LAN
+ping worked. Removal of the temporary codex-display-capture-check nft rule could
+not be confirmed. It permits only established replies from the display's TCP
+port 22 to gateway-originated diagnostic SSH, and is flushed by the existing
+gateway network setup on proxy restart; no persistent firewall file was changed.

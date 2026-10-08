@@ -4,7 +4,7 @@ async (page) => {
   // Equal Earth uses bundled SVG geography; exercise the optional Mercator worker.
   await page.evaluate(() => {
     const key = 'infrareveal.map.display.v1';
-    localStorage.setItem(key, JSON.stringify({ projection: 'mercator', theme: 'dark', labels: true }));
+    localStorage.setItem(key, JSON.stringify({ projection: 'mercator', theme: 'dark', labels: true, quality: 'full' }));
   });
   const workerStarted = page.waitForEvent('worker', { timeout: 15000 });
   await page.reload();

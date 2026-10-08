@@ -235,6 +235,13 @@ networks and observation during recovery. Health checks also require both radios
 to be in AP mode and the API to respond. USB enumeration failures still require
 reseating or replacing the adapter; application recovery cannot repair hardware.
 
+The current health check does not prove that a radio can transmit. An RT5370 can
+remain present, UP and in AP mode while USB protocol errors leave traffic stuck;
+the local API can still report healthy. Repeated `rt2800usb` errors, malformed
+receive frames or `No buffer space available` need USB/driver investigation.
+See the [2026-10-01 investigation](usb-wifi-diagnosis-2026-10-01.txt) for the
+reproduced failure, hardware comparisons and proposed repair sequence.
+
 ## Portability and troubleshooting
 
 - **Overlapping uplink:** preflight refuses to modify interfaces if a non-default

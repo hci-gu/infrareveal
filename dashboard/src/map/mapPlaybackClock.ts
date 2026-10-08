@@ -1,4 +1,4 @@
-export type PlaybackEventName = 'frameupdate' | 'seeked' | 'play' | 'pause' | 'ended' | 'ratechange'
+export type PlaybackEventName = 'animationframe' | 'frameupdate' | 'seeked' | 'play' | 'pause' | 'ended' | 'ratechange'
 export type PlaybackListener = (event: { detail: { frame: number; playbackRate: number } }) => void
 type Scheduler = { now: () => number; request: (callback: FrameRequestCallback) => number; cancel: (id: number) => void }
 
@@ -28,6 +28,7 @@ export class MapPlaybackClock {
     return Math.min(this.duration - 1, this.frame + (this.playing ? Math.max(0, this.scheduler.now() - this.anchor) * this.fps * this.rate / 1000 : 0))
   }
   getCurrentFrame = () => Math.floor(this.exactFrame() + 1e-7)
+  getTimeSeconds = () => this.exactFrame() / this.fps
   isPlaying = () => this.playing
   seekTo(frame: number) {
     this.frame = Math.max(0, Math.min(this.duration - 1, Math.round(frame)))
@@ -49,6 +50,9 @@ export class MapPlaybackClock {
     if (!this.request && this.playing) this.request = this.scheduler.request(() => {
       this.request = 0
       this.publish()
+      // Painting has its own cadence. Quantized timeline events must not gate
+      // it a second time, or slow replay and offset frame boundaries stutter.
+      this.emit('animationframe')
       if (this.getCurrentFrame() >= this.duration - 1) {
         this.frame = this.duration - 1; this.playing = false; this.emit('ended')
       }
@@ -77,6 +81,6 @@ export class MapPlaybackClock {
 export type TrafficAnimation = { clock: MapPlaybackClock; epochMs: number; anchorMs: number }
 export function trafficAnimationTime(animation: TrafficAnimation | null | undefined, time: number, phase: number, bucketMs: number) {
   if (!animation) return { time, phase }
-  const seconds = animation.clock.getCurrentFrame() / animation.clock.fps
+  const seconds = animation.clock.getTimeSeconds()
   return { time: seconds, phase: (animation.epochMs + seconds * 1000 - animation.anchorMs) / bucketMs }
 }

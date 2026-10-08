@@ -18,13 +18,13 @@ export const AnimatedMercator = memo(function AnimatedMercator({ clock, active, 
       }
     }
     const seek = () => { lastPaint = -Infinity; redraw() }
-    clock.addEventListener('frameupdate', redraw)
+    clock.addEventListener('animationframe', redraw)
     clock.addEventListener('seeked', seek)
     clock.addEventListener('pause', seek)
     clock.addEventListener('ended', seek)
     document.addEventListener('visibilitychange', redraw)
     return () => {
-      clock.removeEventListener('frameupdate', redraw)
+      clock.removeEventListener('animationframe', redraw)
       clock.removeEventListener('seeked', seek)
       clock.removeEventListener('pause', seek)
       clock.removeEventListener('ended', seek)

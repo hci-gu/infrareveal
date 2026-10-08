@@ -1,0 +1,203 @@
+Recurring admin Wi-Fi USB failures — investigation, 2026-10-01
+
+Conclusion
+The gateway's Ralink RT5370 USB radio fails below the dashboard/API layer. The
+remaining leading causes are the adapter/USB electrical path and the old host
+kernel/controller software. We have not isolated the exact failing component.
+A reset restores service; it is not evidence of a permanent repair.
+
+The display Pi is a separate machine with a current OS. The old software listed
+below belongs to the gateway at 192.168.10.120, which hosts Infrareveal-admin.
+
+Hardware and software observed
+- Gateway: Raspberry Pi 4 Model B Rev 1.4, 4 GB, Bullseye 32-bit.
+- Kernel: 5.10.92-v7l+, built 2022-01-17; package 1:1.20220120-1.
+- EEPROM bootloader: 2021-04-29; VL805 USB controller firmware 000138a1.
+- Adapter: USB 148f:5370, RT5370 radio/RT5390 MAC, rt2800usb driver.
+  The USB descriptor requests 450 mA; this is not a measured current draw.
+- Direct connection to Pi, no external hub/extension. User reports the power
+  supply supplied with the Pi 4; its exact model has not been checked.
+- ir-admin is 10.77.0.1/24, channel 6, WPA2/CCMP; display is 10.77.0.113.
+- Adapter USB power/control=on, runtime_suspended_time=0, Wi-Fi power saving off.
+- rt2800usb nohwcrypt=Y, persisted in 90-infrareveal-rt2800usb.conf. Therefore
+  hardware encryption was already disabled during the latest failures.
+- rt2800lib watchdog=N. The old optional watchdog is not enabled.
+
+Reproduction and evidence (all times UTC; Stockholm is UTC+2)
+Earlier failures in this boot started at 08:45:26 and 08:52:32. At 10:19:20 and
+10:19:29 the USB device disconnected/re-enumerated. At 11:21:57 another failure
+began: USB TX-status reads returned -71, followed by invalid RX-frame sizes.
+The interface remained UP/AP, the client appeared associated, and the local API
+and container health check passed, but ping failed with ENOBUFS. A targeted USB
+reauthorization at approximately 11:31:30 restored access.
+
+This investigation performed a bounded read-only HTTP load from the actual
+display Pi. It repeatedly fetched the deployed 269,440-byte main JS asset and
+verified its SHA256. No application records were changed by the probe.
+- First 60 seconds: 60 valid requests, 16,166,400 bytes, no observed failure.
+- Next phase: about three requests/second, approximately 6.5 Mbit/s of payload,
+  in addition to the normal open dashboard.
+- At 11:41:14, about 89 seconds after the test began, USB reads failed with -71.
+- At 11:41:15, usb 1-1.1 disconnected. The user confirmed it was untouched.
+- At 11:41:16 it re-enumerated as device 6; the existing interface-loss recovery
+  restarted the proxy. Both Wi-Fi networks and the API briefly restarted.
+- The diagnostic SSH stream was interrupted. Its transcript ends after 135
+  verified requests; the server logged 151 asset requests. Server HTTP 200 logs
+  alone do not establish that the client received every byte. This was a failed
+  stability test, not a completed 120-second pass.
+- The display rejoined and resumed successful live dashboard requests.
+
+The event reproduced without changing the driver, radio settings, firmware, USB
+port or kernel. No manual USB reset was issued during this load test.
+
+USB port comparison
+The user subsequently moved the adapter at approximately 11:47:11 UTC. The USB
+path changed from 1-1.1 to 1-1.2; stable MAC-based naming retained ir-admin and
+the display reconnected. Disconnect/queue/controller warnings during this
+confirmed manual removal must not be counted as another spontaneous failure.
+
+On the new port, the same two-minute test completed at 11:52:18: 241 requests,
+64,935,040 bytes, every response checksum correct, maximum request 0.523 seconds.
+An identical repeat completed at 11:54:29: another 241 requests and 64,935,040
+bytes, maximum request 0.367 seconds. Combined: 482 successful verified requests,
+129,870,080 bytes over four minutes of testing. No new kernel errors or voltage
+flags appeared after the move, through the final check at 11:55 UTC. This is
+promising but moving the adapter also reseats and resets it; short passes do not
+prove the original port is defective. Leave it on the new port for the longer
+acceptance run before deciding whether this was sufficient.
+
+What the evidence narrows down
+1. Adapter/connector/USB power path: strongest lead. Actual USB detach plus
+   EPROTO (-71) and malformed receive records are below ordinary Wi-Fi retries.
+   Linux documents EPROTO as a USB transaction failure commonly associated with
+   hardware/firmware/cabling. It does not uniquely identify which component.
+2. Host kernel/USB controller/driver: still plausible. This installation is old.
+   The shared rt2800 hang watchdog received logic fixes in October 2023 which
+   postdate this kernel. These fix recovery logic, not proof of this fault's cause.
+   Blindly enabling the old watchdog is not a demonstrated permanent fix.
+3. Power: no undervoltage or throttling flags (0x0), temperatures about 45–50 C,
+   over 3 GB free memory, and only this USB peripheral were observed. The Pi 4's
+   documented aggregate USB budget is 1.2 A. These observations make general
+   overload less likely but cannot exclude local transients or adapter defects.
+4. Radio interference: substantial retries occur even with about -41 to -46 dBm
+   signal; observed channel occupancy was about 21–25%. This can hurt throughput,
+   but does not by itself explain USB removal/re-enumeration. Changing the Wi-Fi
+   channel is not established as a repair for the bus-level failure.
+
+The adapter's firmware is already current
+Installed rt2870.bin is 8,192 bytes, firmware version 0.36. It matches both the
+upstream 20260410 tag and current main branch byte-for-byte:
+251b8918391eac6415d60dca239e415aad0177e885376f2a17782e64fcbbe317
+Reinstalling that same firmware blob would not change this behavior.
+
+Recommended repair sequence — change one variable at a time
+1. Try another physical USB port, initially a black USB 2 port, and rerun the
+   same traffic probe. Then try an externally powered USB hub if available.
+   The first comparison on another port passed; the powered-hub comparison
+   remains untested. A powered hub tests a different power/USB path;
+   if it helps, that alone does not prove the main Pi power supply is defective.
+2. Test the same adapter on a current Raspberry Pi OS/kernel, preferably on a
+   spare SD card so the working deployment remains recoverable. Back up the
+   gateway source, .env, data and GeoIP assets; migrate host interface ownership,
+   stable interface naming and firewall isolation; rebuild native containers.
+   Follow the existing pi-deployment.md guide and current Raspberry Pi OS docs.
+   Keep the old card intact and validate both APs, DHCP/DNS, isolation, capture
+   and the actual display before switching permanently.
+3. If the fault follows the adapter across ports/power/current OS, replace it.
+   A candidate is an MT7612U-based adapter such as ALFA AWUS036ACM (exact chipset
+   and model matter). Manufacturer documentation lists native Linux support;
+   this gateway already includes mt76x2u. Verify AP mode on the intended OS and
+   run the same test before accepting a replacement. Driver support is not a
+   guarantee of reliability for an untested physical unit. A replacement's MAC
+   must be updated in /etc/systemd/network/10-infrareveal-admin.link and the
+   gateway's ADMIN_WIFI_MAC setting; otherwise the stable name/preflight check
+   will reject it. Never print or replace unrelated .env credentials.
+4. Improve fault detection/recovery separately: local HTTP and interface UP
+   cannot establish radio health. Combine scoped USB/driver fault evidence with
+   a data-path check, and distinguish unavailable/sleeping clients from a stuck
+   radio. Any USB reset should be device-scoped, rate-limited and logged. Separate
+   admin-radio recovery from participant capture/API lifecycle where possible.
+   A watchdog limits downtime; it does not repair defective hardware.
+
+Acceptance
+Repeat the bounded probe on the same display and assets after each change, then
+run the live dashboard for at least 24 hours with periodic traffic. Require no
+new USB protocol errors, spontaneous USB resets/disconnects or stalled client
+requests. A short passing sample is insufficient given earlier hour-long gaps.
+
+Update availability checked, not installed
+APT metadata was refreshed and a dry run performed. Bullseye offers four relevant
+package upgrades with no removals: kernel/boot firmware 1:1.20230405-1, rpi-eeprom
+16.1-1 and firmware-misc-nonfree 1:20230210-5~bpo11+1+rpt2. This is an interim
+update path, not a current OS migration. The installed EEPROM tool's VL805
+"up to date" compares against its old local files. Upstream release notes include
+VL805 138C0 from January 2023; its documented split-transaction fix has not been
+established as relevant to this high-speed adapter.
+
+No kernel, EEPROM, module parameters, application source or production images
+were changed during this investigation. The user moved the physical adapter;
+documentation was updated. Temporary diagnostic access was used to reach the
+display and then removed. Raw logs, source comparisons and the load harness are
+in output/playwright/usb-diagnosis/. The dashboard remains on
+performance-pass2-final. At 11:55 UTC the actual display returned HTTP 200 for /,
+/demo and /api/health in 5–11 ms; local hostname resolution also worked. The
+gateway and both dashboard containers were running, with the proxy healthy.
+
+Primary references
+- USB failure meanings:
+  https://docs.kernel.org/driver-api/usb/error-codes.html
+- Pi USB power and topology:
+  https://www.raspberrypi.com/documentation/computers/raspberry-pi.html#maximum-power-output
+- Current upstream adapter firmware:
+  https://gitlab.com/kernel-firmware/linux-firmware/-/blob/main/rt2870.bin
+- rt2800 watchdog repair, 2023:
+  https://github.com/torvalds/linux/commit/69708fbb2c698f262e03360d064c7066e0679953
+- Pi EEPROM/controller release notes:
+  https://github.com/raspberrypi/rpi-eeprom/blob/master/firmware-2711/release-notes.md
+- Supported OS upgrade approach:
+  https://www.raspberrypi.com/documentation/computers/os.html#upgrade-to-a-new-major-version
+- Replacement candidate Linux compatibility:
+  https://docs.alfa.com.tw/Support/Compat/
+
+Follow-up: missing live dashboard traffic, 13:34 UTC onward
+The deployed dashboard is the real pass-3 build (index-D67PtNOJ.js), reading the
+live session vosys05zwlwf2yr through the gateway API. The performance fixture was
+only a browser-local test interception; it is not the production demo data.
+
+The phone was on the correct participant SSID, confirmed by the user and stored
+observations from 10.0.0.112. At 13:37 UTC, a read-only database query found 300
+flows started since 13:20, and 749 activity chunks totaling 44,721,059 received
+bytes and 7,696,132 sent bytes. Latest captured packet: 13:36:13.418 UTC.
+These counts establish real capture, not successful delivery to the display.
+
+The actual display's dashboard requests stopped around 13:30 UTC; the USB radio
+continued to log malformed RX frames. SSH to the display timed out even with the
+temporary diagnostic firewall rule. No participant station was connected at
+13:34; the phone had released 10.0.0.112 at 13:31:35, then returned during testing.
+
+A scoped USB reauthorization around 13:36 briefly restored display API requests,
+then the adapter disappeared again. By 13:36:17 the kernel could not enumerate
+the adapter on port 1-1.2 (EPROTO -71). The user's physical replug appeared on
+1-1.4 at 13:37:22, but descriptor/address requests failed there too. The proxy
+waited for ir-admin and became unhealthy, so participant capture stopped as well.
+
+At 13:38, after verifying that no other USB peripherals were present, the xHCI
+driver was unbound/rebound once. Ethernet uses the separate platform controller
+and stayed accessible. This did not recover service: the internal USB 2 hub also
+failed enumeration after rebinding. This broadens the remaining fault to the
+adapter/power/controller/old host software path; it does not prove the adapter
+alone is defective. Voltage flags remained 0x0 and temperature was 41.8 C.
+A normal gateway reboot was issued at 13:38:46 UTC to restore the controller;
+Docker is enabled and all three containers have restart policy "always".
+
+The reboot restored the hub, adapter on 1-1.4, both APs and capture by 13:39:30.
+The phone generated fresh capture after reboot. The display rejoined at about
+13:40:25. Unfortunately malformed RX frames returned at approximately 13:51 and
+SSH/dashboard transfers stalled again. Scoped reauthorization of 1-1.4 at 13:52
+restored access and restarted the proxy through its existing interface watchdog.
+This is further evidence that neither a port change nor a reset is a lasting
+repair. The dashboard's separate live-clock fixes are documented in
+map-performance-pass-3.txt; they cannot prevent these USB-level outages.
+Malformed frames and stalled diagnostic access recurred at 13:57. Another scoped
+reset was needed to remove the temporary display-browser diagnostics. No lasting
+USB stability claim can be made from the successful application verification.

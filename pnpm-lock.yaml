@@ -4,6 +4,9 @@ settings:
   autoInstallPeers: true
   excludeLinksFromLockfile: false
 
+patchedDependencies:
+  '@luma.gl/core@9.3.6': 81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956
+
 importers:
 
   .: {}
@@ -15,13 +18,13 @@ importers:
         version: 9.3.11
       '@deck.gl/layers':
         specifier: ^9.3.11
-        version: 9.3.11(@deck.gl/core@9.3.11)(@loaders.gl/core@4.4.5)(@luma.gl/core@9.3.6)(@luma.gl/engine@9.3.6(@luma.gl/core@9.3.6)(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6)))
+        version: 9.3.11(@deck.gl/core@9.3.11)(@loaders.gl/core@4.4.5)(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))(@luma.gl/engine@9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))))
       '@deck.gl/react':
         specifier: ^9.3.11
-        version: 9.3.11(@deck.gl/core@9.3.11)(@deck.gl/widgets@9.3.11(@deck.gl/core@9.3.11)(@luma.gl/core@9.3.6))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
+        version: 9.3.11(@deck.gl/core@9.3.11)(@deck.gl/widgets@9.3.11(@deck.gl/core@9.3.11)(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)
       '@deck.gl/widgets':
         specifier: ^9.3.11
-        version: 9.3.11(@deck.gl/core@9.3.11)(@luma.gl/core@9.3.6)
+        version: 9.3.11(@deck.gl/core@9.3.11)(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))
       '@infrareveal/session-state':
         specifier: workspace:*
         version: link:../packages/session-state
@@ -30,13 +33,13 @@ importers:
         version: 4.4.5
       '@luma.gl/core':
         specifier: ^9.3.6
-        version: 9.3.6
+        version: 9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)
       '@luma.gl/engine':
         specifier: ^9.3.6
-        version: 9.3.6(@luma.gl/core@9.3.6)(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6))
+        version: 9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)))
       '@luma.gl/shadertools':
         specifier: ^9.3.6
-        version: 9.3.6(@luma.gl/core@9.3.6)
+        version: 9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))
       maplibre-gl:
         specifier: ^6.6.0
         version: 6.6.0
@@ -1938,10 +1941,10 @@ snapshots:
     dependencies:
       '@loaders.gl/core': 4.4.5
       '@loaders.gl/images': 4.4.5(@loaders.gl/core@4.4.5)
-      '@luma.gl/core': 9.3.6
-      '@luma.gl/engine': 9.3.6(@luma.gl/core@9.3.6)(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6))
-      '@luma.gl/shadertools': 9.3.6(@luma.gl/core@9.3.6)
-      '@luma.gl/webgl': 9.3.6(@luma.gl/core@9.3.6)
+      '@luma.gl/core': 9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)
+      '@luma.gl/engine': 9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)))
+      '@luma.gl/shadertools': 9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))
+      '@luma.gl/webgl': 9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))
       '@math.gl/core': 4.1.0
       '@math.gl/sun': 4.1.0
       '@math.gl/types': 4.1.0
@@ -1953,15 +1956,15 @@ snapshots:
       gl-matrix: 3.4.4
       mjolnir.js: 3.1.0
 
-  '@deck.gl/layers@9.3.11(@deck.gl/core@9.3.11)(@loaders.gl/core@4.4.5)(@luma.gl/core@9.3.6)(@luma.gl/engine@9.3.6(@luma.gl/core@9.3.6)(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6)))':
+  '@deck.gl/layers@9.3.11(@deck.gl/core@9.3.11)(@loaders.gl/core@4.4.5)(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))(@luma.gl/engine@9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))))':
     dependencies:
       '@deck.gl/core': 9.3.11
       '@loaders.gl/core': 4.4.5
       '@loaders.gl/images': 4.4.5(@loaders.gl/core@4.4.5)
       '@loaders.gl/schema': 4.4.5
-      '@luma.gl/core': 9.3.6
-      '@luma.gl/engine': 9.3.6(@luma.gl/core@9.3.6)(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6))
-      '@luma.gl/shadertools': 9.3.6(@luma.gl/core@9.3.6)
+      '@luma.gl/core': 9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)
+      '@luma.gl/engine': 9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)))
+      '@luma.gl/shadertools': 9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))
       '@mapbox/tiny-sdf': 2.2.0
       '@math.gl/core': 4.1.0
       '@math.gl/polygon': 4.1.0
@@ -1969,18 +1972,18 @@ snapshots:
       '@types/geojson': 7946.0.16
       earcut: 2.2.4
 
-  '@deck.gl/react@9.3.11(@deck.gl/core@9.3.11)(@deck.gl/widgets@9.3.11(@deck.gl/core@9.3.11)(@luma.gl/core@9.3.6))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
+  '@deck.gl/react@9.3.11(@deck.gl/core@9.3.11)(@deck.gl/widgets@9.3.11(@deck.gl/core@9.3.11)(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)))(react-dom@19.2.8(react@19.2.8))(react@19.2.8)':
     dependencies:
       '@deck.gl/core': 9.3.11
-      '@deck.gl/widgets': 9.3.11(@deck.gl/core@9.3.11)(@luma.gl/core@9.3.6)
+      '@deck.gl/widgets': 9.3.11(@deck.gl/core@9.3.11)(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))
       react: 19.2.8
       react-dom: 19.2.8(react@19.2.8)
 
-  '@deck.gl/widgets@9.3.11(@deck.gl/core@9.3.11)(@luma.gl/core@9.3.6)':
+  '@deck.gl/widgets@9.3.11(@deck.gl/core@9.3.11)(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))':
     dependencies:
       '@deck.gl/core': 9.3.11
       '@floating-ui/dom': 1.8.0
-      '@luma.gl/core': 9.3.6
+      '@luma.gl/core': 9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)
       preact: 10.29.8
     transitivePeerDependencies:
       - preact-render-to-string
@@ -2104,7 +2107,7 @@ snapshots:
     dependencies:
       '@loaders.gl/core': 4.4.5
 
-  '@luma.gl/core@9.3.6':
+  '@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)':
     dependencies:
       '@math.gl/types': 4.1.0
       '@probe.gl/env': 4.1.1
@@ -2112,24 +2115,24 @@ snapshots:
       '@probe.gl/stats': 4.1.1
       '@types/offscreencanvas': 2019.7.3
 
-  '@luma.gl/engine@9.3.6(@luma.gl/core@9.3.6)(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6))':
+  '@luma.gl/engine@9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))(@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)))':
     dependencies:
-      '@luma.gl/core': 9.3.6
-      '@luma.gl/shadertools': 9.3.6(@luma.gl/core@9.3.6)
+      '@luma.gl/core': 9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)
+      '@luma.gl/shadertools': 9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))
       '@math.gl/core': 4.1.0
       '@math.gl/types': 4.1.0
       '@probe.gl/log': 4.1.1
       '@probe.gl/stats': 4.1.1
 
-  '@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6)':
+  '@luma.gl/shadertools@9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))':
     dependencies:
-      '@luma.gl/core': 9.3.6
+      '@luma.gl/core': 9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)
       '@math.gl/core': 4.1.0
       '@math.gl/types': 4.1.0
 
-  '@luma.gl/webgl@9.3.6(@luma.gl/core@9.3.6)':
+  '@luma.gl/webgl@9.3.6(@luma.gl/core@9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956))':
     dependencies:
-      '@luma.gl/core': 9.3.6
+      '@luma.gl/core': 9.3.6(patch_hash=81996d34995971cd7d428767c6eb97792415baac11be0ab2976d0107a273b956)
       '@math.gl/types': 4.1.0
       '@probe.gl/env': 4.1.1
 

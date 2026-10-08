@@ -7,6 +7,13 @@ async page => {
   await page.evaluate(()=>localStorage.setItem('infrareveal.map.display.v1',JSON.stringify({projection:'mercator',quality:'raspberry-pi',theme:'dark',labels:true})));
   await page.reload();await page.bringToFront();
   await page.locator('#deckgl-overlay').waitFor();
+  await page.locator('.atlas-location-row').first().waitFor();
+  // The start of the fixture has no established streams yet. Measure a known
+  // active interval so an empty initial map cannot pass the rendering check.
+  const pause=page.getByRole('button',{name:'Pause playback',exact:true});
+  if(await pause.count())await pause.click();
+  await page.getByRole('slider',{name:'Session timeline',exact:true}).fill('840');
+  await page.getByRole('button',{name:'Play session',exact:true}).click();
   await page.waitForTimeout(1500);
   if(await page.locator('canvas').count()!==1)throw new Error('Pi mode must use one WebGL canvas');
   const install=()=>page.evaluate(()=>{

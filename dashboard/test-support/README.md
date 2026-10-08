@@ -29,8 +29,8 @@ unknown geography at the API boundary. It checks direction and location filterin
 shared totals and playhead, drag-to-expand, saved projection/theme/labels, system
 appearance, and mobile layouts. Screenshots go to `output/playwright`; create that
 directory before running. Use a fresh browser session for each complete run.
-The demo check verifies that expanded replay stays paused and returning resumes
-live following. These checks do not replace a Pi/network soak test.
+The demo check verifies that the map transport is visible, pause/seek work in
+both views, returning preserves replay, and Go live explicitly resumes following. These checks do not replace a Pi/network soak test.
 The render-budget check counts actual WebGL calls: traffic must draw while playing
 and stop while paused or covered by the expanded timeline. It also checks that
 Equal Earth does not load Mercator and the Pi preset does not load tiled geography.
@@ -60,6 +60,7 @@ playwright-cli open http://127.0.0.1:5188/map/live-session
 playwright-cli run-code --filename dashboard/test-support/browser-rolling-animation.js
 playwright-cli run-code --filename dashboard/test-support/browser-recorded-animation.js
 playwright-cli run-code --filename dashboard/test-support/browser-traffic-shaders.js
+playwright-cli run-code --filename dashboard/test-support/browser-mercator-cache.js
 ```
 
 The test makes the fixture ephemeral with a one-minute retained window. It reads
@@ -105,3 +106,15 @@ paint delays and samples paused clocks without forcing continuous redraws.
 The second-pass plan is in `docs/implementation-guides/map-performance-pass-2.txt`.
 Actual display-Pi profiles use the same browser, resolution and quality setting;
 record GPU renderer, draw count, frame cadence, long tasks and session size.
+
+The Mercator cache check exercises GPU country picking, reuse across animation
+paints, invalidation on camera/size/traffic changes, and resource release when
+switching to full detail. The normal production build contains no probe hooks.
+
+`browser-live-clock.js` uses an isolated browser with intercepted API responses;
+it needs no gateway fixture server and never writes production records. Start a
+production preview, navigate the test browser to its origin, then run the file.
+It reproduces the Pi's moving manifest `startedAt`, checks the absolute paused
+clock and Active now tracks across refreshes, and holds a 65-second outage to
+verify that live following resumes while explicit pause remains respected.
+This takes about 80 seconds. Its request interception is removed on completion.

@@ -4,6 +4,7 @@ import { FlyToInterpolator, WebMercatorViewport } from '@deck.gl/core'
 import type { Color, MapViewState, PickingInfo } from '@deck.gl/core'
 import { ArcLayer, ColumnLayer, PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers'
 import { AnimatedMercator } from './AnimatedMercator'
+import { MercatorBackground, MercatorBackgroundLayer } from '../map/MercatorBackground'
 import type { MapCompositionProps } from './MapComposition'
 import { mapRenderQuality } from '../map/mapPreferences'
 import { createMapGeometryCache, sameTrafficArcGeometry, sameTrafficPathGeometry } from '../map/mapGeometryCache'
@@ -152,6 +153,9 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
 
   const animation = useMemo(() => ({ clock, epochMs: playbackEpochMs, anchorMs: trafficAnchorMs }), [clock, playbackEpochMs, trafficAnchorMs])
 
+  const backgroundCache = useMemo(() => new MercatorBackground(), [])
+  const backgroundEffects = useMemo(() => quality.light ? [backgroundCache] : [], [backgroundCache, quality.light])
+
   const basemap = useMemo(() => quality.light ? bundledBasemap(theme, preferences.labels,
     new WebMercatorViewport({ ...viewState, width, height })) : [], [quality.light, theme, preferences.labels, viewState, width, height])
 
@@ -178,6 +182,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
     }
     const countryOpacity = (code: string) => !selection || countryVolumes.get(code)?.tracks.some(track => track.trackId === selection) ? 1 : 0.12
     return [
+      ...(quality.light ? [new MercatorBackgroundLayer({ id: 'cached-background', cache: backgroundCache })] : []),
       ...basemap,
       new CountryFootprintLayer({
         id: 'country-footprints', data: countryPolygons, getPolygon: shape => shape.polygon, pickable: true,
@@ -320,9 +325,9 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
         background: true, getBackgroundColor: [10, 23, 32, 230], backgroundPadding: [7, 4],
         getTextAnchor: 'middle', getAlignmentBaseline: 'center', parameters: { depthCompare: 'always' },
       }),
-    ].filter(layer => layer.props.visible !== false && ('image' in layer.props || !Array.isArray(layer.props.data) || layer.props.data.length > 0)
+    ].filter(layer => layer.props.visible !== false && (layer.id === 'cached-background' || 'image' in layer.props || !Array.isArray(layer.props.data) || layer.props.data.length > 0)
       && (!quality.light || !['route-glow', 'destination-halos', 'gateway-ring', 'route-hop-order'].includes(layer.id)))
-  }, [basemap, animation, quality.light, quality.segments, trafficProfiles, routes, measuredSpans, unknownSpans, tracedStrips, pathVolumeLayers, origin, reducedMotion, selection, showTraffic, visibleHops, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryRoutes, countryTraffic, cityPoints, direction, theme, workspace.expanded, preferences.labels])
+  }, [backgroundCache, basemap, animation, quality.light, quality.segments, trafficProfiles, routes, measuredSpans, unknownSpans, tracedStrips, pathVolumeLayers, origin, reducedMotion, selection, showTraffic, visibleHops, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryRoutes, countryTraffic, cityPoints, direction, theme, workspace.expanded, preferences.labels])
 
   function moveTo(next: Partial<MapViewState>) {
     setViewState((current) => ({ ...current, ...next, transitionDuration: reducedMotion || quality.light ? 0 : 700, transitionInterpolator: new FlyToInterpolator() }))
@@ -357,6 +362,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
     <div className="atlas-composition" data-map-zoom={viewState.zoom.toFixed(2)} data-map-pitch={viewState.pitch} data-route-mode={showRoutes ? 'traceroute' : 'direct'} data-selected-track={selection || undefined} data-track-count={trackFrame.tracks.length} data-destination-count={destinations.length} data-country-count={countryDestinations.length} data-city-column-count={columns.length} data-destination-bytes={Math.round(destinations.reduce((sum, destination) => sum + directionalBytes(destination, direction), 0))} data-workspace={workspace.expanded ? 'timeline' : 'map'} data-location-filter={workspace.locationId ?? ''}>
       <div className="atlas-map-surface" hidden={workspace.expanded}>
       <AnimatedMercator clock={clock} active={!workspace.expanded && showTraffic && !reducedMotion && (trafficArcs.length + countryTraffic.length + tracedTraffic.length > 0)} useDevicePixels={quality.pixelRatio ?? true} deviceProps={{ webgl: { antialias: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' } }}
+        effects={backgroundEffects} layerFilter={quality.light ? backgroundCache.filter : null}
         controller={{ dragRotate: true, touchRotate: true }} viewState={viewState}
         onViewStateChange={({ viewState: next }) => setViewState(next as MapViewState)}
         layers={layers} getTooltip={info => {

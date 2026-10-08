@@ -58,13 +58,17 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const playerRef = useRef(clock)
   const initializedSessionRef = useRef<string | null>(null)
   const programmaticSeekTargetRef = useRef<number | null>(null)
-  const followingCommandRef = useRef(false)
-  const followingCommandTimerRef = useRef(0)
   const lastCursorPublishRef = useRef(0)
   const { connectionState, data, timeline, error, refresh } = useGatewayData(sessionID, true, publishMs)
   const trackPalette = useMemo(() => ({ sessionID, colors: new TrackColors() }), [sessionID])
-  // Retention moves the visible start, never the player's frame origin.
-  const playbackEpochMs = useMemo(() => parseEpoch(timeline.manifest?.startedAt, timeline.epochMs), [timeline.manifest?.startedAt, timeline.epochMs])
+  // The server advances startedAt on every rolling-history manifest. Pin the
+  // first origin for this session: rebasing it would move even a paused clock
+  // into the future and make every connection fail the Active now filter.
+  const [playbackOrigin, setPlaybackOrigin] = useState<{ sessionId: string; epochMs: number } | null>(null)
+  if (timeline.manifest?.sessionId === sessionID && playbackOrigin?.sessionId !== sessionID) {
+    setPlaybackOrigin({ sessionId: sessionID, epochMs: parseEpoch(timeline.manifest.startedAt, timeline.epochMs) })
+  }
+  const playbackEpochMs = playbackOrigin?.sessionId === sessionID ? playbackOrigin.epochMs : timeline.epochMs
   const cursorMs = timeForFrame(playbackEpochMs, currentFrame, FPS)
   const activityStartMs = Math.floor(cursorMs / 30_000) * 30_000 - 30_000
   const activity = useFlowActivityRange(data.selectedSession?.id ?? null, activityStartMs, activityStartMs + 90_000, undefined, publishMs, preferences.projection === 'mercator' || workspace.expanded || inspectorOpen)
@@ -87,7 +91,8 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const projectionCursor = timeline.playback === 'paused' ? cursorMs : Math.floor(cursorMs / publishMs) * publishMs
   const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationVolumes.index, projectionCursor, workspace), [trackCatalog, scene, destinationVolumes.index, projectionCursor, workspace])
   const waveform = useMemo(() => createWireWaveformCache(), [])
-  const playbackBins = useMemo(() => kiosk && !workspace.expanded ? [] : waveform([...overview.byFlow.values()], destinationVolumes.index, { from: scene.startMs, to: contentEndMs }), [waveform, kiosk, workspace.expanded, overview.byFlow, destinationVolumes.index, scene.startMs, contentEndMs])
+  const playbackBins = useMemo(() => waveform([...overview.byFlow.values()], destinationVolumes.index, { from: scene.startMs, to: contentEndMs }), [waveform, overview.byFlow, destinationVolumes.index, scene.startMs, contentEndMs])
+  const demoWarning = demo && (demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow)))
   const styledMap = useMemo(() => themedAtlasStyle(mapStyleUrl, theme, preferences.labels), [theme, preferences.labels])
   const timelineRef = useRef({
     epochMs: playbackEpochMs,
@@ -132,13 +137,6 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     const targetFrame = liveFrame(playbackEpochMs, timeline.liveEdgeMs, contentDurationInFrames)
     const shouldSeek = forceSeek || Math.abs(player.getCurrentFrame() - targetFrame) > FPS
     const shouldPlay = !player.isPlaying()
-    if (shouldSeek || shouldPlay) {
-      followingCommandRef.current = true
-      window.clearTimeout(followingCommandTimerRef.current)
-      followingCommandTimerRef.current = window.setTimeout(() => {
-        followingCommandRef.current = false
-      }, 250)
-    }
     if (shouldSeek) {
       programmaticSeekTargetRef.current = targetFrame
       player.seekTo(targetFrame)
@@ -193,7 +191,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
-      if ((kiosk && !workspace.expanded) || settingsOpen) return
+      if (settingsOpen) return
       const target = event.target as HTMLElement | null
       if (event.altKey || event.ctrlKey || event.metaKey || target?.closest('input, select, button, a, textarea, [contenteditable="true"]')) return
       if (event.code === 'Space') { event.preventDefault(); togglePlayback() }
@@ -202,7 +200,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [seek, togglePlayback, kiosk, workspace.expanded, settingsOpen])
+  }, [seek, togglePlayback, settingsOpen])
 
   async function toggleFullscreen() {
     try {
@@ -211,8 +209,6 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       else setFullscreenError('Fullscreen is not available in this browser.')
     } catch { setFullscreenError('Fullscreen is not available in this browser.') }
   }
-
-  useEffect(() => () => window.clearTimeout(followingCommandTimerRef.current), [])
 
   useEffect(() => {
     const player = playerRef.current
@@ -249,16 +245,17 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       setTimelinePlayback({ playback: alreadyFollowing || atLiveEdge ? 'following' : 'playing' })
     }
     const handlePause = () => {
-      if (!followingCommandRef.current) {
-        const frame = player.getCurrentFrame()
-        setCurrentFrame(frame)
-        setTimelinePlayback({ cursorMs: timeForFrame(timelineRef.current.epochMs, frame, FPS), playback: 'paused' })
-      }
+      const frame = player.getCurrentFrame()
+      setCurrentFrame(frame)
+      setTimelinePlayback({ cursorMs: timeForFrame(timelineRef.current.epochMs, frame, FPS), playback: 'paused' })
     }
     const handleEnded = () => {
       const frame = player.getCurrentFrame()
       setCurrentFrame(frame)
-      setTimelinePlayback({ cursorMs: timeForFrame(timelineRef.current.epochMs, frame, FPS), playback: 'paused' })
+      // An outage can exhaust the live clock's headroom. Retain live intent so
+      // the next accepted server edge restarts it; explicit pause still wins.
+      const following = timelineRef.current.mode === 'live' && sessionTimelineStore.getState().playback === 'following'
+      setTimelinePlayback({ cursorMs: timeForFrame(timelineRef.current.epochMs, frame, FPS), playback: following ? 'following' : 'paused' })
     }
     const handleRateChange: PlaybackListener = (event) => {
       setTimelinePlayback({ rate: event.detail.playbackRate })
@@ -299,11 +296,11 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     if (
       !player
       || timeline.mode !== 'live'
-      || ((!kiosk || workspace.expanded) && (timeline.playback !== 'following'
-      || sessionTimelineStore.getState().playback !== 'following'))
+      || timeline.playback !== 'following'
+      || sessionTimelineStore.getState().playback !== 'following'
     ) return
     followLiveEdge()
-  }, [followLiveEdge, timeline.mode, timeline.playback, kiosk, workspace.expanded])
+  }, [followLiveEdge, timeline.mode, timeline.playback])
 
   return (
     <main
@@ -325,16 +322,12 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
         <div className="atlas-header-right"><button type="button" className="atlas-icon-button" aria-label="Open display settings" title="Display settings" onClick={() => setSettingsOpen(true)}><MapIcon name="settings" /></button><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(cursorMs)}</strong><span>UTC</span></div></div>
       </header>
       {(error || fullscreenError) && <div className="atlas-connection-notice" role="status"><span>{error || fullscreenError}</span>{error ? <button type="button" onClick={() => void refresh()}>Retry connection</button> : <button type="button" onClick={() => setFullscreenError('')}>Dismiss</button>}</div>}
-      {demo && <div className="atlas-demo-banner">
-        <span>Connect to <strong>{demo.status.ssid}</strong> Wi-Fi to see your traffic here</span>
-        <span>Last {demo.status.retentionMinutes} minutes · Live network metadata</span>
-        {(demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow))) && <strong role="status" className="atlas-demo-warning">{demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow))}</strong>}
-      </div>}
+      {demoWarning && <div className="atlas-connection-notice" role="status">{demoWarning}</div>}
       <div ref={mapContainerRef} className="atlas-map-container">
       <MapComposition {...inputProps} />
       </div>
       <MapSettings open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />
-      {(!kiosk || workspace.expanded) && <MapTransport scene={scene} bins={playbackBins} direction={workspace.direction} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}
+      <MapTransport scene={scene} bins={playbackBins} direction={workspace.direction} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}
         live={timeline.mode === 'live'} following={timeline.playback === 'following'}
         onToggle={togglePlayback} onSeek={frame => seekTime(timeForFrame(scene.startMs, frame, FPS))}
@@ -343,7 +336,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
           // A faster/slower clock is playback; live following must run at real time.
           ...(rate !== 1 && timeline.playback === 'following' ? { playback: 'playing' } : {}),
         })}
-        onLive={() => followLiveEdge(true)} onFullscreen={() => void toggleFullscreen()} />}
+        onLive={() => followLiveEdge(true)} onFullscreen={() => void toggleFullscreen()} />
     </main>
   )
 }

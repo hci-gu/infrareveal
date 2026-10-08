@@ -3,6 +3,7 @@ FROM --platform=$BUILDPLATFORM node:22-bookworm-slim AS builder
 WORKDIR /workspace
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
+COPY patches ./patches
 COPY dashboard/package.json ./dashboard/package.json
 COPY debug-dashboard/package.json ./debug-dashboard/package.json
 COPY packages/session-state/package.json ./packages/session-state/package.json
