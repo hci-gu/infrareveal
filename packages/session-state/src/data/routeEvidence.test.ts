@@ -59,7 +59,7 @@ describe('route evidence over time', () => {
     resetSessionTimeline('session', [])
     const first = route('first', 100)
     const window: SessionWindow = {...emptyGatewayData(), range:{from:new Date(start + 500).toISOString(),to:new Date(start + 1000).toISOString()}, lod:'50ms', watermark:'test',nextCursor:null,routes:[first]}
-    applySessionWindow(window, {key:'page',fromMs:start+500,toMs:start+1000,lod:'50ms',flowKey:'all',flowIds:new Set()})
+    applySessionWindow(window, {key:'page',fromMs:start+500,toMs:start+1000,lod:'50ms',flowIds:new Set()})
     applyRealtimeBatch([{collection:'routes',action:'create',record:route('new-anchor',400)}])
     expect(sessionTimelineStore.getState().pages.get('page')?.ownership.routes.has('first')).toBe(false)
     expect(sessionTimelineStore.getState().pages.get('page')?.ownership.routes.has('new-anchor')).toBe(true)

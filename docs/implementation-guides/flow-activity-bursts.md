@@ -95,7 +95,7 @@ Consumers must validate versions, counts, bucket sizes, chunk bounds and flow id
 | PocketBase chunk/window/status persistence | `pocketbase/observer/activity_chunks.go` |
 | Session DTOs, bounded loading, realtime and cache ownership | `packages/session-state/src/data`, `packages/session-state/src/timeline` |
 | Debug activity decoding and timeline projection | `debug-dashboard/src/shared/activity`, `debug-dashboard/src/model/sessionModel.ts` |
-| Production map activity projection | `dashboard/src/map/timelineActivity.ts` |
+| Production map activity projection | `dashboard/src/map/wireWaveform.ts` |
 
 Both dashboards consume the shared session runtime. Overview and fine detail have different responsibilities: keep detail requests paginated and bounded by visible/selected time ranges, with request cancellation and cache eviction. Compact cumulative summaries can cover the session without loading its entire fine-grained history. A fixed record limit must never silently truncate a requested interval.
 

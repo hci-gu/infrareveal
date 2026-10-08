@@ -3,15 +3,16 @@ import type { PipelineEvent } from '../types'
 import { TemporalEventIndex } from './temporalEventIndex'
 
 describe('TemporalEventIndex', () => {
-  it('queries indexed time/facets and finds the nearest trace event', () => {
+  it('queries time in stable order with a half-open end', () => {
     const index = new TemporalEventIndex(50)
     index.upsert(event('later', 130, 'flow-b', '10.0.0.2', 'remote_to_client'))
     index.upsert(event('first', 100, 'flow-a', '10.0.0.1', 'client_to_remote'))
     index.upsert(event('middle', 120, 'flow-a', '10.0.0.1', 'client_to_remote'))
 
-    expect(index.query(90, 125, { clients: ['10.0.0.1'], directions: ['client_to_remote'] }).map((item) => item.id))
+    expect(index.query(90, 125).map((item) => item.id))
       .toEqual(['first', 'middle'])
-    expect(index.nearestBefore(125, 'flow-a')?.id).toBe('middle')
+    expect(index.query(125, 130)).toEqual([])
+    expect(index.query(130, 131).map(item => item.id)).toEqual(['later'])
     expect(index.query(1000, 2000)).toEqual([])
   })
 

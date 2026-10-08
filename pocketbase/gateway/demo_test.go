@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"fmt"
+	"myapp/testsupport"
 	"myapp/timeline"
 	"testing"
 	"time"
@@ -12,11 +13,11 @@ import (
 )
 
 func TestDemoStartupResumesDedicatedSession(t *testing.T) {
-	app := ephemeralTestApp(t)
+	app := testsupport.App(t)
 	t.Setenv("DEMO_MODE", "true")
 	t.Setenv("DEMO_RETENTION_MINUTES", "30")
 	g := testRuntime(t, app)
-	old := saveEphemeralFixture(t, app, "sessions", map[string]any{"name": "Recording", "active": true})
+	old := testsupport.Save(t, app, "sessions", map[string]any{"name": "Recording", "active": true})
 	g.Register()
 	if err := g.ensureDefaultActiveSession(); err != nil {
 		t.Fatal(err)
@@ -47,14 +48,14 @@ func TestDemoStartupResumesDedicatedSession(t *testing.T) {
 }
 
 func TestThirtyMinuteRetentionAndCatalogueSurviveCleanup(t *testing.T) {
-	app := ephemeralTestApp(t)
+	app := testsupport.App(t)
 	t.Setenv("DEMO_MODE", "true")
 	now := time.Now().UTC()
 	start := now.Add(-time.Hour)
-	session := saveEphemeralFixture(t, app, "sessions", map[string]any{"demo": true, "ephemeral": true, "active": true, "retention_minutes": 30, "started_at": start})
+	session := testsupport.Save(t, app, "sessions", map[string]any{"demo": true, "ephemeral": true, "active": true, "retention_minutes": 30, "started_at": start})
 	for i, age := range []time.Duration{31 * time.Minute, 20 * time.Minute} {
-		saveEphemeralFixture(t, app, "dns_queries", map[string]any{"session": session.Id, "query_name": fmt.Sprintf("www%d.example.com", i), "timestamp": now.Add(-age), "aliases": []string{"edge.cdn.net"}})
-		saveEphemeralFixture(t, app, "flows", map[string]any{"session": session.Id, "flow_key": fmt.Sprint(i), "protocol": "tcp", "client_ip": "10.0.0.50", "destination_ip": "1.1.1.1", "start": now.Add(-age), "last_seen": now.Add(-age)})
+		testsupport.Save(t, app, "dns_queries", map[string]any{"session": session.Id, "query_name": fmt.Sprintf("www%d.example.com", i), "timestamp": now.Add(-age), "aliases": []string{"edge.cdn.net"}})
+		testsupport.Save(t, app, "flows", map[string]any{"session": session.Id, "flow_key": fmt.Sprint(i), "protocol": "tcp", "client_ip": "10.0.0.50", "destination_ip": "1.1.1.1", "start": now.Add(-age), "last_seen": now.Add(-age)})
 	}
 	if err := testRuntime(t, app).pruneEphemeralSessions(now); err != nil {
 		t.Fatal(err)
@@ -89,12 +90,12 @@ func TestThirtyMinuteRetentionAndCatalogueSurviveCleanup(t *testing.T) {
 }
 
 func TestCatalogueRevisionIdempotenceAndBoundedExamples(t *testing.T) {
-	app := ephemeralTestApp(t)
+	app := testsupport.App(t)
 	now := time.Now().UTC()
-	session := saveEphemeralFixture(t, app, "sessions", map[string]any{"active": true})
-	dns := saveEphemeralFixture(t, app, "dns_queries", map[string]any{"session": session.Id, "query_name": "www.example.com", "timestamp": now})
-	flow := saveEphemeralFixture(t, app, "flows", map[string]any{"session": session.Id, "flow_key": "one", "protocol": "tcp", "client_ip": "10.0.0.50", "destination_ip": "1.1.1.1", "start": now, "last_seen": now})
-	attr := saveEphemeralFixture(t, app, "flow_attributions", map[string]any{"session": session.Id, "flow": flow.Id, "candidate_hostname": "www.example.com", "confidence": "medium", "source_signal": "dns_answer", "observed_at": now})
+	session := testsupport.Save(t, app, "sessions", map[string]any{"active": true})
+	dns := testsupport.Save(t, app, "dns_queries", map[string]any{"session": session.Id, "query_name": "www.example.com", "timestamp": now})
+	flow := testsupport.Save(t, app, "flows", map[string]any{"session": session.Id, "flow_key": "one", "protocol": "tcp", "client_ip": "10.0.0.50", "destination_ip": "1.1.1.1", "start": now, "last_seen": now})
+	attr := testsupport.Save(t, app, "flow_attributions", map[string]any{"session": session.Id, "flow": flow.Id, "candidate_hostname": "www.example.com", "confidence": "medium", "source_signal": "dns_answer", "observed_at": now})
 	collect := func() {
 		t.Helper()
 		if err := observer.CollectDomainCatalogue(app, session.Id); err != nil {
@@ -133,7 +134,7 @@ func TestCatalogueRevisionIdempotenceAndBoundedExamples(t *testing.T) {
 		t.Fatal(len(examples))
 	}
 	// An aborted aggregate transaction must also roll back source checkpoints.
-	extra := saveEphemeralFixture(t, app, "dns_queries", map[string]any{"session": session.Id, "query_name": "test.example.com", "timestamp": now})
+	extra := testsupport.Save(t, app, "dns_queries", map[string]any{"session": session.Id, "query_name": "test.example.com", "timestamp": now})
 	_ = app.RunInTransaction(func(tx core.App) error {
 		if err := observer.CollectDomainCatalogue(tx, session.Id); err != nil {
 			return err

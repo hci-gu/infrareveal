@@ -3,42 +3,26 @@ import { createStore } from 'zustand/vanilla'
 import type {
   GateDecision,
   GateStatus,
-  PipelineDirection,
   PipelineEvent,
-  PipelineEventKind,
   PipelineStreamMessage,
-  ProxyLabMode,
 } from '../types'
 
 const MAX_EPHEMERAL_EVENTS = 20_000
 const EPHEMERAL_RETENTION_MS = 30_000
 
-export type ProxyLabFilters = {
-  clientIps: string[]
-  protocols: string[]
-  kinds: PipelineEventKind[]
-  directions: PipelineDirection[]
-}
-
 export type ProxyLabState = {
   sessionId: string | null
-  mode: ProxyLabMode
   observationMode: 'replay' | 'live-observe'
   requestedGateMode: 'flow' | 'strict' | 'dns'
   selectedNodeId: GraphNodeId | null
-  filters: ProxyLabFilters
   selectedEventId: string | null
   selectedTraceId: string | null
   traceConnection: 'idle' | 'connecting' | 'live' | 'reconnecting' | 'gap' | 'error'
   traceError: string | null
   ephemeralEvents: Map<string, PipelineEvent>
-  ephemeralVersion: number
-  oldestSequence: number | null
-  newestSequence: number | null
   traceDropped: number
   gateStatus: GateStatus | null
   pendingDecisions: Map<string, GateDecision>
-  pendingVersion: number
   recentDecisions: GateDecision[]
   controlInFlight: Set<string>
   controlConnection: 'idle' | 'connecting' | 'ready' | 'error'
@@ -50,23 +34,17 @@ export type ProxyLabState = {
 function initialState(sessionId: string | null = null): ProxyLabState {
   return {
     sessionId,
-    mode: 'replay',
     observationMode: 'replay',
     requestedGateMode: 'flow',
     selectedNodeId: null,
-    filters: { clientIps: [], protocols: [], kinds: [], directions: [] },
     selectedEventId: null,
     selectedTraceId: null,
     traceConnection: 'idle',
     traceError: null,
     ephemeralEvents: new Map(),
-    ephemeralVersion: 0,
-    oldestSequence: null,
-    newestSequence: null,
     traceDropped: 0,
     gateStatus: null,
     pendingDecisions: new Map(),
-    pendingVersion: 0,
     recentDecisions: [],
     controlInFlight: new Set(),
     controlConnection: 'idle',
@@ -79,27 +57,11 @@ function initialState(sessionId: string | null = null): ProxyLabState {
 export const proxyLabStore = createStore<ProxyLabState>()(() => initialState())
 
 export function resetProxyLabSession(sessionId: string) {
-  const version = proxyLabStore.getState().ephemeralVersion + 1
-  proxyLabStore.setState({ ...initialState(sessionId), ephemeralVersion: version }, true)
+  proxyLabStore.setState(initialState(sessionId), true)
 }
 
 export function clearProxyLabRoute() {
-  const previous = proxyLabStore.getState()
-  proxyLabStore.setState({
-    ...initialState(),
-    ephemeralVersion: previous.ephemeralVersion + 1,
-    pendingVersion: previous.pendingVersion + 1,
-  }, true)
-}
-
-export function setProxyLabMode(mode: ProxyLabMode) {
-  // Legacy visualization callers remain compatible; view changes never alter armed status.
-  proxyLabStore.setState({ mode, observationMode: mode === 'replay' ? 'replay' : 'live-observe', controlError: null })
-}
-
-export function setProxyLabFilters(filters: Partial<ProxyLabFilters>) {
-  const state = proxyLabStore.getState()
-  proxyLabStore.setState({ filters: { ...state.filters, ...filters } })
+  proxyLabStore.setState(initialState(), true)
 }
 
 export function selectProxyLabEvent(eventId: string | null, traceId: string | null) {
@@ -116,8 +78,6 @@ export function setTraceConnection(
 export function applyTraceMessageMetadata(message: PipelineStreamMessage) {
   const state = proxyLabStore.getState()
   proxyLabStore.setState({
-    oldestSequence: message.oldestSequence,
-    newestSequence: message.newestSequence,
     traceDropped: Math.max(
       state.traceDropped,
       message.droppedEvents + message.ingressRejected + message.subscriberDropped + message.burstDiscarded,
@@ -140,12 +100,8 @@ export function addEphemeralEvents(events: readonly PipelineEvent[], droppedEven
     .filter((event) => event.occurredAtMs >= cutoff)
     .sort((left, right) => left.sequence - right.sequence || left.id.localeCompare(right.id))
     .slice(-MAX_EPHEMERAL_EVENTS)
-  const sequences = retained.map((event) => event.sequence)
   proxyLabStore.setState({
     ephemeralEvents: new Map(retained.map((event) => [event.id, event])),
-    ephemeralVersion: state.ephemeralVersion + 1,
-    oldestSequence: sequences.length ? Math.min(...sequences) : null,
-    newestSequence: sequences.length ? Math.max(...sequences) : null,
     traceDropped: state.traceDropped + Math.max(0, droppedEvents),
   })
 }
@@ -155,10 +111,8 @@ export function setGateStatus(gateStatus: GateStatus | null) {
 }
 
 export function synchronizePendingDecisions(decisions: readonly GateDecision[]) {
-  const state = proxyLabStore.getState()
   proxyLabStore.setState({
     pendingDecisions: new Map(decisions.map((decision) => [decision.id, decision])),
-    pendingVersion: state.pendingVersion + 1,
   })
 }
 
@@ -169,7 +123,6 @@ export function completeGateDecision(decision: GateDecision) {
   proxyLabStore.setState({
     pendingDecisions,
     recentDecisions: [decision, ...state.recentDecisions.filter((item) => item.id !== decision.id)].slice(0, 12),
-    pendingVersion: state.pendingVersion + 1,
     announcement: `${decision.protocol.toUpperCase()} flow ${decision.state}.`,
   })
 }
@@ -195,7 +148,7 @@ export function setOperatorToken(operatorToken: string) {
 }
 
 export function setLabObservationMode(observationMode: 'replay' | 'live-observe') {
-  proxyLabStore.setState({ observationMode, mode: observationMode })
+  proxyLabStore.setState({ observationMode })
 }
 export function setLabGateMode(requestedGateMode: 'flow' | 'strict' | 'dns') {
   proxyLabStore.setState({ requestedGateMode })

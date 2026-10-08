@@ -3,6 +3,7 @@ package routing
 import (
 	"errors"
 	"fmt"
+	"myapp/testsupport"
 	"testing"
 	"time"
 
@@ -10,13 +11,13 @@ import (
 )
 
 func TestRouteReaderPreservesIndependentPaginationAndEvidenceTimes(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	start := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
-	flow := saveRoutingRecord(t, app, "flows", map[string]any{"session": session, "flow_key": "reader", "client_ip": "10.0.0.2", "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "start": start})
+	flow := testsupport.Save(t, app, "flows", map[string]any{"session": session, "flow_key": "reader", "client_ip": "10.0.0.2", "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "start": start})
 	routes := []*core.Record{}
 	for i := range 10 {
-		routes = append(routes, saveRoutingRecord(t, app, "routes", map[string]any{"session": session, "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "method": "tcp:443", "network_context": "n", "available_at": start.Add(time.Duration(i) * time.Second), "revision": i}))
+		routes = append(routes, testsupport.Save(t, app, "routes", map[string]any{"session": session, "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "method": "tcp:443", "network_context": "n", "available_at": start.Add(time.Duration(i) * time.Second), "revision": i}))
 	}
 	query := RouteQuery{Session: session, From: start.Add(3 * time.Second), To: start.Add(8 * time.Second), FlowIDs: []string{flow.Id}, Limit: 2}
 	var revisions []int
@@ -47,8 +48,8 @@ func TestRouteReaderPreservesIndependentPaginationAndEvidenceTimes(t *testing.T)
 		t.Fatal("completed cursor was restarted", page, err)
 	}
 
-	saveRoutingRecord(t, app, "route_evidence_updates", map[string]any{"key": "enriched", "session": session, "binding_key": routes[2].Id, "kind": "enriched", "available_at": start.Add(4 * time.Second), "value": map[string]any{"5": map[string]any{}}})
-	saveRoutingRecord(t, app, "route_evidence_updates", map[string]any{"key": "network", "session": session, "network_context": "n", "kind": "network_invalidated", "available_at": start.Add(6 * time.Second)})
+	testsupport.Save(t, app, "route_evidence_updates", map[string]any{"key": "enriched", "session": session, "binding_key": routes[2].Id, "kind": "enriched", "available_at": start.Add(4 * time.Second), "value": map[string]any{"5": map[string]any{}}})
+	testsupport.Save(t, app, "route_evidence_updates", map[string]any{"key": "network", "session": session, "network_context": "n", "kind": "network_invalidated", "available_at": start.Add(6 * time.Second)})
 	before, err := ExportRoutes(app, routes[2:4], start.Add(5*time.Second))
 	if err != nil {
 		t.Fatal(err)
@@ -66,16 +67,16 @@ func TestRouteReaderPreservesIndependentPaginationAndEvidenceTimes(t *testing.T)
 }
 
 func TestRouteRetentionUsesCallerTransactionAndPreservesAnchors(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	start := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
-	saveRoutingRecord(t, app, "flows", map[string]any{"session": session, "flow_key": "retained", "client_ip": "10.0.0.2", "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "start": start})
+	testsupport.Save(t, app, "flows", map[string]any{"session": session, "flow_key": "retained", "client_ip": "10.0.0.2", "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "start": start})
 	var routes []*core.Record
 	for i := range 3 {
-		routes = append(routes, saveRoutingRecord(t, app, "routes", map[string]any{"session": session, "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "method": "tcp:443", "available_at": start.Add(time.Duration(i) * time.Second)}))
+		routes = append(routes, testsupport.Save(t, app, "routes", map[string]any{"session": session, "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "method": "tcp:443", "available_at": start.Add(time.Duration(i) * time.Second)}))
 	}
 	for i := range 2 {
-		saveRoutingRecord(t, app, "route_evidence_updates", map[string]any{"key": fmt.Sprint(i), "session": session, "binding_key": routes[1].Id, "kind": "confirmed", "available_at": start.Add(time.Second + time.Duration(i+1)*100*time.Millisecond)})
+		testsupport.Save(t, app, "route_evidence_updates", map[string]any{"key": fmt.Sprint(i), "session": session, "binding_key": routes[1].Id, "kind": "confirmed", "available_at": start.Add(time.Second + time.Duration(i+1)*100*time.Millisecond)})
 	}
 	cutoff := start.Add(2 * time.Second)
 	rollback := errors.New("later retention module failed")
@@ -107,13 +108,13 @@ func TestRouteRetentionUsesCallerTransactionAndPreservesAnchors(t *testing.T) {
 }
 
 func TestSharedRetentionKeepsRecordingEvidenceAndIndependentCutoffs(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	now := time.Now()
 	old := now.Add(-2 * time.Hour)
-	retained := saveRoutingRecord(t, app, "route_observations", map[string]any{"cache_key": "retained", "attempt_id": "retained", "revision": 1, "measured_at": old})
-	orphan := saveRoutingRecord(t, app, "route_observations", map[string]any{"cache_key": "orphan", "attempt_id": "orphan", "revision": 1, "measured_at": old})
-	saveRoutingRecord(t, app, "routes", map[string]any{"session": session, "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "method": "tcp:443", "observation_id": retained.Id})
+	retained := testsupport.Save(t, app, "route_observations", map[string]any{"cache_key": "retained", "attempt_id": "retained", "revision": 1, "measured_at": old})
+	orphan := testsupport.Save(t, app, "route_observations", map[string]any{"cache_key": "orphan", "attempt_id": "orphan", "revision": 1, "measured_at": old})
+	testsupport.Save(t, app, "routes", map[string]any{"session": session, "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "method": "tcp:443", "observation_id": retained.Id})
 	if err := saveCache(app, "still-recent", cacheEntry{}, old); err != nil {
 		t.Fatal(err)
 	}

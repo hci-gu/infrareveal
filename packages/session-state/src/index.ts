@@ -13,6 +13,7 @@ export {
 } from './data/pocketbaseClient'
 export type { ClearGatewayDataResult, RealtimeEvent } from './data/pocketbaseClient'
 export { useFlowActivityRange, useGatewayData } from './data/useGatewayData'
+export { useSessions } from './data/useSessions'
 export {
   EPHEMERAL_WINDOW_MS,
   FPS,
@@ -24,7 +25,6 @@ export {
   timeForFrame,
   windowSegments,
 } from './timeline/domain/time'
-export { selectGatewayDataWindow } from './timeline/selectors/selectGatewayDataWindow'
 export {
   DEFAULT_DETAIL_CACHE_BUDGET_BYTES,
   configureDetailCacheBudget,
@@ -34,14 +34,11 @@ export {
   sessionTimelineStore,
   timelineStartMs,
   setTimelinePlayback,
-  setTimelineUI,
-  toggleTimelineServiceCollapsed,
 } from './timeline/store/sessionStore'
 export type {
   DetailPage,
   PlaybackState,
   SessionTimelineState,
-  TimelineUIState,
 } from './timeline/store/sessionStore'
 export { chooseLOD } from './timeline/transport/sessionController'
 

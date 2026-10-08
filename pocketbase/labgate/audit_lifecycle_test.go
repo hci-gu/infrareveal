@@ -4,11 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"myapp/testsupport"
 	"sync"
 	"testing"
 	"time"
 
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -41,9 +41,7 @@ func TestAuditBackpressureCannotDelayKernelVerdicts(t *testing.T) {
 	if _, err := controller.Arm(ctx, arm); err != nil {
 		t.Fatal(err)
 	}
-	if err := queue.Inject(ctx, tcpPacket(1, 50000)); err != nil {
-		t.Fatal(err)
-	}
+	queue.inject(t, ctx, tcpPacket(1, 50000))
 	decision := waitPending(t, controller, ctx, 1)[0]
 	if _, err := controller.Decide(ctx, DecisionCommand{DecisionID: decision.ID, Verdict: VerdictAccept}); err != nil {
 		t.Fatal(err)
@@ -224,24 +222,11 @@ func blockedAuditWriter(t *testing.T) (core.App, *AuditWriter, Decision, <-chan 
 
 func newAuditFixture(t *testing.T) (core.App, Decision) {
 	t.Helper()
-	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
-	if err := app.Bootstrap(); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.RunAppMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = app.ResetBootstrapState() })
-	sessions, err := app.FindCollectionByNameOrId("sessions")
-	if err != nil {
-		t.Fatal(err)
-	}
-	session := core.NewRecord(sessions)
-	session.Set("name", "Audit lifecycle")
-	session.Set("active", true)
-	if err := app.Save(session); err != nil {
-		t.Fatal(err)
-	}
+	app := testsupport.App(t)
+	session := testsupport.Save(t, app, "sessions", map[string]any{
+		"name":   "Audit lifecycle",
+		"active": true,
+	})
 	packet := tcpPacket(1, 50000)
 	return app, Decision{
 		ID: "audit-seed", SessionID: session.Id, FlowKey: packet.Tuple.Key(), Tuple: packet.Tuple,

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync"
+	"testing"
 	"time"
 )
 
@@ -122,3 +123,17 @@ func (queue *FakeQueue) WaitForVerdict(ctx context.Context, packetID uint32) (Ve
 }
 
 var ErrFakeVerdict = errors.New("fake queue verdict failure")
+
+func (queue *FakeQueue) inject(t testing.TB, ctx context.Context, packet QueuedPacket) {
+	t.Helper()
+	if err := queue.Inject(ctx, packet); err != nil {
+		t.Fatalf("inject packet %d: %v", packet.ID, err)
+	}
+}
+
+func (queue *FakeQueue) assertVerdict(t testing.TB, ctx context.Context, id uint32, want Verdict) {
+	t.Helper()
+	if verdict, err := queue.WaitForVerdict(ctx, id); err != nil || verdict != want {
+		t.Fatalf("packet %d: verdict %q, want %q; error: %v", id, verdict, want, err)
+	}
+}

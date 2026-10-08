@@ -34,9 +34,7 @@ func TestUnexpectedQueueExitDrainsDecisionsAndClearsReadiness(t *testing.T) {
 	eventually(t, func() bool { status, _ := controller.Status(ctx); return status.ListenerReady })
 	mustArm(t, controller, ctx)
 	for id := uint32(1); id <= 2; id++ {
-		if err := queue.Inject(ctx, tcpPacket(id, uint16(50000+id))); err != nil {
-			t.Fatal(err)
-		}
+		queue.inject(t, ctx, tcpPacket(id, uint16(50000+id)))
 	}
 	waitPending(t, controller, ctx, 2)
 	close(queue.stop)
@@ -167,9 +165,7 @@ func TestControllerCloseTimeoutKeepsQueueAvailableForShutdown(t *testing.T) {
 		t.Fatal("caller timeout closed queue before rule cleanup completed")
 	default:
 	}
-	if err := queue.Inject(ctx, tcpPacket(1, 50000)); err != nil {
-		t.Fatal(err)
-	}
+	queue.inject(t, ctx, tcpPacket(1, 50000))
 	if verdict, ok := queue.Verdict(1); !ok || verdict != VerdictAccept {
 		t.Fatal("late packet was not accepted while shutdown was in progress")
 	}
@@ -218,9 +214,7 @@ func TestParentCancellationCleansRulesAndReleasesHeldPackets(t *testing.T) {
 	ctx := testContext(t)
 	eventually(t, func() bool { status, _ := controller.Status(ctx); return status.ListenerReady })
 	mustArm(t, controller, ctx)
-	if err := queue.Inject(ctx, tcpPacket(1, 50000)); err != nil {
-		t.Fatal(err)
-	}
+	queue.inject(t, ctx, tcpPacket(1, 50000))
 	waitPending(t, controller, ctx, 1)
 	cancel()
 	if err := controller.Close(ctx); err != nil {
@@ -236,9 +230,7 @@ func TestVerdictFailureDuringDrainFinishesEachDecisionOnce(t *testing.T) {
 	ctx := testContext(t)
 	mustArm(t, controller, ctx)
 	for id := uint32(1); id <= 3; id++ {
-		if err := queue.Inject(ctx, tcpPacket(id, uint16(50000+id))); err != nil {
-			t.Fatal(err)
-		}
+		queue.inject(t, ctx, tcpPacket(id, uint16(50000+id)))
 	}
 	waitPending(t, controller, ctx, 3)
 	queue.SetVerdictError(ErrFakeVerdict)

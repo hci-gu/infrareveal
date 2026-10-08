@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"myapp/debugtrace"
+	"myapp/testsupport"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,9 +14,6 @@ import (
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
-	"github.com/pocketbase/pocketbase/core"
-
-	_ "myapp/migrations"
 )
 
 func TestDisabledRuntimeRegistersNoTraceRoute(t *testing.T) {
@@ -93,23 +91,10 @@ func TestTraceRouteStreamsSessionAndTerminatesOnCancellation(t *testing.T) {
 
 func traceTestApp(t *testing.T) (*pocketbase.PocketBase, string) {
 	t.Helper()
-	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
-	if err := app.Bootstrap(); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.RunAppMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = app.ResetBootstrapState() })
-	collection, err := app.FindCollectionByNameOrId("sessions")
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := core.NewRecord(collection)
-	record.Set("name", "Trace route test")
-	if err := app.Save(record); err != nil {
-		t.Fatal(err)
-	}
+	app := testsupport.App(t)
+	record := testsupport.Save(t, app, "sessions", map[string]any{
+		"name": "Trace route test",
+	})
 	return app, record.Id
 }
 

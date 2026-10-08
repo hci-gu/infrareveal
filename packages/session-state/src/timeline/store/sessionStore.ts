@@ -19,7 +19,6 @@ import type {
   SessionWindow,
   TimelineLOD,
 } from '../../data/types'
-import { emptyGatewayData } from '../../data/sessionData'
 import { normalizeRouteRecord, routeEvidenceIdentity } from '../../data/routeRecords'
 import { retentionWindowMs, parseEpoch } from '../domain/time'
 import { TemporalBucketIndex } from './temporalIndex'
@@ -61,7 +60,6 @@ export type DetailPage = {
   fromMs: number
   toMs: number
   lod: TimelineLOD
-  flowKey: string
   flowIds: Set<string>
   bytes: number
   lastAccessed: number
@@ -78,16 +76,6 @@ type SessionIndexes = {
 }
 
 export type PlaybackState = 'following' | 'playing' | 'paused' | 'buffering'
-export type TimelineUIState = {
-  viewMode: 'timeline' | 'treemap'
-  zoomFrames: number | 'all'
-  selectedClipId: string | null
-  selectedServiceId: string | null
-  focusedServiceId: string | null
-  collapsedServiceIds: string[]
-  inspectorOpen: boolean
-}
-
 export type SessionTimelineState = {
   sessions: Map<string, Session>
   selectedSessionId: string | null
@@ -108,15 +96,12 @@ export type SessionTimelineState = {
   rate: number
   cursorMs: number
   liveEdgeMs: number
-  viewport: { fromMs: number; toMs: number }
   serverClock: { serverNowMs: number; syncedAtMs: number }
   watermark: string | null
-  ui: TimelineUIState
   sessionVersion: number
   overviewVersion: number
   detailVersion: number
   clockVersion: number
-  uiVersion: number
 }
 
 export type QueuedRealtimeEvent = {
@@ -183,23 +168,12 @@ const initialState = (): SessionTimelineState => ({
   rate: 1,
   cursorMs: 0,
   liveEdgeMs: 0,
-  viewport: { fromMs: 0, toMs: 0 },
   serverClock: { serverNowMs: 0, syncedAtMs: 0 },
   watermark: null,
-  ui: {
-    viewMode: 'timeline',
-    zoomFrames: 'all',
-    selectedClipId: null,
-    selectedServiceId: null,
-    focusedServiceId: null,
-    collapsedServiceIds: [],
-    inspectorOpen: false,
-  },
   sessionVersion: 0,
   overviewVersion: 0,
   detailVersion: 0,
   clockVersion: 0,
-  uiVersion: 0,
 })
 
 export const sessionTimelineStore = createStore<SessionTimelineState>()(() => initialState())
@@ -241,12 +215,8 @@ export function setTimelineManifest(manifest: SessionManifest) {
     playback: firstManifest ? (manifest.active ? 'following' : 'paused') : state.playback,
     cursorMs,
     liveEdgeMs,
-    viewport: firstManifest ? { fromMs: Math.max(epochMs, cursorMs - 60_000), toMs: liveEdgeMs } : state.viewport,
     serverClock: { serverNowMs, syncedAtMs: performanceNow() },
     watermark: manifest.watermark,
-    ui: firstManifest
-      ? { ...state.ui, zoomFrames: manifest.active ? 30 * 60 : 'all' }
-      : state.ui,
     clockVersion: state.clockVersion + 1,
   })
   pruneEphemeralTimeline()
@@ -277,25 +247,9 @@ export function observeTimelineLiveEdge(occurredAtMs: number, serverNowMs: numbe
   })
 }
 
-export function setTimelinePlayback(update: Partial<Pick<SessionTimelineState, 'playback' | 'rate' | 'cursorMs' | 'viewport'>>) {
+export function setTimelinePlayback(update: Partial<Pick<SessionTimelineState, 'playback' | 'rate' | 'cursorMs'>>) {
   const state = sessionTimelineStore.getState()
   sessionTimelineStore.setState({ ...update, clockVersion: state.clockVersion + 1 })
-}
-
-export function setTimelineUI(update: Partial<TimelineUIState>) {
-  const state = sessionTimelineStore.getState()
-  sessionTimelineStore.setState({
-    ui: { ...state.ui, ...update },
-    uiVersion: state.uiVersion + 1,
-  })
-}
-
-export function toggleTimelineServiceCollapsed(serviceId: string) {
-  const state = sessionTimelineStore.getState()
-  const collapsedServiceIds = state.ui.collapsedServiceIds.includes(serviceId)
-    ? state.ui.collapsedServiceIds.filter((id) => id !== serviceId)
-    : [...state.ui.collapsedServiceIds, serviceId]
-  setTimelineUI({ collapsedServiceIds })
 }
 
 export function setTimelineConnection(connectionState: ConnectionState, error: string | null = null) {
@@ -813,10 +767,6 @@ function sortSessions(left: Session, right: Session) {
   return parseEpoch(right.started_at || right.created) - parseEpoch(left.started_at || left.created)
 }
 
-export function emptySelectedGatewayData() {
-  return emptyGatewayData()
-}
-
 function pruneRouteRevisions(state: SessionTimelineState) {
   const ips = new Set([...state.entities.flows.values()].map(flow => flow.destination_ip))
   const orphanDestinations = [...state.entities.destinations.values()].filter(d => !ips.has(d.ip))
@@ -885,9 +835,8 @@ export function pruneEphemeralTimeline() {
     }
   }
   const cursorMs = Math.min(state.liveEdgeMs, Math.max(cutoff, state.cursorMs))
-  const viewport = { fromMs: Math.max(cutoff, state.viewport.fromMs), toMs: Math.max(cutoff, state.viewport.toMs) }
   sessionTimelineStore.setState({
-    cursorMs, viewport, pages: state.pages, cacheBytes: state.cacheBytes,
+    cursorMs, pages: state.pages, cacheBytes: state.cacheBytes,
     overviewVersion: state.overviewVersion + Number(changed),
     detailVersion: state.detailVersion + Number(changed),
   })

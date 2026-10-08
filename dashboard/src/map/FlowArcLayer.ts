@@ -158,9 +158,9 @@ void main() {
 }
 `
 
-/** A real round mesh: light and depth reveal the swelling volume from any camera angle. */
-export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
-  static layerName = 'FlowArcLayer'
+/** Direct arcs and joined itineraries share tube meshes, attributes and animation. */
+export abstract class TrafficLayer<T, ExtraProps extends object = object> extends ArcLayer<T, VolumeProps<T> & ExtraProps> {
+  static layerName = 'TrafficLayer'
   static defaultProps = {
     ...ArcLayer.defaultProps, numSegments: 160, time: 0, phase: 0, motion: 1, animation: { type: 'object', value: null, compare: false },
     getRadii0: { type: 'accessor', value: [0, 0, 0, 0] },
@@ -183,7 +183,7 @@ export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
 
   getShaders() {
     const shaders = super.getShaders()
-    return { ...shaders, defines: { ...shaders.defines, ...(this.props.numSegments <= 48 ? { LOW_DETAIL: 1 } : {}) }, vs: vertexShader, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
+    return { ...shaders, defines: { ...shaders.defines, ...(this.props.numSegments <= 48 ? { LOW_DETAIL: 1 } : {}) }, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
   }
 
   updateState(params: UpdateParameters<this>) {
@@ -195,9 +195,13 @@ export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
     }
   }
 
+  protected meshResolution() {
+    const segments = Math.max(2, Math.round(this.props.numSegments))
+    return { segments, sides: segments <= 48 ? 4 : 12 }
+  }
+
   protected _getModel(): Model {
-    const SEGMENTS = Math.max(2, Math.round(this.props.numSegments))
-    const SIDES = SEGMENTS <= 48 ? 4 : 12
+    const { segments: SEGMENTS, sides: SIDES } = this.meshResolution()
     const positions = new Float32Array((SEGMENTS + 1) * (SIDES + 1) * 2)
     const indices = new Uint16Array(SEGMENTS * SIDES * 6)
     for (let i = 0; i <= SEGMENTS; i += 1) {
@@ -226,5 +230,13 @@ export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
     const { time, phase } = this.getAnimationTime()
     model.shaderInputs.setProps({ arc: { numSegments: this.props.numSegments }, traffic: { clock: trafficShaderClock(time), phase, motion: this.props.motion } })
     model.draw(this.context.renderPass)
+  }
+}
+
+/** A real round mesh: light and depth reveal the swelling volume from any camera angle. */
+export class FlowArcLayer<T> extends TrafficLayer<T> {
+  static layerName = 'FlowArcLayer'
+  getShaders() {
+    return { ...super.getShaders(), vs: vertexShader }
   }
 }

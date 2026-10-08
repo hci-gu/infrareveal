@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/pocketbase/pocketbase/core"
 	"myapp/observer"
+	"myapp/testsupport"
 	"os"
 	"path/filepath"
 	"sync"
@@ -12,10 +13,10 @@ import (
 )
 
 func TestClearWaitsForObservationCommitAndSuppressesOldConntrack(t *testing.T) {
-	app := ephemeralTestApp(t)
+	app := testsupport.App(t)
 	g := testRuntime(t, app)
 	g.Register()
-	session := saveEphemeralFixture(t, app, "sessions", map[string]any{"active": true, "name": "clear race"})
+	session := testsupport.Save(t, app, "sessions", map[string]any{"active": true, "name": "clear race"})
 	dir := t.TempDir()
 	path := filepath.Join(dir, "conntrack")
 	line := "ipv4 2 tcp 6 431999 ESTABLISHED src=10.0.0.50 dst=1.1.1.1 sport=53000 dport=443 packets=5 bytes=360 src=1.1.1.1 dst=10.0.0.50 sport=443 dport=53000 packets=7 bytes=600 [ASSURED] mark=0 zone=0 use=2\n"

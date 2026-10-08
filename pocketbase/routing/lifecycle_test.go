@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"myapp/testsupport"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -23,7 +24,7 @@ func (p *terminalProbe) Run(_ context.Context, _ target, _ probePlan, _ func(sna
 }
 
 func TestPublicationRollbackRetriesWithoutAnotherAdmission(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	var failures atomic.Int32
 	// Fail the final session-budget save, after geometry and cache construction.
@@ -80,7 +81,7 @@ func (p heldResultProbe) Run(ctx context.Context, _ target, _ probePlan, _ func(
 }
 
 func TestResetFencesAcceptedIntakeAndLateUsefulResult(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	p := heldResultProbe{make(chan struct{}, 1), make(chan struct{}), make(chan struct{})}
 	c := startTestCoordinator(t, app, session, p)
@@ -117,7 +118,7 @@ func TestResetFencesAcceptedIntakeAndLateUsefulResult(t *testing.T) {
 }
 
 func TestCloseWaitsForDrainAndCanBeRetried(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	p := heldResultProbe{make(chan struct{}, 1), make(chan struct{}), make(chan struct{})}
 	c := startTestCoordinator(t, app, session, p)
@@ -153,7 +154,7 @@ func TestCloseWaitsForDrainAndCanBeRetried(t *testing.T) {
 }
 
 func TestResetContextTimeoutDoesNotAcknowledgeActivePublication(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	entered, release := make(chan struct{}), make(chan struct{})
 	app.OnRecordCreate("route_cache").BindFunc(func(e *core.RecordEvent) error {
@@ -187,26 +188,10 @@ func TestResetContextTimeoutDoesNotAcknowledgeActivePublication(t *testing.T) {
 	}
 }
 
-func saveRoutingRecord(t *testing.T, app core.App, name string, values map[string]any) *core.Record {
-	t.Helper()
-	collection, err := app.FindCollectionByNameOrId(name)
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := core.NewRecord(collection)
-	for key, value := range values {
-		record.Set(key, value)
-	}
-	if err := app.Save(record); err != nil {
-		t.Fatal(err)
-	}
-	return record
-}
-
 func TestManualControlsUseObservedFlowAndSeparateBudget(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
-	flow := saveRoutingRecord(t, app, "flows", map[string]any{"session": session, "flow_key": "manual", "client_ip": "10.0.0.2", "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "start": time.Now()})
+	flow := testsupport.Save(t, app, "flows", map[string]any{"session": session, "flow_key": "manual", "client_ip": "10.0.0.2", "destination_ip": "9.9.9.9", "destination_port": 443, "protocol": "tcp", "start": time.Now()})
 	p := idleComparisonProbe{make(chan string, 2)}
 	c := startTestCoordinator(t, app, session, p)
 	if err := c.Measure(context.Background(), flow.Id); err != nil {
@@ -248,7 +233,7 @@ func TestManualControlsUseObservedFlowAndSeparateBudget(t *testing.T) {
 }
 
 func TestManualAdmissionRetainsNetworkAndStorageLimits(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	config := ConfigFromEnv()
 	config.ManualAttempts = 1
@@ -299,7 +284,7 @@ func TestManualAdmissionRetainsNetworkAndStorageLimits(t *testing.T) {
 }
 
 func TestDisabledEngineRejectsManualMeasurement(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	config := ConfigFromEnv()
 	config.Engine = "off"

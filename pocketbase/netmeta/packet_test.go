@@ -3,12 +3,13 @@ package netmeta
 import (
 	"encoding/binary"
 	"errors"
+	"myapp/testsupport/packetfixture"
 	"net/netip"
 	"testing"
 )
 
 func TestParseIPPacketAndOrientBothDirections(t *testing.T) {
-	outboundBytes := buildIPv4TCPPacket("10.0.0.50", "93.184.216.34", 53000, 443, []byte("hello"), 0x18, 24)
+	outboundBytes := packetfixture.IPv4TCP("10.0.0.50", "93.184.216.34", 53000, 443, []byte("hello"), 0x18, 24)
 	outbound, err := ParseIPPacket(outboundBytes)
 	if err != nil {
 		t.Fatal(err)
@@ -21,7 +22,7 @@ func TestParseIPPacketAndOrientBothDirections(t *testing.T) {
 		t.Fatalf("unexpected outbound orientation: tuple=%#v direction=%s error=%v", tuple, direction, err)
 	}
 
-	inboundBytes := buildIPv4TCPPacket("93.184.216.34", "10.0.0.50", 443, 53000, make([]byte, 120), 0x10, 20)
+	inboundBytes := packetfixture.IPv4TCP("93.184.216.34", "10.0.0.50", 443, 53000, make([]byte, 120), 0x10, 20)
 	inbound, err := ParseIPPacket(inboundBytes)
 	if err != nil {
 		t.Fatal(err)
@@ -48,19 +49,19 @@ func TestParseIPPacketSupportsBoundedIPv6Extensions(t *testing.T) {
 }
 
 func TestParseIPPacketRejectsFragmentsAndMalformedLengths(t *testing.T) {
-	fragment := buildIPv4UDPPacket("10.0.0.50", "1.1.1.1", 53000, 443, []byte("data"))
+	fragment := packetfixture.IPv4UDP("10.0.0.50", "1.1.1.1", 53000, 443, []byte("data"))
 	binary.BigEndian.PutUint16(fragment[6:8], 0x2000)
 	if _, err := ParseIPPacket(fragment); !errors.Is(err, ErrFragmentedPacket) {
 		t.Fatalf("expected fragment error, got %v", err)
 	}
 
-	invalidUDP := buildIPv4UDPPacket("10.0.0.50", "1.1.1.1", 53000, 443, nil)
+	invalidUDP := packetfixture.IPv4UDP("10.0.0.50", "1.1.1.1", 53000, 443, nil)
 	binary.BigEndian.PutUint16(invalidUDP[20+4:20+6], 4000)
 	if _, err := ParseIPPacket(invalidUDP); !errors.Is(err, ErrMalformedPacket) {
 		t.Fatalf("expected malformed UDP error, got %v", err)
 	}
 
-	truncatedTCP := buildIPv4TCPPacket("10.0.0.50", "1.1.1.1", 53000, 443, nil, 0x10, 24)[:42]
+	truncatedTCP := packetfixture.IPv4TCP("10.0.0.50", "1.1.1.1", 53000, 443, nil, 0x10, 24)[:42]
 	if _, err := ParseIPPacket(truncatedTCP); !errors.Is(err, ErrTruncatedPacket) {
 		t.Fatalf("expected truncated TCP header error, got %v", err)
 	}
@@ -77,7 +78,7 @@ func TestParseIPPacketRejectsFragmentsAndMalformedLengths(t *testing.T) {
 }
 
 func TestPacketOrientationRequiresExactlyOneClient(t *testing.T) {
-	packet, err := ParseIPPacket(buildIPv4UDPPacket("10.0.0.50", "10.0.0.51", 53000, 443, nil))
+	packet, err := ParseIPPacket(packetfixture.IPv4UDP("10.0.0.50", "10.0.0.51", 53000, 443, nil))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,37 +89,6 @@ func TestPacketOrientationRequiresExactlyOneClient(t *testing.T) {
 
 func private10Client(address netip.Addr) bool {
 	return address.Is4() && address.As4()[0] == 10
-}
-
-func buildIPv4TCPPacket(source, destination string, sourcePort, destinationPort uint16, payload []byte, flags byte, headerLength int) []byte {
-	transport := make([]byte, headerLength+len(payload))
-	binary.BigEndian.PutUint16(transport[0:2], sourcePort)
-	binary.BigEndian.PutUint16(transport[2:4], destinationPort)
-	transport[12] = byte(headerLength/4) << 4
-	transport[13] = flags
-	copy(transport[headerLength:], payload)
-	return buildIPv4Packet(source, destination, protocolTCP, transport)
-}
-
-func buildIPv4UDPPacket(source, destination string, sourcePort, destinationPort uint16, payload []byte) []byte {
-	transport := make([]byte, 8+len(payload))
-	binary.BigEndian.PutUint16(transport[0:2], sourcePort)
-	binary.BigEndian.PutUint16(transport[2:4], destinationPort)
-	binary.BigEndian.PutUint16(transport[4:6], uint16(len(transport)))
-	copy(transport[8:], payload)
-	return buildIPv4Packet(source, destination, protocolUDP, transport)
-}
-
-func buildIPv4Packet(source, destination string, protocol byte, transport []byte) []byte {
-	packet := make([]byte, 20+len(transport))
-	packet[0] = 0x45
-	binary.BigEndian.PutUint16(packet[2:4], uint16(len(packet)))
-	packet[8] = 64
-	packet[9] = protocol
-	copy(packet[12:16], netip.MustParseAddr(source).AsSlice())
-	copy(packet[16:20], netip.MustParseAddr(destination).AsSlice())
-	copy(packet[20:], transport)
-	return packet
 }
 
 func buildIPv6UDPWithHopByHop(source, destination string, sourcePort, destinationPort uint16, payload []byte) []byte {

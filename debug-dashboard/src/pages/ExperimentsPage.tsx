@@ -1,7 +1,7 @@
 import { ArrowUpRight, FlaskConical, Folder, Radio, RefreshCw, Search } from 'lucide-react'
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getSessions, type Session } from '@infrareveal/session-state'
+import { useSessions, type Session } from '@infrareveal/session-state'
 import { formatDateTime, formatDuration, displayTimeZone } from '../views/formatters'
 import { useElementSize } from '../shared/ui/useElementSize'
 import { usePreference } from '../shared/ui/preferences'
@@ -12,12 +12,7 @@ import '../shared/ui/desktop.css'
 
 const ROW_HEIGHT = 68
 export function ExperimentsPage() {
-  const requestScope = useRef<AbortController | null>(null)
-  const requestBusy = useRef(false)
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [status, setStatus] = useState<'loading' | 'ready' | 'offline'>('loading')
-  const [error, setError] = useState<string | null>(null)
-  const [refresh, setRefresh] = useState(0)
+  const { sessions, status, error, revision: refresh, refresh: load } = useSessions(5_000)
   const [now, setNow] = useState(Date.now)
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<SessionCategory>('all')
@@ -33,26 +28,10 @@ export function ExperimentsPage() {
   const entry = selected ? summaries[selected.id] : undefined
   const selectedVisible = !selected || visible.some(session => session.id === selected.id)
   useEffect(() => { if (!selectedId && sessions.length) setSelectedId(filterSessions(sessions, 'all', '')[0].id) }, [selectedId, sessions, setSelectedId])
-  const load = useCallback(async (providedSignal?: AbortSignal) => {
-    const signal = providedSignal || requestScope.current?.signal
-    if (!signal || signal.aborted || requestBusy.current) return
-    requestBusy.current = true
-    try {
-      const next = await getSessions(signal)
-      if (signal?.aborted) return
-      setSessions(next); setStatus('ready'); setError(null); setRefresh(value => value + 1)
-    } catch (caught) {
-      if (signal?.aborted) return
-      setStatus('offline'); setError(caught instanceof Error ? caught.message : 'Unable to load sessions')
-    } finally { requestBusy.current = false }
-  }, [])
   useEffect(() => {
-    const controller = new AbortController(); requestScope.current = controller
-    const initial = setTimeout(() => void load(controller.signal), 0)
-    const poll = setInterval(() => void load(controller.signal), 5_000)
     const clock = setInterval(() => setNow(Date.now()), 1_000)
-    return () => { controller.abort(); clearTimeout(initial); clearInterval(poll); clearInterval(clock) }
-  }, [load])
+    return () => clearInterval(clock)
+  }, [])
   const resetScroll = () => { listRef.current?.scrollTo({ top: 0 }); setScrollTop(0) }
   const duration = (session: Session) => {
     const summary = summaries[session.id]

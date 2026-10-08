@@ -31,12 +31,8 @@ func TestControllerStateMachineAndArmGuards(t *testing.T) {
 	if err != nil || status.State != StatePaused || !status.Paused {
 		t.Fatalf("pause: %+v %v", status, err)
 	}
-	if err := queue.Inject(ctx, tcpPacket(1, 50000)); err != nil {
-		t.Fatal(err)
-	}
-	if verdict, err := queue.WaitForVerdict(ctx, 1); err != nil || verdict != VerdictAccept {
-		t.Fatalf("paused fail-open = %q, %v", verdict, err)
-	}
+	queue.inject(t, ctx, tcpPacket(1, 50000))
+	queue.assertVerdict(t, ctx, 1, VerdictAccept)
 	status, err = controller.Drain(ctx)
 	if err != nil || status.State != StatePaused {
 		t.Fatalf("drain: %+v %v", status, err)
@@ -97,12 +93,8 @@ func TestDisarmRuleFailureStaysVisibleFailOpenAndRetryable(t *testing.T) {
 		t.Fatalf("failed cleanup must remain visible and retryable: %+v %v", status, err)
 	}
 	packet := tcpPacket(900, 50900)
-	if err := queue.Inject(ctx, packet); err != nil {
-		t.Fatal(err)
-	}
-	if verdict, err := queue.WaitForVerdict(ctx, packet.ID); err != nil || verdict != VerdictAccept {
-		t.Fatalf("degraded cleanup must fail open: %q %v", verdict, err)
-	}
+	queue.inject(t, ctx, packet)
+	queue.assertVerdict(t, ctx, packet.ID, VerdictAccept)
 	status, err = controller.Disarm(ctx)
 	if err != nil || status.State != StateOff || status.Armed {
 		t.Fatalf("cleanup retry = %+v %v", status, err)
@@ -114,9 +106,7 @@ func TestTCPAndUDPGroupingCachingAndTupleIsolation(t *testing.T) {
 	ctx := testContext(t)
 	mustArm(t, controller, ctx)
 	for _, packet := range []QueuedPacket{tcpPacket(1, 50000), tcpPacket(2, 50000)} {
-		if err := queue.Inject(ctx, packet); err != nil {
-			t.Fatal(err)
-		}
+		queue.inject(t, ctx, packet)
 	}
 	var pending []Decision
 	eventually(t, func() bool {
@@ -131,19 +121,11 @@ func TestTCPAndUDPGroupingCachingAndTupleIsolation(t *testing.T) {
 		t.Fatalf("approve: %+v %v", result, err)
 	}
 	for _, id := range []uint32{1, 2} {
-		if verdict, err := queue.WaitForVerdict(ctx, id); err != nil || verdict != VerdictAccept {
-			t.Fatalf("packet %d = %q %v", id, verdict, err)
-		}
+		queue.assertVerdict(t, ctx, id, VerdictAccept)
 	}
-	if err := queue.Inject(ctx, tcpPacket(3, 50000)); err != nil {
-		t.Fatal(err)
-	}
-	if verdict, err := queue.WaitForVerdict(ctx, 3); err != nil || verdict != VerdictAccept {
-		t.Fatalf("cached = %q %v", verdict, err)
-	}
-	if err := queue.Inject(ctx, tcpPacket(4, 50001)); err != nil {
-		t.Fatal(err)
-	}
+	queue.inject(t, ctx, tcpPacket(3, 50000))
+	queue.assertVerdict(t, ctx, 3, VerdictAccept)
+	queue.inject(t, ctx, tcpPacket(4, 50001))
 	if decisions := waitPending(t, controller, ctx, 1); decisions[0].FlowKey == pending[0].FlowKey {
 		t.Fatal("different client source ports were grouped")
 	}
@@ -157,12 +139,8 @@ func TestTCPAndUDPGroupingCachingAndTupleIsolation(t *testing.T) {
 	if _, err := controller.Resume(ctx); err != nil {
 		t.Fatal(err)
 	}
-	if err := queue.Inject(ctx, udpPacket(10, 53000)); err != nil {
-		t.Fatal(err)
-	}
-	if err := queue.Inject(ctx, udpPacket(11, 53000)); err != nil {
-		t.Fatal(err)
-	}
+	queue.inject(t, ctx, udpPacket(10, 53000))
+	queue.inject(t, ctx, udpPacket(11, 53000))
 	var udp []Decision
 	eventually(t, func() bool {
 		udp, _ = controller.Pending(ctx)
@@ -177,9 +155,7 @@ func TestRejectAndRepeatedDecisionAreIdempotent(t *testing.T) {
 	controller, queue, _, _ := newTestController(t, testConfig())
 	ctx := testContext(t)
 	mustArm(t, controller, ctx)
-	if err := queue.Inject(ctx, tcpPacket(1, 50000)); err != nil {
-		t.Fatal(err)
-	}
+	queue.inject(t, ctx, tcpPacket(1, 50000))
 	decision := waitPending(t, controller, ctx, 1)[0]
 	first, err := controller.Decide(ctx, DecisionCommand{DecisionID: decision.ID, Verdict: VerdictDrop})
 	if err != nil || first.AlreadyTerminal {
@@ -192,21 +168,15 @@ func TestRejectAndRepeatedDecisionAreIdempotent(t *testing.T) {
 	if verdict, _ := queue.Verdict(1); verdict != VerdictDrop {
 		t.Fatalf("verdict = %q", verdict)
 	}
-	if err := queue.Inject(ctx, tcpPacket(2, 50000)); err != nil {
-		t.Fatal(err)
-	}
-	if verdict, err := queue.WaitForVerdict(ctx, 2); err != nil || verdict != VerdictDrop {
-		t.Fatalf("cached rejection = %q %v", verdict, err)
-	}
+	queue.inject(t, ctx, tcpPacket(2, 50000))
+	queue.assertVerdict(t, ctx, 2, VerdictDrop)
 }
 
 func TestArrivalDuringVerdictUsesTerminalCache(t *testing.T) {
 	controller, queue, _, _ := newTestController(t, testConfig())
 	ctx := testContext(t)
 	mustArm(t, controller, ctx)
-	if err := queue.Inject(ctx, tcpPacket(1, 50000)); err != nil {
-		t.Fatal(err)
-	}
+	queue.inject(t, ctx, tcpPacket(1, 50000))
 	decision := waitPending(t, controller, ctx, 1)[0]
 	var once sync.Once
 	queue.SetVerdictHook(func(_ uint32, _ Verdict) {
@@ -215,9 +185,7 @@ func TestArrivalDuringVerdictUsesTerminalCache(t *testing.T) {
 	if _, err := controller.Decide(ctx, DecisionCommand{DecisionID: decision.ID, Verdict: VerdictAccept}); err != nil {
 		t.Fatal(err)
 	}
-	if verdict, err := queue.WaitForVerdict(ctx, 2); err != nil || verdict != VerdictAccept {
-		t.Fatalf("late packet = %q %v", verdict, err)
-	}
+	queue.assertVerdict(t, ctx, 2, VerdictAccept)
 	status, err := controller.Status(ctx)
 	if err != nil || status.HeldPackets != 0 {
 		t.Fatalf("unowned packet: %+v %v", status, err)
@@ -230,13 +198,9 @@ func TestWatchdogExpiresAndReleases(t *testing.T) {
 	controller, queue, _, audit := newTestController(t, config)
 	ctx := testContext(t)
 	mustArm(t, controller, ctx)
-	if err := queue.Inject(ctx, tcpPacket(1, 50000)); err != nil {
-		t.Fatal(err)
-	}
+	queue.inject(t, ctx, tcpPacket(1, 50000))
 	decision := waitPending(t, controller, ctx, 1)[0]
-	if verdict, err := queue.WaitForVerdict(ctx, 1); err != nil || verdict != VerdictAccept {
-		t.Fatalf("watchdog = %q %v", verdict, err)
-	}
+	queue.assertVerdict(t, ctx, 1, VerdictAccept)
 	result, err := controller.Decide(ctx, DecisionCommand{DecisionID: decision.ID, Verdict: VerdictAccept})
 	if err != nil || !result.AlreadyTerminal || result.Decision.State != DecisionExpired || result.Decision.Source != SourceWatchdog {
 		t.Fatalf("terminal watchdog: %+v %v", result, err)
@@ -257,9 +221,7 @@ func TestPendingAndHeldCapacityFailOpen(t *testing.T) {
 		_ = queue.Inject(ctx, tcpPacket(1, 50000))
 		waitPending(t, controller, ctx, 1)
 		_ = queue.Inject(ctx, tcpPacket(2, 50001))
-		if verdict, err := queue.WaitForVerdict(ctx, 2); err != nil || verdict != VerdictAccept {
-			t.Fatalf("overflow = %q %v", verdict, err)
-		}
+		queue.assertVerdict(t, ctx, 2, VerdictAccept)
 		status, _ := controller.Status(ctx)
 		if status.OverflowBypasses != 1 || status.PendingFlows != 1 {
 			t.Fatalf("status = %+v", status)
@@ -277,9 +239,7 @@ func TestPendingAndHeldCapacityFailOpen(t *testing.T) {
 		for id := uint32(1); id <= 9; id++ {
 			_ = queue.Inject(ctx, tcpPacket(id, 50000))
 		}
-		if verdict, err := queue.WaitForVerdict(ctx, 9); err != nil || verdict != VerdictAccept {
-			t.Fatalf("held overflow = %q %v", verdict, err)
-		}
+		queue.assertVerdict(t, ctx, 9, VerdictAccept)
 		status, _ := controller.Status(ctx)
 		if status.HeldPackets != 8 || status.OverflowBypasses != 1 {
 			t.Fatalf("status = %+v", status)
@@ -342,12 +302,8 @@ func TestStrictModeQueuesEveryPacketAndAcceptsNext(t *testing.T) {
 	}
 	for id, direction := range []netmeta.Direction{netmeta.ClientToRemote, netmeta.RemoteToClient} {
 		packet := QueuedPacket{ID: uint32(id + 1), QueueMode: ModeStrict, Tuple: tuple, Direction: direction, WireBytes: 60, PayloadBytes: 3, TCPFlags: 0x10, OccurredAt: time.Now()}
-		if err := queue.Inject(ctx, packet); err != nil {
-			t.Fatal(err)
-		}
-		if verdict, err := queue.WaitForVerdict(ctx, packet.ID); err != nil || verdict != VerdictAccept {
-			t.Fatalf("strict auto verdict = %q %v", verdict, err)
-		}
+		queue.inject(t, ctx, packet)
+		queue.assertVerdict(t, ctx, packet.ID, VerdictAccept)
 	}
 	status, _ := controller.Status(ctx)
 	if status.StrictAutoAccept != 0 || status.PendingFlows != 0 {
@@ -379,9 +335,7 @@ func TestStrictModeRefusesWildcardOrMultipleClientsAndExpires(t *testing.T) {
 	packet := QueuedPacket{ID: 10, QueueMode: ModeStrict, Tuple: tuple, Direction: netmeta.ClientToRemote, OccurredAt: time.Now()}
 	_ = queue.Inject(ctx, packet)
 	decision := waitPending(t, controller, ctx, 1)[0]
-	if verdict, err := queue.WaitForVerdict(ctx, packet.ID); err != nil || verdict != VerdictAccept {
-		t.Fatalf("strict watchdog = %q %v", verdict, err)
-	}
+	queue.assertVerdict(t, ctx, packet.ID, VerdictAccept)
 	terminal, err := controller.Decide(ctx, DecisionCommand{DecisionID: decision.ID, Verdict: VerdictAccept})
 	if err != nil || terminal.Decision.State != DecisionExpired {
 		t.Fatalf("strict terminal = %+v %v", terminal, err)
@@ -418,9 +372,7 @@ func TestDNSModeGroupsRetriesAndRejectsUnselectedClients(t *testing.T) {
 		t.Fatal("a terminal DNS decision silently cached approval for a later datagram")
 	}
 	_ = queue.Inject(ctx, dnsPacket(22, "10.0.0.3"))
-	if verdict, err := queue.WaitForVerdict(ctx, 22); err != nil || verdict != VerdictAccept {
-		t.Fatalf("unselected DNS client = %q %v", verdict, err)
-	}
+	queue.assertVerdict(t, ctx, 22, VerdictAccept)
 }
 
 func TestStrictTCPFinishAutomaticallyDisarms(t *testing.T) {

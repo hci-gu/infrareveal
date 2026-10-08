@@ -7,6 +7,7 @@ import (
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"myapp/labgate"
+	"myapp/testsupport"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -15,10 +16,10 @@ import (
 )
 
 func TestRegisteredSessionHooksOnlyPublishCommittedState(t *testing.T) {
-	app := ephemeralTestApp(t)
+	app := testsupport.App(t)
 	g := testRuntime(t, app)
 	g.Register()
-	original := saveEphemeralFixture(t, app, "sessions", map[string]any{"name": "original", "active": true})
+	original := testsupport.Save(t, app, "sessions", map[string]any{"name": "original", "active": true})
 	if g.CurrentSessionID() != original.Id {
 		t.Fatal("create hook did not select session")
 	}
@@ -67,7 +68,7 @@ func TestRegisteredSessionHooksOnlyPublishCommittedState(t *testing.T) {
 }
 
 func TestRegisteredSessionCompletionFlushesAuditOutsideTransaction(t *testing.T) {
-	app := ephemeralTestApp(t)
+	app := testsupport.App(t)
 	g := testRuntime(t, app)
 	g.Register()
 	g.audit = labgate.NewAuditWriter(app, 8)
@@ -78,7 +79,7 @@ func TestRegisteredSessionCompletionFlushesAuditOutsideTransaction(t *testing.T)
 			t.Error(err)
 		}
 	})
-	session := saveEphemeralFixture(t, app, "sessions", map[string]any{"name": "audit", "active": true})
+	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "audit", "active": true})
 	err := app.RunInTransaction(func(tx core.App) error {
 		rec, err := tx.FindRecordById("sessions", session.Id)
 		if err != nil {
@@ -97,7 +98,7 @@ func TestRegisteredSessionCompletionFlushesAuditOutsideTransaction(t *testing.T)
 }
 
 func TestConstructionIsInertAndStartFailureClosesResources(t *testing.T) {
-	app := ephemeralTestApp(t)
+	app := testsupport.App(t)
 	g := testRuntime(t, app)
 	g.Register()
 	if g.gate != nil || g.observation != nil || g.traceHub != nil {
@@ -118,7 +119,7 @@ func TestConstructionIsInertAndStartFailureClosesResources(t *testing.T) {
 }
 
 func TestBatchSessionUpdatesUseOneOuterLifecycleBoundary(t *testing.T) {
-	app := ephemeralTestApp(t)
+	app := testsupport.App(t)
 	g := testRuntime(t, app)
 	g.Register()
 	app.Settings().Batch.Enabled = true
@@ -129,7 +130,7 @@ func TestBatchSessionUpdatesUseOneOuterLifecycleBoundary(t *testing.T) {
 	if err := app.Save(collection); err != nil {
 		t.Fatal(err)
 	}
-	session := saveEphemeralFixture(t, app, "sessions", map[string]any{"name": "batch", "active": true})
+	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "batch", "active": true})
 	g.audit = labgate.NewAuditWriter(app, 8)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)

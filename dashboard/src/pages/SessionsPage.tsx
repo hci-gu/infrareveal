@@ -1,9 +1,6 @@
-import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { getSessions } from '@infrareveal/session-state'
+import { useSessions } from '@infrareveal/session-state'
 import type { Session } from '@infrareveal/session-state'
-
-type LoadStatus = 'loading' | 'ready' | 'error'
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   dateStyle: 'medium',
@@ -11,39 +8,7 @@ const dateFormatter = new Intl.DateTimeFormat('en-GB', {
 })
 
 export function SessionsPage() {
-  const [sessions, setSessions] = useState<Session[]>([])
-  const [status, setStatus] = useState<LoadStatus>('loading')
-  const [error, setError] = useState('')
-
-  const loadSessions = useCallback(async () => {
-    setStatus('loading')
-    setError('')
-    try {
-      setSessions(await getSessions())
-      setStatus('ready')
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Unable to load sessions')
-      setStatus('error')
-    }
-  }, [])
-
-  useEffect(() => {
-    let cancelled = false
-    getSessions()
-      .then((nextSessions) => {
-        if (cancelled) return
-        setSessions(nextSessions)
-        setStatus('ready')
-      })
-      .catch((reason: unknown) => {
-        if (cancelled) return
-        setError(reason instanceof Error ? reason.message : 'Unable to load sessions')
-        setStatus('error')
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [])
+  const { sessions, status, error, refresh: loadSessions } = useSessions()
 
   const activeCount = sessions.filter((session) => session.active).length
 
@@ -73,7 +38,7 @@ export function SessionsPage() {
         </header>
 
         {status === 'loading' ? <SessionsLoading /> : null}
-        {status === 'error' ? (
+        {status === 'offline' ? (
           <div className="rounded-2xl border border-red-200 bg-white p-8 shadow-sm">
             <h2 className="text-lg font-bold text-red-800">Could not load sessions</h2>
             <p className="mt-2 text-sm text-slate-600">{error}</p>

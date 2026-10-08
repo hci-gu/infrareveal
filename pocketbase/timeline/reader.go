@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
+	"net/url"
 	"sort"
 	"strconv"
 	"strings"
@@ -177,12 +179,13 @@ type Query struct {
 	flowIDs  []string
 }
 
-func ParseQuery(query map[string][]string) (Query, error) {
-	from, err := parseTimelineTime(firstQueryValue(query, "from"))
+func ParseQuery(values map[string][]string) (Query, error) {
+	query := url.Values(values)
+	from, err := parseTimelineTime(query.Get("from"))
 	if err != nil {
 		return Query{}, fmt.Errorf("invalid from: %w", err)
 	}
-	to, err := parseTimelineTime(firstQueryValue(query, "to"))
+	to, err := parseTimelineTime(query.Get("to"))
 	if err != nil {
 		return Query{}, fmt.Errorf("invalid to: %w", err)
 	}
@@ -190,7 +193,7 @@ func ParseQuery(query map[string][]string) (Query, error) {
 		return Query{}, fmt.Errorf("to must be after from")
 	}
 
-	lod, lodMS, overview, err := parseTimelineLOD(firstQueryValue(query, "lod"))
+	lod, lodMS, overview, err := parseTimelineLOD(query.Get("lod"))
 	if err != nil {
 		return Query{}, err
 	}
@@ -199,18 +202,18 @@ func ParseQuery(query map[string][]string) (Query, error) {
 	}
 
 	limit := defaultTimelinePageSize
-	if value := firstQueryValue(query, "limit"); value != "" {
+	if value := query.Get("limit"); value != "" {
 		parsed, parseErr := strconv.Atoi(value)
 		if parseErr != nil || parsed < 1 || parsed > maxTimelinePageSize {
 			return Query{}, fmt.Errorf("limit must be between 1 and %d", maxTimelinePageSize)
 		}
 		limit = parsed
 	}
-	cursor, err := decodeTimelineCursor(firstQueryValue(query, "cursor"), overview)
+	cursor, err := decodeTimelineCursor(query.Get("cursor"), overview)
 	if err != nil {
 		return Query{}, err
 	}
-	requestedFlowIDs := parseFlowIDs(firstQueryValue(query, "flow"))
+	requestedFlowIDs := parseFlowIDs(query.Get("flow"))
 	if len(requestedFlowIDs) > maxTimelineFlowFilter {
 		return Query{}, fmt.Errorf("at most %d flow ids may be requested", maxTimelineFlowFilter)
 	}
@@ -227,91 +230,47 @@ func (r *Reader) Window(sessionID string, query Query) (Window, error) {
 		return Window{}, fmt.Errorf("window query must be parsed")
 	}
 	from, to, lod, lodMS, overview, limit, requestedFlowIDs := query.from, query.to, query.lod, query.lodMS, query.overview, query.limit, query.flowIDs
-	cursor := make(timelineCursor, len(query.cursor))
-	for key, value := range query.cursor {
-		cursor[key] = value
+	cursor := maps.Clone(query.cursor)
+	var flows, episodes, dnsQueries, gateEvents, chunks, windows []*core.Record
+	// Only the first two pages belong to overview. Every collection advances its
+	// own cursor; related rows below follow the visible flow page instead.
+	pages := []struct {
+		collection, cursor, timeField, flowField string
+		lookback                                 time.Duration
+		rows                                     *[]*core.Record
+	}{
+		{"flows", "flows", "start", "id", 0, &flows},
+		{"activity_episodes", "episodes", "start", "", 0, &episodes},
+		{"dns_queries", "dns", "timestamp", "", 5 * time.Minute, &dnsQueries},
+		{"gate_events", "gates", "queued_at", "", 0, &gateEvents},
+		{"flow_activity_chunks", "chunks", "chunk_start", "flow", 10 * time.Second, &chunks},
+		{"flow_activity_windows", "windows", "window_start", "", time.Minute, &windows},
 	}
-	var err error
-
-	params := dbx.Params{
-		"from": formatPocketBaseTimelineDate(from),
-		"to":   formatPocketBaseTimelineDate(to),
+	if overview {
+		pages = pages[:2]
 	}
-
-	flowExpressions := []dbx.Expression{
-		dbx.HashExp{"session": sessionID},
-		dbx.NewExp("[[start]] < {:to} AND [[last_seen]] >= {:from}", params),
-	}
-	flowExpressions, err = appendStringSetExpression(flowExpressions, "id", requestedFlowIDs)
-	if err != nil {
-		return Window{}, err
-	}
-	flows, flowMore, err := queryTimelinePage(app, "flows", flowExpressions, []string{"start", "id"}, limit, cursor["flows"])
-	if err != nil {
-		return Window{}, err
-	}
-	episodes, episodeMore, err := queryTimelinePage(app, "activity_episodes", []dbx.Expression{
-		dbx.HashExp{"session": sessionID},
-		dbx.NewExp("[[start]] < {:to} AND [[last_seen]] >= {:from}", params),
-	}, []string{"start", "id"}, limit, cursor["episodes"])
-	if err != nil {
-		return Window{}, err
-	}
-
-	var dnsQueries []*core.Record
-	var dnsMore bool
-	var gateEvents []*core.Record
-	var gateMore bool
-	if !overview {
-		dnsQueries, dnsMore, err = queryTimelinePage(app, "dns_queries", []dbx.Expression{
+	for _, page := range pages {
+		condition := fmt.Sprintf("[[%s]] >= {:from} AND [[%s]] < {:to}", page.timeField, page.timeField)
+		if page.timeField == "start" {
+			condition = "[[start]] < {:to} AND [[last_seen]] >= {:from}"
+		}
+		expressions := []dbx.Expression{
 			dbx.HashExp{"session": sessionID},
-			dbx.NewExp("[[timestamp]] >= {:lookback} AND [[timestamp]] < {:to}", dbx.Params{
-				"lookback": formatPocketBaseTimelineDate(from.Add(-5 * time.Minute)),
-				"to":       formatPocketBaseTimelineDate(to),
-			}),
-		}, []string{"timestamp", "id"}, limit, cursor["dns"])
+			dbx.NewExp(condition, dbx.Params{"from": formatPocketBaseTimelineDate(from.Add(-page.lookback)), "to": formatPocketBaseTimelineDate(to)}),
+		}
+		if page.flowField != "" {
+			var err error
+			expressions, err = appendStringSetExpression(expressions, page.flowField, requestedFlowIDs)
+			if err != nil {
+				return Window{}, err
+			}
+		}
+		records, more, err := queryTimelinePage(app, page.collection, expressions, []string{page.timeField, "id"}, limit, cursor[page.cursor])
 		if err != nil {
 			return Window{}, err
 		}
-		gateEvents, gateMore, err = queryTimelinePage(app, "gate_events", []dbx.Expression{
-			dbx.HashExp{"session": sessionID},
-			dbx.NewExp("[[queued_at]] >= {:from} AND [[queued_at]] < {:to}", params),
-		}, []string{"queued_at", "id"}, limit, cursor["gates"])
-		if err != nil {
-			return Window{}, err
-		}
-	}
-
-	var chunks []*core.Record
-	var chunkMore bool
-	var windows []*core.Record
-	var windowMore bool
-	if !overview {
-		chunkExpressions := []dbx.Expression{
-			dbx.HashExp{"session": sessionID},
-			dbx.NewExp("[[chunk_start]] >= {:chunkOverlap} AND [[chunk_start]] < {:to}", dbx.Params{
-				"chunkOverlap": formatPocketBaseTimelineDate(from.Add(-10 * time.Second)),
-				"to":           formatPocketBaseTimelineDate(to),
-			}),
-		}
-		chunkExpressions, err = appendStringSetExpression(chunkExpressions, "flow", requestedFlowIDs)
-		if err != nil {
-			return Window{}, err
-		}
-		chunks, chunkMore, err = queryTimelinePage(app, "flow_activity_chunks", chunkExpressions, []string{"chunk_start", "id"}, limit, cursor["chunks"])
-		if err != nil {
-			return Window{}, err
-		}
-		windows, windowMore, err = queryTimelinePage(app, "flow_activity_windows", []dbx.Expression{
-			dbx.HashExp{"session": sessionID},
-			dbx.NewExp("[[window_start]] >= {:windowOverlap} AND [[window_start]] < {:to}", dbx.Params{
-				"windowOverlap": formatPocketBaseTimelineDate(from.Add(-time.Minute)),
-				"to":            formatPocketBaseTimelineDate(to),
-			}),
-		}, []string{"window_start", "id"}, limit, cursor["windows"])
-		if err != nil {
-			return Window{}, err
-		}
+		*page.rows = records
+		advanceTimelineCursor(cursor, page.cursor, more, limit)
 	}
 
 	visibleFlowIDs := make([]string, 0, len(flows))
@@ -352,15 +311,7 @@ func (r *Reader) Window(sessionID string, query Query) (Window, error) {
 		return Window{}, err
 	}
 
-	advanceTimelineCursor(cursor, "flows", flowMore, limit)
-	advanceTimelineCursor(cursor, "episodes", episodeMore, limit)
 	advanceTimelineCursor(cursor, "routes", routePage.More, limit)
-	if !overview {
-		advanceTimelineCursor(cursor, "dns", dnsMore, limit)
-		advanceTimelineCursor(cursor, "chunks", chunkMore, limit)
-		advanceTimelineCursor(cursor, "windows", windowMore, limit)
-		advanceTimelineCursor(cursor, "gates", gateMore, limit)
-	}
 	nextCursor, err := encodeTimelineCursor(cursor)
 	if err != nil {
 		return Window{}, err
@@ -411,11 +362,7 @@ func queryRelatedRecords(app core.App, collection, field string, values []string
 	if err != nil {
 		return nil, err
 	}
-	return queryRecords(app, collection, expressions, sortFields)
-}
-
-func queryRecords(app core.App, collection string, expressions []dbx.Expression, sortFields ...string) ([]*core.Record, error) {
-	return queryRecordsPage(app, collection, expressions, sortFields, 0, 0)
+	return queryRecordsPage(app, collection, expressions, []string{sortFields}, 0, 0)
 }
 
 func queryRecordsPage(app core.App, collection string, expressions []dbx.Expression, sortFields []string, limit, offset int) ([]*core.Record, error) {
@@ -611,13 +558,6 @@ func advanceTimelineCursor(cursor timelineCursor, key string, more bool, limit i
 	} else {
 		cursor[key] = -1
 	}
-}
-
-func firstQueryValue(values map[string][]string, key string) string {
-	if len(values[key]) == 0 {
-		return ""
-	}
-	return values[key][0]
 }
 
 func formatPocketBaseTimelineDate(value time.Time) string {

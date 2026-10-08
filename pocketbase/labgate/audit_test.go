@@ -2,27 +2,19 @@ package labgate
 
 import (
 	"context"
+	"myapp/testsupport"
 	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 
-	_ "myapp/migrations"
 	"myapp/netmeta"
 )
 
 func TestGateMigrationAndOrderedAuditLifecycle(t *testing.T) {
-	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
-	if err := app.Bootstrap(); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.RunAppMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = app.ResetBootstrapState() })
+	app := testsupport.App(t)
 	gateCollection, err := app.FindCollectionByNameOrId("gate_events")
 	if err != nil {
 		t.Fatal(err)
@@ -44,13 +36,10 @@ func TestGateMigrationAndOrderedAuditLifecycle(t *testing.T) {
 			t.Fatalf("missing gate packet metadata field %s", field)
 		}
 	}
-	sessions, _ := app.FindCollectionByNameOrId("sessions")
-	session := core.NewRecord(sessions)
-	session.Set("name", "Audit")
-	session.Set("active", true)
-	if err := app.Save(session); err != nil {
-		t.Fatal(err)
-	}
+	session := testsupport.Save(t, app, "sessions", map[string]any{
+		"name":   "Audit",
+		"active": true,
+	})
 	tuple, _ := netmetaTuple()
 	queuedAt := time.Now().UTC().Add(-50 * time.Millisecond)
 	decision := Decision{ID: "decision-1", SessionID: session.Id, FlowKey: tuple.Key(), Tuple: tuple, ClientIP: tuple.ClientIP.String(), ClientPort: tuple.ClientPort, RemoteIP: tuple.RemoteIP.String(), RemotePort: tuple.RemotePort, Protocol: tuple.Protocol, Mode: ModeStrict, Direction: netmeta.ClientToRemote, WireBytes: 64, PayloadBytes: 4, TCPFlags: 0x12, PacketCount: 2, State: DecisionQueued, QueuedAt: queuedAt, Deadline: queuedAt.Add(time.Second)}
@@ -126,11 +115,7 @@ func netmetaTuple() (netmeta.FlowTuple, bool) {
 }
 
 func TestAuditWriterRejectsAfterCloseWithoutPanicking(t *testing.T) {
-	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
-	if err := app.Bootstrap(); err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = app.ResetBootstrapState() }()
+	app := testsupport.App(t)
 	writer := NewAuditWriter(app, 8)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

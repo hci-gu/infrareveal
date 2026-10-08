@@ -25,6 +25,11 @@ async (page) => {
   const downloadEvent=page.waitForEvent('download');await page.getByRole('button',{name:'Download render bundle'}).click();const download=await downloadEvent;await download.saveAs('output/playwright/recorded-render-bundle.json');checks.push('Recorded render bundle downloads from the retained utility');
   await page.keyboard.press('Escape');assert(await page.getByRole('button',{name:'Traffic utilities',exact:true}).evaluate(el=>el===document.activeElement),'Closing utilities restores focus to its trigger');
   await page.getByRole('button',{name:'Traffic utilities',exact:true}).click();await page.getByRole('dialog').getByRole('combobox').selectOption('treemap');await page.locator('.traffic-treemap').waitFor();checks.push('The secondary treemap remains reachable');
+  const treemapTime=await page.locator('.traffic-treemap .text-2xl').textContent();
+  await page.getByRole('button',{name:'Forward five seconds',exact:true}).click();
+  await page.waitForFunction(before=>document.querySelector('.traffic-treemap .text-2xl')?.textContent!==before,treemapTime);assert(Number(await page.locator('#traffic-scrubber').inputValue())===at+5000,'Treemap and timeline transport share the inspection time');
+  await page.locator('.traffic-treemap button').first().click();await page.getByRole('complementary',{name:'Selection inspector'}).getByText('Connection',{exact:true}).waitFor();
+  checks.push('Selecting a treemap group opens its flow in the shared inspector');
   await page.getByRole('button',{name:'Traffic utilities',exact:true}).click();await page.getByRole('link',{name:'Open controlled network client',exact:false}).click();await page.getByRole('heading',{name:'Network timeout probe'}).waitFor();checks.push('Controlled client remains reachable');
   await config({resetLog:true});await page.goto(app+'/proxy-lab/demo?demo=1');await page.getByText('DEMO · no live control',{exact:true}).waitFor();
   assert(!(await state()).requests.some(r=>r.path.includes('/lab-gate/')),'The explicit Lab demo issues no control API requests');

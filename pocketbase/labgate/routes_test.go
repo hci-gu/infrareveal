@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"myapp/testsupport"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
@@ -11,11 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
-	"github.com/pocketbase/pocketbase/core"
-
-	_ "myapp/migrations"
 )
 
 func TestControlRoutesAuthenticationOriginAndValidation(t *testing.T) {
@@ -64,9 +61,7 @@ func TestControlRoutesArmPendingDecideAndReconcileStatus(t *testing.T) {
 	if response := fixture.jsonRequest(http.MethodPost, "/api/infrareveal/lab-gate/arm", fixture.token, body); response.Code != http.StatusConflict {
 		t.Fatalf("repeat arm = %d", response.Code)
 	}
-	if err := fixture.queue.Inject(context.Background(), tcpPacket(77, 50100)); err != nil {
-		t.Fatal(err)
-	}
+	fixture.queue.inject(t, context.Background(), tcpPacket(77, 50100))
 	var decisionID string
 	eventually(t, func() bool {
 		response := fixture.request(http.MethodGet, "/api/infrareveal/lab-gate/pending", fixture.token, "", "")
@@ -87,9 +82,7 @@ func TestControlRoutesArmPendingDecideAndReconcileStatus(t *testing.T) {
 	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"state":"approved"`) {
 		t.Fatalf("decision = %d %s", response.Code, response.Body.String())
 	}
-	if verdict, err := fixture.queue.WaitForVerdict(context.Background(), 77); err != nil || verdict != VerdictAccept {
-		t.Fatalf("kernel verdict = %q %v", verdict, err)
-	}
+	fixture.queue.assertVerdict(t, context.Background(), 77, VerdictAccept)
 	response = fixture.jsonRequest(http.MethodPost, "/api/infrareveal/lab-gate/decisions/"+decisionID, fixture.token, `{"verdict":"accept"}`)
 	if response.Code != http.StatusConflict || !strings.Contains(response.Body.String(), `"alreadyTerminal":true`) {
 		t.Fatalf("idempotent response = %d %s", response.Code, response.Body.String())
@@ -129,14 +122,10 @@ func TestControlRoutesStrictArmAndAcceptNext(t *testing.T) {
 	packet := tcpPacket(91, 50100)
 	packet.QueueMode = ModeStrict
 	packet.TCPFlags = 0x10
-	if err := fixture.queue.Inject(context.Background(), packet); err != nil {
-		t.Fatal(err)
-	}
+	fixture.queue.inject(t, context.Background(), packet)
 	verdictCtx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	if verdict, err := fixture.queue.WaitForVerdict(verdictCtx, packet.ID); err != nil || verdict != VerdictAccept {
-		t.Fatalf("strict step verdict = %q %v", verdict, err)
-	}
+	fixture.queue.assertVerdict(t, verdictCtx, packet.ID, VerdictAccept)
 }
 
 type routeFixture struct {
@@ -149,22 +138,12 @@ type routeFixture struct {
 
 func newRouteFixture(t *testing.T) *routeFixture {
 	t.Helper()
-	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
-	if err := app.Bootstrap(); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.RunAppMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = app.ResetBootstrapState() })
-	collection, _ := app.FindCollectionByNameOrId("sessions")
-	session := core.NewRecord(collection)
-	session.Set("name", "Gate route")
-	session.Set("active", true)
-	session.Set("started_at", time.Now())
-	if err := app.Save(session); err != nil {
-		t.Fatal(err)
-	}
+	app := testsupport.App(t)
+	session := testsupport.Save(t, app, "sessions", map[string]any{
+		"name":       "Gate route",
+		"active":     true,
+		"started_at": time.Now(),
+	})
 	config := testConfig()
 	queue := NewFakeQueue()
 	controller, err := NewController(context.Background(), config, queue, nil, nil, nil)

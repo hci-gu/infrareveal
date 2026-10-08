@@ -2,6 +2,7 @@ package routing
 
 import (
 	"encoding/json"
+	"myapp/testsupport"
 	"os"
 	"reflect"
 	"testing"
@@ -26,21 +27,21 @@ func TestSharedRouteEvidenceContract(t *testing.T) {
 	if err = json.Unmarshal(raw, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := fixture.Route["session"].(string)
 	sessions := map[string]bool{session: true}
 	for _, update := range fixture.Updates {
 		sessions[update["session"].(string)] = true
 	}
 	for id := range sessions {
-		saveRoutingRecord(t, app, "sessions", map[string]any{"id": id, "active": false})
+		testsupport.Save(t, app, "sessions", map[string]any{"id": id, "active": false})
 	}
-	saveRoutingRecord(t, app, "destinations", map[string]any{"id": fixture.Route["destination"], "ip": fixture.Route["destination_ip"]})
-	legacy := saveRoutingRecord(t, app, "routes", fixture.LegacyRoute)
-	current := saveRoutingRecord(t, app, "routes", fixture.Route)
+	testsupport.Save(t, app, "destinations", map[string]any{"id": fixture.Route["destination"], "ip": fixture.Route["destination_ip"]})
+	legacy := testsupport.Save(t, app, "routes", fixture.LegacyRoute)
+	current := testsupport.Save(t, app, "routes", fixture.Route)
 	byID := map[string]map[string]any{}
 	for _, update := range fixture.Updates {
-		saveRoutingRecord(t, app, "route_evidence_updates", update)
+		testsupport.Save(t, app, "route_evidence_updates", update)
 		byID[update["id"].(string)] = update
 	}
 
@@ -88,7 +89,7 @@ func TestSharedRouteEvidenceContract(t *testing.T) {
 	// The flow has already fallen outside the requested window. Its route
 	// history still has its own cursor, including the legacy pre-window anchor.
 	start := routeFixtureTime(t, fixture.Route["measured_at"].(string))
-	flow := saveRoutingRecord(t, app, "flows", map[string]any{"session": session, "flow_key": "route-contract", "client_ip": "10.0.0.2", "destination_ip": fixture.Route["destination_ip"], "destination_port": fixture.Route["destination_port"], "protocol": fixture.Route["protocol"], "start": start, "last_seen": start})
+	flow := testsupport.Save(t, app, "flows", map[string]any{"session": session, "flow_key": "route-contract", "client_ip": "10.0.0.2", "destination_ip": fixture.Route["destination_ip"], "destination_port": fixture.Route["destination_port"], "protocol": fixture.Route["protocol"], "start": start, "last_seen": start})
 	query := RouteQuery{Session: session, From: routeFixtureTime(t, "2026-09-10T12:00:00.750Z"), To: routeFixtureTime(t, fixture.Cursors["afterInvalidation"]), FlowIDs: []string{flow.Id}, Limit: 1}
 	for index, want := range []*core.Record{legacy, current} {
 		query.Offset = index

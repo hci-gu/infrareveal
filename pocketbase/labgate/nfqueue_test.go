@@ -1,7 +1,7 @@
 package labgate
 
 import (
-	"encoding/binary"
+	"myapp/testsupport/packetfixture"
 	"net/netip"
 	"testing"
 	"time"
@@ -10,7 +10,7 @@ import (
 )
 
 func TestPacketMetadataCopiesOnlyHeaderSummary(t *testing.T) {
-	packetBytes := makeIPv4TCPPacket("10.0.0.2", "1.1.1.1", 50123, 443, 0x02, 900)
+	packetBytes := packetfixture.IPv4TCP("10.0.0.2", "1.1.1.1", 50123, 443, make([]byte, 900), 0x02, 20)
 	metadata, err := packetMetadataForMode(12, packetBytes[:40], uint32(len(packetBytes)), time.Unix(100, 0), netip.MustParsePrefix("10.0.0.0/24"), ModeFlow)
 	if err != nil {
 		t.Fatal(err)
@@ -29,7 +29,7 @@ func TestPacketMetadataRejectsUnorientedAndMalformed(t *testing.T) {
 	if _, err := packetMetadataForMode(1, []byte{0x45}, 1, time.Now(), subnet, ModeFlow); err == nil {
 		t.Fatal("truncated packet accepted")
 	}
-	packet := makeIPv4TCPPacket("1.1.1.1", "8.8.8.8", 1000, 443, 0x02, 0)
+	packet := packetfixture.IPv4TCP("1.1.1.1", "8.8.8.8", 1000, 443, make([]byte, 0), 0x02, 20)
 	if _, err := packetMetadataForMode(1, packet, uint32(len(packet)), time.Now(), subnet, ModeFlow); err == nil {
 		t.Fatal("unoriented packet accepted")
 	}
@@ -37,42 +37,18 @@ func TestPacketMetadataRejectsUnorientedAndMalformed(t *testing.T) {
 
 func TestPacketMetadataForDNSAndStrictModes(t *testing.T) {
 	subnet := netip.MustParsePrefix("10.0.0.0/24")
-	dns := makeIPv4UDPPacket("10.0.0.2", "10.0.0.1", 53000, 53, 20)
+	dns := packetfixture.IPv4UDP("10.0.0.2", "10.0.0.1", 53000, 53, make([]byte, 20))
 	metadata, err := packetMetadataForMode(2, dns, uint32(len(dns)), time.Now(), subnet, ModeDNS)
 	if err != nil || metadata.QueueMode != ModeDNS || metadata.Tuple.Key() != "udp|10.0.0.2|53000|10.0.0.1|53" {
 		t.Fatalf("DNS metadata = %+v %v", metadata, err)
 	}
-	other := makeIPv4UDPPacket("10.0.0.2", "10.0.0.1", 53000, 67, 20)
+	other := packetfixture.IPv4UDP("10.0.0.2", "10.0.0.1", 53000, 67, make([]byte, 20))
 	if _, err := packetMetadataForMode(3, other, uint32(len(other)), time.Now(), subnet, ModeDNS); err == nil {
 		t.Fatal("non-DNS traffic entered DNS mode")
 	}
-	inbound := makeIPv4TCPPacket("1.1.1.1", "10.0.0.2", 443, 50123, 0x12, 0)
+	inbound := packetfixture.IPv4TCP("1.1.1.1", "10.0.0.2", 443, 50123, make([]byte, 0), 0x12, 20)
 	metadata, err = packetMetadataForMode(4, inbound, uint32(len(inbound)), time.Now(), subnet, ModeStrict)
 	if err != nil || metadata.Direction != netmeta.RemoteToClient || metadata.Tuple.Key() != "tcp|10.0.0.2|50123|1.1.1.1|443" {
 		t.Fatalf("strict inbound metadata = %+v %v", metadata, err)
 	}
-}
-
-func makeIPv4TCPPacket(source, destination string, sourcePort, destinationPort uint16, flags byte, payloadSize int) []byte {
-	packet := make([]byte, 40+payloadSize)
-	packet[0], packet[9] = 0x45, 6
-	binary.BigEndian.PutUint16(packet[2:4], uint16(len(packet)))
-	copy(packet[12:16], netip.MustParseAddr(source).AsSlice())
-	copy(packet[16:20], netip.MustParseAddr(destination).AsSlice())
-	binary.BigEndian.PutUint16(packet[20:22], sourcePort)
-	binary.BigEndian.PutUint16(packet[22:24], destinationPort)
-	packet[32], packet[33] = 0x50, flags
-	return packet
-}
-
-func makeIPv4UDPPacket(source, destination string, sourcePort, destinationPort uint16, payloadSize int) []byte {
-	packet := make([]byte, 28+payloadSize)
-	packet[0], packet[9] = 0x45, 17
-	binary.BigEndian.PutUint16(packet[2:4], uint16(len(packet)))
-	copy(packet[12:16], netip.MustParseAddr(source).AsSlice())
-	copy(packet[16:20], netip.MustParseAddr(destination).AsSlice())
-	binary.BigEndian.PutUint16(packet[20:22], sourcePort)
-	binary.BigEndian.PutUint16(packet[22:24], destinationPort)
-	binary.BigEndian.PutUint16(packet[24:26], uint16(8+payloadSize))
-	return packet
 }

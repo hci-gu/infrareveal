@@ -8,10 +8,10 @@ Two independent planes share timestamps and canonical flow keys:
 
 ```text
 data plane:        client -> optional NFQUEUE gate -> FORWARD/NAT or local dnsmasq -> remote
-observation plane: AF_PACKET/conntrack/dnsmasq -> bounded trace hub + PocketBase -> shared state -> Remotion
+observation plane: AF_PACKET/conntrack/dnsmasq -> bounded trace hub + PocketBase -> shared state -> graph viewport
 ```
 
-Remotion is a deterministic view of the shared millisecond session cursor. Recorded PocketBase events and bounded live SSE events project into the same `PipelineEvent` contract. Scrubbing changes only the visualization; it never rewinds the current gate controller. “Go live” returns the shared clock to the latest observed edge.
+The graph viewport is a deterministic view of the shared millisecond session cursor. Recorded PocketBase events and bounded live SSE events project into the same `PipelineEvent` contract. Scrubbing changes only the visualization; it never rewinds the current gate controller. “Go live” returns the shared clock to the latest observed edge.
 
 ## Runtime components
 
@@ -19,7 +19,7 @@ Remotion is a deterministic view of the shared millisecond session cursor. Recor
 - `pocketbase/netmeta`: bounded IPv4/TCP/UDP header parsing, canonical tuple, and direction.
 - `pocketbase/labgate`: serialized policy controller, three NFQUEUE adapters behind a virtual-ID multiplexer, idempotent firewall manager, watchdogs, bounded audit writer, and authenticated routes.
 - `packages/session-state`: shared PocketBase transport, normalized entities, temporal indexes, bounded detail-page cache, realtime reconciliation, and one playback clock for both dashboards.
-- `debug-dashboard/src/experiments/proxy-lab`: recorded/live merge, deterministic scene projection, Remotion player, health, arming, and current approval queue.
+- `debug-dashboard/src/experiments/proxy-lab`: recorded/live merge, deterministic scene projection, graph viewport, replay controls, health, arming, and current approval queue.
 - `/controlled-client`: browser probe for comparing queue wait with application-visible completion/failure.
 
 No stored record contains packet payload contents or the control token. Strict events contain only tuple, direction, wire/payload byte counts, flags, timing, and verdict. The parser may receive a maximum 256-byte prefix from NFQUEUE and releases that reference after synchronous classification.
@@ -100,7 +100,7 @@ Suggested preset: **DNS retry**. Use a hostname in the controlled client and rel
    ```
 
 4. Start the proxy and debug dashboard. Confirm status is `off`, `supported`, `listenerReady`, `rulesReady`, fail-open, zero clients, and normal browsing still works.
-5. Start one active session. Open `/proxy-lab/SESSION_ID`, select Turn based, enter the token, select exactly one controlled client, acknowledge the warning, and arm.
+5. Start one active session. Open `/proxy-lab/SESSION_ID`, open Gate setup, select Flow admission, enter the token, select exactly one controlled client, acknowledge the warning, and arm.
 6. Generate one request from that client. Approve it before the watchdog, verify the client continues, then Drain and Emergency disarm.
 7. Confirm normal browsing, an empty `infrareveal_lab_clients` set, and a durable `gate_events` record.
 

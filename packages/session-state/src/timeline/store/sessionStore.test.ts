@@ -12,7 +12,7 @@ import {
   sessionTimelineStore,
   setTimelineConnection,
   setTimelineManifest,
-  setTimelineUI,
+  setTimelinePlayback,
   tickTimelineClock,
   timelineStartMs,
 } from './sessionStore'
@@ -29,7 +29,7 @@ const session: Session = {
 describe('shared sessionTimelineStore', () => {
   beforeEach(() => resetSessionTimeline(session.id, [session]))
 
-  it('anchors live time to the server manifest and keeps UI state separate', () => {
+  it('anchors live time to the server manifest and permits independent playback', () => {
     setTimelineManifest({
       sessionId: session.id,
       name: session.name,
@@ -41,13 +41,14 @@ describe('shared sessionTimelineStore', () => {
       counts: { flows: 0 },
       coverage: { from: session.started_at!, to: '2026-09-02T10:02:00Z' },
     })
-    setTimelineUI({ selectedClipId: 'clip:flow-1', viewMode: 'treemap' })
-
     const state = sessionTimelineStore.getState()
     expect(state.liveEdgeMs).toBe(Date.parse('2026-09-02T10:02:00Z'))
     expect(state.cursorMs).toBe(state.liveEdgeMs)
     expect(state.playback).toBe('following')
-    expect(state.ui).toMatchObject({ selectedClipId: 'clip:flow-1', viewMode: 'treemap' })
+    setTimelinePlayback({ playback: 'paused', rate: 2, cursorMs: state.cursorMs - 5000 })
+    expect(sessionTimelineStore.getState()).toMatchObject({
+      liveEdgeMs: state.liveEdgeMs, playback: 'paused', rate: 2, cursorMs: state.cursorMs - 5000,
+    })
   })
 
   it('applies revision-aware upserts and delete tombstones idempotently', () => {
@@ -291,7 +292,6 @@ function detailPage(key: string, start: number) {
     fromMs: Date.parse('2026-09-02T10:00:00Z') + start,
     toMs: Date.parse('2026-09-02T10:00:00Z') + start + 10_000,
     lod: '50ms' as const,
-    flowKey: 'flow-1',
     flowIds: new Set(['flow-1']),
   }
 }

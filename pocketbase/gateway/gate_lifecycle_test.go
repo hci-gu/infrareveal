@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"myapp/testsupport"
 	"net/netip"
 	"testing"
 	"time"
@@ -17,10 +18,10 @@ import (
 func TestGatewayTransitionsDrainHeldGateBeforeAuditCompletion(t *testing.T) {
 	for _, action := range []string{"end session", "clear"} {
 		t.Run(action, func(t *testing.T) {
-			app := ephemeralTestApp(t)
+			app := testsupport.App(t)
 			g := testRuntime(t, app)
 			g.Register()
-			session := saveEphemeralFixture(t, app, "sessions", map[string]any{"name": action, "active": true})
+			session := testsupport.Save(t, app, "sessions", map[string]any{"name": action, "active": true})
 			queue := &lifecycleQueue{ready: make(chan struct{}), packets: make(chan labgate.QueuedPacket, 1), verdicts: make(chan labgate.Verdict, 1)}
 			g.audit = labgate.NewAuditWriter(app, 8)
 			config := labgate.Config{Enabled: true, FailOpen: true, ControlTokenFile: "test-token", FlowTimeout: time.Minute}

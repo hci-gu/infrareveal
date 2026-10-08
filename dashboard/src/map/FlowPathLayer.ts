@@ -1,17 +1,8 @@
-import { trafficAnimationTime } from './mapPlaybackClock'
-import type { TrafficAnimation } from './mapPlaybackClock'
-import { ArcLayer } from '@deck.gl/layers'
-import { Geometry, Model } from '@luma.gl/engine'
-import type { Accessor, UpdateParameters } from '@deck.gl/core'
-import { trafficFragmentShader, trafficUniforms, trafficHistoryShader } from './FlowArcLayer'
-import { TRAFFIC_BUCKET_MS, TRAFFIC_TRAVEL_SECONDS, trafficShaderClock } from './mapTraffic'
+import type { Accessor } from '@deck.gl/core'
+import { TrafficLayer, trafficHistoryShader } from './FlowArcLayer'
+import { TRAFFIC_TRAVEL_SECONDS } from './mapTraffic'
 
 type Props<T> = {
-  animation?: TrafficAnimation | null
-  time: number; phase: number; motion: number
-  getRadii0: Accessor<T, number[]>; getRadii1: Accessor<T, number[]>; getRadii2: Accessor<T, number[]>
-  getDirection: Accessor<T, number>
-  getProgress: Accessor<T, number[]>
   getPreviousPosition: Accessor<T, number[]>
   getNextPosition: Accessor<T, number[]>
 }
@@ -82,68 +73,24 @@ void main() {
 `
 
 /** Joined tube rings along one sampled itinerary, with one source-to-destination clock. */
-export class FlowPathLayer<T> extends ArcLayer<T, Props<T>> {
+export class FlowPathLayer<T> extends TrafficLayer<T, Props<T>> {
   static layerName = 'FlowPathLayer'
   static defaultProps = {
-    ...ArcLayer.defaultProps, numSegments: 160, time: 0, phase: 0, motion: 1, animation: { type: 'object', value: null, compare: false },
-    getRadii0: { type: 'accessor', value: [0, 0, 0, 0] },
-    getRadii1: { type: 'accessor', value: [0, 0, 0, 0] },
-    getRadii2: { type: 'accessor', value: [0, 0, 0, 0] },
-    getProgress: { type: 'accessor', value: [0, 1] },
-    getDirection: { type: 'accessor', value: 1 },
+    ...TrafficLayer.defaultProps,
     getPreviousPosition: { type: 'accessor', value: [0, 0, 0] },
     getNextPosition: { type: 'accessor', value: [0, 0, 0] },
   }
   initializeState() {
     super.initializeState()
     this.getAttributeManager()!.addInstanced({
-      instanceRadii0: { size: 4, accessor: 'getRadii0' },
-      instanceRadii1: { size: 4, accessor: 'getRadii1' },
-      instanceRadii2: { size: 4, accessor: 'getRadii2' },
-      instanceProgress: { size: 2, accessor: 'getProgress' },
-      instanceDirection: { size: 1, accessor: 'getDirection' },
       instancePreviousPositions: { size: 3, accessor: 'getPreviousPosition' },
       instanceNextPositions: { size: 3, accessor: 'getNextPosition' },
     })
   }
   getShaders() {
-    const shaders = super.getShaders()
-    return { ...shaders, defines: { ...shaders.defines, ...(this.props.numSegments <= 48 ? { LOW_DETAIL: 1 } : {}) }, vs, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
+    return { ...super.getShaders(), vs }
   }
-  updateState(params: UpdateParameters<this>) {
-    super.updateState(params)
-    if (!params.changeFlags.extensionsChanged && params.props.numSegments !== params.oldProps.numSegments) {
-      this.state.model?.destroy()
-      this.state.model = this._getModel()
-      this.getAttributeManager()!.invalidateAll()
-    }
-  }
-
-  protected _getModel(): Model {
-    const SIDES = this.props.numSegments <= 48 ? 4 : 12
-    const positions = new Float32Array(2 * (SIDES + 1) * 2)
-    const indices = new Uint16Array(SIDES * 6)
-    for (let ring = 0; ring < 2; ring++) {
-      for (let side = 0; side <= SIDES; side++) {
-        positions.set([ring, side / SIDES * Math.PI * 2], (ring * (SIDES + 1) + side) * 2)
-        if (ring === 0 && side < SIDES) {
-          const next = side + SIDES + 1
-          indices.set([side, next, side + 1, side + 1, next, next + 1], side * 6)
-        }
-      }
-    }
-    return new Model(this.context.device, {
-      ...this.getShaders(), id: this.props.id, bufferLayout: this.getAttributeManager()!.getBufferLayouts(), isInstanced: true,
-      geometry: new Geometry({ topology: 'triangle-list', attributes: { positions: { size: 2, value: positions } }, indices }),
-    })
-  }
-  getAnimationTime() { return trafficAnimationTime(this.props.animation, this.props.time, this.props.phase, TRAFFIC_BUCKET_MS) }
-
-  draw() {
-    const model = this.state.model
-    if (!model) return
-    const { time, phase } = this.getAnimationTime()
-    model.shaderInputs.setProps({ traffic: { clock: trafficShaderClock(time), phase, motion: this.props.motion } })
-    model.draw(this.context.renderPass)
+  protected meshResolution() {
+    return { segments: 1, sides: this.props.numSegments <= 48 ? 4 : 12 }
   }
 }

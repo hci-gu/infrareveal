@@ -20,5 +20,5 @@ export function TrafficTreemap({ composition, cursorMs, onSelect }: { compositio
     window.addEventListener('infrareveal:select', select)
     return () => window.removeEventListener('infrareveal:select', select)
   }, [composition.clips, onSelect])
-  return <div className="traffic-treemap" aria-label="Secondary treemap view"><Player ref={player} component={SessionComposition} inputProps={{ sceneWindow, viewMode: 'treemap', zoomFrames: 'all', selectedClipId: null, selectedServiceId: null, focusedServiceId: null, collapsedServiceIds: [], followLive: false }} compositionWidth={composition.width} compositionHeight={composition.height} durationInFrames={composition.durationInFrames} fps={composition.fps} controls={false} clickToPlay={false} doubleClickToFullscreen={false} style={{ width: '100%', height: '100%' }} /></div>
+  return <div className="traffic-treemap" aria-label="Secondary treemap view"><Player ref={player} component={SessionComposition} inputProps={{ sceneWindow }} compositionWidth={composition.width} compositionHeight={composition.height} durationInFrames={composition.durationInFrames} fps={composition.fps} controls={false} clickToPlay={false} doubleClickToFullscreen={false} style={{ width: '100%', height: '100%' }} /></div>
 }

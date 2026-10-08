@@ -1,6 +1,7 @@
 package routing
 
 import (
+	"myapp/testsupport"
 	"path/filepath"
 	"testing"
 	"time"
@@ -13,7 +14,7 @@ func TestCapturedConfigSurvivesEnvironmentChanges(t *testing.T) {
 	t.Setenv("ROUTE_MAX_TARGETS", "100")
 	t.Setenv("ROUTE_ASN_DB", filepath.Join(t.TempDir(), "changed.mmdb"))
 
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	store := newEvidenceStore(app, nil, config)
 	if store.limits().ASNDBPath != config.ASNDBPath {

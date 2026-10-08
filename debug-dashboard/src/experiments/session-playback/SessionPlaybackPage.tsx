@@ -83,10 +83,6 @@ function TrafficSession({ requestedId, preferenceKey }: { requestedId?: string; 
     if (initialCursor) setTimelinePlayback({ cursorMs: clampTime(initialCursor, bounds), playback: 'paused' })
   }, [bounds, initialCursor, requestedId, session, timeline.manifest])
   useEffect(() => {
-    const fromMs = Math.floor(range.fromMs / 5000) * 5000, toMs = Math.ceil(range.toMs / 5000) * 5000
-    setTimelinePlayback({ viewport: { fromMs, toMs } })
-  }, [range.fromMs, range.toMs])
-  useEffect(() => {
     if (!session) return
     const timer = setInterval(() => {
       const state = sessionTimelineStore.getState()

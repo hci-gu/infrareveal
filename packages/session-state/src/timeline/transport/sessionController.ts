@@ -359,7 +359,6 @@ class SessionController {
       fromMs: page.fromMs,
       toMs: page.toMs,
       lod,
-      flowKey: hashFlowIDs(flowIds),
       flowIds: new Set(flowIds),
     })
   }

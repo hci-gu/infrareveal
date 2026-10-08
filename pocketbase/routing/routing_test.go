@@ -3,37 +3,21 @@ package routing
 import (
 	"context"
 	"fmt"
+	"myapp/testsupport"
 	"os"
 	"path/filepath"
 	"sync/atomic"
 	"testing"
 	"time"
 
-	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
-	_ "myapp/migrations"
 )
 
-func testApp(t *testing.T) *pocketbase.PocketBase {
-	t.Helper()
-	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
-	if err := app.Bootstrap(); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.RunAppMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = app.ResetBootstrapState() })
-	return app
-}
 func testSession(t *testing.T, app core.App) string {
 	t.Helper()
-	c, _ := app.FindCollectionByNameOrId("sessions")
-	r := core.NewRecord(c)
-	r.Set("active", true)
-	if err := app.Save(r); err != nil {
-		t.Fatal(err)
-	}
+	r := testsupport.Save(t, app, "sessions", map[string]any{
+		"active": true,
+	})
 	return r.Id
 }
 func eventually(t *testing.T, fn func() bool) {
@@ -72,7 +56,7 @@ func (p scriptedProbe) Run(ctx context.Context, t target, plan probePlan, publis
 }
 
 func TestCoordinatorProgressiveCacheReuseAndReset(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	first := testSession(t, app)
 	second := testSession(t, app)
 	var session atomic.Value
@@ -135,7 +119,7 @@ func TestCoordinatorProgressiveCacheReuseAndReset(t *testing.T) {
 }
 
 func TestRepositoryFailedRefreshKeepsAgeAndEvidence(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	repo := evidenceStore{app: app}
 	now := time.Now().UTC()
@@ -205,7 +189,7 @@ func TestParserRejectsIncompleteTimingAndPreservesUnreachable(t *testing.T) {
 }
 
 func TestNetworkInvalidatesBindingsAbsentFromDemandMemory(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	repo := evidenceStore{app: app}
 	if err := repo.invalidateSession(session, "old", time.Now()); err != nil {
@@ -219,7 +203,7 @@ func TestNetworkInvalidatesBindingsAbsentFromDemandMemory(t *testing.T) {
 }
 
 func TestPendingStateCreatesNoRoute(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	repo := evidenceStore{app: app}
 	if _, err := repo.publish(publication{Binding: routeBinding{Session: session, Network: "network", Target: target{"9.9.9.9", "tcp", 443}}, Cache: cacheEntry{}, Snapshot: snapshot{}, Provenance: "measured"}, time.Now()); err != nil {
@@ -232,7 +216,7 @@ func TestPendingStateCreatesNoRoute(t *testing.T) {
 }
 
 func TestRetentionUsesExactTimeAcrossDateFormats(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	now := time.Date(2026, 9, 10, 12, 0, 0, 0, time.UTC)
 	for _, age := range []time.Duration{23 * time.Hour, 25 * time.Hour} {
 		key := age.String()
@@ -250,7 +234,7 @@ func TestRetentionUsesExactTimeAcrossDateFormats(t *testing.T) {
 }
 
 func TestCoordinatorPromotesQualifiedTraffic(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	p := scriptedProbe{starts: make(chan target, 100), finish: make(chan struct{})}
 	c := startTestCoordinator(t, app, session, p)
@@ -290,7 +274,7 @@ func (p *drainingProbe) Run(ctx context.Context, target target, plan probePlan, 
 	return snapshot{Status: "cancelled"}
 }
 func TestWorkerBudgetSurvivesResetWhileCancelledProcessesDrain(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	p := &drainingProbe{starts: make(chan struct{}, 8)}
 	config := ConfigFromEnv()

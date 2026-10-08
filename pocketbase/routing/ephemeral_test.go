@@ -2,12 +2,13 @@ package routing
 
 import (
 	"fmt"
+	"myapp/testsupport"
 	"testing"
 	"time"
 )
 
 func TestEphemeralRouteAllowanceRenewsWithoutBypassingNetworkLimit(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	rec, _ := app.FindRecordById("sessions", session)
 	rec.Set("ephemeral", true)
@@ -46,7 +47,7 @@ func TestEphemeralRouteAllowanceRenewsWithoutBypassingNetworkLimit(t *testing.T)
 }
 
 func TestEphemeralStorageUsesRetainedEvidence(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	rec, _ := app.FindRecordById("sessions", session)
 	rec.Set("ephemeral", true)

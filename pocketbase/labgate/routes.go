@@ -1,6 +1,7 @@
 package labgate
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
@@ -128,14 +129,14 @@ func RegisterControlRoutes(r *router.Router[*core.RequestEvent], app core.App, c
 	r.OPTIONS("/api/infrareveal/lab-gate/{path...}", handler.options)
 	r.GET("/api/infrareveal/lab-gate/status", handler.status)
 	r.GET("/api/infrareveal/lab-gate/pending", handler.pending)
-	r.POST("/api/infrareveal/lab-gate/arm", handler.arm)
-	r.POST("/api/infrareveal/lab-gate/pause", handler.simple(commandPause))
-	r.POST("/api/infrareveal/lab-gate/resume", handler.simple(commandResume))
-	r.POST("/api/infrareveal/lab-gate/drain", handler.simple(commandDrain))
-	r.POST("/api/infrareveal/lab-gate/disarm", handler.simple(commandDisarm))
-	r.POST("/api/infrareveal/lab-gate/decisions/{decisionID}", handler.decision)
-	r.POST("/api/infrareveal/lab-gate/approve-all", handler.approveAll)
-	r.POST("/api/infrareveal/lab-gate/strict/accept-next", handler.acceptNext)
+	r.POST("/api/infrareveal/lab-gate/arm", mutation(handler, handler.arm))
+	r.POST("/api/infrareveal/lab-gate/pause", handler.simple(controller.Pause))
+	r.POST("/api/infrareveal/lab-gate/resume", handler.simple(controller.Resume))
+	r.POST("/api/infrareveal/lab-gate/drain", handler.simple(controller.Drain))
+	r.POST("/api/infrareveal/lab-gate/disarm", handler.simple(controller.Disarm))
+	r.POST("/api/infrareveal/lab-gate/decisions/{decisionID}", mutation(handler, handler.decision))
+	r.POST("/api/infrareveal/lab-gate/approve-all", mutation(handler, handler.approveAll))
+	r.POST("/api/infrareveal/lab-gate/strict/accept-next", mutation(handler, handler.acceptNext))
 }
 
 func (routes *controlRoutes) options(event *core.RequestEvent) error {
@@ -185,15 +186,7 @@ type armBody struct {
 	} `json:"strict,omitempty"`
 }
 
-func (routes *controlRoutes) arm(event *core.RequestEvent) error {
-	requestID := newRequestID()
-	if !routes.authorizeMutation(event, requestID) {
-		return nil
-	}
-	body := armBody{}
-	if err := decodeControlBody(event, &body); err != nil {
-		return routes.respondError(event, bodyStatus(err), requestID, err.Error())
-	}
+func (routes *controlRoutes) arm(event *core.RequestEvent, requestID string, body armBody) error {
 	session, err := routes.app.FindRecordById("sessions", strings.TrimSpace(body.SessionID))
 	if err != nil || !session.GetBool("active") {
 		return routes.respondError(event, http.StatusConflict, requestID, "session is not active")
@@ -229,35 +222,14 @@ type commandBody struct {
 	Reason string `json:"reason"`
 }
 
-func (routes *controlRoutes) simple(kind commandKind) func(*core.RequestEvent) error {
-	return func(event *core.RequestEvent) error {
-		requestID := newRequestID()
-		if !routes.authorizeMutation(event, requestID) {
-			return nil
-		}
-		body := commandBody{}
-		if err := decodeControlBody(event, &body); err != nil {
-			return routes.respondError(event, bodyStatus(err), requestID, err.Error())
-		}
-		var status Status
-		var err error
-		switch kind {
-		case commandPause:
-			status, err = routes.controller.Pause(event.Request.Context())
-		case commandResume:
-			status, err = routes.controller.Resume(event.Request.Context())
-		case commandDrain:
-			status, err = routes.controller.Drain(event.Request.Context())
-		case commandDisarm:
-			status, err = routes.controller.Disarm(event.Request.Context())
-		default:
-			err = ErrInvalidTransition
-		}
+func (routes *controlRoutes) simple(action func(context.Context) (Status, error)) func(*core.RequestEvent) error {
+	return mutation(routes, func(event *core.RequestEvent, requestID string, _ commandBody) error {
+		status, err := action(event.Request.Context())
 		if err != nil {
 			return routes.controllerError(event, requestID, err)
 		}
 		return event.JSON(http.StatusOK, statusResponse{RequestID: requestID, Status: status})
-	}
+	})
 }
 
 type decisionBody struct {
@@ -266,15 +238,7 @@ type decisionBody struct {
 	Reason  string  `json:"reason"`
 }
 
-func (routes *controlRoutes) decision(event *core.RequestEvent) error {
-	requestID := newRequestID()
-	if !routes.authorizeMutation(event, requestID) {
-		return nil
-	}
-	body := decisionBody{}
-	if err := decodeControlBody(event, &body); err != nil {
-		return routes.respondError(event, bodyStatus(err), requestID, err.Error())
-	}
+func (routes *controlRoutes) decision(event *core.RequestEvent, requestID string, body decisionBody) error {
 	result, err := routes.controller.Decide(event.Request.Context(), DecisionCommand{
 		DecisionID: event.Request.PathValue("decisionID"), Verdict: body.Verdict,
 		Actor: safeActor(body.Actor), Reason: safeReason(body.Reason),
@@ -291,15 +255,7 @@ func (routes *controlRoutes) decision(event *core.RequestEvent) error {
 	return event.JSON(http.StatusOK, payload)
 }
 
-func (routes *controlRoutes) approveAll(event *core.RequestEvent) error {
-	requestID := newRequestID()
-	if !routes.authorizeMutation(event, requestID) {
-		return nil
-	}
-	body := commandBody{}
-	if err := decodeControlBody(event, &body); err != nil {
-		return routes.respondError(event, bodyStatus(err), requestID, err.Error())
-	}
+func (routes *controlRoutes) approveAll(event *core.RequestEvent, requestID string, body commandBody) error {
 	results, err := routes.controller.ApproveAll(event.Request.Context(), safeActor(body.Actor), safeReason(body.Reason))
 	if err != nil {
 		return routes.controllerError(event, requestID, err)
@@ -317,15 +273,7 @@ type acceptNextBody struct {
 	Actor string `json:"actor"`
 }
 
-func (routes *controlRoutes) acceptNext(event *core.RequestEvent) error {
-	requestID := newRequestID()
-	if !routes.authorizeMutation(event, requestID) {
-		return nil
-	}
-	body := acceptNextBody{}
-	if err := decodeControlBody(event, &body); err != nil {
-		return routes.respondError(event, bodyStatus(err), requestID, err.Error())
-	}
+func (routes *controlRoutes) acceptNext(event *core.RequestEvent, requestID string, body acceptNextBody) error {
 	if body.Count < 1 || body.Count > 100 {
 		return routes.respondError(event, http.StatusBadRequest, requestID, "count must be between 1 and 100")
 	}
@@ -334,6 +282,22 @@ func (routes *controlRoutes) acceptNext(event *core.RequestEvent) error {
 		return routes.controllerError(event, requestID, err)
 	}
 	return event.JSON(http.StatusOK, statusResponse{RequestID: requestID, Status: status})
+}
+
+// mutation keeps authentication, rate limits and strict body decoding in one
+// order. Each command retains its typed body and response/error semantics.
+func mutation[T any](routes *controlRoutes, action func(*core.RequestEvent, string, T) error) func(*core.RequestEvent) error {
+	return func(event *core.RequestEvent) error {
+		requestID := newRequestID()
+		if !routes.authorizeMutation(event, requestID) {
+			return nil
+		}
+		var body T
+		if err := decodeControlBody(event, &body); err != nil {
+			return routes.respondError(event, bodyStatus(err), requestID, err.Error())
+		}
+		return action(event, requestID, body)
+	}
 }
 
 func (routes *controlRoutes) authorizeMutation(event *core.RequestEvent, requestID string) bool {

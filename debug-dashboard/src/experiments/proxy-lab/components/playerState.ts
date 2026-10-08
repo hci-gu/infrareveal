@@ -6,10 +6,6 @@ export type PlayerTransition = {
   playback: 'following' | 'playing' | 'paused'
 }
 
-export function playTransition(frame: number, epochMs: number, fps: number, following: boolean): PlayerTransition {
-  return { frame, cursorMs: timeForFrame(epochMs, frame, fps), playback: following ? 'following' : 'playing' }
-}
-
 export function pauseTransition(frame: number, epochMs: number, fps: number): PlayerTransition {
   return { frame, cursorMs: timeForFrame(epochMs, frame, fps), playback: 'paused' }
 }

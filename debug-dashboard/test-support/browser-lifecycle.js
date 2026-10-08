@@ -11,7 +11,7 @@ async (page) => {
   const labSource=await (await page.request.get(app+'/src/experiments/proxy-lab/ProxyLabPage.tsx')).text();
   const labModule=labSource.match(/from ["']([^"']+proxyLabStore[^"']+)["']/)?.[1];
   const sharedModule=labSource.match(/from ["']([^"']+session-state[^"']+)["']/)?.[1];
-  const sample=()=>page.evaluate(async url=>{const {proxyLabStore}=await import(url);const s=proxyLabStore.getState(),times=[...s.ephemeralEvents.values()].map(e=>e.occurredAtMs);return{events:times.length,spanMs:Math.max(...times)-Math.min(...times),sequence:s.newestSequence,trace:s.traceConnection,heap:performance.memory?.usedJSHeapSize,dom:document.querySelectorAll('*').length,tokens:document.querySelectorAll('.lab-graph-viewport svg circle').length};},labModule);
+  const sample=()=>page.evaluate(async url=>{const {proxyLabStore}=await import(url);const s=proxyLabStore.getState(),events=[...s.ephemeralEvents.values()],times=events.map(e=>e.occurredAtMs);return{events:times.length,spanMs:Math.max(...times)-Math.min(...times),sequence:events.reduce((max,event)=>Math.max(max,event.sequence),0),trace:s.traceConnection,heap:performance.memory?.usedJSHeapSize,dom:document.querySelectorAll('*').length,tokens:document.querySelectorAll('.lab-graph-viewport svg circle').length};},labModule);
   const initial=await sample();await page.waitForTimeout(40000);const sustained=await sample();
   assert(sustained.events>=500 && sustained.events<=640 && sustained.spanMs<=30000,'The live trace retains a bounded 30-second window after sustained delivery');
   assert((await state()).traceConnections===1,'Live observation has one active trace connection');
@@ -34,10 +34,10 @@ async (page) => {
   await page.getByRole('link',{name:'Sessions',exact:true}).click();await config({deleteSession:'second-live'});await page.getByRole('button',{name:'Refresh sessions',exact:true}).click();await page.getByRole('heading',{name:'Source no longer available'}).waitFor();checks.push('A deleted selected source is identified without silently switching');
   await page.goto(app+'/timeline/second-live');await page.getByRole('heading',{name:'Session not found'}).waitFor();checks.push('Deleted-source deep links show an explicit missing state');
   await page.goto('http://127.0.0.1:5175/');await page.getByRole('link').filter({has:page.getByRole('heading',{name:'Video playback study',exact:true})}).click();
-  await page.waitForFunction(()=>document.querySelector('canvas'),null,{timeout:30000});
+  await page.waitForFunction(()=>document.querySelector('canvas, svg[aria-label="Equal Earth traffic map"]'),null,{timeout:30000});
   const moduleSource=await (await page.request.get('http://127.0.0.1:5175/src/pages/MapPage.tsx')).text();const runtimeModule=moduleSource.match(/from ["']([^"']+session-state[^"']+)["']/)?.[1];
   await page.waitForFunction(async url=>{const {sessionTimelineStore,selectOverviewGatewayData}=await import(url);return sessionTimelineStore.getState().selectedSessionId==='recorded-session' && selectOverviewGatewayData().flows.length===48;},runtimeModule);
-  await page.waitForFunction(()=>{const label=[...document.querySelectorAll('div')].find(el=>el.textContent==='Flows seen');return Number(label?.previousElementSibling?.textContent)>0;});
+  await page.getByRole('button',{name:/^Tracks [1-9]\d*$/}).waitFor();
   await page.screenshot({path:'output/playwright/production-dashboard-map.png'});
   const consumer=await page.evaluate(async url=>{const {sessionTimelineStore,selectOverviewGatewayData}=await import(url);return{id:sessionTimelineStore.getState().selectedSessionId,flows:selectOverviewGatewayData().flows.length};},runtimeModule);
   assert(page.url().includes('/map/recorded-session') && consumer.id==='recorded-session' && consumer.flows===48,'Production dashboard still opens the same recording through the shared runtime');

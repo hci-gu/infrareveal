@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/pocketbase/pocketbase/core"
+	"myapp/testsupport"
 	"sync"
 	"testing"
 	"time"
@@ -83,7 +84,7 @@ func TestEvidencePolicyTable(t *testing.T) {
 // Replays the shape captured in the Pi's 17 September "testing" session:
 // two shared access hops, a long silent span, then a responding TCP endpoint.
 func TestReachedAccessPrefixDoesNotEndMethodComparison(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	repo := evidenceStore{app: app}
 	tgt := target{"162.159.130.234", "tcp", 443}
@@ -118,7 +119,7 @@ func (p idleComparisonProbe) Run(_ context.Context, _ target, plan probePlan, _ 
 	return snapshot{Method: plan.Method, Started: now, Measured: now, Finished: now, Status: "failed", Error: "context deadline exceeded"}
 }
 func TestAdmittedComparisonContinuesAfterActivityExpires(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	tgt := target{"151.101.3.6", "udp", 443}
 	repo := evidenceStore{app: app}
@@ -153,7 +154,7 @@ func TestAdmittedComparisonContinuesAfterActivityExpires(t *testing.T) {
 }
 
 func TestConcurrentAdmissionCannotOverspendSessionTargets(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	repo := evidenceStore{app: app}
 	config := ConfigFromEnv()
@@ -222,7 +223,7 @@ func TestAccessConsensusNeedsThreeDistinctDestinations(t *testing.T) {
 	}
 }
 func Test5200PublicationsDoNotBecomeRoutes(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	repo := evidenceStore{app: app}
 	tgt := target{"9.9.9.9", "tcp", 443}
@@ -261,7 +262,7 @@ func Test5200PublicationsDoNotBecomeRoutes(t *testing.T) {
 	}
 }
 func TestFiveSilentComparisonsPauseNetworkAndSurviveRestart(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	repo := evidenceStore{app: app}
 	now := time.Now()
@@ -292,7 +293,7 @@ func TestFiveSilentComparisonsPauseNetworkAndSurviveRestart(t *testing.T) {
 	}
 }
 func TestPersistentAdmissionBudgets(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	repo := evidenceStore{app: app}
 	now := time.Now()
@@ -320,7 +321,7 @@ func TestPersistentAdmissionBudgets(t *testing.T) {
 	}
 }
 func TestSnapshotAndByteLimits(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	c := ConfigFromEnv()
 	c.MaxSnapshots = 2
@@ -341,7 +342,7 @@ func TestSnapshotAndByteLimits(t *testing.T) {
 }
 
 func TestTerminalRetriesAndNetworkRestartAreIdempotent(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	repo := evidenceStore{app: app}
 	now := time.Now()
@@ -374,7 +375,7 @@ func TestTerminalRetriesAndNetworkRestartAreIdempotent(t *testing.T) {
 }
 
 func TestByteLimitAndTerminalStateSurviveRejectedGeometry(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	c := ConfigFromEnv()
 	c.MaxBytes = 9000
@@ -394,7 +395,7 @@ func TestByteLimitAndTerminalStateSurviveRejectedGeometry(t *testing.T) {
 }
 
 func TestExpiredVisibilityPauseAllowsOnlyOneFailedTrial(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	repo := evidenceStore{app: app}
 	now := time.Now()

@@ -1,0 +1,19 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`preserves the final Traffic model and v1 exports: DNS only 1`] = `"27273bc09d56b8c430bc0484e65a0c1d6722dada3d50f958b0c61660464f83a7"`;
+
+exports[`preserves the final Traffic model and v1 exports: associated 1`] = `"1949d4d217e6d3ef7c034065fd355c846b2ff897291b1fb68ec8de19a3d5172f"`;
+
+exports[`preserves the final Traffic model and v1 exports: capture gap 1`] = `"05b4264c2a7e7d86e5f451033dd949076cfc46e66f3aa461b584ffee291169b6"`;
+
+exports[`preserves the final Traffic model and v1 exports: hidden 1`] = `"97a9627e4a421ecdeab05dda82e91a5950a24e46ee362989b46c5352116b4ff2"`;
+
+exports[`preserves the final Traffic model and v1 exports: independent 1`] = `"996a690289e4259c574b25ca65260e3d808b55856b27dd44ba719e48e7461be1"`;
+
+exports[`preserves the final Traffic model and v1 exports: missing timestamps 1`] = `"f60d62fc78194e99f114413e86b23907f7eac9a4c3cd2cee11c43b0723743879"`;
+
+exports[`preserves the final Traffic model and v1 exports: mixed resolution 1`] = `"1949d4d217e6d3ef7c034065fd355c846b2ff897291b1fb68ec8de19a3d5172f"`;
+
+exports[`preserves the final Traffic model and v1 exports: route revisions 1`] = `"ffb65e3eeca981f626340d1b00456a195f3497f35d3c2673c7b1a118872f5b98"`;
+
+exports[`preserves the final Traffic model and v1 exports: two clients 1`] = `"9c24436f7fd39f67de61e04ce968a645db0045c8a82cb390d3ec8e0413628291"`;

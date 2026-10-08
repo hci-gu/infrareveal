@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import type { FlowActivityChunk, GatewayData } from '@infrareveal/session-state'
-import { buildSessionComposition, SessionCompositionProjector } from './sessionModel'
+import { SessionCompositionProjector } from './sessionModel'
+import { buildTrafficModel } from '../experiments/session-playback/trafficModel'
 
 const chunkStart = '2026-08-25T14:00:00.000Z'
 
@@ -36,7 +37,7 @@ function gatewayData(activityChunk: FlowActivityChunk): GatewayData {
 
 describe('flow activity model', () => {
   it('decodes sparse directional samples and derives non-overlapping active time', () => {
-    const composition = buildSessionComposition(gatewayData(chunk()))
+    const composition = compositionFor(gatewayData(chunk()))
     expect(composition.clips[0].activity.samples).toHaveLength(2)
     expect(composition.clips[0].activity.activeMs).toBe(100)
     expect(composition.clips[0].activity.idleMs).toBe(1900)
@@ -50,13 +51,13 @@ describe('flow activity model', () => {
 
   it('ignores activity chunks whose parent flow is not displayable', () => {
     const data = gatewayData(chunk({ flow: 'missing-flow' }))
-    expect(buildSessionComposition(data).clips[0].activity.samples).toEqual([])
+    expect(compositionFor(data).clips[0].activity.samples).toEqual([])
   })
 
   it('does not call uncovered time idle', () => {
     const data = gatewayData(chunk({ capture_complete: false, dropped_events: 2 }))
     data.flowActivityWindows = []
-    const activity = buildSessionComposition(data).clips[0].activity
+    const activity = compositionFor(data).clips[0].activity
     expect(activity.activeMs).toBe(100)
     expect(activity.idleMs).toBe(0)
     expect(activity.captureComplete).toBe(false)
@@ -66,10 +67,10 @@ describe('flow activity model', () => {
     const bothDirections = chunk({
       samples: { version: 1, bucket_ms: 50, chunk_ms: 5000, samples: [[0, 100, 200, 1, 2]] },
     })
-    expect(buildSessionComposition(gatewayData(bothDirections)).clips[0].activity.activeMs).toBe(50)
+    expect(compositionFor(gatewayData(bothDirections)).clips[0].activity.activeMs).toBe(50)
   })
 
-  it('orders groups and their connections by the latest directional activity', () => {
+  it('preserves each connection’s latest activity and the active timeline’s chronological order', () => {
     const data = gatewayData(chunk({
       samples: { version: 1, bucket_ms: 50, chunk_ms: 5000, samples: [[0, 420, 0, 3, 0]] },
     }))
@@ -99,16 +100,17 @@ describe('flow activity model', () => {
     data.flows.push(laterFlow)
     data.flowActivityChunks.push(latestChunk)
 
-    const composition = buildSessionComposition(data)
-    expect(composition.lanes[0].clips[0].flowId).toBe(laterFlow.id)
+    const composition = compositionFor(data)
+    expect(composition.clips.find(clip => clip.flowId === laterFlow.id)?.lastActivityMs).toBe(Date.parse(chunkStart) + 1050)
+    expect(composition.lanes[0].clips.map(clip => clip.flowId)).toEqual(['flow-1', 'flow-2'])
 
     laterFlow.destination_port = 443
-    const groupedComposition = buildSessionComposition(data)
+    const groupedComposition = compositionFor(data)
     expect(groupedComposition.lanes).toHaveLength(1)
-    expect(groupedComposition.lanes[0].clips.map((clip) => clip.flowId)).toEqual(['flow-2', 'flow-1'])
+    expect(groupedComposition.lanes[0].clips.map((clip) => clip.flowId)).toEqual(['flow-1', 'flow-2'])
   })
 
-  it('reprojects only the flow and service group whose revision changed', () => {
+  it('retains the unchanged final clip and its activity when another flow changes', () => {
     const data = gatewayData(chunk())
     data.flows.push({
       ...data.flows[0],
@@ -119,22 +121,25 @@ describe('flow activity model', () => {
       source_port: 53001,
     })
     const projector = new SessionCompositionProjector()
-    const first = projector.project(data)
+    const first = compositionFor(data, projector)
     const changedData = {
       ...data,
       flows: data.flows.map((flow) => flow.id === 'flow-1'
         ? { ...flow, updated: '2026-08-25T14:00:03.000Z', bytes_in: flow.bytes_in + 100 }
         : flow),
     }
-    const second = projector.project(changedData)
+    const second = compositionFor(changedData, projector)
     const firstUnchangedClip = first.clips.find((clip) => clip.flowId === 'flow-2')
     const secondUnchangedClip = second.clips.find((clip) => clip.flowId === 'flow-2')
-    const unchangedGroupID = firstUnchangedClip!.serviceGroupId
 
     expect(secondUnchangedClip).toBe(firstUnchangedClip)
-    expect(second.serviceGroups.find((group) => group.id === unchangedGroupID))
-      .toBe(first.serviceGroups.find((group) => group.id === unchangedGroupID))
+    expect(secondUnchangedClip?.activity).toBe(firstUnchangedClip?.activity)
     expect(second.clips.find((clip) => clip.flowId === 'flow-1'))
       .not.toBe(first.clips.find((clip) => clip.flowId === 'flow-1'))
   })
 })
+
+function compositionFor(data: GatewayData, projector = new SessionCompositionProjector()) {
+  const start = Date.parse(chunkStart)
+  return buildTrafficModel(data, projector, start, start + 60_000).composition
+}

@@ -2,6 +2,7 @@ package observer
 
 import (
 	"encoding/binary"
+	"myapp/testsupport/packetfixture"
 	"net/netip"
 	"testing"
 	"time"
@@ -45,13 +46,7 @@ func TestParsePacketActivityCountsACKAsWireOnly(t *testing.T) {
 }
 
 func TestParsePacketActivityHandlesTCPOptions(t *testing.T) {
-	transport := make([]byte, 24+7)
-	binary.BigEndian.PutUint16(transport[0:2], 53000)
-	binary.BigEndian.PutUint16(transport[2:4], 443)
-	transport[12] = 6 << 4
-	transport[13] = 0x18
-	copy(transport[24:], []byte("payload"))
-	frame := buildIPv4Frame("10.0.0.50", "93.184.216.34", protocolTCP, transport, false)
+	frame := ethernetFrame(packetfixture.IPv4TCP("10.0.0.50", "93.184.216.34", 53000, 443, []byte("payload"), 0x18, 24), false)
 	event, ok := ParsePacketActivityFrame(frame, len(frame), time.Now(), NewObservationScope("10.0.0.", "10.0.0.1"))
 	if !ok || event.PayloadBytes != 7 {
 		t.Fatalf("expected TCP options to be excluded from payload, got ok=%v event=%#v", ok, event)
@@ -102,45 +97,21 @@ func TestParsePacketActivitySupportsBasicIPv6(t *testing.T) {
 }
 
 func buildIPv4TCPFrame(source, destination string, sourcePort, destinationPort int, payload []byte, flags byte, vlan bool) []byte {
-	transport := make([]byte, 20+len(payload))
-	binary.BigEndian.PutUint16(transport[0:2], uint16(sourcePort))
-	binary.BigEndian.PutUint16(transport[2:4], uint16(destinationPort))
-	transport[12] = 5 << 4
-	transport[13] = flags
-	copy(transport[20:], payload)
-	return buildIPv4Frame(source, destination, protocolTCP, transport, vlan)
+	return ethernetFrame(packetfixture.IPv4TCP(source, destination, uint16(sourcePort), uint16(destinationPort), payload, flags, 20), vlan)
 }
 
 func buildIPv4UDPFrame(source, destination string, sourcePort, destinationPort int, payload []byte, vlan bool) []byte {
-	transport := make([]byte, 8+len(payload))
-	binary.BigEndian.PutUint16(transport[0:2], uint16(sourcePort))
-	binary.BigEndian.PutUint16(transport[2:4], uint16(destinationPort))
-	binary.BigEndian.PutUint16(transport[4:6], uint16(len(transport)))
-	copy(transport[8:], payload)
-	return buildIPv4Frame(source, destination, protocolUDP, transport, vlan)
+	return ethernetFrame(packetfixture.IPv4UDP(source, destination, uint16(sourcePort), uint16(destinationPort), payload), vlan)
 }
 
-func buildIPv4Frame(source, destination string, protocol byte, transport []byte, vlan bool) []byte {
-	ethernetLength := 14
+func ethernetFrame(packet []byte, vlan bool) []byte {
+	header := make([]byte, 14)
 	if vlan {
-		ethernetLength = 18
+		header = make([]byte, 18)
+		binary.BigEndian.PutUint16(header[12:14], etherTypeVLAN)
 	}
-	frame := make([]byte, ethernetLength+20+len(transport))
-	if vlan {
-		binary.BigEndian.PutUint16(frame[12:14], etherTypeVLAN)
-		binary.BigEndian.PutUint16(frame[16:18], etherTypeIPv4)
-	} else {
-		binary.BigEndian.PutUint16(frame[12:14], etherTypeIPv4)
-	}
-	offset := ethernetLength
-	frame[offset] = 0x45
-	binary.BigEndian.PutUint16(frame[offset+2:offset+4], uint16(20+len(transport)))
-	frame[offset+8] = 64
-	frame[offset+9] = protocol
-	copy(frame[offset+12:offset+16], netip.MustParseAddr(source).AsSlice())
-	copy(frame[offset+16:offset+20], netip.MustParseAddr(destination).AsSlice())
-	copy(frame[offset+20:], transport)
-	return frame
+	binary.BigEndian.PutUint16(header[len(header)-2:], etherTypeIPv4)
+	return append(header, packet...)
 }
 
 func buildIPv6UDPFrame(source, destination string, sourcePort, destinationPort int, payload []byte) []byte {

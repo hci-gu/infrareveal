@@ -3,6 +3,7 @@ package routing
 import (
 	"context"
 	"encoding/json"
+	"myapp/testsupport"
 	"strings"
 	"testing"
 	"time"
@@ -95,7 +96,7 @@ func TestCoverageFitsSilentWaitsAndReportsUnprobedTail(t *testing.T) {
 }
 
 func TestAlternateMethodsRemainSeparateUsefulPaths(t *testing.T) {
-	app := testApp(t)
+	app := testsupport.App(t)
 	session := testSession(t, app)
 	repo := evidenceStore{app: app}
 	now := time.Now()

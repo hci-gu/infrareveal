@@ -2,137 +2,105 @@ package gateway
 
 import (
 	"fmt"
+	"myapp/testsupport"
 	"strconv"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/pocketbase/pocketbase"
-	"github.com/pocketbase/pocketbase/core"
 	"myapp/timeline"
 )
 
 func TestSessionTimelineWindowSupportsMoreThanFilterExpressionLimit(t *testing.T) {
-	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
-	if err := app.Bootstrap(); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.RunAppMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = app.ResetBootstrapState() })
+	app := testsupport.App(t)
 
 	start := time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC)
-	sessionCollection, _ := app.FindCollectionByNameOrId("sessions")
-	session := core.NewRecord(sessionCollection)
-	session.Set("name", "Large timeline test")
-	session.Set("active", true)
-	session.Set("started_at", start.Format(time.RFC3339Nano))
-	if err := app.Save(session); err != nil {
-		t.Fatal(err)
-	}
+	session := testsupport.Save(t, app, "sessions", map[string]any{
+		"name":       "Large timeline test",
+		"active":     true,
+		"started_at": start.Format(time.RFC3339Nano),
+	})
 
-	flowCollection, _ := app.FindCollectionByNameOrId("flows")
 	flowIDs := make([]string, 0, 205)
 	for index := 0; index < 205; index++ {
-		flow := core.NewRecord(flowCollection)
-		flow.Set("session", session.Id)
-		flow.Set("flow_key", fmt.Sprintf("tcp|10.0.0.50|%d|198.51.%d.%d|443", 40000+index, index/250, index%250+1))
-		flow.Set("client_ip", "10.0.0.50")
-		flow.Set("destination_ip", fmt.Sprintf("198.51.%d.%d", index/250, index%250+1))
-		flow.Set("source_port", 40000+index)
-		flow.Set("destination_port", 443)
-		flow.Set("protocol", "tcp")
-		flow.Set("start", start.Add(time.Duration(index)*time.Millisecond).Format(time.RFC3339Nano))
-		flow.Set("last_seen", start.Add(time.Minute).Format(time.RFC3339Nano))
-		if err := app.Save(flow); err != nil {
-			t.Fatal(err)
-		}
+		flow := testsupport.Save(t, app, "flows", map[string]any{
+			"session":          session.Id,
+			"flow_key":         fmt.Sprintf("tcp|10.0.0.50|%d|198.51.%d.%d|443", 40000+index, index/250, index%250+1),
+			"client_ip":        "10.0.0.50",
+			"destination_ip":   fmt.Sprintf("198.51.%d.%d", index/250, index%250+1),
+			"source_port":      40000 + index,
+			"destination_port": 443,
+			"protocol":         "tcp",
+			"start":            start.Add(time.Duration(index) * time.Millisecond).Format(time.RFC3339Nano),
+			"last_seen":        start.Add(time.Minute).Format(time.RFC3339Nano),
+		})
 		flowIDs = append(flowIDs, flow.Id)
 	}
 
-	attributionCollection, _ := app.FindCollectionByNameOrId("flow_attributions")
-	attribution := core.NewRecord(attributionCollection)
-	attribution.Set("session", session.Id)
-	attribution.Set("flow", flowIDs[0])
-	attribution.Set("candidate_hostname", "example.test")
-	attribution.Set("source_signal", "dns")
-	attribution.Set("confidence", "high")
-	attribution.Set("observed_at", start.Format(time.RFC3339Nano))
-	if err := app.Save(attribution); err != nil {
-		t.Fatal(err)
-	}
-
-	episodeCollection, _ := app.FindCollectionByNameOrId("activity_episodes")
-	episode := core.NewRecord(episodeCollection)
-	episode.Set("session", session.Id)
-	episode.Set("episode_key", "large-timeline-episode")
-	episode.Set("client_ip", "10.0.0.50")
-	episode.Set("site_key", "example.test")
-	episode.Set("label", "Example")
-	episode.Set("anchor_hostname", "example.test")
-	episode.Set("start", start.Format(time.RFC3339Nano))
-	episode.Set("last_seen", start.Add(time.Minute).Format(time.RFC3339Nano))
-	episode.Set("confidence", "high")
-	if err := app.Save(episode); err != nil {
-		t.Fatal(err)
-	}
-
-	associationCollection, _ := app.FindCollectionByNameOrId("flow_associations")
-	association := core.NewRecord(associationCollection)
-	association.Set("session", session.Id)
-	association.Set("flow", flowIDs[0])
-	association.Set("episode", episode.Id)
-	association.Set("parent_site_key", "example.test")
-	association.Set("parent_label", "Example")
-	association.Set("relationship", "first_party")
-	association.Set("confidence", "high")
-	association.Set("score", 100)
-	association.Set("observed_at", start.Format(time.RFC3339Nano))
-	if err := app.Save(association); err != nil {
-		t.Fatal(err)
-	}
-
-	destinationCollection, _ := app.FindCollectionByNameOrId("destinations")
-	destination := core.NewRecord(destinationCollection)
-	destination.Set("ip", "198.51.0.1")
-	destination.Set("reverse_dns", "example.test")
-	destination.Set("first_seen", start.Format(time.RFC3339Nano))
-	destination.Set("last_seen", start.Add(time.Minute).Format(time.RFC3339Nano))
-	if err := app.Save(destination); err != nil {
-		t.Fatal(err)
-	}
-
-	routeCollection, _ := app.FindCollectionByNameOrId("routes")
-	route := core.NewRecord(routeCollection)
-	route.Set("session", session.Id)
-	route.Set("destination", destination.Id)
-	route.Set("destination_ip", destination.GetString("ip"))
-	route.Set("destination_port", 443)
-	route.Set("protocol", "tcp")
-	route.Set("method", "traceroute")
-	route.Set("started_at", start.Format(time.RFC3339Nano))
-	route.Set("completed_at", start.Add(time.Second).Format(time.RFC3339Nano))
-	if err := app.Save(route); err != nil {
-		t.Fatal(err)
-	}
-
-	chunkCollection, _ := app.FindCollectionByNameOrId("flow_activity_chunks")
-	chunk := core.NewRecord(chunkCollection)
-	chunk.Set("session", session.Id)
-	chunk.Set("flow", flowIDs[0])
-	chunk.Set("chunk_key", "large-timeline-chunk")
-	chunk.Set("flow_key", "large-timeline-flow")
-	chunk.Set("chunk_start", start.Format(time.RFC3339Nano))
-	chunk.Set("bucket_ms", 50)
-	chunk.Set("chunk_ms", 5000)
-	chunk.Set("samples", map[string]any{
-		"version": 1, "bucket_ms": 50, "chunk_ms": 5000,
-		"samples": [][]int64{{0, 10, 20, 1, 2}},
+	testsupport.Save(t, app, "flow_attributions", map[string]any{
+		"session":            session.Id,
+		"flow":               flowIDs[0],
+		"candidate_hostname": "example.test",
+		"source_signal":      "dns",
+		"confidence":         "high",
+		"observed_at":        start.Format(time.RFC3339Nano),
 	})
-	if err := app.Save(chunk); err != nil {
-		t.Fatal(err)
-	}
+
+	episode := testsupport.Save(t, app, "activity_episodes", map[string]any{
+		"session":         session.Id,
+		"episode_key":     "large-timeline-episode",
+		"client_ip":       "10.0.0.50",
+		"site_key":        "example.test",
+		"label":           "Example",
+		"anchor_hostname": "example.test",
+		"start":           start.Format(time.RFC3339Nano),
+		"last_seen":       start.Add(time.Minute).Format(time.RFC3339Nano),
+		"confidence":      "high",
+	})
+
+	testsupport.Save(t, app, "flow_associations", map[string]any{
+		"session":         session.Id,
+		"flow":            flowIDs[0],
+		"episode":         episode.Id,
+		"parent_site_key": "example.test",
+		"parent_label":    "Example",
+		"relationship":    "first_party",
+		"confidence":      "high",
+		"score":           100,
+		"observed_at":     start.Format(time.RFC3339Nano),
+	})
+
+	destination := testsupport.Save(t, app, "destinations", map[string]any{
+		"ip":          "198.51.0.1",
+		"reverse_dns": "example.test",
+		"first_seen":  start.Format(time.RFC3339Nano),
+		"last_seen":   start.Add(time.Minute).Format(time.RFC3339Nano),
+	})
+
+	testsupport.Save(t, app, "routes", map[string]any{
+		"session":          session.Id,
+		"destination":      destination.Id,
+		"destination_ip":   destination.GetString("ip"),
+		"destination_port": 443,
+		"protocol":         "tcp",
+		"method":           "traceroute",
+		"started_at":       start.Format(time.RFC3339Nano),
+		"completed_at":     start.Add(time.Second).Format(time.RFC3339Nano),
+	})
+
+	testsupport.Save(t, app, "flow_activity_chunks", map[string]any{
+		"session":     session.Id,
+		"flow":        flowIDs[0],
+		"chunk_key":   "large-timeline-chunk",
+		"flow_key":    "large-timeline-flow",
+		"chunk_start": start.Format(time.RFC3339Nano),
+		"bucket_ms":   50,
+		"chunk_ms":    5000,
+		"samples": map[string]any{
+			"version": 1, "bucket_ms": 50, "chunk_ms": 5000,
+			"samples": [][]int64{{0, 10, 20, 1, 2}},
+		},
+	})
 
 	window, status, err := readTimelineWindow(app, session.Id, map[string][]string{
 		"from":  {strconv.FormatInt(start.UnixMilli(), 10)},
@@ -166,84 +134,65 @@ func TestSessionTimelineWindowSupportsMoreThanFilterExpressionLimit(t *testing.T
 }
 
 func TestSessionTimelineManifestAndWindow(t *testing.T) {
-	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
-	if err := app.Bootstrap(); err != nil {
-		t.Fatal(err)
-	}
-	if err := app.RunAppMigrations(); err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = app.ResetBootstrapState() })
+	app := testsupport.App(t)
 
 	start := time.Date(2026, 9, 2, 9, 0, 0, 0, time.UTC)
-	sessionCollection, _ := app.FindCollectionByNameOrId("sessions")
-	session := core.NewRecord(sessionCollection)
-	session.Set("name", "Timeline test")
-	session.Set("active", true)
-	session.Set("started_at", start.Format(time.RFC3339Nano))
-	session.Set("gate_audit_complete", false)
-	session.Set("gate_audit_drops", 2)
-	if err := app.Save(session); err != nil {
-		t.Fatal(err)
-	}
+	session := testsupport.Save(t, app, "sessions", map[string]any{
+		"name":                "Timeline test",
+		"active":              true,
+		"started_at":          start.Format(time.RFC3339Nano),
+		"gate_audit_complete": false,
+		"gate_audit_drops":    2,
+	})
 	if session.GetDateTime("created").IsZero() || session.GetDateTime("updated").IsZero() {
 		t.Fatalf("session revision fields were not populated: created=%q updated=%q", session.GetString("created"), session.GetString("updated"))
 	}
 
-	flowCollection, _ := app.FindCollectionByNameOrId("flows")
-	flow := core.NewRecord(flowCollection)
-	flow.Set("session", session.Id)
-	flow.Set("flow_key", "tcp|10.0.0.50|53000|93.184.216.34|443")
-	flow.Set("client_ip", "10.0.0.50")
-	flow.Set("destination_ip", "93.184.216.34")
-	flow.Set("source_port", 53000)
-	flow.Set("destination_port", 443)
-	flow.Set("protocol", "tcp")
-	flow.Set("start", start.Add(time.Second).Format(time.RFC3339Nano))
-	flow.Set("last_seen", start.Add(4*time.Second).Format(time.RFC3339Nano))
-	if err := app.Save(flow); err != nil {
-		t.Fatal(err)
-	}
+	flow := testsupport.Save(t, app, "flows", map[string]any{
+		"session":          session.Id,
+		"flow_key":         "tcp|10.0.0.50|53000|93.184.216.34|443",
+		"client_ip":        "10.0.0.50",
+		"destination_ip":   "93.184.216.34",
+		"source_port":      53000,
+		"destination_port": 443,
+		"protocol":         "tcp",
+		"start":            start.Add(time.Second).Format(time.RFC3339Nano),
+		"last_seen":        start.Add(4 * time.Second).Format(time.RFC3339Nano),
+	})
 	if flow.GetDateTime("created").IsZero() || flow.GetDateTime("updated").IsZero() {
 		t.Fatalf("flow revision fields were not populated: created=%q updated=%q", flow.GetString("created"), flow.GetString("updated"))
 	}
 
-	chunkCollection, _ := app.FindCollectionByNameOrId("flow_activity_chunks")
-	chunk := core.NewRecord(chunkCollection)
-	chunk.Set("session", session.Id)
-	chunk.Set("flow", flow.Id)
-	chunk.Set("chunk_key", "timeline-test")
-	chunk.Set("flow_key", flow.GetString("flow_key"))
-	chunk.Set("chunk_start", start.Format(time.RFC3339Nano))
-	chunk.Set("bucket_ms", 50)
-	chunk.Set("chunk_ms", 5000)
-	chunk.Set("samples", map[string]any{
-		"version": 1, "bucket_ms": 50, "chunk_ms": 5000,
-		"samples": [][]int64{{1000, 10, 20, 1, 2}, {1050, 5, 5, 1, 1}},
+	testsupport.Save(t, app, "flow_activity_chunks", map[string]any{
+		"session":     session.Id,
+		"flow":        flow.Id,
+		"chunk_key":   "timeline-test",
+		"flow_key":    flow.GetString("flow_key"),
+		"chunk_start": start.Format(time.RFC3339Nano),
+		"bucket_ms":   50,
+		"chunk_ms":    5000,
+		"samples": map[string]any{
+			"version": 1, "bucket_ms": 50, "chunk_ms": 5000,
+			"samples": [][]int64{{1000, 10, 20, 1, 2}, {1050, 5, 5, 1, 1}},
+		},
 	})
-	if err := app.Save(chunk); err != nil {
-		t.Fatal(err)
-	}
 
-	gateCollection, _ := app.FindCollectionByNameOrId("gate_events")
-	gate := core.NewRecord(gateCollection)
-	gate.Set("session", session.Id)
-	gate.Set("decision_id", "timeline-decision")
-	gate.Set("flow_key", flow.GetString("flow_key"))
-	gate.Set("client_ip", "10.0.0.50")
-	gate.Set("destination_ip", "93.184.216.34")
-	gate.Set("source_port", 53000)
-	gate.Set("destination_port", 443)
-	gate.Set("protocol", "tcp")
-	gate.Set("packet_count", 1)
-	gate.Set("state", "approved")
-	gate.Set("verdict_source", "operator")
-	gate.Set("queued_at", start.Add(1500*time.Millisecond).Format(time.RFC3339Nano))
-	gate.Set("decided_at", start.Add(2*time.Second).Format(time.RFC3339Nano))
-	gate.Set("wait_ms", 500)
-	if err := app.Save(gate); err != nil {
-		t.Fatal(err)
-	}
+	testsupport.Save(t, app, "gate_events", map[string]any{
+		"session":          session.Id,
+		"decision_id":      "timeline-decision",
+		"flow_key":         flow.GetString("flow_key"),
+		"client_ip":        "10.0.0.50",
+		"destination_ip":   "93.184.216.34",
+		"source_port":      53000,
+		"destination_port": 443,
+		"protocol":         "tcp",
+		"packet_count":     1,
+		"state":            "approved",
+		"verdict_source":   "operator",
+		"queued_at":        start.Add(1500 * time.Millisecond).Format(time.RFC3339Nano),
+		"decided_at":       start.Add(2 * time.Second).Format(time.RFC3339Nano),
+		"wait_ms":          500,
+	})
 
 	manifest, err := timeline.New(app).Manifest(session.Id, start.Add(10*time.Second))
 	if err != nil {
@@ -271,19 +220,17 @@ func TestSessionTimelineManifestAndWindow(t *testing.T) {
 		t.Fatalf("expected server LOD aggregation, got %#v", window.FlowActivityChunks[0]["bucket_ms"])
 	}
 
-	otherFlow := core.NewRecord(flowCollection)
-	otherFlow.Set("session", session.Id)
-	otherFlow.Set("flow_key", "tcp|10.0.0.51|53001|1.1.1.1|443")
-	otherFlow.Set("client_ip", "10.0.0.51")
-	otherFlow.Set("destination_ip", "1.1.1.1")
-	otherFlow.Set("source_port", 53001)
-	otherFlow.Set("destination_port", 443)
-	otherFlow.Set("protocol", "tcp")
-	otherFlow.Set("start", start.Add(2*time.Second).Format(time.RFC3339Nano))
-	otherFlow.Set("last_seen", start.Add(5*time.Second).Format(time.RFC3339Nano))
-	if err := app.Save(otherFlow); err != nil {
-		t.Fatal(err)
-	}
+	testsupport.Save(t, app, "flows", map[string]any{
+		"session":          session.Id,
+		"flow_key":         "tcp|10.0.0.51|53001|1.1.1.1|443",
+		"client_ip":        "10.0.0.51",
+		"destination_ip":   "1.1.1.1",
+		"source_port":      53001,
+		"destination_port": 443,
+		"protocol":         "tcp",
+		"start":            start.Add(2 * time.Second).Format(time.RFC3339Nano),
+		"last_seen":        start.Add(5 * time.Second).Format(time.RFC3339Nano),
+	})
 
 	filtered, status, err := readTimelineWindow(app, session.Id, map[string][]string{
 		"from": {strconv.FormatInt(start.UnixMilli(), 10)},

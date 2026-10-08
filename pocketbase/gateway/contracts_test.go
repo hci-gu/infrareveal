@@ -3,7 +3,7 @@ package gateway
 import (
 	"encoding/json"
 	"fmt"
-	"github.com/pocketbase/pocketbase/core"
+	"myapp/testsupport"
 	"myapp/timeline"
 	"os"
 	"reflect"
@@ -27,25 +27,11 @@ func TestSharedTimelineWireContract(t *testing.T) {
 	if err = json.Unmarshal(raw, &fixture); err != nil {
 		t.Fatal(err)
 	}
-	app := ephemeralTestApp(t)
-	save := func(collection string, values map[string]any) {
-		c, err := app.FindCollectionByNameOrId(collection)
-		if err != nil {
-			t.Fatal(err)
-		}
-		record := core.NewRecord(c)
-		for key, value := range values {
-			record.Set(key, value)
-		}
-
-		if err = app.Save(record); err != nil {
-			t.Fatalf("%s: %v", collection, err)
-		}
-	}
-	save("sessions", fixture.Session)
+	app := testsupport.App(t)
+	testsupport.Save(t, app, "sessions", fixture.Session)
 	for _, entry := range [][2]string{{"flows", "flows"}, {"dnsQueries", "dns_queries"}, {"attributions", "flow_attributions"}, {"activityEpisodes", "activity_episodes"}, {"flowAssociations", "flow_associations"}, {"flowActivityChunks", "flow_activity_chunks"}, {"flowActivityWindows", "flow_activity_windows"}, {"flowActivityStatuses", "flow_activity_status"}, {"destinations", "destinations"}, {"routes", "routes"}, {"gateEvents", "gate_events"}} {
 		for _, value := range fixture.Window[entry[0]].([]any) {
-			save(entry[1], value.(map[string]any))
+			testsupport.Save(t, app, entry[1], value.(map[string]any))
 		}
 	}
 	for _, rawRoute := range fixture.Window["routes"].([]any) {
@@ -56,7 +42,7 @@ func TestSharedTimelineWireContract(t *testing.T) {
 			for key, value := range update {
 				values[key] = value
 			}
-			save("route_evidence_updates", values)
+			testsupport.Save(t, app, "route_evidence_updates", values)
 		}
 	}
 	id := fixture.Session["id"].(string)

@@ -90,8 +90,6 @@ export type PipelineStreamMessage = {
   burstDiscarded: number
 }
 
-export type ProxyLabMode = 'replay' | 'live-observe' | 'turn-based' | 'strict' | 'dns'
-
 export type GateDecision = {
   id: string
   flowKey: string

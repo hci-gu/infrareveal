@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { getSessions } from '@infrareveal/session-state'
+import { useSessions } from '@infrareveal/session-state'
 import { ProxyLabPage } from './experiments/proxy-lab/ProxyLabPage'
 import { SessionPlaybackPage } from './experiments/session-playback/SessionPlaybackPage'
 import { ExperimentsPage } from './pages/ExperimentsPage'
@@ -9,32 +9,20 @@ import { ControlledClientPage } from './pages/ControlledClientPage'
 function ActiveSessionRedirect({ experiment }: { experiment: 'timeline' | 'proxy-lab' }) {
   const navigate = useNavigate()
   const location = useLocation()
-  const [error, setError] = useState<string | null>(null)
+  const { sessions, status, error: loadError } = useSessions(0, `${experiment}:${location.search}`)
+  const error = loadError || (status === 'ready' && !sessions.length ? 'No gateway session is available yet.' : null)
 
   useEffect(() => {
-    const controller = new AbortController()
-    getSessions(controller.signal)
-      .then((sessions) => {
-        const search = new URLSearchParams(location.search)
-        const legacySession = search.get('session')
-        search.delete('session')
-        const selected = sessions.find((session) => session.id === legacySession)
-          ?? sessions.find((session) => session.active)
-          ?? sessions[0]
-        if (!selected) {
-          setError('No gateway session is available yet.')
-          return
-        }
-        const query = search.toString()
-        navigate(`/${experiment}/${selected.id}${query ? `?${query}` : ''}`, { replace: true })
-      })
-      .catch((loadError: unknown) => {
-        if (!controller.signal.aborted) {
-          setError(loadError instanceof Error ? loadError.message : 'Unable to load gateway sessions.')
-        }
-      })
-    return () => controller.abort()
-  }, [experiment, location.search, navigate])
+    if (status !== 'ready' || !sessions.length) return
+    const search = new URLSearchParams(location.search)
+    const legacySession = search.get('session')
+    search.delete('session')
+    const selected = sessions.find(session => session.id === legacySession)
+      ?? sessions.find(session => session.active)
+      ?? sessions[0]
+    const query = search.toString()
+    navigate(`/${experiment}/${selected.id}${query ? `?${query}` : ''}`, { replace: true })
+  }, [sessions, status, experiment, location.search, navigate])
 
   return (
     <main className="grid min-h-screen place-items-center bg-slate-950 px-6 text-slate-100">

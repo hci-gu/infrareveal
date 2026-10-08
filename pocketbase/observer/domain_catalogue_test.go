@@ -2,6 +2,7 @@ package observer
 
 import (
 	"errors"
+	"myapp/testsupport"
 	"testing"
 	"time"
 
@@ -9,28 +10,12 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-func saveCatalogueFixture(t *testing.T, app core.App, collection string, fields map[string]any) *core.Record {
-	t.Helper()
-	c, err := app.FindCollectionByNameOrId(collection)
-	if err != nil {
-		t.Fatal(err)
-	}
-	r := core.NewRecord(c)
-	for field, value := range fields {
-		r.Set(field, value)
-	}
-	if err := app.Save(r); err != nil {
-		t.Fatal(err)
-	}
-	return r
-}
-
 func TestCatalogueCorrectionTransferRollsBackWithCheckpoint(t *testing.T) {
 	app := newActivityTestApp(t)
 	session := createActivityTestSession(t, app, true)
 	now := time.Now().UTC()
-	flow := saveCatalogueFixture(t, app, "flows", map[string]any{"session": session.Id, "flow_key": "catalogue", "protocol": "tcp", "client_ip": "10.0.0.50", "destination_ip": "1.1.1.1", "start": now, "last_seen": now})
-	attribution := saveCatalogueFixture(t, app, "flow_attributions", map[string]any{"session": session.Id, "flow": flow.Id, "candidate_hostname": "api.example.com", "confidence": "medium", "source_signal": "dns_answer", "observed_at": now})
+	flow := testsupport.Save(t, app, "flows", map[string]any{"session": session.Id, "flow_key": "catalogue", "protocol": "tcp", "client_ip": "10.0.0.50", "destination_ip": "1.1.1.1", "start": now, "last_seen": now})
+	attribution := testsupport.Save(t, app, "flow_attributions", map[string]any{"session": session.Id, "flow": flow.Id, "candidate_hostname": "api.example.com", "confidence": "medium", "source_signal": "dns_answer", "observed_at": now})
 	if err := CollectDomainCatalogue(app, session.Id); err != nil {
 		t.Fatal(err)
 	}

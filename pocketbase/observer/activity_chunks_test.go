@@ -1,13 +1,12 @@
 package observer
 
 import (
+	"myapp/testsupport"
 	"testing"
 	"time"
 
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
-
-	_ "myapp/migrations"
 )
 
 func TestPersistActivityChunkWaitsForFlowThenUpserts(t *testing.T) {
@@ -94,14 +93,7 @@ func TestActivityCaptureWindowUpsertsByStableKey(t *testing.T) {
 
 func newActivityTestApp(t *testing.T) *pocketbase.PocketBase {
 	t.Helper()
-	app := pocketbase.NewWithConfig(pocketbase.Config{DefaultDataDir: t.TempDir(), HideStartBanner: true})
-	if err := app.Bootstrap(); err != nil {
-		t.Fatalf("bootstrap PocketBase: %v", err)
-	}
-	if err := app.RunAppMigrations(); err != nil {
-		t.Fatalf("run app migrations: %v", err)
-	}
-	t.Cleanup(func() { _ = app.ResetBootstrapState() })
+	app := testsupport.App(t)
 	for _, collection := range []string{"flow_activity_chunks", "flow_activity_windows", "flow_activity_status"} {
 		if _, err := app.FindCollectionByNameOrId(collection); err != nil {
 			t.Fatalf("expected migrated collection %s: %v", collection, err)
@@ -112,56 +104,38 @@ func newActivityTestApp(t *testing.T) *pocketbase.PocketBase {
 
 func createActivityTestSession(t *testing.T, app *pocketbase.PocketBase, active bool) *core.Record {
 	t.Helper()
-	collection, err := app.FindCollectionByNameOrId("sessions")
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := core.NewRecord(collection)
-	record.Set("name", "Activity test")
-	record.Set("active", active)
-	if err := app.Save(record); err != nil {
-		t.Fatal(err)
-	}
+	record := testsupport.Save(t, app, "sessions", map[string]any{
+		"name":   "Activity test",
+		"active": active,
+	})
 	return record
 }
 
 func createActivityTestFlow(t *testing.T, app *pocketbase.PocketBase, sessionID, key string) *core.Record {
 	t.Helper()
-	collection, err := app.FindCollectionByNameOrId("flows")
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := core.NewRecord(collection)
-	record.Set("session", sessionID)
-	record.Set("flow_key", key)
-	record.Set("client_ip", "10.0.0.50")
-	record.Set("destination_ip", "93.184.216.34")
-	record.Set("source_port", 53000)
-	record.Set("destination_port", 443)
-	record.Set("protocol", "tcp")
-	record.Set("start", time.Now().UTC().Format(time.RFC3339Nano))
-	if err := app.Save(record); err != nil {
-		t.Fatal(err)
-	}
+	record := testsupport.Save(t, app, "flows", map[string]any{
+		"session":          sessionID,
+		"flow_key":         key,
+		"client_ip":        "10.0.0.50",
+		"destination_ip":   "93.184.216.34",
+		"source_port":      53000,
+		"destination_port": 443,
+		"protocol":         "tcp",
+		"start":            time.Now().UTC().Format(time.RFC3339Nano),
+	})
 	return record
 }
 
 func createActivityTestChunkRecord(t *testing.T, app *pocketbase.PocketBase, sessionID, flowID string, start time.Time) {
 	t.Helper()
-	collection, err := app.FindCollectionByNameOrId("flow_activity_chunks")
-	if err != nil {
-		t.Fatal(err)
-	}
-	record := core.NewRecord(collection)
-	record.Set("session", sessionID)
-	record.Set("flow", flowID)
-	record.Set("chunk_key", activityChunkKey(sessionID, flowID, start))
-	record.Set("flow_key", flowID)
-	record.Set("chunk_start", start.UTC().Format(time.RFC3339Nano))
-	record.Set("bucket_ms", 50)
-	record.Set("chunk_ms", 5000)
-	record.Set("samples", map[string]any{"version": 1, "bucket_ms": 50, "chunk_ms": 5000, "samples": [][]int64{}})
-	if err := app.Save(record); err != nil {
-		t.Fatal(err)
-	}
+	testsupport.Save(t, app, "flow_activity_chunks", map[string]any{
+		"session":     sessionID,
+		"flow":        flowID,
+		"chunk_key":   activityChunkKey(sessionID, flowID, start),
+		"flow_key":    flowID,
+		"chunk_start": start.UTC().Format(time.RFC3339Nano),
+		"bucket_ms":   50,
+		"chunk_ms":    5000,
+		"samples":     map[string]any{"version": 1, "bucket_ms": 50, "chunk_ms": 5000, "samples": [][]int64{}},
+	})
 }

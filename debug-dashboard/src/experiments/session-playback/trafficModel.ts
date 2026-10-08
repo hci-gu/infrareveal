@@ -1,5 +1,4 @@
 import type { DNSQuery, Flow, FlowActivityChunk, FlowAssociation, FlowAttribution, GatewayData } from '@infrareveal/session-state'
-import { flowTrackAt, indexFlowTracks } from '@infrareveal/session-state'
 import type { SessionComposition, SessionCompositionProjector, TimelineClip } from '../../model/sessionModel'
 import { decodeActivityChunk } from '../../shared/activity/decodeActivityChunk'
 import { captureCoverage } from '../../shared/activity/captureCoverage'
@@ -35,16 +34,14 @@ export function buildTrafficModel(data: GatewayData, projector: SessionCompositi
   const chunks = preferredActivityChunks(data.flowActivityChunks)
   const projected = projector.project({ ...data, flowActivityChunks: chunks }, { sessionStartMs: fromMs, sessionEndMs: toMs })
   const flows = new Map(data.flows.map(flow => [flow.id, flow]))
-  const trackIndex = indexFlowTracks(data)
   const groups = new Map<string, TrafficGroup>()
-  const clips = projected.clips.map(clip => {
-    const flow = flows.get(clip.flowId)!
-    const { attribution, association, id: groupId, label } = flowTrackAt(trackIndex, flow)
-    const next: TimelineClip = { ...clip, serviceGroupId: groupId, serviceGroupLabel: label, label: attribution?.confidence !== 'hidden' && attribution?.candidate_hostname ? attribution.candidate_hostname : flow.destination_ip, confidence: attribution?.confidence ?? 'pending', explanation: attribution?.explanation || 'No supported hostname attribution', sourceSignal: attribution?.source_signal || 'Observed socket', associationRelationship: association?.relationship ?? null, associationConfidence: association?.confidence ?? null, associationExplanation: association?.explanation || '', associationScore: association?.score ?? null }
-    const group = groups.get(groupId) ?? { id: groupId, label, client: flow.client_ip, clips: [], dns: [], attributions: [], associations: [] }
-    group.clips.push(next); groups.set(groupId, group)
-    return next
-  })
+  const clips = projected.clips
+  for (const clip of clips) {
+    const id = clip.serviceGroupId
+    const group = groups.get(id) ?? { id, label: clip.serviceGroupLabel, client: clip.clientIP, clips: [], dns: [], attributions: [], associations: [] }
+    group.clips.push(clip)
+    groups.set(id, group)
+  }
   // Every DNS record has one client evidence row, independently of whether it links to a flow.
   for (const query of data.dnsQueries) {
     const id = `${query.client_ip}:dns`
@@ -58,7 +55,7 @@ export function buildTrafficModel(data: GatewayData, projector: SessionCompositi
   for (const group of ordered) group.clips.sort((a, b) => a.startMs - b.startMs || a.flowId.localeCompare(b.flowId))
   // The same conservative labels feed the retained treemap and render-bundle export.
   const serviceGroups = ordered.filter(group => group.clips.length).map(group => ({ id: group.id, label: `${group.client} / ${group.label}`, sourceSignal: 'observations', confidence: 'pending' as const, destinationIPs: [...new Set(group.clips.map(clip => clip.destinationIP))], hostnames: [...new Set(group.clips.map(clip => clip.label))], clientIPs: [group.client], providerLabel: '', totalBytes: group.clips.reduce((n, c) => n + (Number.isFinite(c.bytes) ? c.bytes : 0), 0), packetCount: group.clips.reduce((n, c) => n + (Number.isFinite(c.packets) ? c.packets : 0), 0), flowCount: group.clips.length, firstSeenMs: group.clips.reduce((min, c) => Math.min(min, c.startMs), Infinity), lastSeenMs: group.clips.reduce((max, c) => Math.max(max, c.endMs), -Infinity), lastActivityMs: null, routeCompleteCount: 0, routeCount: 0, associatedFlowCount: group.clips.filter(c => c.associationRelationship).length }))
-  const composition: SessionComposition = { ...projected, sessionStartMs: fromMs, sessionEndMs: toMs, durationInFrames: Math.max(1, Math.ceil((toMs - fromMs) / 1000 * projected.fps)), clips, serviceGroups, lanes: ordered.filter(g => g.clips.length).map(g => ({ id: g.id, label: g.label, serviceGroupId: g.id, totalBytes: 0, clips: g.clips })) }
+  const composition: SessionComposition = { ...projected, clips, serviceGroups, lanes: ordered.filter(g => g.clips.length).map(g => ({ id: g.id, label: g.label, serviceGroupId: g.id, totalBytes: 0, clips: g.clips })) }
   return { groups: ordered, clips, composition, flows, chunks }
 }
 export function activityInWindow(chunks: readonly FlowActivityChunk[], windows: GatewayData['flowActivityWindows'], fromMs: number, toMs: number) {

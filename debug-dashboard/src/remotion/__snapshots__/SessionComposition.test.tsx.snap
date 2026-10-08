@@ -1,0 +1,7 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`retains treemap markup at frame 0 1`] = `"96490bcd4112bb9fdfc5bba3bc0f1cb124d3d5e107aff71ab6f8697bab6ca0d7"`;
+
+exports[`retains treemap markup at frame 150 1`] = `"83b016979667e23cd78b0596b2a58d795f05103baac103082e8e8ef4a35fa406"`;
+
+exports[`retains treemap markup at frame 299 1`] = `"706788db6a4fb4f9bc61c7c1e83402d3b4b7a07abeacd7691ba7b8fbf8535a8d"`;
