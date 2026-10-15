@@ -1,49 +1,27 @@
 import type { PipelineEvent, PipelineStreamMessage } from '../types'
 import { comparePipelineEvents } from './projectRecordedEvents'
-import { normalizeGateEvent } from './gateEventIdentity'
 
 export const LIVE_EVENT_RETENTION_MS = 30_000
 
-/** Merges the short-lived trace ring over durable reconstruction. Durable data
- * remains authoritative for labels/counters; measured live timing replaces a
- * matching derived timestamp until the durable observation catches up. */
+/** Source IDs deduplicate actual publications. Aggregate facts and individual
+ * diagnostic events remain distinct even when their timestamps overlap. */
 export function mergeLiveEvents(
   durableEvents: readonly PipelineEvent[],
   ephemeralEvents: Iterable<PipelineEvent>,
   liveEdgeMs: number,
   retentionMs = LIVE_EVENT_RETENTION_MS,
 ) {
-  const liveByIdentity = new Map<string, PipelineEvent>()
+  const result = new Map(durableEvents.map(event => [event.id, event]))
   const seenSequences = new Set<number>()
   const cutoff = liveEdgeMs - retentionMs
-  const orderedLive = Array.from(ephemeralEvents, normalizeGateEvent).sort(comparePipelineEvents)
+  const orderedLive = Array.from(ephemeralEvents).sort(comparePipelineEvents)
   for (const event of orderedLive) {
     if (seenSequences.has(event.sequence) || event.occurredAtMs < cutoff) continue
     seenSequences.add(event.sequence)
-    const identity = stableEventIdentity(event)
-    const previous = liveByIdentity.get(identity)
-    if (!previous || comparePipelineEvents(previous, event) < 0) liveByIdentity.set(identity, event)
+    if (!result.has(event.id)) result.set(event.id, event)
   }
 
-  const result = durableEvents.map((durable) => {
-    const identity = stableEventIdentity(durable)
-    const live = liveByIdentity.get(identity)
-    if (!live) return durable
-    liveByIdentity.delete(identity)
-    if (durable.timing === 'derived' && live.timing === 'observed') {
-      return {
-        ...durable,
-        occurredAtMs: live.occurredAtMs,
-        processedAtMs: live.processedAtMs,
-        sequence: live.sequence,
-        timing: live.timing,
-        summary: { ...live.summary, ...durable.summary },
-      } satisfies PipelineEvent
-    }
-    return durable
-  })
-  result.push(...liveByIdentity.values())
-  return result.sort(comparePipelineEvents)
+  return [...result.values()].sort(comparePipelineEvents)
 }
 
 export function gapEvent(message: PipelineStreamMessage): PipelineEvent {
@@ -59,19 +37,4 @@ export function gapEvent(message: PipelineStreamMessage): PipelineEvent {
     timing: 'observed',
     summary: { droppedEvents: message.droppedEvents, captureComplete: false },
   }
-}
-
-function stableEventIdentity(event: PipelineEvent) {
-  // A decision's queued and verdict phases can share a stage and timestamp
-  // bucket. Bypass packets also have distinct source IDs and must stay distinct.
-  if (event.kind === 'gate') return normalizeGateEvent(event).id
-  const flowRecord = event.id.match(/^flow(?:-discovered:|:)([^:]+)(?::discovered)?$/)
-  if (flowRecord) return `flow-record:${flowRecord[1]}`
-  const dnsRecord = event.id.match(/^dns(?:-query:|:)([^:]+)(?::query)?$/)
-  if (dnsRecord) return `dns-query:${dnsRecord[1]}`
-  if (event.summary.flowKey) {
-    const bucket = Math.floor(event.occurredAtMs / 50) * 50
-    return `${event.kind}:${event.stage}:${event.summary.flowKey}:${event.direction ?? ''}:${bucket}`
-  }
-  return event.id
 }

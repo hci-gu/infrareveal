@@ -5,7 +5,7 @@ import { volumeArcs } from './mapTraffic'
 
 const positions: MapPosition[] = [[12, 57], [10, 55], [2, 49], [-74, 41]]
 function itinerary(endpointId = 'a', trackId = 'site'): MapArc[] {
-  return positions.slice(1).map((targetPosition, i) => ({ id: `${endpointId}:${i}`, endpointId, trackId, routeId: 'route', sourcePosition: positions[i], targetPosition, activeFlowCount: 1, bytes: 1000, tilt: 0, progressStart: i / 3, progressEnd: (i + 1) / 3, gap: i === 1 }))
+  return positions.slice(1).map((targetPosition, i) => ({ id: `${endpointId}:${i}`, endpointId, trackId, routeId: 'route', sourcePosition: positions[i], targetPosition, activeSeriesCount: 1, bytes: 1000, tilt: 0, progressStart: i / 3, progressEnd: (i + 1) / 3, gap: i === 1 }))
 }
 
 describe('traffic following an entire traceroute', () => {

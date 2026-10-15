@@ -3,6 +3,7 @@ package debugtrace
 import (
 	"context"
 	"errors"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -74,36 +75,60 @@ func TestHubRingEvictsByCountAndAgeAndReconnectReportsGap(t *testing.T) {
 
 func TestSlowSubscriberCannotBlockFastSubscriberOrIngress(t *testing.T) {
 	hub := testHub(t, Config{RingEvents: 500, IngressBuffer: 500, SubscriberBuffer: 64, MaxBatch: 1, BatchInterval: time.Millisecond})
-	slow, _ := hub.Subscribe(context.Background(), "session", 0)
-	defer slow.Close()
-	fast, _ := hub.Subscribe(context.Background(), "session", 0)
-	defer fast.Close()
-	received := make(chan int, 1)
-	go func() {
-		count := 0
-		deadline := time.After(2 * time.Second)
-		for count < 200 {
-			select {
-			case message := <-fast.Events:
-				count += len(message.Events)
-			case <-deadline:
-				received <- count
-				return
-			}
-		}
-		received <- count
-	}()
-	for index := 0; index < 200; index++ {
-		for !hub.TryEmit(validEvent("session", index, time.Now())) {
-			time.Sleep(time.Millisecond)
-		}
+	slow, err := hub.Subscribe(context.Background(), "session", 0)
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got := <-received; got <= 64 {
-		t.Fatalf("fast subscriber got only %d events, no better than the deliberately unread subscriber buffer", got)
+	defer slow.Close()
+	fast, err := hub.Subscribe(context.Background(), "session", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer fast.Close()
+	deadline := time.After(2 * time.Second)
+	for index := 0; index < 200; index++ {
+		if !hub.TryEmit(validEvent("session", index, time.Now())) {
+			t.Fatal("unexpected ingress rejection")
+		}
+		// Drain the fast reader before the next event, regardless of scheduling.
+		// The unread subscriber fills after 64 events and must never block it.
+		select {
+		case message := <-fast.Events:
+			if len(message.Events) != 1 || message.Events[0].Sequence != uint64(index+1) {
+				t.Fatalf("unexpected fast subscriber message: %#v", message)
+			}
+		case <-deadline:
+			t.Fatalf("fast subscriber stalled after %d events", index)
+		}
 	}
 	stats, _ := hub.Stats(context.Background())
 	if stats.NewestSequence != 200 {
 		t.Fatalf("ingress stalled at %d", stats.NewestSequence)
+	}
+}
+
+func TestCanceledSubscribeDoesNotLeakSubscriber(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	returned := make(chan struct{})
+	var once sync.Once
+	hub := testHubWithClock(t, Config{MaxSubscribers: 1}, func() time.Time {
+		once.Do(func() {
+			// Cancel while the hub builds the initial response, and ensure the
+			// caller has returned before the hub can hand off the subscription.
+			cancel()
+			<-returned
+		})
+		return time.Now()
+	})
+	_, err := hub.Subscribe(ctx, "session", 0)
+	close(returned)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Subscribe error = %v, want context.Canceled", err)
+	}
+	stats, err := hub.Stats(context.Background())
+	if err != nil || stats.Subscribers != 0 {
+		t.Fatalf("canceled subscription retained: stats=%+v, err=%v", stats, err)
 	}
 }
 
@@ -170,7 +195,7 @@ func testHubWithClock(t *testing.T, config Config, clock func() time.Time) *Hub 
 
 func validEvent(session string, index int, occurred time.Time) Event {
 	return Event{
-		ID: "event-" + strconvItoa(index), SessionID: session, TraceID: "trace-" + strconvItoa(index),
+		ID: "event-" + strconv.Itoa(index), SessionID: session, TraceID: "trace-" + strconv.Itoa(index),
 		Kind: KindFlow, Stage: StageConntrack, OccurredAtMs: occurred.UnixMilli(), Timing: TimingObserved,
 	}
 }
@@ -194,18 +219,4 @@ func initialEvents(messages []StreamMessage) []Event {
 		result = append(result, message.Events...)
 	}
 	return result
-}
-
-func strconvItoa(value int) string {
-	if value == 0 {
-		return "0"
-	}
-	var digits [20]byte
-	index := len(digits)
-	for value > 0 {
-		index--
-		digits[index] = byte('0' + value%10)
-		value /= 10
-	}
-	return string(digits[index:])
 }

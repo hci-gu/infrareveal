@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Sample demo health and optional local database/RSS metrics as JSONL."""
 import argparse
+from contextlib import closing
 import datetime as dt
 import json
 from pathlib import Path
@@ -19,13 +20,15 @@ def sample(url, database=None, pids=()):
         result["error"] = str(error)
     if database:
         try:
-            with sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=5) as connection:
+            with closing(sqlite3.connect(database.resolve().as_uri() + "?mode=ro", uri=True, timeout=5)) as connection:
                 connection.execute("BEGIN")
+                tables = {row[0] for row in connection.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                 session = connection.execute("SELECT id FROM sessions WHERE demo=true").fetchone()
                 if session:
                     result["rows"] = {table: connection.execute("SELECT count(*) FROM " + table + " WHERE session=?", session).fetchone()[0]
-                                      for table in ("flows", "dns_queries", "flow_activity_chunks", "routes", "route_evidence_updates")}
-                result["catalogueDomains"] = connection.execute("SELECT count(*) FROM domain_catalogue").fetchone()[0]
+                                      for table in ("traffic_chunks", "capture_intervals", "activity_blocks", "route_evidence", "probe_runs", "flow_diagnostics", "dns_queries", "gate_events") if table in tables}
+                result["destinations"] = connection.execute("SELECT count(*) FROM destinations").fetchone()[0]
+                result["probeRunsGlobal"] = connection.execute("SELECT count(*) FROM probe_runs").fetchone()[0]
                 result["databasePages"] = connection.execute("PRAGMA page_count").fetchone()[0]
                 result["freePages"] = connection.execute("PRAGMA freelist_count").fetchone()[0]
             result["databaseBytes"] = database.stat().st_size

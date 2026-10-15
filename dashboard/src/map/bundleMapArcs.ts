@@ -9,7 +9,7 @@ export function bundleMapArcs(arcs: MapArc[]): BundledMapArc[] {
     const key = `${arc.trackId ?? ''}/${arc.sourcePosition.join(',')}/${arc.targetPosition.join(',')}/${Boolean(arc.routeId)}/${Boolean(arc.gap)}/${(arc.progressStart ?? 0).toFixed(6)}/${(arc.progressEnd ?? 1).toFixed(6)}/${arc.country?.code ?? ''}`
     const bundle = bundles.get(key)
     if (bundle) {
-      bundle.activeFlowCount += arc.activeFlowCount
+      bundle.activeSeriesCount += arc.activeSeriesCount
       bundle.bytes += arc.bytes
       if (!bundle.endpointIds.includes(arc.endpointId)) bundle.endpointIds.push(arc.endpointId)
     } else {

@@ -149,3 +149,38 @@ func TestPacketCaptureCountsLargeHeaderOnlyFrames(t *testing.T) {
 		})
 	}
 }
+
+func TestPacketCaptureHeartbeatWithoutTraffic(t *testing.T) {
+	if os.Getenv("INFRAREVEAL_PACKET_CAPTURE_TEST") != "1" {
+		t.Skip("requires isolated Linux namespace")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	beats := make(chan time.Time, 4)
+	done := make(chan error, 1)
+	started := time.Now()
+	go func() {
+		done <- runPacketCaptureHealth(ctx, "lo", NewObservationScope("10.0.0.0/24", "10.0.0.1"), func() {}, func(PacketActivityEvent) {}, func(at time.Time, dropped int64) {
+			if dropped != 0 {
+				t.Errorf("idle capture lost %d packets", dropped)
+			}
+			beats <- at
+		})
+	}()
+	select {
+	case at := <-beats:
+		if !at.After(started) {
+			t.Fatal("heartbeat did not advance")
+		}
+	case err := <-done:
+		t.Fatal(err)
+	case <-time.After(time.Second):
+		t.Fatal("idle capture never confirmed coverage")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("heartbeat worker did not stop")
+	}
+}

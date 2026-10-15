@@ -9,6 +9,7 @@ RUN go mod download
 
 COPY pocketbase/*.go ./
 COPY pocketbase/migrations ./migrations
+COPY pocketbase/data ./data
 COPY pocketbase/observer ./observer
 COPY pocketbase/gateway ./gateway
 COPY pocketbase/timeline ./timeline

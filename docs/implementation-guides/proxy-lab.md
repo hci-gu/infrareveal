@@ -18,7 +18,7 @@ The graph viewport is a deterministic view of the shared millisecond session cur
 - `pocketbase/debugtrace`: non-blocking event/burst ingress, coalescing, sequence IDs, time/count-bounded ring, per-subscriber buffers and replay gaps. `pocketbase/gateway/trace.go` owns the SSE HTTP adapter and reconnect route.
 - `pocketbase/netmeta`: bounded IPv4/TCP/UDP header parsing, canonical tuple, and direction.
 - `pocketbase/labgate`: serialized policy controller, three NFQUEUE adapters behind a virtual-ID multiplexer, idempotent firewall manager, watchdogs, bounded audit writer, and authenticated routes.
-- `packages/session-state`: shared PocketBase transport, normalized entities, temporal indexes, bounded detail-page cache, realtime reconciliation, and one playback clock for both dashboards.
+- `packages/session-state`: shared product API, bounded traffic windows, revision-driven refetch, and one playback clock for both dashboards.
 - `debug-dashboard/src/experiments/proxy-lab`: recorded/live merge, deterministic scene projection, graph viewport, replay controls, health, arming, and current approval queue.
 - `/controlled-client`: browser probe for comparing queue wait with application-visible completion/failure.
 

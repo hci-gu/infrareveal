@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { getSessions } from './collectionTransport'
+import { getSessions } from './client'
 import type { Session } from './types'
 
 type SessionList = { sessions: Session[]; status: 'loading' | 'ready' | 'offline'; error: string; revision: number }

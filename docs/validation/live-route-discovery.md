@@ -1,6 +1,16 @@
 # Selective route discovery validation
 
-Candidate: working tree, 17 September 2026. The [implementation guide](../implementation-guides/live-route-discovery.md) documents current semantics. The older investigation below is retained as historical context, not validation of this rewrite.
+The [implementation guide](../implementation-guides/live-route-discovery.md) documents the current two-collection route contract. The map/activity rewrite requires a fresh application database and has no cross-session cache or historical schema adapter.
+
+## Current local checks — 15 October 2026
+
+The rewritten routing suite passes `go test ./routing` and `go test -race ./routing` against fresh test databases. It covers transactional admission before launch; restart/deleted-session quota retention; continuous hourly scopes; all-silent two-method stopping and network pauses; terminal-only useful paths; one bounded enrichment with fixed measurement/expiry; publication rollback/retry; cancellation and physical worker drain; network fingerprint loss/recovery; exact binding replay and pre-window anchors; invalidation ordering; and traffic-retention rollback. Shipped engine parser and capability fixtures remain in the suite.
+
+The route audit now reads only `route_evidence` and `probe_runs`; it has no writable compaction mode. Current physical gateway workload/storage measurements and requalification of the deployed image remain outstanding. The historical measurements below do not establish performance of the new persistence model.
+
+## Historical validation — September 2026
+
+Everything below records the previous implementation and its investigations. References to old collections, cached copies, legacy playback, compaction, fixture APIs and additive rollback describe that version only. The engine qualification observations remain useful evidence for the retained pinned engine.
 
 ## Affected Pi investigation — 17 September, 12:31–12:38 UTC
 

@@ -8,6 +8,7 @@ import (
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"log"
+	"myapp/data"
 	"myapp/debugtrace"
 	"myapp/labgate"
 	"myapp/observer"
@@ -45,6 +46,8 @@ type Runtime struct {
 }
 
 func New(app *pocketbase.PocketBase, config Config) *Runtime {
+	config.Observation.Diagnostics = config.Diagnostics
+	config.Routes.Diagnostics = config.Diagnostics
 	return &Runtime{app: app, config: config}
 }
 
@@ -96,6 +99,18 @@ func (g *Runtime) Start() (err error) {
 		}
 	}()
 	g.resourcesClosed = false
+	if g.config.Diagnostics {
+		if err = data.InstallDiagnostics(g.app); err != nil {
+			return err
+		}
+	} else if g.config.Gate.Enabled {
+		if err = data.EnsureGateAudit(g.app); err != nil {
+			return err
+		}
+	}
+	if err = recoverInterruptedAudit(g.app); err != nil {
+		return err
+	}
 	g.config.Trace.LogEffective()
 	g.config.Gate.LogEffective()
 	g.traceHub, g.trace = debugtrace.NewRuntime(context.Background(), g.config.Trace)
@@ -120,8 +135,9 @@ func (g *Runtime) Start() (err error) {
 		return fmt.Errorf("ensure active gateway session: %w", err)
 	}
 	g.routes = routing.Start(context.Background(), g.app, g.geo, g.CurrentSessionID, g.config.Routes)
-	g.observation = observer.New(g.app, g.geo, g.config.Observation, g.CurrentSessionID, g.trace, func(f observer.CommittedFlow) {
-		g.routes.Observe(routing.Flow{Baseline: f.Baseline, ID: f.ID, Session: f.Session, IP: f.IP, Protocol: f.Protocol, Port: f.Port, Bytes: f.Bytes, At: f.At})
+	g.config.Observation.NetworkEpoch = g.routes.NetworkEpoch
+	g.observation = observer.New(g.app, g.geo, g.config.Observation, g.CurrentSessionID, g.trace, func(f observer.CommittedTraffic) {
+		g.routes.Observe(routing.Traffic{Session: f.Session, NetworkEpoch: f.NetworkEpoch, IP: f.IP, Protocol: f.Protocol, Port: f.Port, Bytes: f.Bytes, At: f.At})
 	})
 	g.observation.Start()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -204,6 +220,26 @@ func (g *Runtime) CurrentSessionID() string {
 		return *id
 	}
 	return ""
+}
+
+// The caller holds operations. Drain before changing the recording boundary;
+// on timeout, resume only after the old writer has actually finished.
+func (g *Runtime) pauseObservation(ctx context.Context) (func(), error) {
+	if g.observation == nil {
+		return func() {}, nil
+	}
+	if err := g.observation.Quiesce(ctx); err != nil {
+		go func() {
+			_ = g.observation.Wait(context.Background())
+			g.operations.Lock()
+			defer g.operations.Unlock()
+			if !g.closed {
+				g.observation.Start()
+			}
+		}()
+		return nil, err
+	}
+	return g.observation.Start, nil
 }
 
 // Context-aware operation entry keeps shutdown and clear bounded even while a

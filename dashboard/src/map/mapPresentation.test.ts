@@ -3,12 +3,12 @@ import type { MapArc } from './mapModel'
 import { bundleMapArcs } from './bundleMapArcs'
 
 describe('map route bundling', () => {
-  const arc: MapArc = { id: 'a:1', endpointId: 'a', sourcePosition: [12, 57], targetPosition: [18, 59], activeFlowCount: 2, bytes: 100, tilt: 5 }
+  const arc: MapArc = { id: 'a:1', endpointId: 'a', sourcePosition: [12, 57], targetPosition: [18, 59], activeSeriesCount: 2, bytes: 100, tilt: 5 }
 
   it('merges co-located routes while retaining endpoint selection and volume', () => {
     const result = bundleMapArcs([arc, { ...arc, id: 'b:1', endpointId: 'b', bytes: 200 }])
     expect(result).toHaveLength(1)
-    expect(result[0]).toMatchObject({ endpointIds: ['a', 'b'], activeFlowCount: 4, bytes: 300 })
+    expect(result[0]).toMatchObject({ endpointIds: ['a', 'b'], activeSeriesCount: 4, bytes: 300 })
     expect(arc.bytes).toBe(100)
   })
 

@@ -2,6 +2,7 @@ package observer
 
 import (
 	"encoding/binary"
+	"net"
 	"net/netip"
 	"time"
 
@@ -25,8 +26,9 @@ const (
 )
 
 type PacketActivityEvent struct {
+	Tuple        netmeta.FlowTuple
+	ClientMAC    string
 	ObservedAt   time.Time
-	SessionID    string
 	FlowKey      string
 	Direction    Direction
 	Protocol     string
@@ -58,6 +60,8 @@ func ParsePacketActivityFrame(frame []byte, wireLength int, observedAt time.Time
 		return PacketActivityEvent{}, false
 	}
 	return PacketActivityEvent{
+		Tuple:        tuple,
+		ClientMAC:    packetClientMAC(frame, direction),
 		ObservedAt:   observedAt,
 		FlowKey:      tuple.Key(),
 		Direction:    direction,
@@ -66,6 +70,17 @@ func ParsePacketActivityFrame(frame []byte, wireLength int, observedAt time.Time
 		PayloadBytes: packet.PayloadBytes,
 		TCPFlags:     packet.TCPFlags,
 	}, true
+}
+
+func packetClientMAC(frame []byte, direction Direction) string {
+	mac := frame[6:12]
+	if direction == RemoteToClient {
+		mac = frame[:6]
+	}
+	if mac[0]&1 != 0 || string(mac) == string(make([]byte, 6)) {
+		return ""
+	}
+	return net.HardwareAddr(mac).String()
 }
 
 func ethernetNetworkOffset(frame []byte) (uint16, int, bool) {

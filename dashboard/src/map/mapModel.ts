@@ -1,10 +1,9 @@
-import type { Destination, Flow, GatewayData, Route } from '@infrareveal/session-state'
-import { isTrafficConnection, parseEpoch, routeForFlowAt } from '@infrareveal/session-state'
+import { routeForSeriesAt, seriesKey, serviceKey, trafficTotals } from '@infrareveal/session-state'
+import type { MapWindow, SessionManifest, RouteEvidence } from '@infrareveal/session-state'
 import { hasMapCoordinates, mapRoutePath, routeProgress } from './mapRoutes'
 import type { RouteNode } from './mapRoutes'
 import { countryFootprint } from './countryFootprints'
 import type { CountryFootprint } from './countryFootprints'
-
 export type MapPosition = [longitude: number, latitude: number]
 
 export type GatewayOrigin = {
@@ -13,9 +12,8 @@ export type GatewayOrigin = {
   label: string
 }
 
-export type MapFlowInterval = {
+export type MapSeriesInterval = {
   id: string
-  routeIds?: string[]
   startMs: number
   endMs: number
   bytes: number
@@ -27,7 +25,7 @@ export type MapFlowInterval = {
 }
 
 export type MapRoutePath = {
-  evidence?: Route
+  evidence: RouteEvidence
   id: string
   completedAtMs: number
   positions: MapPosition[]
@@ -50,8 +48,9 @@ export type MapEndpoint = {
   availableFromMs: number
   firstSeenMs: number
   lastSeenMs: number
-  flows: MapFlowInterval[]
+  series: MapSeriesInterval[]
   routes: MapRoutePath[]
+  invalidations: RouteEvidence[]
 }
 
 export type MapTimelineScene = {
@@ -61,7 +60,7 @@ export type MapTimelineScene = {
   endMs: number
   origin: GatewayOrigin
   endpoints: MapEndpoint[]
-  totalFlowCount: number
+  totalSeriesCount: number
 }
 
 export type MapPoint = {
@@ -72,8 +71,8 @@ export type MapPoint = {
   provider: string
   location: string
   position: MapPosition
-  flowCount: number
-  activeFlowCount: number
+  seriesCount: number
+  activeSeriesCount: number
   bytes: number
   country?: CountryFootprint | null
 }
@@ -84,7 +83,7 @@ export type MapArc = {
   endpointId: string
   sourcePosition: MapPosition
   targetPosition: MapPosition
-  activeFlowCount: number
+  activeSeriesCount: number
   bytes: number
   tilt: number
   routeId?: string
@@ -98,93 +97,40 @@ export type MapFrame = {
   points: MapPoint[]
   arcs: MapArc[]
   hops: MapHopPoint[]
-  seenFlowCount: number
-  activeFlowCount: number
+  seenSeriesCount: number
+  activeSeriesCount: number
   byteCount: number
 }
 
 const ACTIVE_TRAIL_MS = 5_000
 const MAX_ARC_SEGMENTS = 4_000
 
-/** Builds a compact, serializable model once per overview revision. */
-export function buildMapTimelineScene(data: GatewayData, origin: GatewayOrigin, canonicalStartMs?: number): MapTimelineScene {
-  const session = data.selectedSession
-  const clientFlows = data.flows.filter(isTrafficConnection)
-  const sessionStartMs = Number.isFinite(canonicalStartMs)
-    ? canonicalStartMs!
-    : parseEpoch(session?.started_at || session?.created, 0)
-  const destinationsByIP = new Map(
-    data.destinations
-      .map((destination) => [destination.ip, destination]),
-  )
-  for (const flow of clientFlows) if (!destinationsByIP.has(flow.destination_ip)) {
-    destinationsByIP.set(flow.destination_ip, {id: flow.destination_ip, ip: flow.destination_ip, reverse_dns:'', asn:0, organization:'', provider_label:'', city:'', country:'', lat:0, lon:0, last_seen:flow.last_seen})
-  }
-  const routesBySocket = indexRoutes(data.routes.filter(route => !session || route.session === session.id), origin, destinationsByIP)
-  const flowsByDestination = new Map<string, MapFlowInterval[]>()
-  const routesByDestination = new Map<string, Map<string, MapRoutePath>>()
 
-  for (const flow of clientFlows) {
-    const interval = mapFlow(flow, sessionStartMs)
-    if (!interval) continue
-    const paths = routesBySocket.get(socketKey(flow.destination_ip, flow.destination_port, flow.protocol)) ?? []
-    const location = destinationsByIP.get(flow.destination_ip)!
-    if (!hasMapCoordinates(location.lat, location.lon) && !countryFootprint({ ...location, position: [location.lon, location.lat] })?.polygons.length && !paths.some(path => path.positions.length > 1)) continue
-    const flows = flowsByDestination.get(flow.destination_ip)
-    if (flows) flows.push(interval)
-    else flowsByDestination.set(flow.destination_ip, [interval])
-
-    interval.routeIds = paths.map(path => path.id)
-    if (paths.length > 0) {
-      const destinationRoutes = routesByDestination.get(flow.destination_ip) ?? new Map<string, MapRoutePath>()
-      for (const path of paths) destinationRoutes.set(path.id, path)
-      routesByDestination.set(flow.destination_ip, destinationRoutes)
-    }
-  }
-
+/** Group captured aggregates by their exact endpoint/version/service binding. */
+export function buildMapTimelineScene(window: MapWindow, manifest: SessionManifest | null, origin: GatewayOrigin): MapTimelineScene {
+  const destinations = new Map(window.destinations.map(value => [value.id, value]))
+  const grouped = new Map<string, typeof window.series>()
+  for (const chunk of window.series) { const key = seriesKey(chunk); const list = grouped.get(key) ?? []; list.push(chunk); grouped.set(key, list) }
   const endpoints: MapEndpoint[] = []
-  for (const [ip, flows] of flowsByDestination) {
-    const destination = destinationsByIP.get(ip)
-    if (!destination) continue
-    flows.sort((left, right) => left.startMs - right.startMs || left.id.localeCompare(right.id))
-    const firstSeenMs = flows[0]?.startMs ?? sessionStartMs
-    const lastSeenMs = flows.reduce((latest, flow) => Math.max(latest, flow.endMs), firstSeenMs)
-    const destinationCreatedMs = parseEpoch(destination.created, firstSeenMs)
-    const routes = Array.from(routesByDestination.get(ip)?.values() ?? []).sort((left, right) =>
-      left.completedAtMs - right.completedAtMs || left.id.localeCompare(right.id),
-    )
-
-    endpoints.push({
-      id: destination.id || ip,
-      ip,
-      label: endpointLabel(destination),
-      provider: destination.provider_label || destination.organization || '',
-      city: destination.city || '',
-      country: destination.country || '',
-      position: [destination.lon, destination.lat],
-      availableFromMs: Math.max(firstSeenMs, Math.min(destinationCreatedMs, ...routes.map(route => route.completedAtMs))),
-      firstSeenMs,
-      lastSeenMs,
-      flows,
-      routes,
-    })
+  for (const [id, chunks] of grouped) {
+    chunks.sort((a,b) => a.start_ms - b.start_ms)
+    const chunk = chunks[0], destination = destinations.get(chunk.destination_id)
+    const paths = window.routes.filter(route => route.kind === 'path' && route.session === chunk.session && route.destination_ip === chunk.destination_ip && route.protocol === chunk.protocol && route.destination_port === chunk.destination_port && route.network_epoch === chunk.network_epoch)
+    const position: MapPosition = [destination?.lon ?? NaN, destination?.lat ?? NaN]
+    const country = countryFootprint({ city: destination?.city || '', country: destination?.country || '', position })
+    if (!hasMapCoordinates(position[1], position[0]) && !country?.polygons.length && !paths.some(path => path.hops.some(hop => hasMapCoordinates(hop.lat,hop.lon)))) continue
+    const firstSeenMs = Math.min(...chunks.map(value => value.start_ms + (value.samples[0]?.[0] ?? 0)))
+    const lastSeenMs = Math.max(...chunks.map(value => value.start_ms + (value.samples[value.samples.length - 1]?.[0] ?? 0) + value.bucket_ms))
+    const totals = trafficTotals(chunks, window.from_ms, window.to_ms)
+    const routes = destination ? paths.map(route => mapRoutePath(route, origin, destination)) : []
+    endpoints.push({ id, trackId: serviceKey(chunk), ip: chunk.destination_ip, label: chunk.service_label || destination?.ptr || chunk.destination_ip, provider: destination?.provider || '', city: destination?.city || '', country: destination?.country || '', position,
+      availableFromMs: Math.max(firstSeenMs, Math.min(destination?.observed_ms ?? Infinity, ...routes.map(route => route.completedAtMs))), firstSeenMs, lastSeenMs,
+      series: [{ id, startMs: firstSeenMs, endMs: lastSeenMs, bytes: totals.sent + totals.received, packets: totals.packetsSent + totals.packetsReceived }], routes,
+      invalidations: window.routes.filter(route => route.kind === 'network_invalidated' && route.network_epoch === chunk.network_epoch && route.session === chunk.session) })
   }
-
-  endpoints.sort((left, right) => left.firstSeenMs - right.firstSeenMs || left.ip.localeCompare(right.ip))
-  const lastFlowMs = endpoints.reduce((latest, endpoint) => Math.max(latest, endpoint.lastSeenMs), sessionStartMs)
-  const sessionEndMs = parseEpoch(session?.ended_at, lastFlowMs)
-
-  return {
-    sessionId: session?.id ?? null,
-    sessionName: session?.name || 'InfraReveal session',
-    startMs: sessionStartMs,
-    endMs: Math.max(sessionStartMs, sessionEndMs, lastFlowMs),
-    origin,
-    endpoints,
-    totalFlowCount: clientFlows.length,
-  }
+  endpoints.sort((a,b) => a.firstSeenMs-b.firstSeenMs || a.id.localeCompare(b.id))
+  return { sessionId: manifest?.id ?? null, sessionName: manifest?.name || 'InfraReveal session', startMs: manifest?.retained_from_ms ?? window.from_ms, endMs: manifest?.active ? manifest.server_ms : manifest?.ended_ms || window.to_ms, origin, endpoints, totalSeriesCount: grouped.size }
 }
-
 /** Selects only what can be known and shown at the current session time. */
 export function projectMapFrame(
   scene: MapTimelineScene,
@@ -194,8 +140,8 @@ export function projectMapFrame(
 ): MapFrame {
   const points: MapPoint[] = []
   const connectedEndpoints: Array<{ endpoint: MapEndpoint; point: MapPoint; route: MapRoutePath | null }> = []
-  let seenFlowCount = 0
-  let activeFlowCount = 0
+  let seenSeriesCount = 0
+  let activeSeriesCount = 0
   let byteCount = 0
 
   for (const endpoint of scene.endpoints) {
@@ -204,7 +150,7 @@ export function projectMapFrame(
     let endpointActiveFlows = 0
     let endpointBytes = 0
 
-    for (const flow of endpoint.flows) {
+    for (const flow of endpoint.series) {
       if (flow.startMs > cursorMs) break
       endpointSeenFlows += 1
       endpointBytes += flow.bytes
@@ -212,7 +158,7 @@ export function projectMapFrame(
     }
     if (endpointSeenFlows === 0) continue
 
-    const route = latestAvailableRoute(endpoint.routes, cursorMs)
+    const route = latestAvailableRoute(endpoint, cursorMs)
     const location = route?.evidence?.destination_location
     const country = countryFootprint(endpoint)
     const point: MapPoint = {
@@ -224,13 +170,13 @@ export function projectMapFrame(
       location: [endpoint.city, endpoint.country].filter(Boolean).join(', '),
       position: country?.position ?? (location ? [location.lon, location.lat] : endpoint.position),
       country,
-      flowCount: endpointSeenFlows,
-      activeFlowCount: endpointActiveFlows,
+      seriesCount: endpointSeenFlows,
+      activeSeriesCount: endpointActiveFlows,
       bytes: endpointBytes,
     }
     if (hasMapCoordinates(point.position[1], point.position[0])) points.push(point)
-    seenFlowCount += endpointSeenFlows
-    activeFlowCount += endpointActiveFlows
+    seenSeriesCount += endpointSeenFlows
+    activeSeriesCount += endpointActiveFlows
     byteCount += endpointBytes
 
     // Keep the connection visible while its volume can swell or fall back to zero.
@@ -242,7 +188,7 @@ export function projectMapFrame(
   }
 
   connectedEndpoints.sort((left, right) =>
-    right.point.activeFlowCount - left.point.activeFlowCount
+    right.point.activeSeriesCount - left.point.activeSeriesCount
     || right.point.bytes - left.point.bytes
     || left.endpoint.ip.localeCompare(right.endpoint.ip),
   )
@@ -267,7 +213,7 @@ export function projectMapFrame(
         endpointId: endpoint.id,
         sourcePosition: positions[index - 1],
         targetPosition: positions[index],
-        activeFlowCount: point.activeFlowCount,
+        activeSeriesCount: point.activeSeriesCount,
         bytes: point.bytes,
         tilt: deterministicTilt(endpoint.ip),
         routeId: route?.id,
@@ -285,71 +231,18 @@ export function projectMapFrame(
     if (arcs.length >= maximumArcSegments) break
   }
 
-  return { points, arcs, hops: [...hops.values()], seenFlowCount, activeFlowCount, byteCount }
+  return { points, arcs, hops: [...hops.values()], seenSeriesCount, activeSeriesCount, byteCount }
 }
 
-function mapFlow(flow: Flow, fallbackStartMs: number): MapFlowInterval | null {
-  const startMs = parseEpoch(flow.start || flow.created, fallbackStartMs)
-  if (!Number.isFinite(startMs)) return null
-  const endMs = Math.max(startMs, parseEpoch(flow.last_seen || flow.updated, startMs))
-  return {
-    id: flow.id,
-    startMs,
-    endMs,
-    bytesIn: Math.max(0, flow.bytes_in || 0), bytesOut: Math.max(0, flow.bytes_out || 0), packetsIn: Math.max(0, flow.packets_in || 0), packetsOut: Math.max(0, flow.packets_out || 0),
-    bytes: Math.max(0, flow.bytes_in || 0) + Math.max(0, flow.bytes_out || 0),
-    packets: Math.max(0, flow.packets_in || 0) + Math.max(0, flow.packets_out || 0),
-  }
-}
 
-function indexRoutes(
-  routes: Route[],
-  origin: GatewayOrigin,
-  destinationsByIP: Map<string, Destination>,
-) {
-  const result = new Map<string, MapRoutePath[]>()
-  for (const route of routes) {
-    const destination = destinationsByIP.get(route.destination_ip)
-    if (!destination) continue
-    const path = mapRoutePath(route, origin, destination)
-    const key = socketKey(route.destination_ip, route.destination_port, route.protocol)
-    const paths = result.get(key)
-    if (paths) paths.push(path)
-    else result.set(key, [path])
-  }
-  for (const paths of result.values()) {
-    paths.sort((left, right) => left.completedAtMs - right.completedAtMs || left.id.localeCompare(right.id))
-  }
-  return result
+function latestAvailableRoute(endpoint: MapEndpoint, cursorMs: number) {
+  const binding = endpoint.routes[0]?.evidence
+  if (!binding) return null
+  const latest = routeForSeriesAt(binding, [...endpoint.routes.map(path => path.evidence), ...endpoint.invalidations], cursorMs)
+  return latest ? endpoint.routes.find(path => path.id === latest.id) ?? null : null
 }
-
-function latestAvailableRoute(routes: MapRoutePath[], cursorMs: number) {
-  const evidence = routes.flatMap(path => path.evidence ? [path.evidence] : [])
-  if (evidence.length) {
-    // A destination can have several socket keys. Select within each key first
-    // so an expired binding never resurrects its own older revision.
-    const selected = evidence.map(route => routeForFlowAt(route, evidence, cursorMs)).filter((r): r is Route => r !== null)
-    selected.sort((a,b) => (a.available_at || a.completed_at).localeCompare(b.available_at || b.completed_at))
-    const latest = selected[selected.length - 1]
-    return latest ? routes.find(path => path.id === latest.id) ?? null : null
-  }
-  return [...routes].reverse().find(route => route.completedAtMs <= cursorMs) ?? null
-}
-
 function originPosition(origin: GatewayOrigin): MapPosition {
   return [origin.longitude, origin.latitude]
-}
-
-function endpointLabel(destination: Destination) {
-  return destination.reverse_dns
-    || destination.provider_label
-    || destination.organization
-    || destination.city
-    || destination.ip
-}
-
-function socketKey(ip: string, port: number, protocol: string) {
-  return `${ip}:${port}:${protocol.toLowerCase()}`
 }
 
 function deterministicTilt(value: string) {

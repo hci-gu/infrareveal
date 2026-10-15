@@ -2,22 +2,10 @@ package observer
 
 import (
 	"bufio"
-	"context"
-	"database/sql"
-	"errors"
-	"log"
+	"myapp/netmeta"
 	"os"
 	"strconv"
 	"strings"
-	"sync"
-	"time"
-
-	"myapp/debugtrace"
-	"myapp/netmeta"
-
-	"github.com/pocketbase/dbx"
-	"github.com/pocketbase/pocketbase"
-	"github.com/pocketbase/pocketbase/core"
 )
 
 type FlowSample struct {
@@ -33,149 +21,12 @@ type FlowSample struct {
 	BytesIn         int64
 }
 
-type ConntrackSampler struct {
-	path          string
-	scope         ObservationScope
-	mu            sync.Mutex
-	suppressed    map[string]struct{}
-	trace         debugtrace.Sink
-	routeSession  string
-	routeObserver func(CommittedFlow)
-}
-
 func (f FlowSample) Key() string {
 	tuple, ok := netmeta.ParseFlowTuple(f.Protocol, f.ClientIP, f.SourcePort, f.DestinationIP, f.DestinationPort)
 	if !ok {
 		return ""
 	}
 	return tuple.Key()
-}
-
-func NewConntrackSampler(path string, scope ObservationScope) *ConntrackSampler {
-	return &ConntrackSampler{
-		path:       path,
-		scope:      scope,
-		suppressed: make(map[string]struct{}),
-		trace:      debugtrace.NopSink{},
-	}
-}
-
-// CommittedFlow describes a stored observation without depending on route scheduling.
-type CommittedFlow struct {
-	Baseline                  bool
-	ID, Session, IP, Protocol string
-	Port                      int
-	Bytes                     int64
-	At                        time.Time
-}
-
-func (sampler *ConntrackSampler) run(ctx context.Context, app *pocketbase.PocketBase, sessionID func() string, interval time.Duration) {
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	var loggedMissing bool
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			sessionID := sessionID()
-			if sessionID == "" {
-				continue
-			}
-			err := sampler.sampleAndPersist(app, sessionID)
-			if err != nil {
-				if !loggedMissing {
-					log.Printf("conntrack observer unavailable at %s: %v", sampler.path, err)
-					loggedMissing = true
-				}
-				continue
-			}
-			loggedMissing = false
-		}
-	}
-}
-
-func (sampler *ConntrackSampler) SuppressCurrentFlows() error {
-	sampler.mu.Lock()
-	defer sampler.mu.Unlock()
-
-	samples, err := ReadConntrackSamples(sampler.path, sampler.scope)
-	if err != nil {
-		return err
-	}
-	for _, sample := range samples {
-		sampler.suppressed[sample.Key()] = struct{}{}
-	}
-	return nil
-}
-
-func (sampler *ConntrackSampler) ReadUnsuppressedSamples() ([]FlowSample, error) {
-	sampler.mu.Lock()
-	defer sampler.mu.Unlock()
-	return sampler.readUnsuppressedSamples()
-}
-
-func (sampler *ConntrackSampler) readUnsuppressedSamples() ([]FlowSample, error) {
-	samples, err := ReadConntrackSamples(sampler.path, sampler.scope)
-	if err != nil {
-		return nil, err
-	}
-
-	present := make(map[string]struct{}, len(samples))
-	for _, sample := range samples {
-		present[sample.Key()] = struct{}{}
-	}
-	for key := range sampler.suppressed {
-		if _, ok := present[key]; !ok {
-			delete(sampler.suppressed, key)
-		}
-	}
-
-	result := make([]FlowSample, 0, len(samples))
-	for _, sample := range samples {
-		if _, suppressed := sampler.suppressed[sample.Key()]; !suppressed {
-			result = append(result, sample)
-		}
-	}
-	return result, nil
-}
-
-func (sampler *ConntrackSampler) sampleAndPersist(app *pocketbase.PocketBase, sessionID string) error {
-	sampler.mu.Lock()
-	defer sampler.mu.Unlock()
-
-	samples, err := sampler.readUnsuppressedSamples()
-	if err != nil {
-		return err
-	}
-	baselineSession := sampler.routeSession != sessionID
-	sampler.routeSession = sessionID
-	for _, sample := range samples {
-		result, err := upsertFlow(app, sessionID, sample)
-		if err != nil {
-			return err
-		}
-		if sampler.routeObserver != nil {
-			sampler.routeObserver(CommittedFlow{Baseline: baselineSession, ID: result.RecordID, Session: sessionID, IP: sample.DestinationIP, Protocol: sample.Protocol, Port: sample.DestinationPort, Bytes: sample.BytesIn + sample.BytesOut, At: result.ObservedAt})
-		}
-		if result.Created {
-			wireBytes := traceCount(sample.BytesOut + sample.BytesIn)
-			packetCount := traceCount(sample.PacketsOut + sample.PacketsIn)
-			sampler.trace.TryEmit(debugtrace.Event{
-				ID: "flow-discovered:" + result.RecordID, SessionID: sessionID, TraceID: "flow:" + result.RecordID,
-				Kind: debugtrace.KindFlow, Stage: debugtrace.StageConntrack, Direction: debugtrace.ClientToRemote,
-				OccurredAtMs: result.ObservedAt.UnixMilli(), ProcessedAtMs: traceProcessedNow(), Timing: debugtrace.TimingObserved,
-				Summary: debugtrace.Summary{
-					Protocol: sample.Protocol, ClientIP: sample.ClientIP, ClientPort: tracePort(sample.SourcePort),
-					RemoteIP: sample.DestinationIP, RemotePort: tracePort(sample.DestinationPort),
-					FlowKey: sample.Key(), WireBytes: wireBytes, PacketCount: packetCount,
-				},
-			})
-		}
-	}
-	return nil
 }
 
 func ensureConntrackAccounting(path string) (bool, error) {
@@ -204,9 +55,9 @@ func ReadConntrackSamples(path string, scope ObservationScope) ([]FlowSample, er
 	}
 	defer file.Close()
 
-	var samples []FlowSample
+	samples := make([]FlowSample, 0, 128)
 	scanner := bufio.NewScanner(file)
-	for scanner.Scan() {
+	for len(samples) < maxConnections && scanner.Scan() {
 		sample, ok := parseConntrackLine(scanner.Text(), scope)
 		if ok {
 			samples = append(samples, sample)
@@ -285,62 +136,6 @@ func parseConntrackLine(line string, scope ObservationScope) (FlowSample, bool) 
 		BytesOut:        parseInt64(original["bytes"]),
 		BytesIn:         parseInt64(reply["bytes"]),
 	}, true
-}
-
-type flowUpsertResult struct {
-	RecordID   string
-	Created    bool
-	ObservedAt time.Time
-}
-
-func upsertFlow(app *pocketbase.PocketBase, sessionID string, sample FlowSample) (flowUpsertResult, error) {
-	observedAt := time.Now().UTC()
-	now := observedAt.Format(time.RFC3339)
-	key := sample.Key()
-	created := false
-
-	record, err := app.FindFirstRecordByFilter(
-		"flows",
-		"session={:session} && flow_key={:flow_key}",
-		dbx.Params{"session": sessionID, "flow_key": key},
-	)
-	if err != nil {
-		if !errors.Is(err, sql.ErrNoRows) {
-			return flowUpsertResult{}, err
-		}
-		collection, err := app.FindCollectionByNameOrId("flows")
-		if err != nil {
-			return flowUpsertResult{}, err
-		}
-		record = core.NewRecord(collection)
-		created = true
-		record.Set("session", sessionID)
-		record.Set("flow_key", key)
-		record.Set("client_ip", sample.ClientIP)
-		record.Set("destination_ip", sample.DestinationIP)
-		record.Set("source_port", sample.SourcePort)
-		record.Set("destination_port", sample.DestinationPort)
-		record.Set("protocol", sample.Protocol)
-		record.Set("start", now)
-		record.Set("source", "conntrack")
-	}
-
-	// Persist byte/state changes immediately; unchanged sockets only need a
-	// two-second lifetime heartbeat even when discovery samples every second.
-	if !created && record.GetString("state") == sample.State && record.GetInt("bytes_out") == int(sample.BytesOut) && record.GetInt("bytes_in") == int(sample.BytesIn) && record.GetInt("packets_out") == int(sample.PacketsOut) && record.GetInt("packets_in") == int(sample.PacketsIn) && observedAt.Sub(record.GetDateTime("last_seen").Time()) < 2*time.Second {
-		return flowUpsertResult{RecordID: record.Id, ObservedAt: observedAt}, nil
-	}
-	record.Set("state", sample.State)
-	record.Set("last_seen", now)
-	record.Set("bytes_out", sample.BytesOut)
-	record.Set("bytes_in", sample.BytesIn)
-	record.Set("packets_out", sample.PacketsOut)
-	record.Set("packets_in", sample.PacketsIn)
-
-	if err := app.Save(record); err != nil {
-		return flowUpsertResult{}, err
-	}
-	return flowUpsertResult{RecordID: record.Id, Created: created, ObservedAt: observedAt}, nil
 }
 
 func parseInt(value string) int {

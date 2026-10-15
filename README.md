@@ -8,9 +8,9 @@ What you get
 - DHCP on 10.0.0.0/24 (dnsmasq), gateway at 10.0.0.1
 - NAT to the internet via eth0 by default
 - DNS query observations from dnsmasq
-- Flow observations from conntrack sampling
-- Header-only, directional flow activity at 50 ms resolution (no payload or URL storage)
-- Confidence-labeled flow attribution from recent DNS answers where available
+- Captured traffic aggregates independent of conntrack sampling
+- Header-only, directional traffic activity at 50 ms resolution (no payload or URL storage)
+- Confidence-labeled service attribution from recent DNS answers where available
 - Destination context and route approximations for observed destination IPs
 - Dashboard and PocketBase API/console at http://10.77.0.1/ on the admin network
 - Optional debug dashboard at http://10.77.0.1:8081/
@@ -19,14 +19,14 @@ What you get
 
 See the [documentation index](docs/README.md) for architecture decisions, current guides and repeatable validation procedures.
 
-- [PocketBase architecture](docs/implementation-guides/pocketbase-architecture.md): module boundaries, lifecycle, maintenance and compatibility contracts.
-- [Flow activity bursts](docs/implementation-guides/flow-activity-bursts.md): implemented metadata-only capture and visualization of fine-grained traffic inside long-lived connections.
+- [PocketBase architecture](docs/implementation-guides/pocketbase-architecture.md): module boundaries, lifecycle, maintenance and product data contracts.
+- [Captured traffic and activity blocks](docs/implementation-guides/flow-activity-bursts.md): aggregate samples, classification, capture quality and temporal service activity.
 - [Flow activity validation](docs/validation/flow-activity-raspberry-pi.md): repeatable privacy, load, growth, and browser-comparison checks for the target Pi.
 - [Proxy Lab implementation and operations](docs/implementation-guides/proxy-lab.md): passive replay/live tracing plus the opt-in flow, strict-packet, and DNS gates.
 - [Proxy Lab Raspberry Pi validation](docs/validation/proxy-lab-raspberry-pi.md): namespace, failure, soak, client, and recovery procedures.
 - [Dashboard browser validation](docs/validation/debug-dashboard.md): fixture, interaction, accessibility, performance and lifecycle checks.
 - [Live route discovery](docs/implementation-guides/live-route-discovery.md): finite useful-path collection, topology display, budgets and diagnostics.
-- [Live route validation](docs/validation/live-route-discovery.md): timing targets, cache/replay checks and pending Pi measurements.
+- [Live route validation](docs/validation/live-route-discovery.md): current local checks, historical engine qualification and pending Pi measurements.
 
 ## PocketBase development
 
@@ -38,20 +38,23 @@ in [pocketbase/go.mod](pocketbase/go.mod) (currently Go 1.27.1), then run:
 cd pocketbase
 go mod download
 go test ./...
+cd ..
+./scripts/dev-data.sh --reset
+cd pocketbase
 go run . serve
 ```
 
-The old `pocketbase/install-go.sh` installer has been retired. It pinned a different
-Go version and modified shell startup files; the module and Dockerfile now define
-the supported toolchain.
+This schema requires fresh application data. Stop the local server before
+`./scripts/dev-data.sh --reset`; it discards development recordings and seeds an
+example on the new model. Add `--diagnostics` for all ten application collections.
+Use `--dir /path/to/pb_data` for an isolated database. There is no old-data importer.
 
 ## Frontend workspace
 
 The regular dashboard and debug dashboard are pnpm workspace consumers of
 `@infrareveal/session-state`. The shared package owns PocketBase transport,
-normalized session entities, realtime reconciliation, temporal indexes,
-windowed detail caching, and playback state. Each dashboard keeps its own UI
-and Remotion projection.
+session manifests, revision-driven window replacement, bounded caching and local
+playback state. Each dashboard keeps its own UI and map/activity presentation.
 
 ```bash
 pnpm install
@@ -69,8 +72,7 @@ Note: The AP is open (no password) by default. Use only in controlled environmen
 Follow the **[two-network Pi deployment guide](docs/implementation-guides/pi-deployment.md)**
 for the existing Pi at `pi@192.168.10.120`. It covers pulling changes, installing
 Compose on its 32-bit OS, building images,
-preparing host networking, backing up the existing database, and replacing the
-old `infrareveal-server` container.
+preparing host networking and starting the new build against fresh application data.
 
 The gateway requires two AP-capable Wi-Fi radios and an Ethernet uplink. The
 inspected built-in radio and Ralink RT5370 USB adapter meet the advertised
@@ -98,19 +100,23 @@ Configuration knobs (via env in `docker-compose.yml`):
 - DATA_DIR / GEOIP_DIR: persistent host directories (./data / ./geoip)
 - INTERNET_IFACE: uplink interface (default eth0)
 - SSID: Wi‑Fi network name (default Infrareveal)
-- ROUTE_ENGINE: `v2` (Scamper, default), `legacy` (paced traceroute), or `off`; all active engines share the same limits
-- ROUTE_MAX_TARGETS / ROUTE_MAX_ATTEMPTS: 20 targets / 40 automatic attempts per session
+- ROUTE_ENGINE: `scamper` (default) or `off`
+- ROUTE_MAX_TARGETS / ROUTE_MAX_ATTEMPTS: 20 targets / 40 automatic attempts per recorded session, or per hourly scope in continuous capture
 - ROUTE_HOURLY_ATTEMPTS: 40 per network and address family, across sessions/restarts
-- ROUTE_MAX_SNAPSHOTS / ROUTE_MAX_BYTES: 100 useful path snapshots / 16 MiB evidence per session
+- ROUTE_MAX_SNAPSHOTS / ROUTE_MAX_BYTES: 100 useful path publications / 16 MiB evidence per session
 - ROUTE_ASN_DB: optional versioned local MaxMind ASN database; missing ASN data leaves the topology visible
 - CLIENT_CIDRS / GATEWAY_IP / PACKET_ACTIVITY_IFACE: derived from the participant prefix/interface by the container entrypoint; admin traffic is excluded
 - Discovery uses one worker at five probes/second, at most two methods per selected binding, and stops after useful evidence or repeated no-gain results. Missing hops never trigger indefinite repairs.
 - CONNTRACK_SAMPLE_MS: connection sampling interval, validated to 250–5000 ms (default 1000)
 - PACKET_ACTIVITY_ENABLED: enable header-only packet activity capture (default true)
 - PACKET_ACTIVITY_IFACE: capture interface (defaults to AP_IFACE)
-- PACKET_ACTIVITY_BUCKET_MS: activity resolution, validated to 20–1000 ms (default 50)
-- PACKET_ACTIVITY_CHUNK_SECONDS: sparse persistence chunk size (default 5)
-- PACKET_ACTIVITY_RETENTION_HOURS: retention for inactive-session detail (default 24)
+- TRAFFIC_BUCKET_MS: source sample size, 20–1000 ms and a divisor of the chunk size (default 50)
+- TRAFFIC_CHUNK_MS: 5000 ms (1000–10000, whole seconds)
+- TRAFFIC_FLUSH_MS / TRAFFIC_CORRECTION_MS: 400 ms flushes and a 10-second mutable classification tail
+- ACTIVITY_QUIET_GAP_MS: 45-second service-activity gap; this does not measure browser attention
+- DIAGNOSTICS_ENABLED: false by default; true adds three optional collections to the seven core collections
+- DIAGNOSTICS_RETENTION_MINUTES / DIAGNOSTICS_MAX_MB: 60 minutes / 16 MiB total diagnostic payload cap
+- Saved recordings retain product data until deletion. Continuous/demo sessions retain their configured rolling window.
 
 ### Proxy Lab: passive trace vs traffic gate
 
@@ -153,8 +159,8 @@ sudo docker compose logs --tail=100 proxy dashboard
 ```
 
 Uncomment `COMPOSE_PROFILES=debug` in `.env` to include the debug dashboard.
-For updates to an existing installation, use the guide's stopped-state database
-backup procedure before restarting with new images.
+For this rewrite, stop the previous build and use a fresh `DATA_DIR`. Old code
+remains in Git; an older version can use a fresh database matching its schema.
 
 ## Using it
 
@@ -168,11 +174,11 @@ observations. The two subnets cannot forward to each other. Management web ports
 are inaccessible from participant Wi-Fi and Ethernet. The UI/API work locally
 without an uplink; the basemap still downloads internet-hosted tiles and fonts.
 
-The gateway forwards web traffic normally through NAT. Classic DNS traffic from clients is redirected to the local dnsmasq resolver so transaction-linked DNS answers, including CNAME chains, can be correlated with flows. Stored flows are limited to remote traffic initiated by connected clients; gateway-generated probes and local infrastructure traffic such as DNS sockets, DHCP, NTP, PCP, mDNS, and traceroute are excluded. The dashboard keeps raw destination IPs visible and labels inferred hostnames with confidence.
+The gateway forwards web traffic normally through NAT. Classic DNS traffic from clients is redirected to local dnsmasq so transaction-linked answers, including CNAME chains, can help classify captured traffic. Core storage contains aggregate directional counters for remote traffic initiated by connected clients. Gateway-generated probes and local infrastructure traffic such as DNS sockets, DHCP, NTP, PCP, mDNS and traceroute are excluded. The dashboard keeps destination IPs visible and labels inferred services with confidence.
 
 The activity overlay passively counts packet headers on the AP interface into sparse directional buckets. Pale bars remain conntrack connection lifetimes; amber and cyan marks show client-to-remote and remote-to-client transfer activity. The gateway immediately discards the bounded packet prefix used for parsing and stores only counts, times, tuple keys, flags, and byte totals. It does not store packet contents or claim that encrypted bursts are HTTP resources or response times. Hatched regions mean capture was missing or lossy and are excluded from idle-time calculations.
 
-The backend groups flows with medium or high confidence hostname evidence by registered domain, using explicit aliases from `domain_groups.json` where configured. Group identity stays stable within a client and session. DNS timing helps attribute a hostname to a flow; timing and connection gaps do not establish group membership. Unresolved or low confidence traffic remains independent. See the [domain grouping contract](docs/implementation-guides/domain-grouping.md).
+The backend classifies traffic by registered domain when client-scoped DNS evidence supports it, applying the session's pinned aliases from `domain_groups.json`. Unresolved or ambiguous traffic remains an independent endpoint. Temporal activity blocks group payload-active samples for one client/service and split at quiet gaps; they describe observed network activity, not measured browsing attention. See the [domain grouping contract](docs/implementation-guides/domain-grouping.md).
 
 Destination context is enriched independently from reverse DNS, known provider networks, and the bundled GeoIP database. Slow traceroute work runs separately so it cannot delay identity labels. Routes are traceroute approximations from the gateway to the observed destination IP and port; they are not exact proof of the client application path.
 
@@ -181,9 +187,9 @@ Destination context is enriched independently from reverse DNS, known provider n
 For an unattended screen, enable `DEMO_MODE=true`, set
 `DEMO_RETENTION_MINUTES=30`, and open **http://10.77.0.1/demo** on the admin PC.
 The dedicated session resumes after restarts; the screen follows live traffic and
-reconnects automatically. A separate domain catalogue preserves bounded examples
-and aggregate counts for reviewing `domain_groups.json`.
-See the [lab demo setup, exports, and soak-test guide](docs/implementation-guides/lab-demo.md).
+reconnects automatically. Retained traffic and activity blocks use the session's
+pinned service-classification policy; optional diagnostics support investigations.
+See the [lab demo setup and soak-test guide](docs/implementation-guides/lab-demo.md).
 
 ## Always-on sessions
 

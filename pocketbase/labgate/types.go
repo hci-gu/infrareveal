@@ -95,7 +95,6 @@ type Decision struct {
 	ID           string            `json:"id"`
 	SessionID    string            `json:"sessionId"`
 	FlowKey      string            `json:"flowKey"`
-	Tuple        netmeta.FlowTuple `json:"-"`
 	ClientIP     string            `json:"clientIp"`
 	ClientPort   uint16            `json:"clientPort"`
 	RemoteIP     string            `json:"remoteIp"`

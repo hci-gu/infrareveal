@@ -68,9 +68,9 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
   const [mapError, setMapError] = useState(false)
   const selected = trackFrame.tracks.find(track => track.id === selectedId)
   const selection = selected ? selectedId : null
-  const visiblePoints = useMemo(() => activeOnly ? mapFrame.points.filter((point) => point.activeFlowCount > 0) : mapFrame.points, [activeOnly, mapFrame.points])
+  const visiblePoints = useMemo(() => activeOnly ? mapFrame.points.filter((point) => point.activeSeriesCount > 0) : mapFrame.points, [activeOnly, mapFrame.points])
   const visibleIPs = useMemo(() => activeOnly ? new Set(visiblePoints.map(point => point.ip)) : undefined, [activeOnly, visiblePoints])
-  const destinations = useMemo(() => destinationLoading ? [] : projectDestinationVolumes(trackScene, trackFrame.byFlow, destinationIndex, projectedCursorMs, visibleIPs), [destinationLoading, trackScene, trackFrame.byFlow, destinationIndex, projectedCursorMs, visibleIPs])
+  const destinations = useMemo(() => destinationLoading ? [] : projectDestinationVolumes(trackScene, trackFrame.bySeries, destinationIndex, projectedCursorMs, visibleIPs), [destinationLoading, trackScene, trackFrame.bySeries, destinationIndex, projectedCursorMs, visibleIPs])
   const countryDestinations = useMemo(() => destinations.filter(destination => destination.country), [destinations])
   const countryVolumes = useMemo(() => new Map(countryDestinations.map(destination => [destination.country!.code, destination])), [countryDestinations])
   const cityPoints = useMemo(() => visiblePoints.filter(point => !point.country), [visiblePoints])
@@ -98,9 +98,8 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
       return true
     })
   }, [destinations, viewState, width, height, selection])
-  const destinationEstimated = destinations.some(destination => destination.estimated)
   const destinationPartial = destinations.some(destination => destination.partial)
-  const visibleArcs = useMemo(() => activeOnly ? mapFrame.arcs.filter(arc => arc.activeFlowCount > 0) : mapFrame.arcs, [activeOnly, mapFrame.arcs])
+  const visibleArcs = useMemo(() => activeOnly ? mapFrame.arcs.filter(arc => arc.activeSeriesCount > 0) : mapFrame.arcs, [activeOnly, mapFrame.arcs])
   // A traced connection belongs exclusively to its itinerary, never to the direct-arc renderer.
   const geometry = useMemo(() => createMapGeometryCache(), [])
   const { routes, countryRoutes, tracedPaths, tracedStrips } = useMemo(() => geometry(visibleArcs, quality.segments), [geometry, visibleArcs, quality.segments])
@@ -126,7 +125,6 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
     { focused: false, data: selection ? tracedTraffic.filter(edge => edge.trackId !== selection) : [] },
     { focused: true, data: selection ? tracedTraffic.filter(edge => edge.trackId === selection) : tracedTraffic },
   ], [selection, tracedTraffic])
-  const estimatedTraffic = Array.from(trafficProfiles.values()).some((profile) => profile.source === 'estimated')
   const partialTraffic = Array.from(trafficProfiles.values()).some((profile) => profile.source === 'partial')
   const inspectorProfiles = useMemo(() => direction === 'both' ? trafficProfiles : new Map([...trafficProfiles].map(([id, profile]) => [id, { ...profile, rates: (direction === 'sent' ? profile.outRates : profile.inRates) ?? profile.rates.map(() => 0) }])), [trafficProfiles, direction])
   const selectedTraffic = selected ? trackTraffic(selected, trackScene, inspectorProfiles) : null
@@ -275,13 +273,13 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
       new ScatterplotLayer<MapPoint>({
         id: 'destination-halos', data: cityPoints, getPosition: (point) => point.position,
         radiusUnits: 'pixels', getRadius: (point) => point.trackId === selection ? 17 : 10,
-        getFillColor: (point) => alpha(neutralColor(), (point.activeFlowCount > 0 ? 0.08 : 0.04) * trackOpacity(point.trackId, selection)),
+        getFillColor: (point) => alpha(neutralColor(), (point.activeSeriesCount > 0 ? 0.08 : 0.04) * trackOpacity(point.trackId, selection)),
         updateTriggers: { getRadius: selection, getFillColor: [selection, theme] }, parameters: { depthCompare: 'always' },
       }),
       new ScatterplotLayer<MapPoint>({
         id: 'destinations', data: cityPoints, pickable: true, radiusUnits: 'pixels', stroked: true,
         getPosition: (point) => point.position, getRadius: (point) => point.trackId === selection ? 5.5 : 3.5,
-        getFillColor: (point) => alpha(neutralColor(), (point.activeFlowCount > 0 ? 1 : 0.55) * trackOpacity(point.trackId, selection)),
+        getFillColor: (point) => alpha(neutralColor(), (point.activeSeriesCount > 0 ? 1 : 0.55) * trackOpacity(point.trackId, selection)),
         getLineColor: (point) => point.trackId === selection ? [230, 255, 248, 255] : [11, 24, 34, 230 * trackOpacity(point.trackId, selection)],
         getLineWidth: 1.5, lineWidthUnits: 'pixels',
         updateTriggers: { getRadius: selection, getFillColor: [selection, theme], getLineColor: [selection, theme] }, parameters: { depthCompare: 'always' },
@@ -299,7 +297,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
       new TextLayer<DestinationVolume>({
         id: 'destination-totals', data: destinationLabels,
         getPosition: destination => [...destination.position, destination.height * columnMetersPerPixel(destination.position[1], viewState.zoom)],
-        getText: destination => `${destination.estimated ? '≈ ' : ''}${direction === 'sent' ? '↑ ' : direction === 'received' ? '↓ ' : ''}${formatBytes(directionalBytes(destination, direction))}`,
+        getText: destination => `${direction === 'sent' ? '↑ ' : direction === 'received' ? '↓ ' : ''}${formatBytes(directionalBytes(destination, direction))}`,
         visible: preferences.labels,
         characterSet: '0123456789. BkMGT≈↓↑',
         getSize: 11, getPixelOffset: [0, -14], fontFamily: 'system-ui, sans-serif', fontWeight: 600,
@@ -395,7 +393,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
           <button type="button" aria-pressed={viewState.pitch !== 0} onClick={() => moveTo({ pitch: 35 })}>Perspective</button>
           <button type="button" aria-pressed={viewState.pitch === 0} onClick={() => moveTo({ pitch: 0, bearing: 0 })}>Top-down</button>
         </div>
-        <button type="button" className="atlas-layer-button" aria-pressed={showRoutes} onClick={() => setShowRoutes(value => !value)} title={showRoutes ? 'Show direct connections' : 'Show traceroute paths'}><MapIcon name="route" size={16} /><span>Routes</span><i className="atlas-dot" /></button>
+        <button type="button" className="atlas-layer-button" aria-pressed={showRoutes} onClick={() => setShowRoutes(value => !value)} title={showRoutes ? 'Show direct series' : 'Show traceroute paths'}><MapIcon name="route" size={16} /><span>Routes</span><i className="atlas-dot" /></button>
         <button type="button" className="atlas-layer-button" aria-pressed={showTraffic} onClick={() => setShowTraffic((value) => !value)} title="Show or hide flowing traffic"><MapIcon name="layers" size={16} /><span>Traffic</span><i className="atlas-dot" /></button>
       </div>
 
@@ -410,10 +408,10 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
         <button type="button" className="atlas-icon-button" onClick={() => fitNetwork()} aria-label="Fit network" title="Fit network"><MapIcon name="expand" size={17} /></button>
         <button type="button" className="atlas-icon-button" onClick={() => moveTo({ longitude: scene.origin.longitude, latitude: scene.origin.latitude, zoom: 5, bearing: 0 })} aria-label="Center on gateway" title="Center on gateway"><MapIcon name="target" /></button>
       </div>
-      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded · to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent · from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p className="atlas-column-scale" data-volume-source={destinationLoading ? 'loading' : destinationError ? 'unavailable' : destinationEstimated ? 'estimated' : destinationPartial ? 'partial' : 'captured'}>Paired columns · fixed log scale · {directionLabel(direction)}{destinationLoading ? ' · Loading…' : destinationError ? ' · Capture unavailable' : destinationEstimated ? ' · ≈ Includes estimates' : destinationPartial ? ' · Partial capture' : ''}</p><p>{!showRoutes ? 'Simplified connections' : hasUnknownSpans ? 'Dashed spans = unknown path' : 'Approximate routes'} · Coarse IP locations{(trafficLoading || estimatedTraffic || partialTraffic) ? trafficLoading ? ' · Loading rates' : estimatedTraffic ? ' · Estimated rates' : ' · Partial rates' : ''}</p></div>
+      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded · to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent · from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p className="atlas-column-scale" data-volume-source={destinationLoading ? 'loading' : destinationError ? 'unavailable' : destinationPartial ? 'partial' : 'captured'}>Paired columns · fixed log scale · {directionLabel(direction)}{destinationLoading ? ' · Loading…' : destinationError ? ' · Capture unavailable' : destinationPartial ? ' · Partial capture' : ''}</p><p>{!showRoutes ? 'Simplified series' : hasUnknownSpans ? 'Dashed spans = unknown path' : 'Approximate routes'} · Coarse IP locations{(trafficLoading || partialTraffic) ? trafficLoading ? ' · Loading rates' : ' · Partial rates' : ''}</p></div>
       </div>
-      <MapOverview data={overview} state={workspace} onChange={onWorkspace} startMs={scene.startMs} cursorMs={projectedCursorMs} loading={destinationLoading} error={destinationError} selectedTrack={selection} onTrack={selectTrack} activeOnly={activeOnly} onActiveOnly={setActiveOnly} />
-      {workspace.expanded && <MapTimeline data={overview} state={workspace} onChange={onWorkspace} index={destinationIndex} startMs={scene.startMs} endMs={endMs} cursorMs={cursorMs} onSeek={onSeekTime} onTrack={selectTrack} loading={destinationLoading} error={destinationError} />}
+      <MapOverview data={overview} state={workspace} onChange={onWorkspace} startMs={destinationIndex.fromMs ?? scene.startMs} cursorMs={projectedCursorMs} loading={destinationLoading} error={destinationError} selectedTrack={selection} onTrack={selectTrack} activeOnly={activeOnly} onActiveOnly={setActiveOnly} />
+      {workspace.expanded && <MapTimeline data={overview} state={workspace} onChange={onWorkspace} index={destinationIndex} startMs={destinationIndex.fromMs ?? scene.startMs} endMs={endMs} cursorMs={cursorMs} onSeek={onSeekTime} onTrack={selectTrack} loading={destinationLoading} error={destinationError} />}
       {selected && selectedTraffic && <MapTrackInspector key={selected.id} direction={direction} track={selected} catalog={trackCatalog} cursorMs={projectedCursorMs} traffic={selectedTraffic} onClose={() => selectTrack(null)} onFit={() => { fitNetwork(selected.id); if (workspace.expanded) onWorkspace({ ...workspace, expanded: false }) }} />}
     </div>
   )
@@ -429,13 +427,13 @@ function tooltipForPoint({ object, layer }: PickingInfo<MapPoint | MapHopPoint |
   const lines = 'destination' in object && destination
     ? [destination.location, `${formatBytes(directionalBytes(destination, direction))} ${directionLabel(direction).toLowerCase()}`,
       direction !== 'sent' ? `↓ ${formatBytes(destination.received)} downloaded from this location` : '', direction !== 'received' ? `↑ ${formatBytes(destination.sent)} sent to this location` : '',
-      `${destination.ips.length} ${destination.ips.length === 1 ? 'destination' : 'destinations'} · ${destination.flowCount} connections`,
+      `${destination.ips.length} ${destination.ips.length === 1 ? 'destination' : 'destinations'} · ${destination.seriesCount} series`,
       `${object.label} · ${formatBytes(object.bytes)} of total`,
-      destination.estimated ? 'Includes flow-counter estimates; timing interpolated' : `Captured wire bytes · Growth interpolated${destination.partial ? ' · Partial capture' : ''}`,
+      `Captured wire bytes · completed sample bins${destination.partial ? ' · Partial capture' : ''}`,
       'Click to filter this location']
     : 'ttl' in object
     ? [`Hop ${object.ttl} · ${object.label}`, object.address, object.rttMs === null ? '' : `${object.rttMs.toFixed(1)} ms round trip from gateway`, 'Click to inspect traffic track']
-    : 'ip' in object ? [object.label, object.location, object.ip, `${object.flowCount.toLocaleString()} flows`, 'Click to filter this location'] : []
+    : 'ip' in object ? [object.label, object.location, object.ip, `${object.seriesCount.toLocaleString()} traffic series`, 'Click to filter this location'] : []
   return {
     text: lines.filter(Boolean).join('\n'),
     style: { backgroundColor: '#11232e', color: '#e1eeed', fontSize: '12px', lineHeight: '1.7', border: '1px solid #30464f', borderRadius: '8px', padding: '12px 16px' },

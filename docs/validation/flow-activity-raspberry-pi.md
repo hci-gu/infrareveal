@@ -1,30 +1,30 @@
-# Flow Activity Raspberry Pi Validation
+# Map and activity capture on Raspberry Pi
 
-Use this procedure after deploying a candidate build to the minimum supported Raspberry Pi. Do not use production browsing data: the test matrix should use a dedicated phone and controlled pages or fixtures.
+Use a fresh application data directory and the seven-collection model. The
+[deployment guide](../implementation-guides/pi-deployment.md) describes the target
+interfaces and container setup. These procedures validate the new capture path;
+local namespace tests do not establish physical AP performance.
 
-## Automated gates
+## Automated checks
 
-Run before deployment:
+From `pocketbase`, run:
 
 ```bash
-cd pocketbase
-go test -count=1 ./...
+go test ./...
+go test -race ./...
 GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build ./...
-
-cd ../dashboard
-pnpm test
-pnpm build
-pnpm lint
+GOOS=linux GOARCH=arm GOARM=7 CGO_ENABLED=0 go build ./...
+go test -run '^$' -bench 'Benchmark(ProjectThirtyMinutes|RebuildBlocksThirtyMinutes|MapWindow)' -benchmem ./observer ./timeline
 ```
 
-The deterministic backend benchmark replays 10,000 metadata-only packet events:
+Run `pnpm test`, `pnpm lint` and `pnpm build` from the repository root. The block
+benchmarks distinguish the pure full projection from steady-state database work;
+the map-window benchmark exercises the product API reader with dense captured
+bins. Preserve scenario sizes alongside results.
 
-```bash
-cd pocketbase
-go test -run '^$' -bench BenchmarkActivityAggregatorReplay -benchmem -count=5 ./observer
-```
-
-The Linux socket regression must also run in an isolated network namespace with `CAP_NET_RAW`. It sends synthetic large TCP, UDP and IPv6 frames through the actual BPF filter, socket receive and parser, checking original wire and payload counts. From the repository root on an arm64 development host with Docker:
+The Linux socket tests send synthetic large TCP, UDP and IPv6 frames through the
+real filter, receive loop and parser. They also check idle capture heartbeats and
+shutdown. On an arm64 development host with Docker:
 
 ```bash
 cd pocketbase
@@ -36,52 +36,80 @@ docker run --rm --network none --cap-add NET_RAW \
   -test.run 'TestPacket(Capture|Original)' -test.v -test.timeout 20s
 ```
 
-The socket test establishes the kernel/socket boundary locally; fresh capture on the Pi is still required to validate its AP interface. Historical missing timing cannot be reconstructed from cumulative flow counters.
+Use the isolated network fixtures for gateway isolation, NFQUEUE fail-open and
+Scamper method/NAT coverage. These operate in container network namespaces and do
+not require public probe targets. See the corresponding scripts under `scripts/`.
 
-`TestUnmatchedActivityDoesNotBecomeCaptureLoss` checks matching expiry through the aggregator, persistence acknowledgements and migrated status/window records. It also injects queue loss to verify that real capture loss remains visible. Keep `unmatched_events` separate from `dropped_events`; existing recording flags are not rewritten.
+## Fresh-data and lifecycle checks
 
-For migration/API smoke testing, use an isolated copy of the data directory. Verify list requests for `flow_activity_status`, `flow_activity_windows` and paginated/time-filtered `flow_activity_chunks`, stable capture-window identity across heartbeats, and graceful shutdown without observer database errors.
+A fresh core database contains `sessions`, `traffic_chunks`, `capture_intervals`,
+`activity_blocks`, `destinations`, `route_evidence` and `probe_runs`. Full optional
+diagnostics adds `flow_diagnostics`, `dns_queries` and `gate_events`. Auth/system
+collections are outside this count. Enabling only the Lab gate adds its required
+audit collection.
 
-## Controlled session matrix
+Use `/api/infrareveal/sessions/{id}/manifest`, `/map`, `/blocks` and `/revisions` for
+public reads. Map requests require Unix-millisecond `from` and `to` and at most
+thirty minutes; follow `next_cursor` until complete. Block lists use their own
+bounded pages. Verify the assembled map counters equal captured stored counters
+for the same complete source bins. Direct collection APIs remain private.
 
-Clear observations before each run, start a new active session, and test:
+Check start, end, clear and restart. Restart within a source chunk must preserve
+its earlier capture epoch, seal previous labels and continue in a new epoch.
+Capture gaps remain visible. Clear removes observations after draining workers;
+probe charges survive. Rolling retention keeps crossing-block identity and
+recomputes its retained counts. Saved recordings retain their history.
 
-1. Idle phone for ten minutes.
-2. One small image from a controlled HTTP/1.1 server.
-3. Several parallel resources from a controlled HTTP/2 server.
-4. Video over QUIC/HTTP/3.
-5. A long-lived push or background connection.
-6. Simultaneous browsing from two client devices.
+## Controlled traffic matrix
 
-For controlled web fixtures, compare activity timing to browser developer tools. This comparison validates timing only; the passive dashboard must continue calling the marks activity/transfers, never confirmed resources or response times.
+Start a fresh session for each case:
 
-Verify in every run:
+1. An idle client for ten minutes, with advancing complete capture coverage.
+2. Repeated short HTTP downloads, including transfers missed by conntrack.
+3. Parallel resources and two simultaneous services sharing an IP.
+4. QUIC traffic, encrypted DNS and unresolved independent endpoints.
+5. A long-lived connection with payload bursts separated by the quiet gap.
+6. Two clients, address/lease reuse, and a capture interface interruption.
 
-- Only traffic from connected clients appears; idle infrastructure noise does not create flows or activity.
-- A short transfer appears inside the longer pale connection lifetime.
-- Amber outbound and cyan inbound activity are distinguishable.
-- ACK-only packets can produce one-pixel packet marks without payload height.
-- Disconnecting or misconfiguring `PACKET_ACTIVITY_IFACE` leaves forwarding and conntrack timelines working and produces a visible warning/hatching.
-- `flow_activity_chunks.samples` contains only numeric counts and offsets. No packet payload, hostname path, URL, or browser resource label is present.
-- A dashboard zoom/range request is paginated and never loads an unlimited session history.
+Compare controlled transfer payload lengths with captured wire and payload-byte
+counts. Wire bytes include transport/network overhead. Do not sum conntrack
+counters into capture. DNS evidence should classify supported traffic; ambiguity
+and missing evidence must remain visible. Verify that one connection can contribute
+to several activity blocks, simultaneous services can overlap, and ACK-only
+traffic does not extend activity spans.
 
-## Measurements
+`traffic_chunks.samples` contains only numeric offsets and directional wire,
+payload-byte and packet counts. Packet contents, URL paths and browser resource
+names are not stored. Gateway-generated probes and local infrastructure traffic
+are excluded from participant capture.
 
-Use the same five-minute warm-up and 60-minute measurement window for the idle, HTTP/2, QUIC, and two-client cases.
+Disable or misconfigure `PACKET_ACTIVITY_IFACE` during a test. Forwarding must
+continue while the manifest and coverage show unavailable capture. Injected queue
+loss must produce partial coverage and a cumulative dropped count. Unknown
+capture must never look like a measured quiet interval.
 
-```bash
-docker stats --no-stream proxy dashboard
-docker compose logs proxy | grep 'packet activity dropped'
-du -h data/data.db
-```
+## Resource measurements
 
-Record database size before and after the hour. Count `flow_activity_chunks` at the beginning and end through the PocketBase admin/API, then calculate writes/minute and bytes/hour. In browser developer tools, record initial load and render time for a 60-minute session at wide and narrow zoom ranges. Fine activity loading must stay within bounded visible/selected intervals even when the overview spans the session. Compact cumulative summaries are separate from fine-grained history.
+After a five-minute warm-up, measure idle, parallel HTTP, QUIC and two-client
+traffic over a representative interval. Record the actual duration, Pi model,
+OS, build, configuration and load; do not extrapolate a brief smoke into a soak.
 
-| Pi model / OS / build | Scenario | Proxy CPU | Proxy memory | Dropped events | Chunk writes/min | DB growth/hour | Dashboard load/render |
-|---|---|---:|---:|---:|---:|---:|---:|
-| _record on target_ | Idle phone | | | | | | |
-| _record on target_ | HTTP/2 resources | | | | | | |
-| _record on target_ | QUIC video | | | | | | |
-| _record on target_ | Two clients | | | | | | |
+Use `docker stats --no-stream` for process resources. Record database and WAL size,
+chunk/coverage/block row counts, capture generations and revision changes before
+and after. Report logical persistence flushes separately from SQLite writes and
+physical I/O. Measure map endpoint latency for both source-resolution and coarse
+windows, including pagination and initial browser rendering.
 
-Attach the completed table to the release or test report. A result is not acceptable if forwarding is affected, drops are hidden, history loading becomes unbounded, or content-bearing packet data is persisted. If drops occur, retain the result and visible warning as evidence, then tune queue sizes or load before release.
+| Scenario | Duration | CPU / RSS | Capture drops | Flushes / second | DB + WAL growth | Map p50 / p95 |
+| --- | --- | --- | --- | --- | --- | --- |
+| Idle | | | | | | |
+| Parallel HTTP | | | | | | |
+| QUIC | | | | | | |
+| Two clients | | | | | | |
+
+A bounded rolling session should stop accumulating expired product rows. Block
+rebuilding should read only its correction tail plus newly expired retention
+contributions, and the browser should load bounded windows. Investigate hidden
+loss, increasing steady-state memory or work that grows with the entire recording.
+Store logs and measurements under `output/`; record observed limitations in the
+validation report before marking the gateway checklist complete.

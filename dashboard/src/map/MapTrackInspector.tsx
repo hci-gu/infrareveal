@@ -1,85 +1,37 @@
-import { routeForFlowAt, previousRouteForFlowAt, routeCollectionStateLabel, useRouteDiscovery, measureRoute } from '@infrareveal/session-state'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { measureRoute, routeForSeriesAt } from '@infrareveal/session-state'
+import { useState } from 'react'
 import type { CSSProperties } from 'react'
-import { parseEpoch } from '@infrareveal/session-state'
 import { colorCSS } from './mapTracks'
-import type { MapConnection, MapTrack, MapTrackCatalog, trackTraffic } from './mapTracks'
-import { formatBytes, formatCursor, formatElapsed } from './format'
+import type { MapSeries, MapTrack, MapTrackCatalog, trackTraffic } from './mapTracks'
+import { formatBytes, formatCursor } from './format'
 import { MapIcon } from './MapIcon'
 import { directionLabel } from './mapWorkspace'
 import type { TrafficDirection } from './mapWorkspace'
 import { MapRouteDetails } from './MapRouteDetails'
 
 type Props = { direction: TrafficDirection; track: MapTrack; catalog: MapTrackCatalog; cursorMs: number; traffic: ReturnType<typeof trackTraffic>; onClose: () => void; onFit: () => void }
-const PAGE_SIZE = 40
-
 export function MapTrackInspector({ direction, track, catalog, cursorMs, traffic, onClose, onFit }: Props) {
-  const [tab, setTab] = useState<'connections' | 'evidence'>('connections')
   const [query, setQuery] = useState('')
-  const [page, setPage] = useState(0)
-  const panel = useRef<HTMLElement>(null)
-  useEffect(() => { panel.current?.focus({ preventScroll: true }) }, [])
-  const connections = useMemo(() => {
-    const search = query.trim().toLowerCase()
-    return track.connections.filter(connection => !search || [connection.hostname, connection.flow.destination_ip, connection.flow.protocol, String(connection.flow.destination_port), connection.location].some(value => value.toLowerCase().includes(search))).sort((a, b) => b.bytes - a.bytes || a.flow.id.localeCompare(b.flow.id))
-  }, [query, track.connections])
-  const currentPage = Math.min(page, Math.max(0, Math.ceil(connections.length / PAGE_SIZE) - 1))
-  const evidence = useMemo(() => {
-    const flowIds = new Set(track.connections.map(connection => connection.flow.id))
-    const attributions = catalog.data.attributions.filter(record => flowIds.has(record.flow) && parseEpoch(record.observed_at, Infinity) <= cursorMs)
-    const dnsIds = new Set(attributions.map(record => record.dns_query))
-    return {
-      attributions,
-      associations: catalog.data.flowAssociations.filter(record => flowIds.has(record.flow) && parseEpoch(record.observed_at, Infinity) <= cursorMs),
-      dns: catalog.data.dnsQueries.filter(record => record.client_ip === track.client && dnsIds.has(record.id) && parseEpoch(record.timestamp, Infinity) <= cursorMs),
-    }
-  }, [catalog, cursorMs, track.client, track.connections])
-  const evidenceCount = evidence.attributions.length + evidence.associations.length + evidence.dns.length
-  return <section ref={panel} tabIndex={-1} className="atlas-track-inspector" aria-label={`${track.label} track details`} style={{ '--track-color': colorCSS(track.color) } as CSSProperties} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
-    <header className="atlas-inspector-heading"><span><i className="atlas-track-dot" />SELECTED TRACK</span><button className="atlas-icon-button" type="button" aria-label="Close track details" onClick={onClose}><MapIcon name="close" size={17} /></button></header>
-    <div className="atlas-track-title"><h2>{track.label}</h2>{track.site !== track.label && <p>{track.site || 'Connections without a supported activity association'}</p>}<span>Client <b>{track.client}</b></span></div>
-    <div className="atlas-track-summary"><div><strong>{track.connections.length}</strong><span>Connections <b>· {track.activeCount} active</b></span></div><div><strong>{formatBytes(track.bytes)}</strong><span>{directionLabel(direction)} · to playhead</span></div><div><strong>{traffic.available ? `${formatBytes(traffic.rate)}/s` : '—'}</strong><span>{traffic.estimated ? 'Estimated average' : `${directionLabel(direction)} rate`}{traffic.partial ? ' · Partial' : ''}</span></div><div><strong>{new Set(track.connections.map(connection => connection.flow.destination_ip)).size}</strong><span>Destinations</span></div></div>
-    <div className="atlas-track-map-status"><span>{track.mappedCount} of {track.connections.length} connections mapped</span><button type="button" disabled={!track.mappedCount} onClick={onFit}><MapIcon name="expand" size={12} />Fit track</button></div>
-    <div className="atlas-inspector-tabs" role="group" aria-label="Track detail view"><button type="button" aria-pressed={tab === 'connections'} onClick={() => setTab('connections')}>Connections <span>{track.connections.length}</span></button><button type="button" aria-pressed={tab === 'evidence'} onClick={() => setTab('evidence')}>Observations <span>{evidenceCount}</span></button></div>
-    <div className="atlas-inspector-scroll">
-      {tab === 'connections' ? <>
-        <input className="atlas-search" type="search" aria-label="Find connections in track" placeholder="Find hostname, IP, or protocol…" value={query} onChange={event => { setQuery(event.target.value); setPage(0) }} />
-        <div className="atlas-track-connections">{connections.slice(currentPage * PAGE_SIZE, (currentPage + 1) * PAGE_SIZE).map(connection => <Connection key={connection.flow.id} connection={connection} cursorMs={cursorMs} catalog={catalog} />)}</div>
-        {connections.length === 0 && <p className="atlas-list-empty">No matching connections.</p>}
-        {connections.length > PAGE_SIZE && <div className="atlas-track-pagination"><button type="button" disabled={currentPage === 0} onClick={() => setPage(currentPage - 1)}>Previous</button><span>{currentPage * PAGE_SIZE + 1}–{Math.min(connections.length, (currentPage + 1) * PAGE_SIZE)} of {connections.length}</span><button type="button" disabled={(currentPage + 1) * PAGE_SIZE >= connections.length} onClick={() => setPage(currentPage + 1)}>Next</button></div>}
-      </> : <div className="atlas-track-evidence">
-        {track.episode && <section><h3>Activity group</h3><p>{track.episode.explanation}</p><small>{track.episode.confidence} confidence · {track.episode.anchor_hostname}</small></section>}
-        <section><h3>Activity associations <span>{evidence.associations.length}</span></h3>{evidence.associations.map(record => <details key={record.id}><summary>{record.parent_label}<small>{record.relationship.replace(/_/g, ' ')} · {record.confidence}</small></summary><p>{record.explanation}</p><small>Connection {record.flow} · {formatCursor(parseEpoch(record.observed_at, 0))} UTC</small></details>)}{!evidence.associations.length && <p>No supported parent activity has been identified.</p>}</section>
-        <section><h3>Hostname observations <span>{evidence.attributions.length}</span></h3>{evidence.attributions.map(record => <details key={record.id}><summary>{record.confidence === 'hidden' ? 'Hostname withheld' : record.candidate_hostname}<small>{record.source_signal} · {record.confidence}</small></summary><p>{record.explanation}</p><small>Connection {record.flow} · {formatCursor(parseEpoch(record.observed_at, 0))} UTC</small></details>)}</section>
-        <section><h3>Linked DNS queries <span>{evidence.dns.length}</span></h3>{evidence.dns.map(record => <details key={record.id}><summary>{record.query_name}<small>{record.query_type} · {formatCursor(parseEpoch(record.timestamp, 0))} UTC</small></summary><p>{record.answers?.join(', ') || 'No answers'}</p>{Boolean(record.aliases?.length) && <p>Aliases: {record.aliases!.join(' → ')}</p>}</details>)}<p>DNS queries are shown for the loaded activity window.</p></section>
-      </div>}
+  const search = query.trim().toLowerCase()
+  const series = track.series.filter(value => [value.hostname, value.chunks[0].destination_ip, value.location].some(text => text.toLowerCase().includes(search)))
+  return <section tabIndex={-1} className="atlas-track-inspector" aria-label={`${track.label} details`} style={{ '--track-color': colorCSS(track.color) } as CSSProperties} onKeyDown={event => { if (event.key === 'Escape') onClose() }}>
+    <header className="atlas-inspector-heading"><span>SELECTED SERVICE</span><button className="atlas-icon-button" aria-label="Close service details" onClick={onClose}><MapIcon name="close" /></button></header>
+    <div className="atlas-track-title"><h2>{track.label}</h2><span>Client <b>{track.client}</b></span><p>Inferred service activity; it does not establish which page a person viewed.</p></div>
+    <div className="atlas-track-summary"><div><strong>{formatBytes(track.bytes)}</strong><span>{directionLabel(direction)} · loaded window to playhead</span></div><div><strong>{traffic.available ? `${formatBytes(traffic.rate)}/s` : '—'}</strong><span>Captured payload rate{traffic.partial ? ' · partial capture' : ''}</span></div></div>
+    <div className="atlas-track-map-status"><span>{track.mappedCount} of {track.series.length} traffic series mapped</span><button disabled={!track.mappedCount} onClick={onFit}>Fit service</button></div>
+    <div className="atlas-inspector-scroll"><input className="atlas-search" type="search" aria-label="Find service destinations" placeholder="Find hostname, IP, or place…" value={query} onChange={event => setQuery(event.target.value)} />
+      {series.map(value => <SeriesDetails key={value.id} series={value} catalog={catalog} cursorMs={cursorMs} />)}
     </div>
   </section>
 }
-
-function Connection({ connection, cursorMs, catalog }: { connection: MapConnection; cursorMs: number; catalog: MapTrackCatalog }) {
-  const { flow } = connection
-  const live = Boolean(catalog.data.selectedSession?.active)
-  const status = useRouteDiscovery(live)
-  const [measurementMessage, setMeasurementMessage] = useState('')
-  const currentStatus = status?.session === flow.session ? status.targets?.find(item => item.destination_ip === flow.destination_ip && item.protocol === flow.protocol && item.destination_port === flow.destination_port) : undefined
-  const selectedRoute = routeForFlowAt(flow, catalog.data.routes, cursorMs)
-  const previousRoute = previousRouteForFlowAt(flow, catalog.data.routes, cursorMs)
-  const routes = selectedRoute ? [selectedRoute] : []
-  return <details className="atlas-connection" data-flow-id={flow.id}>
-    <summary><span className={`atlas-connection-status ${connection.active ? 'is-active' : ''}`} /><span className="atlas-connection-name"><strong>{connection.hostname}</strong><small>{flow.destination_ip}:{flow.destination_port} · {flow.protocol.toUpperCase()}</small></span><span className="atlas-connection-bytes">{formatBytes(connection.bytes)}<small>{connection.mapped ? connection.location || 'Located' : 'Unmapped'}</small></span></summary>
-    <div className="atlas-connection-body"><dl>
-      <div><dt>Client socket</dt><dd>{flow.client_ip}:{flow.source_port}</dd></div><div><dt>Connection</dt><dd>{flow.id}</dd></div><div><dt>Last reported state</dt><dd>{flow.state}</dd></div>
-      <div><dt>Lifetime received / sent</dt><dd>{formatBytes(flow.bytes_in)} / {formatBytes(flow.bytes_out)}</dd></div><div><dt>Packets received / sent</dt><dd>{flow.packets_in.toLocaleString()} / {flow.packets_out.toLocaleString()}</dd></div>
-      <div><dt>First observed</dt><dd>{formatCursor(connection.startMs)} UTC</dd></div><div><dt>Observed duration</dt><dd>{formatElapsed((Math.min(cursorMs, connection.endMs) - connection.startMs) / 1000)}</dd></div>
-      {connection.provider && <div><dt>Network provider</dt><dd>{connection.provider}</dd></div>}
-      {connection.association && <div><dt>Activity association</dt><dd>{connection.association.relationship.replace(/_/g, ' ')} · {connection.association.confidence}</dd></div>}
-      {connection.attribution && <div><dt>Hostname confidence</dt><dd>{connection.attribution.confidence}</dd></div>}
-    </dl>
-    {routes.map(route => <MapRouteDetails key={route.id} route={route} cursorMs={cursorMs} />)}
-    {previousRoute && <details><summary>Earlier measured approximation</summary><p>Separate measurement; interfaces are not combined with the selected path.</p><MapRouteDetails route={previousRoute} cursorMs={cursorMs} /></details>}
-    {!routes.length && <p className="atlas-route-explanation">Destination known; intermediate route unknown.{connection.mapped ? ' The dashed connection is an endpoint approximation.' : ' This destination has no map location.'}</p>}
-    {live && <><p>{routeCollectionStateLabel(currentStatus?.state)}</p><button type="button" onClick={async () => {try {await measureRoute(flow.id);setMeasurementMessage('Measurement requested within the remaining budget.')} catch(error){setMeasurementMessage(error instanceof Error ? error.message : 'Unable to measure')}}}>Measure this destination</button><p role="status">{measurementMessage}</p></>}
+function SeriesDetails({ series, catalog, cursorMs }: { series: MapSeries; catalog: MapTrackCatalog; cursorMs: number }) {
+  const chunk = series.chunks[series.chunks.length - 1]
+  const route = routeForSeriesAt(chunk, catalog.window.routes, cursorMs)
+  const [message, setMessage] = useState('')
+  return <details className="atlas-connection"><summary><span className="atlas-connection-name"><strong>{series.hostname}</strong><small>{chunk.destination_ip}:{chunk.destination_port} · {chunk.protocol.toUpperCase()}</small></span><span>{formatBytes(series.bytes)}</span></summary>
+    <div className="atlas-connection-body"><dl><div><dt>Location</dt><dd>{series.location || 'Unknown'}</dd></div><div><dt>Provider</dt><dd>{series.provider || 'Unknown'}</dd></div><div><dt>Classification</dt><dd>{chunk.evidence.source || 'Independent endpoint'} · {chunk.evidence.confidence || 'unknown'}{chunk.evidence.ambiguous ? ' · ambiguous' : ''}</dd></div><div><dt>Observed</dt><dd>{formatCursor(chunk.evidence.observed_ms)} UTC · {chunk.sealed ? 'sealed' : 'provisional'}</dd></div></dl>
+      {route ? <MapRouteDetails route={route} cursorMs={cursorMs} /> : <p>Intermediate route unknown at this time. The direct line is an endpoint approximation.</p>}
+      {catalog.manifest?.active && <button onClick={async () => { try { await measureRoute(chunk.id); setMessage('Measurement requested.') } catch (error) { setMessage(error instanceof Error ? error.message : 'Measurement unavailable') } }}>Measure destination</button>}<p role="status">{message}</p>
     </div>
   </details>
 }

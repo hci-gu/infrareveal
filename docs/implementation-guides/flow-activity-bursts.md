@@ -1,123 +1,73 @@
-# Flow activity bursts
+# Captured traffic and activity blocks
 
-This guide describes the implemented metadata capture and visualization contract. Use the [Raspberry Pi validation procedure](../validation/flow-activity-raspberry-pi.md) for deployment-specific timing and resource measurements.
+Captured traffic is the source of map volume and temporal service activity. The core model stores aggregate samples directly; no stored connection or successful conntrack match is required. See [ADR 0003](../adr/0003-map-activity-storage.md) for the seven-collection contract.
 
-## Observation model
+## Observation and classification
 
-Conntrack is the authority for stored flow identity and lifetime. A flow key combines protocol, client IP, client source port, destination IP and destination port. `start` is the first observation; `last_seen` is the last scan containing the entry. Byte and packet fields are cumulative counters. The observer receives no explicit connection-close event.
+The Linux collector uses an `AF_PACKET` socket on `PACKET_ACTIVITY_IFACE`, defaulting to the client-facing `AP_IFACE`. This preserves client/destination identity before and after NAT. Capture runs independently of forwarding; capture failure is shown as missing coverage.
 
-A separate passive packet observer records when transfer activity occurs inside that lifetime:
+A BPF filter retains a bounded 256-byte header prefix. `PACKET_AUXDATA` supplies the original wire length through `tpacket_auxdata.tp_len`; the BPF-truncated length must not replace that value. Missing or malformed lengths are capture errors. The packet parser extracts time, directional wire/payload byte counts, packet counts and the normalized client/destination tuple. It discards the prefix after parsing and never persists payload contents. QUIC remains opaque UDP traffic.
 
-```text
-connection      ─────────────────────────────────────────
-client → remote     ▪       ▪              ▪
-remote → client       ████    ██              ███████
-```
+The observation scope excludes local infrastructure and gateway-generated traffic. In-scope packets aggregate immediately, including short connections missed by conntrack. DNS and conntrack contribute bounded in-memory classification and connection-generation evidence. They never contribute a second set of byte totals. Tuple reuse, client lease changes and identity-cache eviction invalidate uncertain attribution; unresolved traffic remains an independent destination.
 
-A connection bar is a sampled lifetime; an activity mark is a timestamped transfer derived from packet metadata. Neither identifies an HTTP request, browser resource, response time or TTFB. Encrypted HTTP/2, HTTP/3 and reused connections can carry multiple simultaneous exchanges.
+The current session pins its classification and grouping policy. Labels may be corrected during a ten-second mutable tail. A correction reallocates captured contributions atomically rather than copying bytes. Persisted generation checks reject older flushes. Restart seals the old tail and begins a new capture epoch; an unknown sealed sample remains unknown. This is retrospective classification within the bounded tail, not a historical reconstruction of exactly what the system knew at every instant.
 
-Conntrack sampling is configured through `CONNTRACK_SAMPLE_MS`; see [live route discovery](live-route-discovery.md) for its interaction with route scheduling. Packet timing is independent of that sampling interval.
+## Aggregate samples
 
-## Capture and normalization
+Each `traffic_chunks` record groups one session, capture epoch, client scope, service/independent endpoint, immutable destination version, protocol, destination port, network epoch and chunk start (five seconds by default). Client source ports and flow IDs are absent from core storage. Several connections can contribute to one chunk; one connection can contribute to many chunks and activity blocks.
 
-The Linux collector uses an `AF_PACKET` socket on `PACKET_ACTIVITY_IFACE`, defaulting to `AP_IFACE` (`wlan0`). Capture on the client-facing interface preserves the tuple before/after NAT; uplink capture would need different correlation. The observer runs independently of forwarding, so capture failure leaves NAT and conntrack collection working.
-
-The BPF filter retains at most a 256-byte snapshot. `PACKET_AUXDATA` supplies the original wire length through `tpacket_auxdata.tp_len`; `MSG_TRUNC` alone reports the length after BPF truncation. Using that truncated length rejects large packets and undercounts downloads. Missing/malformed auxiliary lengths must produce visible capture failure. Older recordings with missing samples cannot recover timing from cumulative counters.
-
-`packet_parser.go` extracts observation time, session, canonical flow key, direction, protocol, wire bytes, transport payload byte count and TCP flags. The bounded packet prefix is discarded after parsing; payload contents are never persisted. TCP ACK-only packets add packet/wire counts but zero payload. QUIC remains opaque UDP payload.
-
-Both directions normalize to:
+Sparse 50 ms samples have this fixed tuple shape:
 
 ```text
-protocol | client IP | client source port | remote IP | remote port
+[offset_ms, wire_sent, wire_received, payload_sent, payload_received, packets_sent, packets_received]
 ```
 
-Apply `ObservationScope` after normalization. Local, multicast, gateway-originated and excluded infrastructure traffic must not create activity. Packet capture cannot create stored flows; unresolved observations wait for conntrack attribution.
+Wire bytes are the accounting source. Payload counts identify transfer-active bins; TCP ACK-only packets contribute wire and packet counts without extending activity blocks. Empty sample buckets indicate silence only where `capture_intervals` establishes complete coverage. Coverage advances after successful persistence and is recorded even when no packets arrive. Queue loss, capture failures and restart gaps remain visible independently of classification.
 
-## Aggregation and configuration
+Open chunks flush approximately every 400 ms. Five-second chunk size does not imply five-second publication delay. Clients replace revised chunks/windows instead of adding new cumulative totals to old ones.
 
-Metadata events enter a bounded queue, then aggregate into sparse buckets and chunks. Database writes run separately from capture. Do not write one record per packet or bucket.
-
-| Setting | Default | Supported range / meaning |
+| Setting | Default | Meaning |
 | --- | --- | --- |
-| `PACKET_ACTIVITY_ENABLED` | `true` | Enable passive activity capture |
-| `PACKET_ACTIVITY_IFACE` | `AP_IFACE` | Client-facing capture interface |
-| `PACKET_ACTIVITY_BUCKET_MS` | `50` | 20–1000 ms |
-| `PACKET_ACTIVITY_CHUNK_SECONDS` | `5` | 1–60 seconds |
-| `PACKET_ACTIVITY_RETENTION_HOURS` | `24` | 1–8760 hours |
-| `PACKET_ACTIVITY_MAX_PENDING_CHUNKS` | `4096` | 128–65536 unresolved/dirty chunks |
-| `PACKET_ACTIVITY_EVENT_QUEUE` | `8192` | 256–131072 metadata events |
+| `PACKET_ACTIVITY_ENABLED` | `true` | Passive header capture |
+| `PACKET_ACTIVITY_IFACE` | `AP_IFACE` | Client-facing interface |
+| `TRAFFIC_BUCKET_MS` | `50` | 20–1000 ms, aligned to the chunk size |
+| `TRAFFIC_CHUNK_MS` | `5000` | 1000–10000 ms in whole seconds, divisible by the bucket size |
+| `TRAFFIC_FLUSH_MS` | `400` | 100–2000 ms persistence interval |
+| `TRAFFIC_CORRECTION_MS` | `10000` | 0–30000 ms mutable attribution tail |
+| `ACTIVITY_QUIET_GAP_MS` | `45000` | 1000–300000 ms gap between activity blocks |
+| `TRAFFIC_MAX_PENDING_CHUNKS` | `4096` | 128–16384 pending contribution entries |
+| `PACKET_ACTIVITY_EVENT_QUEUE` | `8192` | 256–131072 parsed metadata events |
+| `CONNTRACK_SAMPLE_MS` | `1000` | 250–5000 ms identity checks; never an accounting source |
 
-Open chunks flush every 400 ms; a five-second chunk does not mean five seconds of publication delay. Each bucket tracks directional payload bytes and packet counts. Chunk totals also retain directional wire bytes and OR-ed TCP flags. Retention removes expired activity in bounded batches without deleting parent flows or blocking capture.
+Sample/correction/grouping settings are pinned in the session policy. Retention belongs to the session; there is no separate flow-activity retention store.
 
-Activity can arrive before its stored flow. Aggregate immediately, attempt relation resolution asynchronously and retain unresolved chunks for up to five seconds. If no in-scope flow appears, expire observations into `flow_activity_status.unmatched_events`.
+## Activity blocks and retention
 
-Unmatched observations are separate from queue/aggregation loss in `dropped_events`. A matching timeout must not mark unrelated chunks or capture windows incomplete. The unmatched counter is cumulative for the collector lifetime. Historical quality flags remain unchanged because older combined counters cannot distinguish the original cause.
+`activity_blocks` projects captured payload activity by client and service. The projector unions overlapping active bins, splits after the configured quiet gap or unavailable capture, and keeps each block's observed span separate from its active duration. Several destinations may contribute to one service block. Shared destination IPs do not merge unrelated services or clients.
 
-## Persistence contract
+A block is inferred service activity, not measured browser attention, an HTTP request or a page visit. Background transfers can contribute. A connection left open across a long quiet gap produces separate blocks. ACK-only traffic and traffic outside blocks remain in map totals; block sums need not equal all captured traffic.
 
-The migration creates activity collections before they are consumed. Clear-observations removes dependent activity before parent flows.
+Continuous-session cleanup clips retained samples, recomputes block totals and keeps the identity/original-start anchor of a crossing block. It removes destination versions only when no retained chunk references them. Route anchors remain available for retained exact bindings. Expanding retention cannot recover deleted data; SQLite may keep allocated pages for reuse.
 
-| Collection | Responsibility |
+`flow_diagnostics`, `dns_queries` and `gate_events` are optional diagnostic stores. The default connection inspector is replaced by activity/service evidence. Turning on diagnostics does not change the source of map or block totals.
+
+## Ownership and loading
+
+| Area | Code |
 | --- | --- |
-| `flow_activity_chunks` | Flow/session relation, chunk identity/time/resolution, sparse samples, directional wire/payload/packet totals, TCP flags, capture completeness and source update time |
-| `flow_activity_windows` | Capture coverage and quality for a session interval, independent of whether any flow transferred bytes |
-| `flow_activity_status` | Collector state, configuration and diagnostics |
+| Capture lifecycle and persistence ordering | `pocketbase/observer/runtime.go` |
+| Header parsing and original wire length | `pocketbase/observer/packet_parser.go`, `packet_activity_linux.go` |
+| Bounded identity, corrections and aggregation | `pocketbase/observer/aggregate.go`, `classification.go` |
+| Typed persistence and coverage | `pocketbase/observer/storage.go`, `pocketbase/data` |
+| Pure block projection and retention | `pocketbase/observer/blocks.go`, `retention.go` |
+| Manifest, bounded map windows, block pages | `pocketbase/timeline`, `pocketbase/gateway/timeline.go` |
+| Shared browser contract and runtime | `packages/session-state/src/data`, `runtime.ts` |
+| Map activity and block browsing | `dashboard/src/map`, `debug-dashboard/src/experiments/session-playback` |
 
-`flow_activity_chunks.samples` is a versioned object:
+Both dashboards consume bounded product windows and one coalesced session revision signal. A refresh replaces the relevant window; pagination and overflow remain explicit. Missing capture is shown as missing or partial, never as confirmed idle time. Directional totals and cursor clipping must conserve captured bytes within the sample resolution.
 
-```json
-{
-  "version": 1,
-  "bucket_ms": 50,
-  "chunk_ms": 5000,
-  "samples": [
-    [0, 420, 0, 3, 0],
-    [50, 0, 16384, 0, 12],
-    [100, 0, 8192, 0, 6]
-  ]
-}
-```
+## Verification
 
-Each tuple is `[offset_ms, payload_bytes_out, payload_bytes_in, packets_out, packets_in]`. Empty buckets are omitted. Sparse absence means silence only when capture coverage establishes completeness.
+Use synthetic metadata or header-only fixtures for IPv4/IPv6, TCP/UDP, VLANs, options, ACK-only packets, fragments, truncation and infrastructure filtering. Preserve regressions for byte conservation, tuple/lease reuse, correction-window expiry, stale flushes, restart sealing, capture gaps, overlapping services, repeated visits, block clipping and database rollback.
 
-Consumers must validate versions, counts, bucket sizes, chunk bounds and flow identity. Ignore malformed data rather than inventing traffic. Do not blindly add overlapping fine/coarse observations or repeatedly sum updated cumulative chunks.
-
-## Code ownership and loading
-
-| Area | Location |
-| --- | --- |
-| Capture lifecycle, queues and bounded write drain | `pocketbase/observer/runtime.go`, `pocketbase/observer/packet_activity.go` |
-| Observation expiry and maintenance ordering | `pocketbase/observer/retention.go`, `pocketbase/gateway/maintenance.go` |
-| Linux socket and original wire-length handling | `pocketbase/observer/packet_activity_linux.go` |
-| Packet parsing and normalization | `pocketbase/observer/packet_parser.go`, `pocketbase/netmeta` |
-| Pure bucketing | `pocketbase/observer/activity_buckets.go` |
-| PocketBase chunk/window/status persistence | `pocketbase/observer/activity_chunks.go` |
-| Session DTOs, bounded loading, realtime and cache ownership | `packages/session-state/src/data`, `packages/session-state/src/timeline` |
-| Debug activity decoding and timeline projection | `debug-dashboard/src/shared/activity`, `debug-dashboard/src/model/sessionModel.ts` |
-| Production map activity projection | `dashboard/src/map/wireWaveform.ts` |
-
-Both dashboards consume the shared session runtime. Overview and fine detail have different responsibilities: keep detail requests paginated and bounded by visible/selected time ranges, with request cancellation and cache eviction. Compact cumulative summaries can cover the session without loading its entire fine-grained history. A fixed record limit must never silently truncate a requested interval.
-
-## Visualization and evidence quality
-
-In the debug timeline, preserve the connection baseline and parent-flow selection. Render outbound and inbound payload separately with a logarithmic scale; ACK-only activity remains visible as a minimal packet mark. Amber/orange outbound and cyan/blue inbound distinguish direction. The production map uses track colors and directional flow motion instead.
-
-Use “activity,” “burst” or “transfer” in the passive UI. Show missing/dropped capture with text and hatching, not as idle time. Inspector totals must distinguish whole-connection counters from captured activity inside the selected window.
-
-For active-time calculations, count the union of buckets active in either direction, not the sum of overlapping directional spans. Exclude missing coverage before describing remaining time as idle. Any presentation-level merging of adjacent buckets must retain original samples and must not imply measured request/response pairing.
-
-Exact resource labels and browser timings would require a separate opt-in browser-telemetry extension. That extension is not part of passive capture: it needs its own consent, retention and correlation contract, and must not overwrite gateway evidence with inferred browser associations.
-
-## Regression coverage
-
-Use synthetic metadata or header-only fixtures, never real payload captures. Preserve coverage for:
-
-- IPv4/IPv6, TCP/UDP, VLANs, options, ACK-only packets, fragments, malformed/truncated frames and infrastructure filtering.
-- Direction normalization, bucket boundaries, sparse encoding, overflow protection and separated bursts.
-- Real Linux socket/BPF handling of large frames and missing/malformed auxiliary lengths.
-- Delayed flow resolution, unmatched expiry versus real capture loss, bounded queues and persistence backpressure.
-- Migration, paginated/time-filtered loading, clear order, retention without parent deletion and graceful shutdown.
-- Correct inbound/outbound rendering, validated sample decoding and visible incomplete coverage.
-
-Run the [flow activity Pi procedure](../validation/flow-activity-raspberry-pi.md) for actual AP capture, controlled browser timing comparisons, forwarding isolation and a 60-minute resource/database-growth measurement. Local parser or replay tests alone do not establish target-device performance.
+The [historical Pi capture procedure](../validation/flow-activity-raspberry-pi.md) contains useful socket and forwarding checks, but its old flow-store/API examples do not apply to this schema. Validate the new build with fresh data, participant traffic, pause/seek, block details and retained-window totals. Measure write rate, database growth, memory and map-window latency on the target hardware; local parser tests cannot establish those results.

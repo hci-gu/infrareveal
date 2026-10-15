@@ -5,6 +5,11 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
+
+	"github.com/pocketbase/dbx"
+	"github.com/pocketbase/pocketbase/core"
+	"myapp/data"
 )
 
 type clearObservationsResult struct {
@@ -13,8 +18,8 @@ type clearObservationsResult struct {
 }
 
 // Clear disarms fail-open, drains audit, and joins all observation producers
-// before deleting. Restart uses fresh DNS/packet state and suppressed conntrack
-// tuples, so accepted pre-clear work cannot recreate cleared records.
+// before deleting. Restart opens a fresh capture epoch, so accepted pre-clear
+// work cannot recreate cleared records. Probe admissions remain charged.
 func (g *Runtime) Clear(ctx context.Context) (clearObservationsResult, error) {
 	if err := lockOperation(ctx, &g.operations); err != nil {
 		return clearObservationsResult{}, err
@@ -34,57 +39,44 @@ func (g *Runtime) Clear(ctx context.Context) (clearObservationsResult, error) {
 			return result, err
 		}
 	}
-	if g.observation != nil {
-		if err := g.observation.Quiesce(ctx); err != nil {
-			// No deletion has begun. Recover intake after outstanding writes finish;
-			// serialize the restart against any later clear or shutdown.
-			go func() {
-				_ = g.observation.Wait(context.Background())
-				g.operations.Lock()
-				defer g.operations.Unlock()
-				if !g.closed {
-					g.observation.Start()
-				}
-			}()
-			return result, err
-		}
-		defer g.observation.Start()
-		if err := g.observation.SuppressCurrentFlows(); err != nil {
-			return result, fmt.Errorf("snapshot active conntrack flows before clearing: %w", err)
-		}
+	resume, err := g.pauseObservation(ctx)
+	if err != nil {
+		return result, err
 	}
+	defer resume()
 	if g.routes != nil {
 		if err := g.routes.ResetContext(ctx); err != nil {
 			return result, err
 		}
 	}
-	// Dependency order preserves per-record hooks and realtime delete events.
-	for _, name := range []string{"gate_events", "flow_activity_chunks", "flow_activity_windows", "flow_activity_status", "flow_associations", "activity_episodes", "flow_attributions", "routes", "route_cache", "route_observations", "route_outcomes", "route_evidence_updates", "traceroutes", "packets", "flows", "dns_queries", "destinations", "clients"} {
-		if _, err := g.app.FindCollectionByNameOrId(name); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				result.Skipped = append(result.Skipped, name)
-				continue
-			}
-			return result, err
-		}
-		for {
-			if err := ctx.Err(); err != nil {
-				return result, err
-			}
-			records, err := g.app.FindRecordsByFilter(name, "", "id", 200, 0)
-			if err != nil {
-				return result, err
-			}
-			if len(records) == 0 {
-				break
-			}
-			for _, record := range records {
-				if err := g.app.Delete(record); err != nil {
-					return result, fmt.Errorf("clear %s/%s: %w", name, record.Id, err)
+	// Core data and optional diagnostics have no dependency on the durable quota
+	// ledger. Never delete probe_runs here, even if their sessions were removed.
+	err = g.app.RunInTransaction(func(tx core.App) error {
+		for _, name := range []string{"gate_events", "flow_diagnostics", "dns_queries", "activity_blocks", "traffic_chunks", "capture_intervals", "route_evidence", "destinations"} {
+			if _, err := tx.FindCollectionByNameOrId(name); err != nil {
+				if errors.Is(err, sql.ErrNoRows) {
+					result.Skipped = append(result.Skipped, name)
+					continue
 				}
-				result.Deleted[name]++
+				return err
 			}
+			if err := ctx.Err(); err != nil {
+				return err
+			}
+			deleted, err := tx.DB().NewQuery("DELETE FROM " + name).Execute()
+			if err != nil {
+				return fmt.Errorf("clear %s: %w", name, err)
+			}
+			count, err := deleted.RowsAffected()
+			if err != nil {
+				return err
+			}
+			result.Deleted[name] = int(count)
 		}
-	}
-	return result, nil
+		// Clear removes the old contents of the crossing bin, so rounding down
+		// admits fresh packets immediately. Rolling expiry instead rounds up.
+		_, err := tx.DB().NewQuery("UPDATE sessions SET revision=revision+1, retained_from_ms=MAX(retained_from_ms, CASE WHEN active THEN {:now}-{:now}%COALESCE(NULLIF(json_extract(policy,'$.bucket_ms'),0),50) ELSE ended_ms END), block_watermark_ms=0, capture=json_object('epoch',{:epoch})").Bind(dbx.Params{"now": time.Now().UnixMilli(), "epoch": data.NewID()}).Execute()
+		return err
+	})
+	return result, err
 }

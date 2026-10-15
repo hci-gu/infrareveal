@@ -1,25 +1,19 @@
 package routing
 
 import (
-	"time"
-
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"time"
 )
 
-// RetainSession runs in the caller's session-cleanup transaction, after expired
-// flows have been removed. It preserves the latest pre-window route and event
-// anchors required by retained flows. It never opens an independent transaction.
+// RetainSession runs inside the caller's traffic-retention transaction. Keep
+// the last publication before the retained edge and its invalidation history.
 func RetainSession(app core.App, session string, cutoff time.Time) error {
-	params := dbx.Params{"session": session, "cut": recordDate(cutoff)}
+	params := dbx.Params{"s": session, "cut": cutoff.UnixMilli()}
 	for _, statement := range []string{
-		`DELETE FROM routes WHERE session={:session} AND NOT EXISTS (SELECT 1 FROM flows WHERE flows.session=routes.session AND flows.destination_ip=routes.destination_ip AND flows.destination_port=routes.destination_port AND flows.protocol=routes.protocol)`,
-		// Keep the last pre-window revision as an anchor for long-lived flows.
-		`DELETE FROM routes WHERE session={:session} AND COALESCE(NULLIF(available_at,''),completed_at) < {:cut} AND EXISTS (SELECT 1 FROM routes newer WHERE newer.session=routes.session AND newer.destination_ip=routes.destination_ip AND newer.destination_port=routes.destination_port AND newer.protocol=routes.protocol AND COALESCE(NULLIF(newer.available_at,''),newer.completed_at) < {:cut} AND (COALESCE(NULLIF(newer.available_at,''),newer.completed_at) > COALESCE(NULLIF(routes.available_at,''),routes.completed_at) OR (COALESCE(NULLIF(newer.available_at,''),newer.completed_at)=COALESCE(NULLIF(routes.available_at,''),routes.completed_at) AND newer.id > routes.id)))`,
-		`DELETE FROM route_evidence_updates WHERE session={:session} AND available_at < {:cut} AND kind != 'network_invalidated' AND NOT EXISTS (SELECT 1 FROM routes WHERE routes.id=route_evidence_updates.binding_key)`,
-		`DELETE FROM route_outcomes WHERE session={:session} AND available_at < {:cut}`,
-		`DELETE FROM route_evidence_updates WHERE session={:session} AND available_at < {:cut} AND kind='network_invalidated' AND NOT EXISTS (SELECT 1 FROM routes WHERE routes.session=route_evidence_updates.session AND routes.network_context=route_evidence_updates.network_context)`,
-		`DELETE FROM route_evidence_updates WHERE session={:session} AND available_at < {:cut} AND EXISTS (SELECT 1 FROM route_evidence_updates newer WHERE newer.session=route_evidence_updates.session AND newer.kind=route_evidence_updates.kind AND newer.binding_key=route_evidence_updates.binding_key AND newer.network_context=route_evidence_updates.network_context AND newer.available_at < {:cut} AND (newer.available_at > route_evidence_updates.available_at OR (newer.available_at=route_evidence_updates.available_at AND newer.id > route_evidence_updates.id)))`,
+		`DELETE FROM route_evidence WHERE session={:s} AND kind='path' AND NOT EXISTS (SELECT 1 FROM traffic_chunks t WHERE t.session=route_evidence.session AND t.network_epoch=route_evidence.network_epoch AND t.destination_ip=route_evidence.destination_ip AND t.protocol=route_evidence.protocol AND t.destination_port=route_evidence.destination_port)`,
+		`DELETE FROM route_evidence WHERE session={:s} AND kind='path' AND available_ms < {:cut} AND EXISTS (SELECT 1 FROM route_evidence newer WHERE newer.session=route_evidence.session AND newer.kind='path' AND newer.network_epoch=route_evidence.network_epoch AND newer.binding_key=route_evidence.binding_key AND newer.available_ms < {:cut} AND (newer.available_ms>route_evidence.available_ms OR (newer.available_ms=route_evidence.available_ms AND newer.id>route_evidence.id)))`,
+		`DELETE FROM route_evidence WHERE session={:s} AND kind='network_invalidated' AND NOT EXISTS (SELECT 1 FROM route_evidence path WHERE path.session=route_evidence.session AND path.kind='path' AND path.network_epoch=route_evidence.network_epoch)`,
 	} {
 		if _, err := app.DB().NewQuery(statement).Bind(params).Execute(); err != nil {
 			return err
@@ -28,19 +22,11 @@ func RetainSession(app core.App, session string, cutoff time.Time) error {
 	return nil
 }
 
-// RetainShared keeps cache and suppression lifetimes independent of the session
-// window. The gateway calls this even when discovery is disabled; observations
-// referenced by any recording are always retained.
-func RetainShared(app core.App, observationCutoff, cacheCutoff time.Time) error {
-	params := dbx.Params{"cut": recordDate(observationCutoff), "cacheCut": recordDate(cacheCutoff)}
-	for _, statement := range []string{
-		`DELETE FROM route_cache WHERE id IN (SELECT id FROM route_cache ORDER BY last_used_at DESC LIMIT -1 OFFSET 1000) OR last_used_at < {:cacheCut}`,
-		`DELETE FROM route_budget_state WHERE (key LIKE 'negative:%' OR key LIKE 'network:%') AND julianday(available_at) < julianday({:cacheCut})`,
-		`DELETE FROM route_observations WHERE julianday(measured_at) < julianday({:cut}) AND NOT EXISTS (SELECT 1 FROM routes WHERE observation_id=route_observations.id)`,
-	} {
-		if _, err := app.DB().NewQuery(statement).Bind(params).Execute(); err != nil {
-			return err
-		}
-	}
-	return nil
+// Open recordings keep their lifetime charges. Other admissions survive the
+// rolling quota/negative-learning window, even when their session was deleted.
+func RetainShared(app core.App, now time.Time) error {
+	_, err := app.DB().NewQuery(`DELETE FROM probe_runs WHERE admitted_ms < {:cut}
+ AND cooldown_until_ms < {:now} AND pause_until_ms < {:now}
+ AND NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id=probe_runs.session AND s.active=true AND s.ephemeral=false)`).Bind(dbx.Params{"cut": now.Add(-networkHistory).UnixMilli(), "now": now.UnixMilli()}).Execute()
+	return err
 }

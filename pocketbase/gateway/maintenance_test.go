@@ -1,40 +1,72 @@
 package gateway
 
 import (
-	"errors"
-	"github.com/pocketbase/pocketbase/core"
-	"myapp/testsupport"
+	"strings"
 	"testing"
 	"time"
+
+	"myapp/data"
+	"myapp/observer"
+	"myapp/testsupport"
 )
 
-func TestCatalogueFailureDoesNotDisableUnrelatedMaintenance(t *testing.T) {
+func TestDiagnosticsHaveIndependentAgeAndPayloadBounds(t *testing.T) {
 	app := testsupport.App(t)
+	if err := data.InstallDiagnostics(app); err != nil {
+		t.Fatal(err)
+	}
 	g := testRuntime(t, app)
-	g.config.Demo = true
-	g.config.DomainCatalogue = true
-	now := time.Now().UTC()
-	old := now.Add(-48 * time.Hour)
-	demo := testsupport.Save(t, app, "sessions", map[string]any{"demo": true, "active": true, "ephemeral": true})
-	dns := testsupport.Save(t, app, "dns_queries", map[string]any{"session": demo.Id, "query_name": "example.com", "timestamp": old})
-	history := testsupport.Save(t, app, "sessions", map[string]any{"active": false})
-	flow := testsupport.Save(t, app, "flows", map[string]any{"session": history.Id, "flow_key": "historical", "client_ip": "10.0.0.50", "destination_ip": "1.1.1.1", "protocol": "tcp", "start": old, "last_seen": old})
-	testsupport.Save(t, app, "flow_activity_chunks", map[string]any{"session": history.Id, "flow": flow.Id, "chunk_key": "old", "flow_key": "historical", "samples": map[string]any{"version": 1, "bucket_ms": 50, "chunk_ms": 5000, "samples": []any{}}, "chunk_start": old, "chunk_ms": 5000, "bucket_ms": 50})
-	testsupport.Save(t, app, "route_cache", map[string]any{"cache_key": "old-cache", "last_used_at": old})
-	app.OnRecordCreate("domain_catalogue").BindFunc(func(e *core.RecordEvent) error { return errors.New("catalogue unavailable") })
-	if err := g.sweep(now, true); err == nil {
-		t.Fatal("maintenance hid catalogue failure")
+	g.config.DiagnosticMaxBytes = 6000
+	g.config.DiagnosticRetention = time.Hour
+	now := time.Now()
+	old := testsupport.Save(t, app, "dns_queries", map[string]any{"query_name": "old.test", "observed_ms": now.Add(-2 * time.Hour).UnixMilli()})
+	for i := 0; i < 5; i++ {
+		testsupport.Save(t, app, "dns_queries", map[string]any{"query_name": "recent.test", "observed_ms": now.UnixMilli(), "answers": []string{strings.Repeat("x", 900)}})
 	}
-	if _, err := app.FindRecordById("dns_queries", dns.Id); err != nil {
-		t.Fatal("failed aggregate transaction deleted source")
+	pending := testsupport.Save(t, app, "gate_events", map[string]any{"session": "fixture", "decision_id": "pending", "state": "queued", "queued_at": now.Add(-2 * time.Hour)})
+	terminal := testsupport.Save(t, app, "gate_events", map[string]any{"session": "fixture", "decision_id": "terminal", "state": "approved", "queued_at": now.Add(-2 * time.Hour)})
+	if err := g.pruneDiagnostics(now); err != nil {
+		t.Fatal(err)
 	}
-	for _, name := range []string{"flow_activity_chunks", "route_cache"} {
-		count, err := app.CountRecords(name)
-		if err != nil || count != 0 {
-			t.Fatalf("%s cleanup blocked: %d %v", name, count, err)
-		}
+	if _, err := app.FindRecordById("dns_queries", old.Id); err == nil {
+		t.Fatal("expired diagnostic retained")
 	}
-	if _, err := app.FindRecordById("flows", flow.Id); err != nil {
-		t.Fatal("ordinary session history was deleted")
+	count, err := app.CountRecords("dns_queries")
+	if err != nil || count == 0 || count >= 5 {
+		t.Fatalf("payload cap did not retain a bounded recent tail: %d %v", count, err)
+	}
+	if _, err := app.FindRecordById("gate_events", pending.Id); err != nil {
+		t.Fatal("evicted pending gate verdict", err)
+	}
+	if _, err := app.FindRecordById("gate_events", terminal.Id); err == nil {
+		t.Fatal("expired terminal audit retained")
+	}
+}
+
+func TestRetentionFailureDoesNotSuspendQuotaOrDiagnosticCleanup(t *testing.T) {
+	app := testsupport.App(t)
+	if err := data.InstallDiagnostics(app); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now()
+	old := now.Add(-7 * 24 * time.Hour).UnixMilli()
+	session := testsupport.Save(t, app, "sessions", map[string]any{"active": true, "ephemeral": true, "started_ms": old, "retention_minutes": 30, "policy": observer.DefaultPolicy()})
+	chunk := testsupport.Save(t, app, "traffic_chunks", map[string]any{"session": session.Id, "start_ms": old, "chunk_ms": 5000, "bucket_ms": 50, "samples": []data.Sample{{0, 60, 0, 0, 0, 1, 0}}})
+	admission := testsupport.Save(t, app, "probe_runs", map[string]any{"session": "deleted", "admitted_ms": old})
+	diagnostic := testsupport.Save(t, app, "dns_queries", map[string]any{"session": session.Id, "query_name": "expired.test", "observed_ms": old})
+	if _, err := app.DB().NewQuery("CREATE TRIGGER reject_retention BEFORE DELETE ON traffic_chunks BEGIN SELECT RAISE(ABORT, 'fixture failure'); END").Execute(); err != nil {
+		t.Fatal(err)
+	}
+	if err := testRuntime(t, app).sweep(now); err == nil {
+		t.Fatal("retention failure was hidden")
+	}
+	if _, err := app.FindRecordById("traffic_chunks", chunk.Id); err != nil {
+		t.Fatal("failed retention removed traffic", err)
+	}
+	if _, err := app.FindRecordById("probe_runs", admission.Id); err == nil {
+		t.Fatal("unrelated expired quota retained")
+	}
+	if _, err := app.FindRecordById("dns_queries", diagnostic.Id); err == nil {
+		t.Fatal("unrelated diagnostic cleanup blocked")
 	}
 }

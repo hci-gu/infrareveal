@@ -58,6 +58,7 @@ type subscriber struct {
 }
 
 type subscribeRequest struct {
+	ctx       context.Context
 	sessionID string
 	after     uint64
 	reply     chan subscribeResponse
@@ -130,8 +131,9 @@ func (hub *Hub) Subscribe(ctx context.Context, sessionID string, afterSequence u
 	if hub == nil || hub.closed.Load() {
 		return nil, ErrHubClosed
 	}
-	reply := make(chan subscribeResponse, 1)
-	request := subscribeRequest{sessionID: sessionID, after: afterSequence, reply: reply}
+	// Register only after handoff, so cancellation cannot leave a subscriber behind.
+	reply := make(chan subscribeResponse)
+	request := subscribeRequest{ctx: ctx, sessionID: sessionID, after: afterSequence, reply: reply}
 	select {
 	case hub.commands <- request:
 	case <-ctx.Done():
@@ -294,15 +296,21 @@ func (hub *Hub) run() {
 		case command := <-hub.commands:
 			switch request := command.(type) {
 			case subscribeRequest:
+				if request.ctx.Err() != nil {
+					continue
+				}
 				if len(subscribers) >= hub.config.MaxSubscribers {
-					request.reply <- subscribeResponse{err: ErrMaxSubscribers}
+					select {
+					case request.reply <- subscribeResponse{err: ErrMaxSubscribers}:
+					case <-request.ctx.Done():
+					}
 					continue
 				}
 				subscriberID++
 				current := &subscriber{
 					id: subscriberID, sessionID: request.sessionID,
 					events:    make(chan StreamMessage, hub.config.SubscriberBuffer),
-					liveAfter: min(request.after, sequence),
+					liveAfter: sequence,
 				}
 				initial := []StreamMessage{hub.message("hello", request.sessionID, sequence, oldest())}
 				if request.after > 0 && request.after+1 < oldest() {
@@ -323,7 +331,6 @@ func (hub *Hub) run() {
 					message.Events = replay[start:end]
 					initial = append(initial, message)
 				}
-				current.liveAfter = sequence
 				subscription := &Subscription{Initial: initial, Events: current.events}
 				subscription.cancel = func() {
 					select {
@@ -331,8 +338,11 @@ func (hub *Hub) run() {
 					case <-hub.done:
 					}
 				}
-				subscribers[current.id] = current
-				request.reply <- subscribeResponse{subscription: subscription}
+				select {
+				case request.reply <- subscribeResponse{subscription: subscription}:
+					subscribers[current.id] = current
+				case <-request.ctx.Done():
+				}
 			case removeSubscriber:
 				if current := subscribers[uint64(request)]; current != nil {
 					delete(subscribers, current.id)

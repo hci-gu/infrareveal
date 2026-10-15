@@ -1,6 +1,6 @@
 # Domain grouping
 
-Every flow with a high- or medium-confidence attributed hostname belongs to its
+Captured activity with a usable DNS-attributed hostname belongs to its
 registered-domain group, scoped to its client and session. For example,
 `www.facebook.com` and `graph.facebook.com` both belong to `facebook.com`.
 The Public Suffix List handles domains such as `example.co.uk` and isolates
@@ -35,30 +35,33 @@ and restart. No frontend mapping table needs to be kept in sync.
 
 The table is an explicit grouping policy, not proof of which application opened
 a connection. In particular, shared providers should not be mapped wholesale to
-one service. The original attributed hostname remains visible on the connection.
+one service. The original attributed hostname remains visible in the captured aggregate evidence.
 
 ## Membership and lifecycle
 
-- Domain membership requires usable hostname evidence. Missing, low-confidence,
-  hidden, and invalid hostname evidence remains in Independent traffic.
-- Membership uses `first_party` for the same registered domain and `domain_alias`
-  for an explicit JSON mapping. Association confidence preserves hostname confidence.
-- DNS timing, proximity to other connections, CNAME chains, and shared IPs/providers
-  do not merge domains. There is no supported-service allowlist.
-- A group has a stable key based on session, client, and canonical domain. Idle
-  gaps do not split it, and discovering an earlier connection does not change its ID.
-- The existing three-second correlator refreshes the current active session and
-  replaces old temporal associations and obsolete groups. Allow for processing and
-  frontend synchronization before a newly observed connection leaves Independent.
-- Closed recordings retain their stored associations; deploying this change does
-  not rewrite historical sessions. Frontends retain legacy relationship support.
-
-The storage collection remains `activity_episodes` for API compatibility; it now
-represents domain groups rather than inferred visits. No schema migration is needed.
+- Captured samples carry one client-scoped service label or an independent
+  endpoint label. Core storage has no flow/attribution/association collections.
+- Recent DNS answers support medium-confidence classification. Conflicting names
+  on a shared endpoint retract provisional attribution to unknown. Time proximity
+  and a shared provider do not prove a service relationship.
+- Source ports and connection identities remain in bounded memory. They support
+  generation/lease checks without becoming persistent membership records.
+- Aliases and the Public Suffix List version are pinned in each session policy.
+  The original DNS hostname and confidence remain in compact chunk evidence.
+- Ten seconds of provisional samples may be corrected atomically. Older labels
+  are sealed, including on restart; the UI never rewrites the full history.
+- `activity_blocks` group payload-active intervals by client and canonical service.
+  A quiet gap greater than 45 seconds starts another block. Unknown capture gaps
+  also split blocks. Span and active time are separate; ACK-only packets do not
+  extend the block. One connection may contribute to several visits.
+- Rolling retention preserves crossing-block identity and original start while
+  recomputing retained counters. Activity indicates observed service use, not
+  browser focus or measured attention.
 
 ## Validation
 
-Run `go test ./observer` in `pocketbase`, and the frontend tests and builds from
-the workspace root. Tests cover arbitrary domains, suffix handling, aliases,
-simultaneous unrelated services, long gaps, client/session isolation, stable
-keys, unknown traffic, JSON validation, and replacement of old persisted groups.
+Run `go test ./observer` in `pocketbase` and the workspace frontend tests. Cases
+cover suffixes and aliases, delayed DNS, ambiguous shared IPs, byte conservation,
+multiple visits, concurrent services, capture gaps, client/tuple reuse, sealed
+history and retained block anchors. The accepted storage design is
+[ADR 0003](../adr/0003-map-activity-storage.md).

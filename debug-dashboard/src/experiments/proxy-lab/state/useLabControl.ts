@@ -88,6 +88,6 @@ export function useLabControl(sessionId: string, enabled: boolean, baseUrl: stri
 }
 
 function controlNow() {
-  const { serverClock } = sessionTimelineStore.getState()
-  return serverClock.serverNowMs > 0 ? serverClock.serverNowMs + Math.max(0, performance.now() - serverClock.syncedAtMs) : Date.now()
+  const { clock } = sessionTimelineStore.getState()
+  return clock.serverMs > 0 ? clock.serverMs + Math.max(0, performance.now() - clock.receivedMs) : Date.now()
 }

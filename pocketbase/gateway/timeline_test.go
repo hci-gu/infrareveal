@@ -1,256 +1,302 @@
 package gateway
 
 import (
+	"bufio"
+	"context"
+	"encoding/json"
 	"fmt"
-	"myapp/testsupport"
-	"strconv"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"myapp/timeline"
+	"github.com/pocketbase/pocketbase"
+	"github.com/pocketbase/pocketbase/apis"
+	"github.com/pocketbase/pocketbase/core"
+	"myapp/data"
+	"myapp/observer"
+	"myapp/testsupport"
 )
 
-func TestSessionTimelineWindowSupportsMoreThanFilterExpressionLimit(t *testing.T) {
+func gatewayHTTP(t *testing.T) (*pocketbase.PocketBase, *Runtime, http.Handler) {
+	t.Helper()
 	app := testsupport.App(t)
-
-	start := time.Date(2026, 9, 3, 9, 0, 0, 0, time.UTC)
-	session := testsupport.Save(t, app, "sessions", map[string]any{
-		"name":       "Large timeline test",
-		"active":     true,
-		"started_at": start.Format(time.RFC3339Nano),
-	})
-
-	flowIDs := make([]string, 0, 205)
-	for index := 0; index < 205; index++ {
-		flow := testsupport.Save(t, app, "flows", map[string]any{
-			"session":          session.Id,
-			"flow_key":         fmt.Sprintf("tcp|10.0.0.50|%d|198.51.%d.%d|443", 40000+index, index/250, index%250+1),
-			"client_ip":        "10.0.0.50",
-			"destination_ip":   fmt.Sprintf("198.51.%d.%d", index/250, index%250+1),
-			"source_port":      40000 + index,
-			"destination_port": 443,
-			"protocol":         "tcp",
-			"start":            start.Add(time.Duration(index) * time.Millisecond).Format(time.RFC3339Nano),
-			"last_seen":        start.Add(time.Minute).Format(time.RFC3339Nano),
-		})
-		flowIDs = append(flowIDs, flow.Id)
-	}
-
-	testsupport.Save(t, app, "flow_attributions", map[string]any{
-		"session":            session.Id,
-		"flow":               flowIDs[0],
-		"candidate_hostname": "example.test",
-		"source_signal":      "dns",
-		"confidence":         "high",
-		"observed_at":        start.Format(time.RFC3339Nano),
-	})
-
-	episode := testsupport.Save(t, app, "activity_episodes", map[string]any{
-		"session":         session.Id,
-		"episode_key":     "large-timeline-episode",
-		"client_ip":       "10.0.0.50",
-		"site_key":        "example.test",
-		"label":           "Example",
-		"anchor_hostname": "example.test",
-		"start":           start.Format(time.RFC3339Nano),
-		"last_seen":       start.Add(time.Minute).Format(time.RFC3339Nano),
-		"confidence":      "high",
-	})
-
-	testsupport.Save(t, app, "flow_associations", map[string]any{
-		"session":         session.Id,
-		"flow":            flowIDs[0],
-		"episode":         episode.Id,
-		"parent_site_key": "example.test",
-		"parent_label":    "Example",
-		"relationship":    "first_party",
-		"confidence":      "high",
-		"score":           100,
-		"observed_at":     start.Format(time.RFC3339Nano),
-	})
-
-	destination := testsupport.Save(t, app, "destinations", map[string]any{
-		"ip":          "198.51.0.1",
-		"reverse_dns": "example.test",
-		"first_seen":  start.Format(time.RFC3339Nano),
-		"last_seen":   start.Add(time.Minute).Format(time.RFC3339Nano),
-	})
-
-	testsupport.Save(t, app, "routes", map[string]any{
-		"session":          session.Id,
-		"destination":      destination.Id,
-		"destination_ip":   destination.GetString("ip"),
-		"destination_port": 443,
-		"protocol":         "tcp",
-		"method":           "traceroute",
-		"started_at":       start.Format(time.RFC3339Nano),
-		"completed_at":     start.Add(time.Second).Format(time.RFC3339Nano),
-	})
-
-	testsupport.Save(t, app, "flow_activity_chunks", map[string]any{
-		"session":     session.Id,
-		"flow":        flowIDs[0],
-		"chunk_key":   "large-timeline-chunk",
-		"flow_key":    "large-timeline-flow",
-		"chunk_start": start.Format(time.RFC3339Nano),
-		"bucket_ms":   50,
-		"chunk_ms":    5000,
-		"samples": map[string]any{
-			"version": 1, "bucket_ms": 50, "chunk_ms": 5000,
-			"samples": [][]int64{{0, 10, 20, 1, 2}},
-		},
-	})
-
-	window, status, err := readTimelineWindow(app, session.Id, map[string][]string{
-		"from":  {strconv.FormatInt(start.UnixMilli(), 10)},
-		"to":    {strconv.FormatInt(start.Add(time.Hour).UnixMilli(), 10)},
-		"lod":   {"overview"},
-		"limit": {"250"},
-	})
-	if err != nil || status != 200 {
-		t.Fatalf("large window failed: status=%d err=%v", status, err)
-	}
-	if len(window.Flows) != len(flowIDs) || len(window.Attributions) != 1 || len(window.FlowAssociations) != 1 || len(window.Destinations) != 1 || len(window.Routes) != 1 {
-		t.Fatalf(
-			"unexpected large window counts: flows=%d attributions=%d associations=%d destinations=%d routes=%d",
-			len(window.Flows), len(window.Attributions), len(window.FlowAssociations), len(window.Destinations), len(window.Routes),
-		)
-	}
-
-	filtered, status, err := readTimelineWindow(app, session.Id, map[string][]string{
-		"from":  {strconv.FormatInt(start.UnixMilli(), 10)},
-		"to":    {strconv.FormatInt(start.Add(5*time.Minute).UnixMilli(), 10)},
-		"lod":   {"50ms"},
-		"limit": {"250"},
-		"flow":  {strings.Join(flowIDs[:200], ",")},
-	})
-	if err != nil || status != 200 {
-		t.Fatalf("large filtered window failed: status=%d err=%v", status, err)
-	}
-	if len(filtered.Flows) != 200 || len(filtered.FlowActivityChunks) != 1 {
-		t.Fatalf("unexpected filtered counts: flows=%d chunks=%d", len(filtered.Flows), len(filtered.FlowActivityChunks))
-	}
-}
-
-func TestSessionTimelineManifestAndWindow(t *testing.T) {
-	app := testsupport.App(t)
-
-	start := time.Date(2026, 9, 2, 9, 0, 0, 0, time.UTC)
-	session := testsupport.Save(t, app, "sessions", map[string]any{
-		"name":                "Timeline test",
-		"active":              true,
-		"started_at":          start.Format(time.RFC3339Nano),
-		"gate_audit_complete": false,
-		"gate_audit_drops":    2,
-	})
-	if session.GetDateTime("created").IsZero() || session.GetDateTime("updated").IsZero() {
-		t.Fatalf("session revision fields were not populated: created=%q updated=%q", session.GetString("created"), session.GetString("updated"))
-	}
-
-	flow := testsupport.Save(t, app, "flows", map[string]any{
-		"session":          session.Id,
-		"flow_key":         "tcp|10.0.0.50|53000|93.184.216.34|443",
-		"client_ip":        "10.0.0.50",
-		"destination_ip":   "93.184.216.34",
-		"source_port":      53000,
-		"destination_port": 443,
-		"protocol":         "tcp",
-		"start":            start.Add(time.Second).Format(time.RFC3339Nano),
-		"last_seen":        start.Add(4 * time.Second).Format(time.RFC3339Nano),
-	})
-	if flow.GetDateTime("created").IsZero() || flow.GetDateTime("updated").IsZero() {
-		t.Fatalf("flow revision fields were not populated: created=%q updated=%q", flow.GetString("created"), flow.GetString("updated"))
-	}
-
-	testsupport.Save(t, app, "flow_activity_chunks", map[string]any{
-		"session":     session.Id,
-		"flow":        flow.Id,
-		"chunk_key":   "timeline-test",
-		"flow_key":    flow.GetString("flow_key"),
-		"chunk_start": start.Format(time.RFC3339Nano),
-		"bucket_ms":   50,
-		"chunk_ms":    5000,
-		"samples": map[string]any{
-			"version": 1, "bucket_ms": 50, "chunk_ms": 5000,
-			"samples": [][]int64{{1000, 10, 20, 1, 2}, {1050, 5, 5, 1, 1}},
-		},
-	})
-
-	testsupport.Save(t, app, "gate_events", map[string]any{
-		"session":          session.Id,
-		"decision_id":      "timeline-decision",
-		"flow_key":         flow.GetString("flow_key"),
-		"client_ip":        "10.0.0.50",
-		"destination_ip":   "93.184.216.34",
-		"source_port":      53000,
-		"destination_port": 443,
-		"protocol":         "tcp",
-		"packet_count":     1,
-		"state":            "approved",
-		"verdict_source":   "operator",
-		"queued_at":        start.Add(1500 * time.Millisecond).Format(time.RFC3339Nano),
-		"decided_at":       start.Add(2 * time.Second).Format(time.RFC3339Nano),
-		"wait_ms":          500,
-	})
-
-	manifest, err := timeline.New(app).Manifest(session.Id, start.Add(10*time.Second))
+	g := testRuntime(t, app)
+	g.Register()
+	router, err := apis.NewRouter(app)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manifest.SessionID != session.Id || manifest.Counts["flows"] != 1 || manifest.Counts["flow_activity_chunks"] != 1 || manifest.Counts["gate_events"] != 1 {
-		t.Fatalf("unexpected manifest: %#v", manifest)
+	router.BindFunc(g.guardMutation)
+	registerSessionTimelineRoutes(router, app)
+	g.registerSessionControls(router)
+	g.registerDemoRoutes(router)
+	handler, err := router.BuildMux()
+	if err != nil {
+		t.Fatal(err)
 	}
-	if manifest.GateAuditComplete || manifest.GateAuditDrops != 2 {
-		t.Fatalf("gate audit disclosure missing: %#v", manifest)
-	}
+	return app, g, handler
+}
 
-	window, status, err := readTimelineWindow(app, session.Id, map[string][]string{
-		"from": {strconv.FormatInt(start.UnixMilli(), 10)},
-		"to":   {strconv.FormatInt(start.Add(10*time.Second).UnixMilli(), 10)},
-		"lod":  {"500ms"},
-	})
-	if err != nil || status != 200 {
-		t.Fatalf("window failed: status=%d err=%v", status, err)
+func requestJSON(t *testing.T, handler http.Handler, method, path, body, token string) *httptest.ResponseRecorder {
+	t.Helper()
+	request := httptest.NewRequest(method, path, strings.NewReader(body))
+	if body != "" {
+		request.Header.Set("Content-Type", "application/json")
 	}
-	if len(window.Flows) != 1 || len(window.FlowActivityChunks) != 1 || len(window.GateEvents) != 1 {
-		t.Fatalf("unexpected window counts: flows=%d chunks=%d", len(window.Flows), len(window.FlowActivityChunks))
+	if token != "" {
+		request.Header.Set("Authorization", token)
 	}
-	if window.FlowActivityChunks[0]["bucket_ms"] != 500 {
-		t.Fatalf("expected server LOD aggregation, got %#v", window.FlowActivityChunks[0]["bucket_ms"])
-	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}
 
-	testsupport.Save(t, app, "flows", map[string]any{
-		"session":          session.Id,
-		"flow_key":         "tcp|10.0.0.51|53001|1.1.1.1|443",
-		"client_ip":        "10.0.0.51",
-		"destination_ip":   "1.1.1.1",
-		"source_port":      53001,
-		"destination_port": 443,
-		"protocol":         "tcp",
-		"start":            start.Add(2 * time.Second).Format(time.RFC3339Nano),
-		"last_seen":        start.Add(5 * time.Second).Format(time.RFC3339Nano),
-	})
-
-	filtered, status, err := readTimelineWindow(app, session.Id, map[string][]string{
-		"from": {strconv.FormatInt(start.UnixMilli(), 10)},
-		"to":   {strconv.FormatInt(start.Add(10*time.Second).UnixMilli(), 10)},
-		"lod":  {"50ms"},
-		"flow": {flow.Id},
-	})
-	if err != nil || status != 200 {
-		t.Fatalf("filtered window failed: status=%d err=%v", status, err)
+func TestSessionControlAPITransitionsAtomically(t *testing.T) {
+	app, g, handler := gatewayHTTP(t)
+	firstResponse := requestJSON(t, handler, http.MethodPost, "/api/infrareveal/sessions", `{"name":"first"}`, "")
+	if firstResponse.Code != http.StatusCreated {
+		t.Fatalf("start: %d %s", firstResponse.Code, firstResponse.Body.String())
 	}
-	if len(filtered.Flows) != 1 || filtered.Flows[0]["id"] != flow.Id || len(filtered.FlowActivityChunks) != 1 {
-		t.Fatalf("expected only the requested flow and activity, got flows=%#v chunks=%d", filtered.Flows, len(filtered.FlowActivityChunks))
+	var first data.Session
+	if err := json.Unmarshal(firstResponse.Body.Bytes(), &first); err != nil {
+		t.Fatal(err)
 	}
+	invalid := requestJSON(t, handler, http.MethodPost, "/api/infrareveal/sessions", `{"name":"invalid","retention_minutes":2000}`, "")
+	if invalid.Code != 400 || g.CurrentSessionID() != first.ID {
+		t.Fatalf("invalid start closed old session: %d %s", invalid.Code, invalid.Body.String())
+	}
+	stored, _ := app.FindRecordById("sessions", first.ID)
+	if !stored.GetBool("active") {
+		t.Fatal("failed start changed committed lifecycle")
+	}
+	secondResponse := requestJSON(t, handler, http.MethodPost, "/api/infrareveal/sessions", `{"name":"second","ephemeral":true,"retention_minutes":5}`, "")
+	if secondResponse.Code != 201 {
+		t.Fatalf("replace: %d %s", secondResponse.Code, secondResponse.Body.String())
+	}
+	var second data.Session
+	if err := json.Unmarshal(secondResponse.Body.Bytes(), &second); err != nil {
+		t.Fatal(err)
+	}
+	stored, _ = app.FindRecordById("sessions", first.ID)
+	if stored.GetBool("active") || stored.GetInt64("ended_ms") == 0 || stored.GetInt64("started_ms") != first.StartedMS || g.CurrentSessionID() != second.ID {
+		t.Fatal("start did not atomically replace active recording")
+	}
+	stored.Set("active", true)
+	if err := app.Save(stored); err == nil {
+		t.Fatal("reopened an ended recording")
+	}
+	ended := requestJSON(t, handler, http.MethodPost, "/api/infrareveal/sessions/"+second.ID+"/end", `{}`, "")
+	if ended.Code != 200 || g.CurrentSessionID() != "" {
+		t.Fatalf("end: %d %s", ended.Code, ended.Body.String())
+	}
+	renamed := requestJSON(t, handler, http.MethodPatch, "/api/infrareveal/sessions/"+first.ID, `{"name":"saved"}`, "")
+	if renamed.Code != 200 {
+		t.Fatalf("rename: %d %s", renamed.Code, renamed.Body.String())
+	}
+	list := requestJSON(t, handler, http.MethodGet, "/api/infrareveal/sessions", "", "")
+	var listing struct {
+		Items []data.Session `json:"items"`
+	}
+	if err := json.Unmarshal(list.Body.Bytes(), &listing); err != nil || len(listing.Items) != 2 {
+		t.Fatalf("session list: %s %v", list.Body.String(), err)
+	}
+}
 
-	overview, status, err := readTimelineWindow(app, session.Id, map[string][]string{
-		"from": {strconv.FormatInt(start.UnixMilli(), 10)},
-		"to":   {strconv.FormatInt(start.Add(time.Hour).UnixMilli(), 10)},
-		"lod":  {"overview"},
-	})
-	if err != nil || status != 200 || len(overview.FlowActivityChunks) != 0 {
-		t.Fatalf("overview should omit raw activity: status=%d err=%v chunks=%d", status, err, len(overview.FlowActivityChunks))
+func TestMapHTTPReturnsTypedProductsAndNoCollectorAPI(t *testing.T) {
+	app, _, handler := gatewayHTTP(t)
+	const start int64 = 1700000000000
+	session := testsupport.Save(t, app, "sessions", map[string]any{"started_ms": start, "ended_ms": start + 10000, "policy": observer.DefaultPolicy()})
+	prefix := "/api/infrareveal/sessions/" + session.Id
+	manifest := requestJSON(t, handler, http.MethodGet, prefix+"/manifest", "", "")
+	var value data.Manifest
+	if err := json.Unmarshal(manifest.Body.Bytes(), &value); err != nil || value.ID != session.Id || value.StartedMS != start || value.Policy.BucketMS != 50 {
+		t.Fatalf("manifest: %s %v", manifest.Body.String(), err)
+	}
+	path := fmt.Sprintf("%s/map?from=%d&to=%d", prefix, start, start+10000)
+	response := requestJSON(t, handler, http.MethodGet, path, "", "")
+	if response.Code != 200 {
+		t.Fatalf("map: %d %s", response.Code, response.Body.String())
+	}
+	var result map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"series", "coverage", "blocks", "destinations", "routes"} {
+		if values, ok := result[name].([]any); !ok || len(values) != 0 {
+			t.Fatalf("empty %s must be []: %s", name, response.Body.String())
+		}
+	}
+	invalid := requestJSON(t, handler, http.MethodGet, prefix+"/map?from=0&to=9999999999", "", "")
+	if invalid.Code != 400 {
+		t.Fatalf("unbounded request: %d", invalid.Code)
+	}
+	if response := requestJSON(t, handler, http.MethodGet, prefix+"/window?from=0&to=1000", "", ""); response.Code != 404 {
+		t.Fatal("old collector window endpoint remains")
+	}
+	if response := requestJSON(t, handler, http.MethodGet, "/api/collections/traffic_chunks/records", "", ""); response.Code == 200 {
+		t.Fatal("raw core collection is public")
+	}
+}
+
+func TestBlockBrowserAcceptsLongRecordingRangesButKeepsPageBounds(t *testing.T) {
+	app, _, handler := gatewayHTTP(t)
+	const start = int64(1700000000000)
+	session := testsupport.Save(t, app, "sessions", map[string]any{"started_ms": start, "ended_ms": start + 7200000})
+	for _, offset := range []int64{0, 3600000, 7000000} {
+		testsupport.Save(t, app, "activity_blocks", map[string]any{"session": session.Id, "start_ms": start + offset, "end_ms": start + offset + 50, "active_ms": 50})
+	}
+	prefix := fmt.Sprintf("/api/infrareveal/sessions/%s/blocks?from=%d&to=%d", session.Id, start, start+7200000)
+	response := requestJSON(t, handler, http.MethodGet, prefix+"&limit=1", "", "")
+	var page data.BlockPage
+	if err := json.Unmarshal(response.Body.Bytes(), &page); response.Code != 200 || err != nil || len(page.Items) != 1 || page.NextCursor == "" {
+		t.Fatalf("long block range failed: %d %s %v", response.Code, response.Body.String(), err)
+	}
+	if response := requestJSON(t, handler, http.MethodGet, prefix+"&limit=1001", "", ""); response.Code != 400 {
+		t.Fatal("long range bypassed the page limit")
+	}
+}
+
+func TestSessionEndImmediatelyFinalizesBlocks(t *testing.T) {
+	app, _, handler := gatewayHTTP(t)
+	start := time.Now().Add(-time.Second).UnixMilli() / 50 * 50
+	session := testsupport.Save(t, app, "sessions", map[string]any{"active": true, "started_ms": start})
+	testsupport.Save(t, app, "traffic_chunks", map[string]any{"session": session.Id, "client_id": "client", "service_key": "svt.se", "start_ms": start, "bucket_ms": 50, "chunk_ms": 5000, "sealed": true, "samples": []data.Sample{{0, 150, 0, 90, 0, 1}}})
+	if err := observer.RebuildBlocks(app, session.Id, time.Now().UnixMilli()); err != nil {
+		t.Fatal(err)
+	}
+	response := requestJSON(t, handler, http.MethodPost, "/api/infrareveal/sessions/"+session.Id+"/end", `{}`, "")
+	if response.Code != 200 {
+		t.Fatalf("end: %d %s", response.Code, response.Body.String())
+	}
+	blocks, err := app.FindAllRecords("activity_blocks")
+	if err != nil || len(blocks) != 1 || blocks[0].GetBool("provisional") || blocks[0].GetInt64("sent") != 150 {
+		t.Fatalf("closed session kept mutable blocks: %v %v", blocks, err)
+	}
+}
+
+func TestDiagnosticsAreExplicitlyOptionalAndAuthenticated(t *testing.T) {
+	app, g, handler := gatewayHTTP(t)
+	collection, err := app.FindCollectionByNameOrId(core.CollectionNameSuperusers)
+	if err != nil {
+		t.Fatal(err)
+	}
+	admin := core.NewRecord(collection)
+	admin.Set("email", "operator@example.test")
+	admin.SetPassword("fixture-password-123")
+	if err := app.Save(admin); err != nil {
+		t.Fatal(err)
+	}
+	token, err := admin.NewAuthToken()
+	if err != nil {
+		t.Fatal(err)
+	}
+	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "core"})
+	path := "/api/infrareveal/sessions/" + session.Id + "/diagnostics/dns"
+	if response := requestJSON(t, handler, http.MethodGet, path, "", ""); response.Code != 401 {
+		t.Fatalf("raw diagnostics should require auth: %d %s", response.Code, response.Body.String())
+	}
+	if response := requestJSON(t, handler, http.MethodGet, path, "", token); response.Code != 404 {
+		t.Fatalf("core should disclose unavailable diagnostics: %d %s", response.Code, response.Body.String())
+	}
+	if err := data.InstallDiagnostics(app); err != nil {
+		t.Fatal(err)
+	}
+	g.config.Diagnostics = true
+	diagnosticSession := testsupport.Save(t, app, "sessions", map[string]any{"name": "diagnostic"})
+	if response := requestJSON(t, handler, http.MethodGet, path, "", token); response.Code != 404 {
+		t.Fatal("installing diagnostics changed old recording profile")
+	}
+	const from, to int64 = 1700000000000, 1700000001000
+	stamp := func(ms int64) string { return time.UnixMilli(ms).UTC().Format("2006-01-02 15:04:05.000Z") }
+	for kind, collection := range map[string]string{"dns": "dns_queries", "flows": "flow_diagnostics", "gate": "gate_events"} {
+		t.Run(kind, func(t *testing.T) {
+			for i, at := range []int64{from - 1, from, to - 1, to} {
+				fields := map[string]any{"session": diagnosticSession.Id}
+				switch kind {
+				case "dns":
+					fields["observed_ms"] = at
+				case "flows":
+					fields["start_ms"], fields["last_ms"] = at, at
+					if i == 1 {
+						fields["start_ms"] = from - 100
+					}
+				case "gate":
+					fields["decision_id"], fields["queued_at"], fields["decided_at"] = fmt.Sprint(i), stamp(at), stamp(at)
+					if i == 1 {
+						fields["queued_at"] = stamp(from - 100)
+					}
+					if i == 2 {
+						fields["decided_at"] = ""
+					}
+				}
+				testsupport.Save(t, app, collection, fields)
+			}
+			// Matching timestamps in another session must never leak into this window.
+			testsupport.Save(t, app, collection, map[string]any{"session": session.Id, "observed_ms": from, "start_ms": from, "last_ms": from, "queued_at": stamp(from), "decided_at": stamp(from)})
+			path := fmt.Sprintf("/api/infrareveal/sessions/%s/diagnostics/%s", diagnosticSession.Id, kind)
+			for _, query := range []string{"", "?from=20&to=10", "?from=0&to=1800001"} {
+				if response := requestJSON(t, handler, http.MethodGet, path+query, "", token); response.Code != 400 {
+					t.Fatalf("unbounded diagnostic request accepted: %d %s", response.Code, response.Body.String())
+				}
+			}
+			response := requestJSON(t, handler, http.MethodGet, fmt.Sprintf("%s?from=%d&to=%d", path, from, to), "", token)
+			var result struct {
+				Items []map[string]any `json:"items"`
+				More  bool             `json:"more"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || response.Code != 200 || len(result.Items) != 2 || result.More {
+				t.Fatalf("diagnostic window: %s %v", response.Body.String(), err)
+			}
+		})
+	}
+}
+
+func TestRevisionStreamCoalescesSQLUpdatesAndCancels(t *testing.T) {
+	app, _, handler := gatewayHTTP(t)
+	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "stream"})
+	server := httptest.NewServer(handler)
+	defer server.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
+	defer cancel()
+	request, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/infrareveal/sessions/"+session.Id+"/revisions", nil)
+	response, err := server.Client().Do(request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	if response.StatusCode != 200 || response.Header.Get("Content-Type") != "text/event-stream" {
+		t.Fatalf("not an SSE stream: %d", response.StatusCode)
+	}
+	reader := bufio.NewReader(response.Body)
+	read := func() string {
+		t.Helper()
+		var result strings.Builder
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				t.Fatal(err)
+			}
+			result.WriteString(line)
+			if line == "\n" {
+				return result.String()
+			}
+		}
+	}
+	if initial := read(); !strings.Contains(initial, "event: revision") || !strings.Contains(initial, `"revision":1`) {
+		t.Fatalf("missing initial revision: %s", initial)
+	}
+	for i := 0; i < 3; i++ {
+		if err := data.BumpRevision(app, session.Id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if update := read(); !strings.Contains(update, `"revision":4`) {
+		t.Fatalf("SQL revisions did not coalesce: %s", update)
+	}
+	cancel()
+	if _, err := reader.ReadString('\n'); err == nil {
+		t.Fatal("cancelled stream did not end")
 	}
 }

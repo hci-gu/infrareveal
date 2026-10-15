@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"net/netip"
 	"sort"
 	"strings"
@@ -88,13 +89,12 @@ type controllerState struct {
 	sessionID string
 	clients   map[netip.Addr]struct{}
 	strict    *netmeta.FlowTuple
-	paused    bool
 	listener  bool
 	lastError string
 
 	pendingByDecisionID map[string]*Decision
 	decisionByFlowKey   map[string]string
-	packetToDecision    map[uint32]string
+	heldPackets         map[uint32]struct{}
 	decisionCache       map[string]cachedVerdict
 	terminalByID        map[string]Decision
 	terminalOrder       []string
@@ -293,7 +293,7 @@ func (controller *Controller) run() {
 	state := controllerState{
 		state: StateOff, clients: make(map[netip.Addr]struct{}),
 		pendingByDecisionID: make(map[string]*Decision), decisionByFlowKey: make(map[string]string),
-		packetToDecision: make(map[uint32]string), decisionCache: make(map[string]cachedVerdict),
+		heldPackets: make(map[uint32]struct{}), decisionCache: make(map[string]cachedVerdict),
 		terminalByID: make(map[string]Decision),
 	}
 	watchdogs := time.NewTicker(25 * time.Millisecond)
@@ -337,13 +337,13 @@ func (controller *Controller) handleCommand(state *controllerState, command cont
 		if state.state != StateActive {
 			return controllerResponse{status: controller.status(state), err: ErrInvalidTransition}, false
 		}
-		state.paused, state.state = true, StatePaused
+		state.state = StatePaused
 		return controllerResponse{status: controller.status(state)}, false
 	case commandResume:
 		if state.state != StatePaused {
 			return controllerResponse{status: controller.status(state), err: ErrInvalidTransition}, false
 		}
-		state.paused, state.state = false, StateActive
+		state.state = StateActive
 		return controllerResponse{status: controller.status(state)}, false
 	case commandDrain:
 		if state.state != StateActive && state.state != StatePaused && state.state != StateDegraded {
@@ -352,7 +352,7 @@ func (controller *Controller) handleCommand(state *controllerState, command cont
 		state.state = StateDraining
 		controller.drainArrivals(state)
 		controller.releaseAll(state, DecisionDrained, SourceSystem, "operator drain")
-		state.paused, state.state = true, StatePaused
+		state.state = StatePaused
 		return controllerResponse{status: controller.status(state)}, false
 	case commandDisarm:
 		if state.state == StateOff {
@@ -361,17 +361,8 @@ func (controller *Controller) handleCommand(state *controllerState, command cont
 		state.state = StateDraining
 		controller.drainArrivals(state)
 		controller.releaseAll(state, DecisionDrained, SourceSystem, "disarm")
-		if err := controller.clearRuleClients(); err != nil {
-			state.lastError = err.Error()
-			// Keep the selection visible and retryable. Packets that still hit a
-			// stale rule are accepted immediately while the controller is degraded.
-			state.state, state.paused = StateDegraded, true
-			state.strictAutoAccept, state.strictTerminated = 0, false
-			clear(state.decisionCache)
-			return controllerResponse{status: controller.status(state), err: err}, false
-		}
-		controller.clearArmState(state)
-		return controllerResponse{status: controller.status(state)}, false
+		err := controller.disarm(state)
+		return controllerResponse{status: controller.status(state), err: err}, false
 	case commandDecide:
 		result, err := controller.decide(state, command.decision)
 		return controllerResponse{status: controller.status(state), decision: result, err: err}, false
@@ -478,7 +469,7 @@ func (controller *Controller) arm(state *controllerState, request ArmRequest) er
 	}
 	state.state = StateArming
 	state.sessionID, state.mode, state.clients, state.strict = strings.TrimSpace(request.SessionID), request.Mode, clients, request.Strict
-	state.paused, state.lastError = false, ""
+	state.lastError = ""
 	controller.activeGate.Store(&activeGateIdentity{sessionID: state.sessionID, mode: state.mode})
 	if controller.rules != nil {
 		selected := make([]netip.Addr, 0, len(clients))
@@ -494,7 +485,7 @@ func (controller *Controller) arm(state *controllerState, request ArmRequest) er
 			combined := errors.Join(err, cleanupErr)
 			state.lastError = combined.Error()
 			if cleanupErr != nil {
-				state.state, state.paused = StateDegraded, true
+				state.state = StateDegraded
 				return errors.Join(ErrUnavailable, combined)
 			}
 			controller.clearArmState(state)
@@ -516,12 +507,26 @@ func (controller *Controller) clearRuleClients() error {
 
 func (controller *Controller) clearArmState(state *controllerState) {
 	controller.activeGate.Store(nil)
-	state.state, state.mode, state.sessionID, state.paused = StateOff, "", "", false
+	state.state, state.mode, state.sessionID = StateOff, "", ""
 	state.clients = make(map[netip.Addr]struct{})
 	state.strict = nil
 	state.strictAutoAccept = 0
 	state.strictTerminated = false
 	clear(state.decisionCache)
+}
+
+func (controller *Controller) disarm(state *controllerState) error {
+	if err := controller.clearRuleClients(); err != nil {
+		// Keep the selection visible and retryable. Packets that still hit a
+		// stale rule are accepted immediately while the controller is degraded.
+		state.lastError = err.Error()
+		state.state = StateDegraded
+		state.strictAutoAccept, state.strictTerminated = 0, false
+		clear(state.decisionCache)
+		return err
+	}
+	controller.clearArmState(state)
+	return nil
 }
 
 func (controller *Controller) handlePacket(state *controllerState, packet QueuedPacket) {
@@ -536,10 +541,10 @@ func (controller *Controller) handlePacket(state *controllerState, packet Queued
 		controller.acceptBypass(state, packet, SourceSystem, "packet belongs to an inactive gate mode")
 		return
 	}
-	if _, duplicate := state.packetToDecision[packet.ID]; duplicate {
+	if _, duplicate := state.heldPackets[packet.ID]; duplicate {
 		return
 	}
-	if state.state != StateActive || state.paused {
+	if state.state != StateActive {
 		controller.acceptBypass(state, packet, SourceSystem, "gate intake inactive")
 		return
 	}
@@ -563,7 +568,7 @@ func (controller *Controller) handlePacket(state *controllerState, packet Queued
 		delete(state.decisionCache, flowKey)
 	}
 	if decisionID, ok := state.decisionByFlowKey[flowKey]; ok {
-		if len(state.packetToDecision) >= controller.config.MaxHeldPackets {
+		if len(state.heldPackets) >= controller.config.MaxHeldPackets {
 			controller.acceptBypass(state, packet, SourceOverflow, "held packet cap reached")
 			return
 		}
@@ -571,14 +576,14 @@ func (controller *Controller) handlePacket(state *controllerState, packet Queued
 		decision.packetIDs = append(decision.packetIDs, packet.ID)
 		decision.PacketCount++
 		decision.TCPFlags |= packet.TCPFlags
-		state.packetToDecision[packet.ID] = decisionID
+		state.heldPackets[packet.ID] = struct{}{}
 		return
 	}
 	if packet.Tuple.Protocol == "tcp" && packet.TCPFlags&0x02 == 0 {
 		controller.acceptBypass(state, packet, SourceSystem, "unseen TCP packet is not SYN")
 		return
 	}
-	if len(state.pendingByDecisionID) >= controller.config.MaxPendingFlows || len(state.packetToDecision) >= controller.config.MaxHeldPackets {
+	if len(state.pendingByDecisionID) >= controller.config.MaxPendingFlows || len(state.heldPackets) >= controller.config.MaxHeldPackets {
 		controller.acceptBypass(state, packet, SourceOverflow, "gate capacity reached")
 		return
 	}
@@ -590,7 +595,7 @@ func (controller *Controller) handleStrictPacket(state *controllerState, packet 
 		controller.acceptBypass(state, packet, SourceSystem, "packet does not match the strict tuple")
 		return
 	}
-	if len(state.pendingByDecisionID) >= controller.config.MaxPendingFlows || len(state.packetToDecision) >= controller.config.MaxHeldPackets {
+	if len(state.pendingByDecisionID) >= controller.config.MaxPendingFlows || len(state.heldPackets) >= controller.config.MaxHeldPackets {
 		controller.acceptBypass(state, packet, SourceOverflow, "strict packet capacity reached")
 		return
 	}
@@ -605,7 +610,7 @@ func (controller *Controller) queueDecision(state *controllerState, packet Queue
 	}
 	decisionID := fmt.Sprintf("%s-%d-%d", prefix, queuedAt.UnixMilli(), controller.idCounter.Add(1))
 	decision := &Decision{
-		ID: decisionID, SessionID: state.sessionID, FlowKey: packet.Tuple.Key(), Tuple: packet.Tuple,
+		ID: decisionID, SessionID: state.sessionID, FlowKey: packet.Tuple.Key(),
 		ClientIP: packet.Tuple.ClientIP.String(), ClientPort: packet.Tuple.ClientPort,
 		RemoteIP: packet.Tuple.RemoteIP.String(), RemotePort: packet.Tuple.RemotePort,
 		Protocol: packet.Tuple.Protocol, Mode: state.mode, Direction: packet.Direction, WireBytes: packet.WireBytes, PayloadBytes: packet.PayloadBytes, PacketCount: 1, TCPFlags: packet.TCPFlags,
@@ -616,7 +621,7 @@ func (controller *Controller) queueDecision(state *controllerState, packet Queue
 	if state.mode != ModeStrict {
 		state.decisionByFlowKey[decision.FlowKey] = decisionID
 	}
-	state.packetToDecision[packet.ID] = decisionID
+	state.heldPackets[packet.ID] = struct{}{}
 	if !controller.audit.TryQueued(decision.clone()) {
 		state.lastError = "gate audit queue full"
 	}
@@ -698,14 +703,7 @@ func (controller *Controller) applyTerminal(state *controllerState, decision *De
 		state.strictTerminated = true
 	}
 	if state.mode == ModeStrict && state.strictTerminated && len(state.pendingByDecisionID) == 0 {
-		if err := controller.clearRuleClients(); err != nil {
-			state.lastError = err.Error()
-			state.state, state.paused = StateDegraded, true
-			state.strictAutoAccept, state.strictTerminated = 0, false
-			clear(state.decisionCache)
-		} else {
-			controller.clearArmState(state)
-		}
+		_ = controller.disarm(state)
 	}
 	return *decision
 }
@@ -719,7 +717,7 @@ func (controller *Controller) applyPacketVerdicts(state *controllerState, decisi
 			result = errors.Join(result, err)
 			errorsCount++
 		}
-		delete(state.packetToDecision, packetID)
+		delete(state.heldPackets, packetID)
 	}
 	return errorsCount, result
 }
@@ -783,7 +781,7 @@ func (controller *Controller) recordBypass(sessionID string, mode Mode, packet Q
 	}
 	decision := Decision{
 		ID:        fmt.Sprintf("bypass-%d-%d", packet.OccurredAt.UnixMilli(), controller.idCounter.Add(1)),
-		SessionID: sessionID, FlowKey: packet.Tuple.Key(), Tuple: packet.Tuple,
+		SessionID: sessionID, FlowKey: packet.Tuple.Key(),
 		ClientIP: packet.Tuple.ClientIP.String(), ClientPort: packet.Tuple.ClientPort,
 		RemoteIP: packet.Tuple.RemoteIP.String(), RemotePort: packet.Tuple.RemotePort,
 		Protocol: packet.Tuple.Protocol, Mode: mode, Direction: packet.Direction,
@@ -863,7 +861,7 @@ func (controller *Controller) degrade(state *controllerState, err error) {
 	}
 	state.verdictErrors++
 	state.lastError = err.Error()
-	state.state, state.paused = StateDegraded, true
+	state.state = StateDegraded
 	// Try remaining releases once. SetVerdict errors are retained in status,
 	// while adapter closure/kernel fail-open is the final safety boundary.
 	for _, decision := range pendingSnapshotPointers(state) {
@@ -898,27 +896,21 @@ func (controller *Controller) status(state *controllerState) Status {
 	if controller.queue != nil {
 		queueStats = controller.queue.Stats()
 	}
+	kernelSettings := map[string]string{}
+	maps.Copy(kernelSettings, controller.config.KernelSettings)
 	return Status{
 		Enabled: controller.config.Enabled, Supported: controller.queue != nil, ListenerReady: state.listener,
-		RulesReady: controller.rules != nil && controller.rules.Ready(), Armed: state.state != StateOff, Paused: state.paused,
+		RulesReady: controller.rules != nil && controller.rules.Ready(), Armed: state.state != StateOff, Paused: state.state == StatePaused || state.state == StateDegraded,
 		State: state.state, Mode: state.mode, SessionID: state.sessionID, Clients: clients,
-		PendingFlows: len(state.pendingByDecisionID), HeldPackets: len(state.packetToDecision), OldestWaitMS: oldestWait,
+		PendingFlows: len(state.pendingByDecisionID), HeldPackets: len(state.heldPackets), OldestWaitMS: oldestWait,
 		OverflowBypasses: state.overflowBypasses + controller.ingressBypasses.Load(), WatchdogReleases: state.watchdogReleases,
 		VerdictErrors: state.verdictErrors, AuditDrops: controller.audit.Dropped(), Queue: queueStats, ParseBypassCount: queueStats.ParseBypass, LastError: state.lastError,
 		FailOpen: controller.config.FailOpen, FlowTimeoutMS: controller.config.FlowTimeout.Milliseconds(),
 		EstablishedTimeoutMS: controller.config.EstablishedTimeout.Milliseconds(), DNSTimeoutMS: controller.config.DNSTimeout.Milliseconds(),
 		MaxPendingFlows: controller.config.MaxPendingFlows, MaxHeldPackets: controller.config.MaxHeldPackets,
 		StrictAutoAccept: state.strictAutoAccept,
-		KernelSettings:   cloneStringMap(controller.config.KernelSettings),
+		KernelSettings:   kernelSettings,
 	}
-}
-
-func cloneStringMap(source map[string]string) map[string]string {
-	result := make(map[string]string, len(source))
-	for key, value := range source {
-		result[key] = value
-	}
-	return result
 }
 
 func pendingSnapshot(state *controllerState) []Decision {

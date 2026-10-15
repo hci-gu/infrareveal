@@ -2,70 +2,96 @@ package gateway
 
 import (
 	"context"
-	"myapp/testsupport"
-	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
-	"myapp/observer"
+	"myapp/data"
+	"myapp/testsupport"
 )
 
-func TestClearObservationsDeletesActivityBeforeFlows(t *testing.T) {
+func TestClearIsAtomicAndPreservesSessionsAndProbeAdmissions(t *testing.T) {
 	app := testsupport.App(t)
-
-	session := testsupport.Save(t, app, "sessions", map[string]any{
-		"name": "Clear test",
-	})
-	flow := testsupport.Save(t, app, "flows", map[string]any{
-		"session":          session.Id,
-		"flow_key":         "tcp|10.0.0.50|53000|93.184.216.34|443",
-		"client_ip":        "10.0.0.50",
-		"destination_ip":   "93.184.216.34",
-		"source_port":      53000,
-		"destination_port": 443,
-		"protocol":         "tcp",
-		"start":            time.Now().UTC().Format(time.RFC3339Nano),
-	})
-	testsupport.Save(t, app, "flow_activity_chunks", map[string]any{
-		"session":     session.Id,
-		"flow":        flow.Id,
-		"chunk_key":   "clear-test",
-		"flow_key":    flow.GetString("flow_key"),
-		"chunk_start": time.Now().UTC().Format(time.RFC3339Nano),
-		"bucket_ms":   50,
-		"chunk_ms":    5000,
-		"samples":     map[string]any{"version": 1, "bucket_ms": 50, "chunk_ms": 5000, "samples": []any{}},
-	})
-	conntrackPath := filepath.Join(t.TempDir(), "nf_conntrack")
-	conntrackLine := "ipv4 2 tcp 6 431999 ESTABLISHED src=10.0.0.50 dst=93.184.216.34 sport=53000 dport=443 packets=5 bytes=360 src=93.184.216.34 dst=10.0.0.50 sport=443 dport=53000 packets=7 bytes=600 [ASSURED] mark=0 zone=0 use=2\n"
-	if err := os.WriteFile(conntrackPath, []byte(conntrackLine), 0o644); err != nil {
+	g := testRuntime(t, app)
+	g.Register()
+	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "clear", "active": true})
+	destination := testsupport.Save(t, app, "destinations", map[string]any{"ip": "1.1.1.1", "version": "fixture"})
+	chunk := testsupport.Save(t, app, "traffic_chunks", map[string]any{"session": session.Id, "destination_id": destination.Id, "start_ms": time.Now().UnixMilli(), "bucket_ms": 50, "chunk_ms": 5000, "samples": []data.Sample{{0, 60, 0, 0, 0, 1, 0}}})
+	admission := testsupport.Save(t, app, "probe_runs", map[string]any{"session": session.Id, "admitted_ms": time.Now().UnixMilli(), "status": "running"})
+	// A failure midway through deletion must leave the complete old view intact.
+	if _, err := app.DB().NewQuery("CREATE TRIGGER reject_chunk_clear BEFORE DELETE ON traffic_chunks BEGIN SELECT RAISE(ABORT, 'fixture failure'); END").Execute(); err != nil {
 		t.Fatal(err)
 	}
-	g := testRuntime(t, app)
-	config := g.config.Observation
-	config.ConntrackPath = conntrackPath
-	g.observation = observer.New(app, nil, config, g.CurrentSessionID, nil, nil)
-	t.Cleanup(func() {
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if err := g.Close(ctx); err != nil {
-			t.Error(err)
-		}
-	})
-
+	if _, err := g.Clear(context.Background()); err == nil {
+		t.Fatal("expected transactional clear failure")
+	}
+	if _, err := app.FindRecordById("traffic_chunks", chunk.Id); err != nil {
+		t.Fatal("failed clear removed traffic", err)
+	}
+	current, err := app.FindRecordById("sessions", session.Id)
+	if err != nil || current.GetInt64("revision") != session.GetInt64("revision") {
+		t.Fatal("failed clear changed revision", err)
+	}
+	if _, err := app.DB().NewQuery("DROP TRIGGER reject_chunk_clear").Execute(); err != nil {
+		t.Fatal(err)
+	}
+	before := time.Now().UnixMilli()
 	result, err := g.Clear(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Deleted["flow_activity_chunks"] != 1 || result.Deleted["flows"] != 1 {
-		t.Fatalf("expected activity and flow records deleted, got %#v", result.Deleted)
+	if result.Deleted["traffic_chunks"] != 1 || result.Deleted["destinations"] != 1 || len(result.Skipped) != 3 {
+		t.Fatalf("wrong clear result: %+v", result)
 	}
-	samples, err := observer.ReadConntrackSamples(conntrackPath, config.Scope)
-	if err != nil {
+	if _, err := app.FindRecordById("probe_runs", admission.Id); err != nil {
+		t.Fatal("clear refunded a durable probe admission", err)
+	}
+	current, err = app.FindRecordById("sessions", session.Id)
+	floor := current.GetInt64("retained_from_ms")
+	if err != nil || g.CurrentSessionID() != session.Id || current.GetInt64("revision") != session.GetInt64("revision")+1 || floor < before/50*50 || floor%50 != 0 || current.GetInt64("block_watermark_ms") != 0 {
+		t.Fatal("clear did not publish retained edge", err)
+	}
+}
+
+func TestSessionDeleteCleansTextReferencesAndKeepsQuota(t *testing.T) {
+	app := testsupport.App(t)
+	g := testRuntime(t, app)
+	g.Register()
+	if err := data.InstallDiagnostics(app); err != nil {
 		t.Fatal(err)
 	}
-	if len(samples) != 1 {
-		t.Fatalf("fixture conntrack input changed, got %#v", samples)
+	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "delete", "active": true})
+	other := testsupport.Save(t, app, "sessions", map[string]any{"name": "keep"})
+	destination := testsupport.Save(t, app, "destinations", map[string]any{"ip": "1.1.1.1", "version": "shared"})
+	for _, id := range []string{session.Id, other.Id} {
+		testsupport.Save(t, app, "traffic_chunks", map[string]any{"session": id, "destination_id": destination.Id})
+		for _, collection := range []string{"capture_intervals", "activity_blocks", "flow_diagnostics", "dns_queries", "gate_events"} {
+			testsupport.Save(t, app, collection, map[string]any{"session": id})
+		}
+		testsupport.Save(t, app, "route_evidence", map[string]any{"session": id, "kind": "network_invalidated"})
+	}
+	admission := testsupport.Save(t, app, "probe_runs", map[string]any{"session": session.Id})
+	if err := app.Delete(session); err != nil {
+		t.Fatal(err)
+	}
+	if g.CurrentSessionID() != "" {
+		t.Fatal("deleted session remained installed")
+	}
+	for _, collection := range []string{"traffic_chunks", "capture_intervals", "activity_blocks", "route_evidence", "flow_diagnostics", "dns_queries", "gate_events"} {
+		count, err := app.CountRecords(collection)
+		if err != nil || count != 1 {
+			t.Fatalf("%s retained deleted session data: count=%d err=%v", collection, count, err)
+		}
+	}
+	if _, err := app.FindRecordById("probe_runs", admission.Id); err != nil {
+		t.Fatal("deleting session refunded quotas", err)
+	}
+	if _, err := app.FindRecordById("destinations", destination.Id); err != nil {
+		t.Fatal("deleted shared destination", err)
+	}
+	if err := app.Delete(other); err != nil {
+		t.Fatal(err)
+	}
+	if count, _ := app.CountRecords("destinations"); count != 0 {
+		t.Fatal("unreferenced destination not collected")
 	}
 }

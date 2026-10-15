@@ -1,4 +1,5 @@
 .DS_Store
+__pycache__/
 
 pocketbase/pb_data
 pocketbase/geoip
@@ -19,4 +20,5 @@ secrets/
 data/
 # This is frontend source, not deployment state.
 !packages/session-state/src/data/
+!pocketbase/data/
 geoip/

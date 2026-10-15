@@ -2,31 +2,36 @@ package labgate
 
 import (
 	"context"
+	"errors"
+	"myapp/data"
 	"myapp/testsupport"
 	"net/netip"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 
 	"myapp/netmeta"
 )
 
-func TestGateMigrationAndOrderedAuditLifecycle(t *testing.T) {
+func TestOptionalGateSchemaAndOrderedAuditLifecycle(t *testing.T) {
 	app := testsupport.App(t)
+	if err := data.EnsureGateAudit(app); err != nil {
+		t.Fatal(err)
+	}
 	gateCollection, err := app.FindCollectionByNameOrId("gate_events")
 	if err != nil {
 		t.Fatal(err)
 	}
-	flows, _ := app.FindCollectionByNameOrId("flows")
 	if gateCollection.CreateRule != nil || gateCollection.UpdateRule != nil || gateCollection.DeleteRule != nil {
 		t.Fatal("browser mutation rules are not locked")
 	}
-	if (gateCollection.ListRule == nil) != (flows.ListRule == nil) || (gateCollection.ViewRule == nil) != (flows.ViewRule == nil) {
-		t.Fatal("visibility does not follow flow data")
+	if gateCollection.ListRule != nil || gateCollection.ViewRule != nil {
+		t.Fatal("raw audit visibility must require admin authentication")
 	}
-	for _, index := range []string{"idx_gate_events_session_queued", "idx_gate_events_session_decision", "idx_gate_events_session_flow"} {
+	for _, index := range []string{"gate_session_time", "gate_session_decision"} {
 		if !hasCollectionIndex(gateCollection, index) {
 			t.Fatalf("missing index %s", index)
 		}
@@ -42,7 +47,7 @@ func TestGateMigrationAndOrderedAuditLifecycle(t *testing.T) {
 	})
 	tuple, _ := netmetaTuple()
 	queuedAt := time.Now().UTC().Add(-50 * time.Millisecond)
-	decision := Decision{ID: "decision-1", SessionID: session.Id, FlowKey: tuple.Key(), Tuple: tuple, ClientIP: tuple.ClientIP.String(), ClientPort: tuple.ClientPort, RemoteIP: tuple.RemoteIP.String(), RemotePort: tuple.RemotePort, Protocol: tuple.Protocol, Mode: ModeStrict, Direction: netmeta.ClientToRemote, WireBytes: 64, PayloadBytes: 4, TCPFlags: 0x12, PacketCount: 2, State: DecisionQueued, QueuedAt: queuedAt, Deadline: queuedAt.Add(time.Second)}
+	decision := Decision{ID: "decision-1", SessionID: session.Id, FlowKey: tuple.Key(), ClientIP: tuple.ClientIP.String(), ClientPort: tuple.ClientPort, RemoteIP: tuple.RemoteIP.String(), RemotePort: tuple.RemotePort, Protocol: tuple.Protocol, Mode: ModeStrict, Direction: netmeta.ClientToRemote, WireBytes: 64, PayloadBytes: 4, TCPFlags: 0x12, PacketCount: 2, State: DecisionQueued, QueuedAt: queuedAt, Deadline: queuedAt.Add(time.Second)}
 	writer := NewAuditWriter(app, 8)
 	if !writer.TryQueued(decision) {
 		t.Fatal("queued audit rejected")
@@ -51,6 +56,15 @@ func TestGateMigrationAndOrderedAuditLifecycle(t *testing.T) {
 	decision.Actor, decision.DecidedAt, decision.WaitMS = "tester", time.Now().UTC(), 50
 	if !writer.TryTerminal(decision) {
 		t.Fatal("terminal audit rejected")
+	}
+	duplicate := decision
+	duplicate.State, duplicate.Actor = DecisionRejected, "late verdict"
+	if !writer.TryTerminal(duplicate) {
+		t.Fatal("duplicate terminal audit rejected")
+	}
+	duplicate.State = DecisionQueued
+	if !writer.TryQueued(duplicate) {
+		t.Fatal("late queued audit rejected")
 	}
 	bypass := decision
 	bypass.ID, bypass.State, bypass.Source, bypass.Reason = "decision-bypass", DecisionBypassed, SourceOverflow, "capacity reached"
@@ -125,4 +139,27 @@ func TestAuditWriterRejectsAfterCloseWithoutPanicking(t *testing.T) {
 	if writer.TryQueued(Decision{}) || writer.Dropped() != 1 {
 		t.Fatal("closed audit writer accepted work")
 	}
+}
+
+func TestAuditLookupFailureDoesNotCreateARecord(t *testing.T) {
+	app, decision := newAuditFixture(t)
+	lookupErr := errors.New("audit lookup unavailable")
+	writer := AuditWriter{app: failedAuditLookup{App: app, err: lookupErr}}
+	for _, terminal := range []bool{false, true} {
+		if err := writer.persistDecision(decision, terminal); !errors.Is(err, lookupErr) {
+			t.Fatalf("terminal=%t: lookup failure was replaced by a write: %v", terminal, err)
+		}
+	}
+	if records, err := app.FindAllRecords("gate_events"); err != nil || len(records) != 0 {
+		t.Fatalf("failed lookup created audit records: count=%d error=%v", len(records), err)
+	}
+}
+
+type failedAuditLookup struct {
+	core.App
+	err error
+}
+
+func (app failedAuditLookup) FindFirstRecordByFilter(any, string, ...dbx.Params) (*core.Record, error) {
+	return nil, app.err
 }

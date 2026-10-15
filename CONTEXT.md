@@ -1,61 +1,70 @@
 # InfraReveal Context
 
-InfraReveal is a consent-based network metadata observability gateway.
+InfraReveal is a consent-based network metadata observability gateway. Linux
+forwards client traffic through NAT independently of observation and probing.
+The backend never needs HTTPS contents or client trust certificates.
 
-## Domain Terms
+## Domain terms
 
-- Gateway: the Raspberry Pi or small computer running the Wi-Fi access point, DHCP, DNS, NAT, observers, PocketBase, and dashboard.
-- Session: one observation period. An active session is live and advances from the server clock; a closed session is a recorded timeline with a fixed end. Ephemeral sessions retain a rolling window and can run continuously.
-- Session runtime: the shared frontend module that loads, reconciles, indexes, caches, and controls playback for either kind of session.
-- Client: a device connected to the InfraReveal Wi-Fi network.
-- Flow: a sampled remote network connection initiated by a client to a public destination IP and port. Gateway-generated probes and local infrastructure protocols are excluded.
-- Observation: raw metadata collected by the gateway, such as a DNS query or conntrack flow sample.
-- Attribution: a derived conclusion that links a flow to a candidate hostname or destination context.
-- Confidence: the strength of an attribution. Initial milestones collect observations only; later milestones add high, medium, low, and hidden confidence labels.
-- Destination: the remote IP, port, protocol, and later provider or ASN context for a flow.
-- Route: an approximate gateway-to-destination traceroute result. It is not the exact client application path.
-- Lab mode: optional policy controls that intentionally change client network behavior to improve observability in a controlled experiment.
+- Gateway: the machine running Wi-Fi, DHCP/DNS, NAT, capture, PocketBase and the dashboards.
+- Session: one observation period. A closed recording has a fixed end; an active ephemeral session retains a rolling window. Closed sessions are not reopened.
+- Client scope: a session-scoped device/lease identity. An IP address alone is not a person or a permanent device identifier.
+- Traffic chunk: five seconds of captured counters for one client, supported service and exact destination binding. Sparse 50 ms samples contain directional wire bytes, payload-byte counts and packet counts; payload content is never retained.
+- Service: a supported canonical registered-domain identity, including explicit aliases. Unknown or ambiguous traffic remains an independent endpoint.
+- Activity block: a temporal group of payload-bearing activity for one client and service. Its span and union of active buckets are separate quantities; neither measures browser attention.
+- Capture interval: confirmed complete, partial or unavailable observation coverage, including periods without traffic.
+- Destination: versioned IP geography/provider context. Unknown and country-only geography remain explicit.
+- Route evidence: a useful gateway-measured approximate path or a timestamped network invalidation. It is not the exact application path.
+- Probe run: a durable admission charged before a method attempt, including failed, cancelled and interrupted attempts.
+- Session runtime: the shared frontend window cache, revision handling and local playback.
+- Diagnostics: optional bounded raw connection/DNS history, detailed probe output and Lab gate audit.
 
-## Current Architecture Direction
+## Accepted architecture
 
-The gateway forwards web traffic normally through NAT. It does not route HTTPS by SNI, decrypt HTTPS, or require client trust certificates.
+The seven core application collections are `sessions`, `traffic_chunks`,
+`capture_intervals`, `activity_blocks`, `destinations`, `route_evidence` and
+`probe_runs`. Full diagnostics optionally adds `flow_diagnostics`, `dns_queries`
+and `gate_events`. PocketBase auth/system collections are separate.
 
-The backend stores raw observations separately from future derived conclusions. Milestone 1 and 2 observations are:
+Captured traffic is the byte authority. Conntrack and DNS support bounded
+in-memory identity/classification; traffic persistence never depends on finding
+a stored connection. Compatible connections aggregate before persistence.
+Wire counts include transport overhead and retransmissions and must not be added
+to overlapping conntrack counters.
 
-- `flows`: sampled conntrack flow metadata.
-- `dns_queries`: dnsmasq query and answer metadata.
+The starting defaults are 50 ms buckets, five-second chunks, approximately
+400 ms flushes, ten seconds of provisional classification and a 45-second quiet
+gap for blocks. Session policy pins alias rules and grouping parameters. Within
+the correction tail, reclassification moves counts atomically; sealed labels
+are snapshots. A restart starts a new capture epoch and seals persisted data.
+No raw history is implied when diagnostics were not recorded.
 
-Milestone 3 derived conclusions are:
+Blocks are computed from sample intervals, not connection lifetimes. ACK-only
+traffic does not extend a block. Capture interruptions create uncertain
+boundaries. Retention clips totals and preserves crossing-block anchors. Missing
+capture never becomes invented silence, bytes or a waveform.
 
-- `flow_attributions`: candidate hostname, source signal, confidence, and explanation for a flow.
-- `activity_episodes`: stable registered-domain groups per client and session, with explicit cross-domain aliases.
-- `flow_associations`: separate derived links from flows to activity episodes, including relationship, confidence, score, and explanation.
+Routing consumes captured traffic deltas, uses one paced worker, and preserves
+finite target/attempt/storage budgets and cooldowns. Admission survives restart
+and session deletion through its quota horizon. Publish terminal useful paths
+with original measurement time, availability, expiry and exact binding. Reuse is
+limited to the same session/network epoch. The network fingerprint governing
+quotas is distinct from capture and session network epochs. Path publication and
+optional enrichment are bounded; there is no persistent cross-session cache.
 
-Milestone 5 destination context is:
+Both dashboards consume the same manifest, bounded map windows and activity
+block API, invalidated by one session revision signal. The browser owns playback
+and rendering; Go owns attribution, grouping and evidence selection.
 
-- `destinations`: reverse DNS, provider label, and coarse GeoIP context keyed by observed destination IP.
-- `routes`: immutable session revisions of gateway-to-destination evidence, bound by IP, protocol, port, and availability time. A reached destination may still have unanswered hops.
-- `route_observations`: bounded evidence bundles for accepted useful snapshots only.
-- `route_cache`: bounded network-scoped useful evidence, retaining its original measurement age.
-- `route_outcomes`: one compact current summary per admitted session binding; not historical playback evidence.
-- `route_budget_state`: persisted session/hour spending, negative suppression and network visibility/capability pauses.
-- `route_evidence_updates`: bounded confirmation/enrichment events and authoritative network invalidations, applied at their availability time.
+## Implementation and development
 
-The `pocketbase/routing` module consumes committed flow counters, prioritizes recent byte volume, and owns finite admission, one paced probe, cache reuse and useful-path publication. Defaults are 20 automatic targets, 40 attempts and at most 100 useful snapshots per session. Silent/status-only results never create routes. Once useful evidence is retained, automatic work stops for that binding; five unsuccessful two-method comparisons pause discovery for 30 minutes. Destination enrichment cannot block discovery. Frontends share `routeForFlowAt` to select evidence known at the playback cursor; route discovery never intercepts client traffic.
+[ADR 0003](docs/adr/0003-map-activity-storage.md) adopts this architecture.
+[implementation-plan.md](implementation-plan.md) tracks the direct rewrite.
+Development uses a fresh application database; old recordings, APIs and schemas
+are not supported. Git retains the previous implementation. Reuse working
+capture/probe/rendering code while deleting obsolete persistence and joins.
 
-Attribution work consumes observations and writes separate derived records instead of overwriting raw observations.
-Domain grouping preserves endpoint identity. Every high- or medium-confidence hostname groups by its registered domain; `pocketbase/observer/domain_groups.json` maps explicit alias domains to canonical groups. Subdomains follow their registered domain. Timing, shared providers, CNAME chains, and idle gaps do not establish or split groups. Traffic without usable hostname evidence remains independent. See `docs/implementation-guides/domain-grouping.md`.
-
-Both dashboard applications consume the same `@infrareveal/session-state` session runtime. Dashboard-specific UI and Remotion projections remain outside that shared module.
-
-## Continuous lab demo
-
-`DEMO_MODE=true` designates one persistent ephemeral session. Its configurable
-retention (`DEMO_RETENTION_MINUTES`, default 30) is published in the manifest and
-used by both dashboards. `/demo` is the unattended live display. Recorded sessions
-remain bounded recordings; existing ephemeral sessions default to five minutes.
-Ephemeral route admission renews hourly; network rolling-hour limits remain and
-storage accounting measures retained evidence. The superuser-only domain catalogue
-stores aggregate DNS/attributed-flow counts and bounded hostname/CNAME examples for
-manual alias review. Temporary transactional checkpoints expire with raw sources.
-See `docs/implementation-guides/lab-demo.md` for deployment and physical acceptance.
+The continuous demo remains an active ephemeral session with configurable
+retention (30 minutes by default). Diagnostics are off by default. Enabling the
+optional Lab gate requires bounded audit storage and preserves the fail-open
+contract in [ADR 0002](docs/adr/0002-opt-in-nfqueue-flow-admission.md).

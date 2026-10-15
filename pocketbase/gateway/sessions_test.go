@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
+	"myapp/data"
 	"myapp/labgate"
 	"myapp/testsupport"
 	"net/http"
@@ -25,6 +26,14 @@ func TestRegisteredSessionHooksOnlyPublishCommittedState(t *testing.T) {
 	}
 	rollback := errors.New("rollback")
 	err := app.RunInTransaction(func(tx core.App) error {
+		prior, err := tx.FindRecordById("sessions", original.Id)
+		if err != nil {
+			return err
+		}
+		prior.Set("active", false)
+		if err := tx.Save(prior); err != nil {
+			return err
+		}
 		collection, _ := tx.FindCollectionByNameOrId("sessions")
 		next := core.NewRecord(collection)
 		next.Set("name", "rollback")
@@ -52,7 +61,7 @@ func TestRegisteredSessionHooksOnlyPublishCommittedState(t *testing.T) {
 	if err := app.Save(original); err != nil {
 		t.Fatal(err)
 	}
-	if g.CurrentSessionID() != "" || original.GetDateTime("ended_at").IsZero() {
+	if g.CurrentSessionID() != "" || original.GetInt64("ended_ms") == 0 {
 		t.Fatal("session did not end")
 	}
 	other := testRuntime(t, app)
@@ -71,6 +80,9 @@ func TestRegisteredSessionCompletionFlushesAuditOutsideTransaction(t *testing.T)
 	app := testsupport.App(t)
 	g := testRuntime(t, app)
 	g.Register()
+	if err := data.EnsureGateAudit(app); err != nil {
+		t.Fatal(err)
+	}
 	g.audit = labgate.NewAuditWriter(app, 8)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -92,7 +104,7 @@ func TestRegisteredSessionCompletionFlushesAuditOutsideTransaction(t *testing.T)
 		t.Fatal(err)
 	}
 	stored, _ := app.FindRecordById("sessions", session.Id)
-	if !stored.GetBool("gate_audit_complete") || stored.GetDateTime("ended_at").IsZero() || g.CurrentSessionID() != "" {
+	if !stored.GetBool("gate_audit_complete") || stored.GetInt64("ended_ms") == 0 || g.CurrentSessionID() != "" {
 		t.Fatal("missing committed completion")
 	}
 }
@@ -131,6 +143,9 @@ func TestBatchSessionUpdatesUseOneOuterLifecycleBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "batch", "active": true})
+	if err := data.EnsureGateAudit(app); err != nil {
+		t.Fatal(err)
+	}
 	g.audit = labgate.NewAuditWriter(app, 8)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)

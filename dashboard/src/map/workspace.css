@@ -192,3 +192,7 @@
 .atlas-page[data-render-quality=raspberry-pi] .atlas-vignette{display:none}
 .atlas-page[data-render-quality=raspberry-pi] .atlas-settings::backdrop{backdrop-filter:none}
 .atlas-page[data-render-quality=raspberry-pi] button{transition:none}
+.atlas-block-browser { position: absolute; top: 76px; right: 16px; z-index: 20; max-height: calc(100vh - 180px); }
+.atlas-block { display: grid; gap: 5px; width: 100%; text-align: left; padding: 12px; border-bottom: 1px solid var(--atlas-border, #334155); }
+.atlas-block[aria-pressed="true"] { background: #2b5d6344; }
+.atlas-block-detail { padding: 12px; overflow-wrap: anywhere; }

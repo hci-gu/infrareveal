@@ -3,248 +3,417 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="A visual explanation of how InfraReveal forwards traffic, observes metadata, and runs background lookups when a phone opens svt.se.">
+  <meta name="description" content="The accepted simpler data model for InfraReveal: captured traffic, map evidence and time-based activity blocks, with optional diagnostics.">
   <link rel="icon" href="data:,">
-  <title>How InfraReveal works — from Wi-Fi to svt.se</title>
+  <title>InfraReveal — a smaller data model</title>
   <style>
-    :root { color-scheme: light; --ink:#182c37; --muted:#526570; --paper:#f6f7f3; --line:#d9e1df; --green:#17634c; --green-bg:#e7f2eb; --blue:#245bb1; --blue-bg:#edf3ff; --amber:#81500b; --amber-bg:#fff3d9; --purple:#6d4795; --purple-bg:#f3edfb; }
-    * { box-sizing:border-box; }
-    html { scroll-behavior:smooth; }
-    body { margin:0; background:var(--paper); color:var(--ink); font:16px/1.6 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; }
-    a { color:var(--blue); text-underline-offset:3px; }
-    a:focus-visible, summary:focus-visible { outline:3px solid var(--blue); outline-offset:5px; }
-    .wrap { max-width:1120px; margin:auto; padding:0 40px; }
-    header.wrap { padding-block:34px 40px; }
-    .masthead { display:flex; justify-content:space-between; align-items:center; gap:16px; font-size:12px; letter-spacing:.11em; text-transform:uppercase; font-weight:700; color:var(--muted); border-bottom:1px solid var(--line); padding-bottom:20px; }
-    .brand { color:var(--green); }
-    .eyebrow { font-size:12px; font-weight:750; letter-spacing:.12em; text-transform:uppercase; color:var(--green); margin:36px 0 12px; }
-    h1 { font-size:clamp(36px,5.6vw,62px); line-height:1.07; letter-spacing:-.055em; max-width:830px; margin:0 0 24px; font-weight:750; }
-    h2 { font-size:28px; line-height:1.2; letter-spacing:-.035em; margin:0 0 12px; }
-    h3 { font-size:19px; line-height:1.3; letter-spacing:-.02em; margin:0 0 10px; }
-    p { margin:0 0 14px; }
-    p:last-child { margin-bottom:0; }
-    .lead { font-size:20px; max-width:850px; color:var(--muted); }
-    .lead strong { color:var(--ink); }
-    .small { font-size:13px; color:var(--muted); }
-    .sub { color:var(--muted); max-width:790px; }
-    nav { display:flex; flex-wrap:wrap; gap:8px 22px; margin-top:24px; font-size:14px; }
-    nav a { color:var(--ink); }
-    section { margin-bottom:52px; scroll-margin-top:24px; }
-    .panel { background:white; border:1px solid var(--line); border-radius:20px; padding:28px; }
-    .legend { display:flex; gap:10px 24px; flex-wrap:wrap; font-size:12px; font-weight:650; margin:22px 0; }
-    .legend span { display:flex; align-items:center; gap:8px; }
-    .swatch { width:24px; height:0; border-top:3px solid; }
-    .green { color:var(--green); } .blue { color:var(--blue); } .amber { color:var(--amber); } .purple { color:var(--purple); }
-    .dashed { border-top-style:dashed; }
-    .map { display:grid; grid-template-columns:1fr 96px 1.6fr 96px 1fr; align-items:start; margin:26px 0 22px; }
-    .endpoint { text-align:center; padding-top:35px; }
-    .icon { width:44px; height:44px; display:block; margin:0 auto 14px; fill:none; stroke:currentColor; stroke-width:1.7; stroke-linecap:round; stroke-linejoin:round; }
-    .endpoint strong { display:block; font-size:18px; }
-    .endpoint small { display:block; font-size:12px; color:var(--muted); margin-top:4px; }
-    .pi { background:#f5f8f6; border:1px solid #bed3c6; padding:16px; border-radius:16px; text-align:center; }
-    .pi-title { font-size:11px; font-weight:750; letter-spacing:.08em; text-transform:uppercase; margin-bottom:14px; color:var(--green); }
-    .kernel { background:var(--green-bg); border:1px solid #a7cbb8; padding:14px 8px; border-radius:10px; }
-    .kernel strong, .backend strong { display:block; font-size:16px; }
-    .kernel small, .backend small { display:block; font-size:12px; }
-    .backend { background:var(--amber-bg); border:1px solid #e6ce97; border-radius:10px; padding:13px 8px; color:#684208; }
-    .tap { color:var(--amber); font-size:12px; padding:9px 0; line-height:1.4; }
-    .tap b { display:block; font-size:23px; line-height:1; }
-    .lane { padding-top:71px; text-align:center; font-size:10px; font-weight:700; }
-    .lane div { margin-bottom:12px; }
-    .arrow { display:block; height:2px; background:currentColor; position:relative; margin:7px 2px; }
-    .arrow::after { content:""; position:absolute; right:-1px; top:-4px; border-left:7px solid currentColor; border-top:5px solid transparent; border-bottom:5px solid transparent; }
-    .arrow.back::after { right:auto; left:-1px; border-left:0; border-right:7px solid currentColor; }
-    .takeaway { background:var(--green-bg); border-left:3px solid var(--green); border-radius:0 8px 8px 0; padding:16px 20px; font-size:15px; }
-    .twocol { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
-    .fact { border-top:1px solid var(--line); padding-top:20px; }
-    .fact p { color:var(--muted); font-size:14px; }
-    .step { display:grid; grid-template-columns:46px 1fr; gap:18px; margin:0 0 18px; padding:24px; border:1px solid var(--line); border-radius:16px; background:white; }
-    .num { width:36px; height:36px; border-radius:50%; background:var(--ink); color:white; display:grid; place-items:center; font-size:14px; font-weight:700; }
-    .step p { max-width:840px; }
-    .flowline { display:flex; flex-wrap:wrap; align-items:center; gap:9px; margin:18px 0 14px; font-size:13px; }
-    .node { padding:7px 11px; border-radius:7px; border:1px solid currentColor; font-weight:650; }
-    .node.green { background:var(--green-bg); } .node.blue { background:var(--blue-bg); } .node.amber { background:var(--amber-bg); } .node.purple { background:var(--purple-bg); }
-    .flow-arrow { font-size:20px; font-weight:600; }
-    .note { color:var(--muted); font-size:14px; }
-    .tag { display:inline-block; font-size:10px; font-weight:750; text-transform:uppercase; letter-spacing:.07em; border-radius:4px; padding:3px 6px; margin-right:5px; vertical-align:1px; background:var(--amber-bg); color:var(--amber); }
-    .tag.local { background:var(--blue-bg); color:var(--blue); }
-    .tag.net { background:var(--purple-bg); color:var(--purple); }
-    code { font-size:.88em; font-family:ui-monospace,SFMono-Regular,Consolas,monospace; overflow-wrap:anywhere; }
-    .lookup-grid { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin:24px 0; }
-    .lookup { background:white; border:1px solid var(--line); border-radius:12px; padding:22px; }
-    .lookup h3 { margin-top:12px; }
-    .lookup p { font-size:14px; color:var(--muted); }
-    .lookup .path { font-size:13px; font-weight:650; color:var(--purple); margin-bottom:12px; }
-    .logmap { display:grid; grid-template-columns:1fr 36px 1fr 36px 1fr; align-items:center; margin:22px 0; }
-    .logbox { background:var(--amber-bg); padding:16px; border-radius:10px; text-align:center; font-size:14px; }
-    .logbox b { display:block; margin-bottom:5px; }
-    .logbox small { display:block; font-size:12px; color:var(--muted); }
-    .logmap > span { text-align:center; font-size:22px; color:var(--amber); }
-    .table-wrap { overflow-x:auto; margin:22px 0; border:1px solid var(--line); border-radius:12px; background:white; }
-    table { width:100%; border-collapse:collapse; text-align:left; font-size:14px; }
-    th { font-weight:700; background:#eaf0ed; color:#294338; padding:14px 16px; }
-    td { padding:16px; vertical-align:top; border-top:1px solid var(--line); }
-    td:first-child { width:23%; font-weight:650; }
-    td:last-child { width:29%; color:var(--muted); }
-    td small { display:block; font-weight:400; color:var(--muted); margin-top:4px; }
-    details { background:white; border:1px solid var(--line); border-radius:12px; margin:12px 0; }
-    summary { cursor:pointer; font-weight:650; padding:18px 20px; }
-    .detail-body { padding:0 20px 20px; font-size:14px; }
-    .detail-body p { margin:10px 0; }
-    .detail-body ul { padding-left:22px; }
-    .detail-body li { margin:8px 0; }
-    .record { font:12px/1.8 ui-monospace,SFMono-Regular,Consolas,monospace; white-space:pre-wrap; overflow-wrap:anywhere; background:#f4f6f5; padding:18px; border-radius:8px; }
-    .limits { display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:22px; }
-    .limit { border-left:3px solid var(--line); padding:4px 18px; }
-    .limit h3 { font-size:16px; }
-    .limit p { font-size:14px; color:var(--muted); }
-    .answer { font-size:21px; line-height:1.5; margin-bottom:18px; }
-    footer.wrap { padding-block:0 42px; font-size:12px; color:var(--muted); }
-    .source-list { display:grid; grid-template-columns:1fr 1fr; gap:14px; padding-top:12px; }
-    .source-list a { font-size:13px; }
-    .source-list span { display:block; color:var(--muted); font-size:12px; margin-top:3px; }
-    @media(max-width:760px) {
-      .wrap { padding:0 20px; } header.wrap { padding-top:22px; } h2 { font-size:25px; }
-      .lead { font-size:18px; } .panel { padding:22px 18px; }
-      .map { grid-template-columns:1fr; margin-top:20px; gap:12px; }
-      .endpoint { padding:5px 0; } .endpoint .icon { width:32px; height:32px; margin-bottom:8px; }
-      .lane { display:flex; gap:22px; justify-content:center; padding:0; font-size:12px; }
-      .lane div { margin:0; } .lane .arrow { display:none; }
-      .lane .green::before { content:"↓ "; } .lane .blue::before { content:"↑ "; }
-      .pi { max-width:420px; width:100%; margin:auto; }
-      .twocol, .lookup-grid, .limits, .source-list { grid-template-columns:1fr; }
-      .step { padding:20px 16px; grid-template-columns:30px 1fr; gap:12px; }
-      .num { width:28px; height:28px; font-size:12px; }
-      .flowline { gap:7px; } .node { padding:5px 8px; font-size:12px; }
-      .logmap { grid-template-columns:1fr; gap:8px; } .logmap > span { transform:rotate(90deg); }
-      table { font-size:12px; } th, td { padding:10px; }
-      .masthead { font-size:10px; letter-spacing:.06em; }
-      section { margin-bottom:38px; }
-    }
-    @media(prefers-reduced-motion:reduce) { html { scroll-behavior:auto; } }
-    @media print {
-      body { background:white; font-size:11px; } .wrap { max-width:none; padding:0; }
-      header.wrap { padding-top:0; } h1 { font-size:38px; } h2 { font-size:22px; } h3 { font-size:16px; }
-      nav { display:none; } section { margin-bottom:25px; } .step, .lookup, .limit { break-inside:avoid; }
-      .panel, .step, .lookup { padding:16px; } .lead { font-size:16px; }
-      .table-wrap { overflow:visible; } table { font-size:11px; } th, td { padding:9px; }
-      a { color:inherit; } .small, .note { font-size:11px; }
-      * { -webkit-print-color-adjust:exact; print-color-adjust:exact; }
-    }
+    :root{color-scheme:light;--paper:#f5f4ef;--white:#fffefa;--ink:#20302d;--muted:#5c6864;--line:#d4dcd6;--green:#185d47;--mint:#e5eee6;--amber:#80501c;--sand:#f7ead5;--blue:#315f8a;--bluebg:#e8eff5;--red:#945040}
+    *{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:88px}
+    body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
+    a{color:var(--green);text-underline-offset:3px}a:hover{text-decoration-thickness:2px}
+    a:focus-visible,button:focus-visible,input:focus-visible,summary:focus-visible{outline:3px solid var(--blue);outline-offset:5px}
+    .wrap{max-width:1180px;margin:auto;padding:0 42px}.mast{display:flex;justify-content:space-between;gap:20px;padding:28px 0 20px;border-bottom:1px solid var(--line);font-size:11px;font-weight:750;letter-spacing:.12em;text-transform:uppercase}
+    .brand{color:var(--green)}.hero{display:grid;grid-template-columns:minmax(0,1fr) 250px;gap:50px;padding:58px 0 46px;align-items:end}
+    .eyebrow,.section-no{font-size:11px;font-weight:800;letter-spacing:.15em;text-transform:uppercase;color:var(--green)}
+    .eyebrow{margin:0 0 16px}h1{font-size:clamp(44px,5.8vw,72px);line-height:1.02;letter-spacing:-.055em;font-weight:750;margin:0 0 24px}
+    .lead{font-size:20px;line-height:1.5;color:var(--muted);max-width:760px}.lead strong{color:var(--ink)}
+    p{margin:0 0 15px}p:last-child{margin-bottom:0}h2{font-size:32px;letter-spacing:-.035em;line-height:1.2;margin:8px 0 20px}h3{font-size:20px;letter-spacing:-.02em;line-height:1.3;margin:0 0 12px}h4{font-size:15px;margin:0 0 7px}
+    .count{border:1px solid var(--green);padding:25px;background:var(--mint);border-radius:3px}.count .old{font-size:14px;color:var(--muted)}.count .big{font-size:112px;line-height:1.08;letter-spacing:-.07em;color:var(--green);font-weight:700}.count b{display:block;font-size:16px}.count small{display:block;margin-top:15px;border-top:1px solid #b7cdbd;padding-top:12px;font-size:12px;line-height:1.5}
+    .scope{border-left:3px solid var(--green);padding:14px 20px;background:var(--mint);font-size:14px;margin-bottom:32px}
+    .nav-shell{position:sticky;top:0;z-index:5;background:rgba(245,244,239,.97);border-block:1px solid var(--line)}
+    nav{display:flex;gap:24px;overflow-x:auto;white-space:nowrap;padding-block:14px!important;font-size:12px;font-weight:650}
+    nav a{text-decoration:none;color:var(--ink)}nav a:hover{color:var(--green)}
+    main{padding-top:48px!important}section{margin:0 0 64px;scroll-margin-top:20px}
+    .intro{max-width:850px;font-size:18px;color:var(--muted)}.intro strong{color:var(--ink)}
+    .two{display:grid;grid-template-columns:1fr 1fr;gap:26px}.three{display:grid;grid-template-columns:repeat(3,1fr);gap:26px}
+    .rule{border-top:2px solid var(--ink);padding-top:18px}.rule p{font-size:15px;color:var(--muted)}
+    .panel{background:var(--white);border:1px solid var(--line);border-radius:4px;padding:28px}
+    .note{font-size:13px;color:var(--muted)}.small{font-size:13px}
+    .callout{border-left:3px solid var(--green);padding:18px 22px;background:var(--mint);margin:24px 0}
+    .callout.warning{background:var(--sand);border-color:var(--amber)}
+    .tag{display:inline-block;padding:3px 7px;border-radius:3px;background:var(--mint);color:var(--green);font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;vertical-align:middle}
+    .tag.optional{background:var(--sand);color:var(--amber)}.tag.remove{background:#eee8e4;color:#725047}
+    code{font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:.86em;overflow-wrap:anywhere}
+    pre{background:#20302d;color:#f5f4ef;border-radius:4px;padding:22px;font-size:13px;line-height:1.65;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
+    pre code{font-size:inherit}.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:4px;margin:22px 0;background:var(--white)}
+    table{border-collapse:collapse;width:100%;text-align:left;font-size:14px}th,td{padding:14px 16px;vertical-align:top;border-bottom:1px solid var(--line)}th{background:#eaece5;font-size:11px;text-transform:uppercase;letter-spacing:.07em}tbody tr:last-child td{border-bottom:0}td:first-child{font-weight:650}td p{margin:4px 0;font-size:13px}td code{font-weight:550}
+    .pipeline{display:grid;grid-template-columns:1fr 24px 1fr 24px 1fr;gap:14px;align-items:center;margin:28px 0}
+    .stage{min-width:0;padding:22px 20px;background:var(--white);border:1px solid var(--line);border-top:3px solid var(--green)}.stage strong{display:block;font-size:17px}.stage span{display:block;font-size:13px;color:var(--muted);margin-top:8px}.arrow{color:var(--green);font-size:24px;text-align:center}
+    .feature-table{min-width:680px}.schema-table{min-width:760px}.inventory{min-width:700px}
+    .schema-table td:first-child{width:19%}.schema-table td:nth-child(2){width:37%}
+    .schema-table td:last-child{font-size:13px}
+    .visit{border:1px solid var(--green);background:var(--white);padding:25px;display:grid;grid-template-columns:1.3fr 1fr;gap:30px;align-items:center}
+    .visit .site{font-size:32px;letter-spacing:-.04em;font-weight:750;margin:6px 0}.visit .duration{font-size:23px;font-weight:650;line-height:1.25}
+    .visit dl{display:grid;grid-template-columns:1fr 1fr;margin:0;gap:12px 20px}.visit dt{font-size:11px;color:var(--muted)}.visit dd{margin:2px 0;font-size:15px;font-weight:650}
+    .explorer{margin-top:24px}.controls{display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin:20px 0}.controls label{font-size:14px;font-weight:650}.controls input{width:200px;accent-color:var(--green)}output{font-weight:750;color:var(--green)}
+    .chart-scroll{overflow-x:auto}.chart{display:block;width:100%;min-width:620px;height:auto}.chart text{font-family:inherit;fill:var(--muted);font-size:12px}
+    .block-results{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px}.block-pill{border:1px solid #b6cbbb;background:var(--mint);padding:10px 14px;font-size:13px}.block-pill b{color:var(--green)}
+    ol.steps{padding:0;margin:25px 0;list-style:none;counter-reset:step}.steps li{counter-increment:step;position:relative;padding:0 0 22px 46px}.steps li::before{content:counter(step,decimal-leading-zero);position:absolute;left:0;top:0;color:var(--green);font-weight:750;font-size:14px}.steps li strong{display:block;margin-bottom:4px}.steps li p{font-size:15px;color:var(--muted)}
+    details{border:1px solid var(--line);border-radius:4px;background:var(--white);margin:20px 0}summary{cursor:pointer;padding:18px 22px;font-weight:650;font-size:15px}details .detail-body{padding:0 22px 22px}details .table-wrap{margin-bottom:0}
+    ul{padding-left:21px}li{margin-bottom:9px}
+    .phase{display:grid;grid-template-columns:58px 1fr;gap:22px;border-top:1px solid var(--line);padding:24px 0}
+    .phase .n{font-size:30px;color:var(--green);letter-spacing:-.04em;font-weight:650}.phase h3{margin:1px 0 8px}.phase p{font-size:15px}.gate{font-size:13px!important;color:var(--green)}
+    .sources{display:grid;grid-template-columns:1fr 1fr;gap:18px 30px;font-size:13px}.sources a{font-weight:650}.sources span{display:block;font-size:12px;color:var(--muted);margin-top:3px}
+    footer{padding-block:28px 42px!important;border-top:1px solid var(--line);font-size:12px;color:var(--muted)}
+    .spaced{margin-top:24px}.muted{color:var(--muted)}
+    @media(max-width:850px){.wrap{padding-inline:24px}.hero{gap:28px;grid-template-columns:minmax(0,1fr) 180px}.count{padding:20px}.count .big{font-size:90px}.three{grid-template-columns:1fr}.pipeline{gap:8px}.stage{padding:18px 14px}}
+    @media(max-width:600px){.wrap{padding-inline:18px}.mast{font-size:10px;letter-spacing:.07em;gap:12px}.hero{grid-template-columns:1fr;padding-top:36px;gap:25px}h1{font-size:48px}.lead{font-size:18px}.count{display:grid;grid-template-columns:82px 1fr;column-gap:18px;align-items:center}.count .big{font-size:78px;grid-column:1;grid-row:1/4}.count .old,.count b,.count small{grid-column:2}.count small{margin-top:7px;padding-top:7px}.scope{font-size:13px}nav{gap:20px}main{padding-top:34px!important}h2{font-size:28px}.two,.visit,.sources{grid-template-columns:1fr}.panel{padding:20px 17px}.pipeline{grid-template-columns:1fr;gap:10px}.arrow{transform:rotate(90deg);line-height:1}.stage{padding:17px}.visit{padding:20px;gap:20px}.visit dl{gap:14px}.controls{gap:12px}.controls input{width:150px}.phase{grid-template-columns:36px 1fr;gap:12px}.phase .n{font-size:25px}.intro{font-size:17px}section{margin-bottom:48px}summary{padding:17px}.detail-body{padding-inline:17px!important}.table-wrap{margin-block:18px}}
+    @media(prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+    @media print{body{background:white;font-size:10pt}.wrap{padding-inline:0;max-width:none}.nav-shell,.controls{display:none}.hero{padding:24px 0;grid-template-columns:1fr 180px}h1{font-size:42pt}.count .big{font-size:80pt}.lead{font-size:13pt}h2{font-size:21pt}h3{font-size:14pt}.intro{font-size:12pt}main{padding-top:20px!important}section{margin-bottom:28px}.table-wrap{overflow:visible}table{font-size:9pt;min-width:0!important}.schema-table td:last-child,td p,.note,.small,.phase p,.steps li p{font-size:9pt}th,td{padding:8px}.panel,.visit,.stage{padding:14px}.chart{min-width:0}.phase,.rule,.visit,.stage,tr{break-inside:avoid}h2,h3,summary{break-after:avoid}.scope{font-size:10pt}.sources{font-size:9pt}.sources span{font-size:8pt}a{color:inherit}pre{font-size:9pt;white-space:pre-wrap}*{-webkit-print-color-adjust:exact;print-color-adjust:exact}}
   </style>
 </head>
 <body>
 <header class="wrap">
-  <div class="masthead"><span class="brand">InfraReveal / Explained</span><span>Code walkthrough · 17 Sep 2026</span></div>
-  <p class="eyebrow">Your phone → svt.se → your phone</p>
-  <h1>What actually happens<br>when you open a website?</h1>
-  <p class="lead"><strong>The Pi carries the traffic in both directions.</strong> Linux forwards the website’s encrypted packets. Our Go/PocketBase backend watches metadata alongside that traffic and builds the dashboard.</p>
-  <nav aria-label="Report sections"><a href="#picture">The big picture</a><a href="#journey">The page load</a><a href="#lookups">Extra lookups</a><a href="#logging">What gets logged</a><a href="#limits">What we cannot tell</a></nav>
+  <div class="mast"><span class="brand">InfraReveal / Architecture</span><span>Accepted direction · 15 October 2026</span></div>
+  <div class="hero">
+    <div>
+      <p class="eyebrow">A smaller model, built around the product</p>
+      <h1>Store the traffic.<br>Build the map.<br>Explain the activity.</h1>
+      <p class="lead">Make <strong>captured traffic over time</strong> the core record. Derive browsing-like blocks from it. Keep raw connection history and detailed diagnostics optional.</p>
+    </div>
+    <aside class="count" aria-label="Target reduction from 19 current application collections to 7 core collections">
+      <div class="old">19 current app collections →</div>
+      <div class="big">7</div>
+      <b>core collections</b>
+      <small>Six product collections + one probe-admission ledger.<br><strong>+3</strong> with full diagnostics enabled.</small>
+    </aside>
+  </div>
+  <div class="scope"><strong>Architecture accepted.</strong> The seven-collection model is the standard for the direct rewrite. Implementation follows the <a href="implementation-plan.md">checkable plan</a>, using fresh application data and optional Proxy Lab diagnostics.</div>
 </header>
+<div class="nav-shell"><nav class="wrap" aria-label="Report sections">
+  <a href="#decision">Recommendation</a><a href="#product">Map requirements</a><a href="#blocks">Activity blocks</a><a href="#model">Data model</a><a href="#routes">Routes</a><a href="#inventory">All collections</a><a href="#implementation">Implementation</a><a href="#sources">Evidence</a>
+</nav></div>
 <main class="wrap">
-  <section id="picture" class="panel" aria-labelledby="picture-title">
-    <h2 id="picture-title">One box. Two different jobs.</h2>
-    <p class="sub">The Docker service is named <code>proxy</code>. In normal operation it is a Wi-Fi gateway: a network forwarder plus a metadata observer.</p>
-    <div class="legend" aria-label="Diagram legend"><span class="green"><i class="swatch"></i>Website request</span><span class="blue"><i class="swatch"></i>Website reply</span><span class="amber"><i class="swatch dashed"></i>Metadata observation</span></div>
-    <div class="map" role="img" aria-label="Phone sends encrypted website traffic through the Pi's Linux forwarding and NAT to the internet. Replies return through the Pi to the phone. On the Pi, a separate Go and PocketBase backend receives metadata observations; it does not relay the website connection.">
-      <div class="endpoint"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><rect x="13" y="3" width="22" height="42" rx="5"/><path d="M21 8h6M22 39h4"/></svg><strong>Your phone</strong><small>Browser / HTTPS endpoint</small><small>Example: 10.0.0.50</small></div>
-      <div class="lane"><div class="green">Request<i class="arrow"></i></div><div class="blue"><i class="arrow back"></i>Reply</div></div>
-      <div class="pi"><div class="pi-title">Our Raspberry Pi · 10.0.0.1</div><div class="kernel"><strong>Linux forwarding + NAT</strong><small>Packets pass through here, both ways</small></div><div class="tap"><b>┆<br>↓</b>Observations of headers &amp; counters</div><div class="backend"><strong>Go observers + PocketBase</strong><small>Store metadata → show dashboard</small></div></div>
-      <div class="lane"><div class="green">Request<i class="arrow"></i></div><div class="blue"><i class="arrow back"></i>Reply</div></div>
-      <div class="endpoint"><svg class="icon" viewBox="0 0 48 48" aria-hidden="true"><circle cx="24" cy="24" r="20"/><ellipse cx="24" cy="24" rx="9" ry="20"/><path d="M4 24h40M8 12h32M8 36h32"/></svg><strong>SVT / CDN</strong><small>Website / HTTPS endpoint</small><small>Through the upstream network</small></div>
+  <section id="decision" aria-labelledby="decision-title">
+    <div class="section-no">01 / The decision</div>
+    <h2 id="decision-title">Stop making stored connections the center of the product.</h2>
+    <p class="intro">Today the database reflects how the backend discovers information: connections, DNS, attribution, grouping, associations, capture chunks and several kinds of route state. The map then reconstructs a useful view from those pieces. <strong>Persist the time-based facts the map needs, and move that reconstruction into one backend projection.</strong></p>
+    <div class="pipeline" role="group" aria-label="Accepted data pipeline">
+      <div class="stage"><strong>Observe &amp; classify</strong><span>Packet counters, bounded DNS cache and transient connection identity. No retained payload content.</span></div><div class="arrow" aria-hidden="true">→</div>
+      <div class="stage"><strong>Persist compact traffic</strong><span>50 ms samples in five-second chunks, grouped by client, service and destination binding.</span></div><div class="arrow" aria-hidden="true">→</div>
+      <div class="stage"><strong>Serve map windows</strong><span>Activity blocks, directional volume, location, capture quality and valid route evidence.</span></div>
     </div>
-    <div class="takeaway"><strong>Does the reply go “directly” to the phone?</strong> It goes directly to the phone’s browser connection, <em>through the Pi’s network stack</em>. It does not bypass the Pi, and it does not need Go/PocketBase to read, store, or relay the page.</div>
-    <div class="twocol" style="margin-top:24px"><div class="fact"><h3>Gateway = the whole Pi</h3><p>Runs Wi-Fi, DHCP, DNS, Linux routing/NAT, the observers and PocketBase. Website packets physically traverse this machine.</p></div><div class="fact"><h3>Backend = the Go application</h3><p>Reads observations, derives labels, runs background probes and serves the dashboard API. Normal web connections are not opened or terminated by this application.</p></div></div>
-  </section>
-
-  <section id="journey" aria-labelledby="journey-title">
-    <p class="eyebrow">Follow a single visit</p><h2 id="journey-title">From joining Wi-Fi to seeing the page</h2>
-    <p class="sub" style="margin-bottom:24px">Example: a phone uses the default IPv4 gateway, classic DNS, and HTTPS. The lab gate is off. This explains the checked-out code; it is not a captured SVT visit. Actual SVT IPs, redirects and resources can vary.</p>
-    <article class="step"><span class="num">1</span><div><h3>The phone joins “Infrareveal”</h3><p><code>hostapd</code> provides Wi-Fi. <code>dnsmasq</code> gives the phone a local IP, for example <code>10.0.0.50</code>, with the Pi at <code>10.0.0.1</code> as its gateway and DNS server.</p><div class="flowline"><span class="node blue">Phone</span><span class="flow-arrow blue">⇄</span><span class="node blue">Pi: Wi-Fi + DHCP</span></div><p class="note">The configured address pool is <code>10.0.0.50–150</code>, with 12-hour leases. DHCP is local setup traffic; it is not saved as a website flow. dnsmasq also writes DHCP service logs.</p></div></article>
-    <article class="step"><span class="num">2</span><div><h3>The phone asks: “What IP is svt.se?”</h3><p>If it needs a DNS lookup, the phone asks the Pi. IPv4 TCP/UDP port 53 traffic from the Wi-Fi interface is redirected to local <code>dnsmasq</code>, even if the phone addresses another classic DNS server.</p><div class="flowline"><span class="node blue">Phone</span><span class="flow-arrow blue">⇄</span><span class="node blue">Pi: dnsmasq</span><span class="flow-arrow blue">⇄</span><span class="node blue">Upstream DNS, if uncached</span></div><p>dnsmasq answers from its cache or asks upstream. The config adds Google DNS at <code>8.8.8.8</code>; it does not disable system-configured resolvers. The answer returns to dnsmasq, then to the phone.</p><p class="note"><span class="tag">Logged</span>Go tails <code>/var/log/dnsmasq.log</code> and saves the client IP, queried name/type, observed time, answers and alias information in <code>dns_queries</code>. Saving the record is not a prerequisite for returning the DNS answer.</p><details><summary>If the name is already cached, or DNS is encrypted</summary><div class="detail-body"><p>A phone/browser cache hit can skip DNS entirely. A dnsmasq cache hit skips only the upstream query; the local query can still be logged.</p><p>DNS-over-HTTPS or DNS-over-TLS does not use this plain port-53 path. It is forwarded as encrypted traffic. The backend may see the resolver connection, but not the names requested inside it.</p><p>A DNS request can ask for IPv4 addresses (A), IPv6 addresses (AAAA), or other record types. Receiving an AAAA answer does not mean this deployment provides IPv6 internet routing; the supplied forwarding rules and default observation scope are IPv4.</p></div></details></div></article>
-    <article class="step"><span class="num">3</span><div><h3>The phone connects to the returned IP</h3><p>The phone starts an HTTPS connection: commonly TCP port 443 + TLS, or QUIC over UDP port 443. Linux forwards the packets from <code>wlan0</code> to <code>eth0</code>.</p><div class="flowline"><span class="node green">Phone → destination IP:443</span><span class="flow-arrow green">→</span><span class="node green">Pi: NAT</span><span class="flow-arrow green">→</span><span class="node green">SVT / CDN</span></div><p>NAT replaces the phone’s private source address with the Pi’s uplink address and remembers the mapping. The upstream router may perform another NAT. The server replies toward that outward-facing address; Linux uses the mapping to deliver replies to the right phone.</p><p class="note"><span class="tag">Logged</span>The backend samples Linux’s connection table (<code>conntrack</code>) about once per second: who connected to which IP and port, protocol, state, packet counts and byte totals in both directions.</p></div></article>
-    <article class="step"><span class="num">4</span><div><h3>The browser requests the page inside encryption</h3><p>The phone and the website establish the secure connection. The browser sends the HTTPS request through it. The Pi forwards encrypted packets; it does not install a client certificate, decrypt TLS, or choose an upstream server using the TLS hostname (SNI).</p><div class="flowline"><span class="node green">Phone: encrypt request</span><span class="flow-arrow green">→</span><span class="node green">Pi: forward packets</span><span class="flow-arrow green">→</span><span class="node green">Server: decrypt request</span></div><p class="note">The URL path, query string, HTTP headers, cookies and request body stay inside HTTPS. DNS may reveal <code>svt.se</code>; it does not reveal which article the user requests.</p></div></article>
-    <article class="step"><span class="num">5</span><div><h3>The page comes back through the Pi</h3><p>The server sends the encrypted response. The Pi forwards it to the phone using the connection/NAT mapping. <strong>The phone decrypts the response and renders the page.</strong></p><div class="flowline"><span class="node blue">SVT / CDN</span><span class="flow-arrow blue">→</span><span class="node blue">Pi: reverse NAT + forward</span><span class="flow-arrow blue">→</span><span class="node blue">Phone: decrypt + render</span></div><p class="note"><span class="tag">Logged</span>A passive packet observer on <code>wlan0</code> also counts traffic in both directions, grouped into 50 ms time buckets. It stores lengths, counts and flags, not the returned HTML or images.</p></div></article>
-    <article class="step"><span class="num">6</span><div><h3>The browser fetches the rest of the page</h3><p>Images, scripts, fonts and video can need more requests, DNS lookups and connections. Some reuse the existing connection; some contact other hosts; some come from the phone’s cache. These actions can overlap while the page is already appearing.</p><div class="flowline"><span class="node blue">HTML</span><span class="flow-arrow">+</span><span class="node blue">Images / styles / scripts</span><span class="flow-arrow">→</span><span class="node blue">Page on your phone</span></div><p class="note">One recorded flow is a network connection, not one page or one file. Several resources can share a connection. InfraReveal cannot determine the browser’s exact “page finished loading” moment from this metadata.</p></div></article>
-  </section>
-
-  <section id="lookups" aria-labelledby="lookups-title">
-    <p class="eyebrow">Alongside the page load</p><h2 id="lookups-title">What else does our backend look up?</h2><p class="sub">These tasks enrich the dashboard after observations arrive. The phone does not wait for their results. Some create separate network traffic from the Pi.</p>
-    <div class="lookup-grid">
-      <article class="lookup"><span class="tag local">Local database match</span><h3>“Which hostname fits this IP?”</h3><p class="path">Saved DNS answers + saved flow → candidate name</p><p>About every 3 seconds, the correlator checks the same client’s DNS answers against the flow’s destination IP. It chooses the closest qualifying answer around the flow’s observed start, normally within the preceding 5 minutes.</p><p>A match becomes a <strong>medium-confidence</strong> hostname such as <code>svt.se</code>. No new DNS request is needed. Shared IPs and caching make this an inference.</p></article>
-      <article class="lookup"><span class="tag net">Separate network lookup</span><h3>“Does this IP have a reverse name?”</h3><p class="path">Pi ⇄ its configured DNS resolver</p><p>A reverse-DNS (PTR) lookup asks for a name attached to the destination IP. It uses Go’s default/system resolver, has a 500 ms timeout, and is eligible for refresh after 15 minutes.</p><p>The reply belongs to the Pi’s own lookup. It enriches <code>destinations</code>; it is not the website response and is not delivered to the phone.</p></article>
-      <article class="lookup"><span class="tag local">Local data lookup</span><h3>“Where is this IP, and who runs it?”</h3><p class="path">IP → local GeoIP database + provider rules</p><p>If available, the local GeoIP database supplies approximate city, country and coordinates. Provider labels come from reverse-name heuristics or known-network rules.</p><p>This code does not call an external GeoIP or WHOIS API. A label or map location is context, not proof of the website owner or a server’s exact physical location.</p></article>
-      <article class="lookup"><span class="tag net">Separate probe traffic</span><h3>“Which routers answer on the way?”</h3><p class="path">Pi ⇄ routers / destination</p><p>The route worker checks its cache, then sends bounded traceroute probes if needed. Fast probes use the observed destination IP, protocol and port; later coverage attempts can use other probe methods.</p><p>Probe replies terminate at the Pi. They never become the phone’s page data. A trace approximates a route from the gateway; it does not prove the website packets’ exact path or measure their return path.</p></article>
+    <div class="three">
+      <div class="rule"><h3>Delete duplicated state</h3><p>Remove the durable flow → attribution → episode → association chain from normal operation. Source ports, socket states and raw DNS history become diagnostic details.</p></div>
+      <div class="rule"><h3>Add the missing concept</h3><p>A service identity such as <code>svt.se</code> can have many activity blocks. The current <code>activity_episodes</code> are permanent groups within a session; idle gaps never split them.</p></div>
+      <div class="rule"><h3>Keep the useful precision</h3><p>Retain fine traffic timing, directional bytes, unknown destinations, capture gaps and historical route validity. Collection reduction should not erase the map’s evidence.</p></div>
     </div>
-    <div class="takeaway"><strong>The two DNS lookups answer different questions.</strong> The phone’s forward lookup asks “where is svt.se?” so it can connect. The Pi’s optional reverse lookup asks “what name is attached to this IP?” to label the dashboard.</div>
+    <div class="callout warning"><strong>The real tradeoff: bounded provenance.</strong> Core mode will not retain enough raw connection history to reattribute every old byte later. Classification can change in a short provisional tail; after sealing, it is frozen. This deliberate limit removes a large part of the current persistence and reconciliation machinery.</div>
+    <p class="note">Why seven? Keeping stored flows would offer a lower-risk eight-collection consolidation, but retain the main flow lifecycle and joins. Combining everything into one session JSON document would hide the same complexity inside larger updates. Seven gives each durable record one clear purpose.</p>
   </section>
 
-  <section id="logging" aria-labelledby="logging-title">
-    <p class="eyebrow">Observation → storage → display</p><h2 id="logging-title">How the logging works</h2><p class="sub">The default observers collect metadata alongside normal forwarding. Recording is associated with an active session; the application ensures a default active session on startup.</p>
-    <div class="logmap" role="img" aria-label="dnsmasq logs, conntrack and packet observations feed Go observers, which save metadata in PocketBase. Dashboards read the API and realtime updates."><div class="logbox"><b>Three observation sources</b><small>DNS log · connection table · packet headers</small></div><span>→</span><div class="logbox"><b>Go → PocketBase</b><small>Raw metadata + separate inferred records</small></div><span>→</span><div class="logbox"><b>Dashboard</b><small>API + realtime metadata updates</small></div></div>
-    <div class="table-wrap"><table><caption class="small" style="text-align:left;padding:14px 16px">Default collection behavior in this checkout</caption><thead><tr><th scope="col">Source / stored record</th><th scope="col">What is saved</th><th scope="col">How to interpret it</th></tr></thead><tbody>
-      <tr><td>DNS log<small><code>dns_queries</code></small></td><td>Session, client IP, queried name and record type, observation time, answers, aliases and source.</td><td>The observer follows dnsmasq’s text log, checking for more lines roughly every 300 ms. Cached answers can be observed too.</td></tr>
-      <tr><td>Connection table<small><code>flows</code></small></td><td>Client and destination IPs, ports where applicable, protocol (TCP, UDP or ICMP), state, first/last observation, cumulative bytes and packets in/out.</td><td>Sampled about every 1 second. The first observation is not an exact connection-start timestamp. Very short-lived entries can be missed.</td></tr>
-      <tr><td>Passive packet observer<small><code>flow_activity_chunks</code></small></td><td>Directional byte and packet counts in 50 ms buckets, saved in 5-second chunks; chunk totals, TCP flags and capture-quality information.</td><td>Lengths and timings, not HTTP requests. “Payload bytes” is a calculated length, not saved payload content.</td></tr>
-      <tr><td>DNS-to-flow match<small><code>flow_attributions</code></small></td><td>Candidate hostname, evidence source, confidence, explanation, linked DNS record and observation time.</td><td>Separate inference. A local DNS match is medium confidence; missing evidence stays IP-only or reduced-visibility.</td></tr>
-      <tr><td>Domain grouping<small><code>activity_episodes</code><br><code>flow_associations</code></small></td><td>Groups per session/client/domain and links from flows to groups, including relationship, confidence and explanation.</td><td><code>svtstatic.se</code> and <code>svtplay.se</code> explicitly map to <code>svt.se</code> in the current alias table. This is grouping policy, not proof of a visit.</td></tr>
-      <tr><td>Destination + route enrichment<small><code>destinations</code>, <code>routes</code>, <code>route_observations</code>, <code>route_cache</code></small></td><td>IP context, reverse name, provider/location fields, responding hops, probe timings, missing hops, provenance and cache state.</td><td>Background evidence from the Pi. A cached route can predate the current visit. Missing hops remain unknown.</td></tr>
-    </tbody></table></div>
-    <details><summary>See one illustrative record, and how “svt.se” is attached</summary><div class="detail-body"><p>These are explanatory values, not a real capture. <code>203.0.113.10</code> is a documentation address, not an asserted SVT IP.</p><div class="record">DNS observation
-  client_ip: 10.0.0.50
-  query_name: svt.se
-  query_type: A
-  answers: [203.0.113.10]
-
-Flow observation
-  client_ip: 10.0.0.50
-  source_port: 52144
-  destination_ip: 203.0.113.10
-  destination_port: 443
-  protocol: tcp
-  bytes_out / bytes_in: cumulative counts
-
-Separate attribution
-  candidate_hostname: svt.se
-  source_signal: dns_answer
-  confidence: medium
-  explanation: same client recently resolved this name to this IP</div><p>The raw flow keeps its IP identity. The label is added in a separate record; it does not replace the original observation.</p></div></details>
-    <details><summary>Exactly what the packet observer touches, stores and misses</summary><div class="detail-body"><p>Linux <code>AF_PACKET</code> provides a passive copy of a bounded packet prefix on the Wi-Fi interface. A BPF filter caps each captured prefix at <strong>256 bytes</strong>. That prefix can include some payload bytes beyond the headers; the parser reads network/transport headers and retains only derived metadata. It does not save packet bodies or a packet capture file.</p><p>The observer uses the original frame length and header lengths to calculate traffic sizes. The web payload itself is encrypted in this example. It does not extract URLs, cookies, HTML or TLS hostnames.</p><p>Activity is attached to a matching stored flow. Packets that cannot be parsed or matched do not produce a complete resource-level history. Capture windows/status records track availability, drops, errors and unmatched events. A gap does not prove that the phone was idle.</p><p>Default detailed-activity retention is 24 hours for inactive sessions; this is not a blanket 24-hour deletion policy for every metadata collection. PocketBase data persists through the Compose <code>./data</code> volume. The dnsmasq text log is a separate service log.</p><p>Only client-initiated public-destination traffic within the configured observation scope becomes a website flow. Gateway-generated probes and local/infrastructure traffic such as classic DNS, DHCP, NTP, mDNS and the conventional UDP traceroute range are excluded. DNS has its own collection.</p></div></details>
-    <details><summary>Exact hostname-matching and grouping rules</summary><div class="detail-body"><p>The matcher considers DNS records in the same session, requires the same client IP and a matching destination IP in the answers, and chooses the nearest eligible timestamp to the flow’s observed start. The window is 5 minutes, with up to 10 seconds of later DNS timing tolerated. This is a fixed matching window, not a stored DNS-TTL check.</p><p>Without a DNS match, known reduced-visibility ports produce a <code>hidden</code> label; other flows remain <code>low</code> confidence with only their destination IP. A port-based label is a heuristic, not confirmation of a specific VPN or encrypted DNS product.</p><p>Usable high/medium-confidence names group by registered domain and the explicit alias table. The same client’s <code>www.svt.se</code> and <code>svtstatic.se</code> can therefore appear under <code>svt.se</code>. Original endpoint names remain visible. Timing, shared providers and CNAME chains do not by themselves merge different domain groups. Unresolved traffic remains independent.</p></div></details>
+  <section id="product" aria-labelledby="product-title">
+    <div class="section-no">02 / Work backward from the screen</div>
+    <h2 id="product-title">What the map actually needs.</h2>
+    <div class="table-wrap"><table class="feature-table">
+      <thead><tr><th>Visible behavior</th><th>Minimum durable information</th><th>Target treatment</th></tr></thead>
+      <tbody>
+        <tr><td>Service and client tracks</td><td>Client identity scope, supported canonical service, confidence and time.</td><td>Classify traffic before aggregation. Unknown or ambiguous traffic stays visible under an independent endpoint.</td></tr>
+        <tr><td>Destination points &amp; geography</td><td>Destination IP, location precision, country/city, provider and metadata version.</td><td>Reference a compact destination snapshot. Country-only or unknown geography must not become a fabricated city point.</td></tr>
+        <tr><td>Travelling bursts &amp; waveforms</td><td>Timestamped sent/received wire bytes, payload-byte counts and packet counts.</td><td>Keep 50 ms buckets by default. Playback animation remains a visual illustration, not measured packet travel time.</td></tr>
+        <tr><td>Totals at the playback cursor</td><td>Samples within the retained window, including traffic outside a named block.</td><td>Sum each captured sample once, only up to the cursor. Block totals are a derived cache, not a second source of bytes.</td></tr>
+        <tr><td>Browsing-like blocks</td><td>Service activity intervals, quiet gaps, confidence and capture coverage.</td><td>Add temporal blocks with both elapsed span and observed active time.</td></tr>
+        <tr><td>Route paths and replay</td><td>Binding, network epoch, hop evidence, measurement time, availability, expiry and invalidation.</td><td>Keep bounded historical evidence. Preserve unanswered hops and approximate-path labeling.</td></tr>
+        <tr><td>Live / replay / unattended demo</td><td>Session lifecycle, server time, retention boundary, capture heartbeat and revision.</td><td>One manifest and bounded window API. Default demo retention remains configurable.</td></tr>
+        <tr><td>Connections and raw observations</td><td>Source ports, conntrack state/counters, raw DNS and detailed probe attempts.</td><td><span class="tag optional">Optional diagnostics</span> Replace the default inspector with service evidence, destinations and activity detail.</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note">The current browser joins four record families just to identify a track, then loads capture and route records too. The shared controller subscribes to twelve collection families and maintains collection-specific indexes and ownership. Those are concrete deletion targets, beyond the database sidebar count. <a href="#source-frontend">Frontend evidence ↓</a></p>
   </section>
 
-  <section aria-labelledby="paths-title"><h2 id="paths-title">Which traffic goes where?</h2><div class="table-wrap"><table><thead><tr><th scope="col">Traffic</th><th scope="col">Path</th><th scope="col">Who handles the answer?</th></tr></thead><tbody>
-    <tr><td>Phone’s website traffic</td><td>Phone ⇄ Pi’s Linux forwarding/NAT ⇄ upstream network ⇄ website</td><td>The phone’s browser. Go observes metadata; it does not relay the content.</td></tr>
-    <tr><td>Phone’s classic DNS</td><td>Phone ⇄ Pi’s dnsmasq ⇄ upstream DNS if needed</td><td>dnsmasq handles the lookup and responds to the phone. Go reads the log.</td></tr>
-    <tr><td>Pi’s reverse DNS</td><td>Backend ⇄ configured resolver, unless locally answered</td><td>The backend. The phone is not part of this lookup.</td></tr>
-    <tr><td>Pi’s route probes</td><td>Pi’s probe process ⇄ routers / destination</td><td>The probe process and backend. Replies are not forwarded to the phone.</td></tr>
-    <tr><td>Dashboard data</td><td>Dashboard browser ⇄ PocketBase API on port 8090</td><td>The dashboard. This is a separate metadata connection, not the SVT page.</td></tr>
-  </tbody></table></div></section>
+  <section id="blocks" aria-labelledby="blocks-title">
+    <div class="section-no">03 / The new product concept</div>
+    <h2 id="blocks-title">“SVT activity over two minutes.”</h2>
+    <p class="intro">Use a <strong>site activity block</strong> as the stored concept. The gateway can observe network activity associated with a service; it cannot see the foreground tab, distinguish quiet reading from absence, or prove that a person browsed for the whole interval.</p>
+    <div class="visit">
+      <div><span class="tag">Illustrative block</span><div class="site">svt.se</div><div class="duration">Activity observed over 2 min</div><p class="note" style="margin-top:10px">10:00:00–10:02:00 · Device A · Inferred service association</p></div>
+      <dl><div><dt>Observed active buckets</dt><dd>42 seconds</dd></div><div><dt>Capture</dt><dd>Complete in this example</dd></div><div><dt>Canonical service</dt><dd>svt.se</dd></div><div><dt>Possible aliases</dt><dd>svtplay.se, svtstatic.se</dd></div></dl>
+    </div>
+    <p class="note" style="margin-top:12px">The alias examples are already explicit rules in this repository. They express a product grouping choice; they do not prove that every associated request came from an SVT browser tab.</p>
+    <div class="panel explorer">
+      <h3>Explore what the quiet-gap rule changes</h3>
+      <p class="small muted">Synthetic traffic, not a recording. Five bursts occur in the first two minutes; another begins at 3:30. A separate service overlaps. Adjust the threshold to see why a block is an inference.</p>
+      <div class="controls"><label for="gap">Maximum quiet gap</label><input id="gap" type="range" min="15" max="90" step="15" value="45" aria-describedby="gap-help"><output id="gap-value" for="gap">45 seconds</output></div>
+      <div class="chart-scroll">
+        <svg id="activity-chart" class="chart" viewBox="0 0 850 190" role="img" aria-labelledby="chart-title chart-desc">
+          <title id="chart-title">Illustrative service activity over five minutes</title><desc id="chart-desc">Six SVT bursts form two blocks with a 45-second quiet-gap threshold. Activity for another service overlaps and remains separate.</desc>
+          <g stroke="#d4dcd6" stroke-width="1"><path d="M135 30H825M135 78H825M135 126H825"/><path d="M135 20V151M273 20V151M411 20V151M549 20V151M687 20V151M825 20V151" stroke-dasharray="3 5"/></g>
+          <g><text x="0" y="47">SVT transfers</text><text x="0" y="96">Inferred blocks</text><text x="0" y="143">Other service</text><text x="135" y="175">0:00</text><text x="263" y="175">1:00</text><text x="401" y="175">2:00</text><text x="539" y="175">3:00</text><text x="677" y="175">4:00</text><text x="795" y="175">5:00</text></g>
+          <g fill="#185d47"><rect x="135" y="34" width="18.4" height="18"/><rect x="187.9" y="34" width="18.4" height="18"/><rect x="245.4" y="34" width="16.1" height="18"/><rect x="307.5" y="34" width="18.4" height="18"/><rect x="385.7" y="34" width="25.3" height="18"/><rect x="618" y="34" width="34.5" height="18"/></g>
+          <g id="block-shapes" fill="#bcd8c5" stroke="#185d47"><rect x="135" y="82" width="276" height="22" rx="3"/><rect x="618" y="82" width="34.5" height="22" rx="3"/></g>
+          <g fill="#315f8a"><rect x="176.4" y="130" width="55.2" height="18"/><rect x="332.8" y="130" width="43.7" height="18"/></g>
+        </svg>
+      </div>
+      <p id="gap-help" class="note">Starting default: 45 seconds, then calibrate against consented browsing recordings. This is a heuristic, not a measured browser session boundary. The closing grace period never adds to the reported span.</p>
+      <div id="block-results" class="block-results" aria-live="polite"><div class="block-pill"><b>Block 1</b> · 2 min span · 42 s active</div><div class="block-pill"><b>Block 2</b> · 15 s span · 15 s active</div></div>
+    </div>
+    <ol class="steps">
+      <li><strong>Identify the client and supported service.</strong><p>Use a session-scoped device/lease identity where available; an IP address alone is not a person or a durable device identity. Apply the existing registered-domain and explicit-alias rules. Shared IPs, timing and provider names do not establish a shared website. Keep ambiguous or hidden traffic independent, keyed by endpoint.</p></li>
+      <li><strong>Start from actual captured activity.</strong><p>Payload-bearing 50 ms buckets seed a block for the same client and service. Union concurrent bucket intervals to calculate active time. TCP ACK-only bytes remain in map totals but cannot extend a block. Encrypted control traffic and keepalives can still look like activity; this heuristic cannot infer attention.</p></li>
+      <li><strong>Join nearby intervals, with coverage as evidence.</strong><p>Join when the observed quiet gap is at most the configured threshold. A longer confirmed quiet gap creates another block. A capture interruption creates an explicitly uncertain boundary, not proof of a new visit. Partial capture gives the block partial quality.</p></li>
+      <li><strong>Allocate time slices, never entire connections.</strong><p>One long-lived connection may contribute to several blocks; many connections may contribute to one. Assign bytes by half-open bucket intervals. Control-only bytes outside block intervals remain in an “other traffic” total. Concurrent services may overlap, and their durations must not be added as human browsing time.</p></li>
+      <li><strong>Keep a small provisional tail, then seal it.</strong><p>Start with a ten-second attribution correction horizon. While transient per-connection contributions still exist, move bytes between service aggregates atomically and recompute affected blocks. Close a block only after the quiet-gap deadline and persistence watermark pass; its end is still the last active bucket. Late attribution after sealing does not rewrite old aggregates.</p></li>
+    </ol>
+    <div class="callout"><strong>Two identities, two meanings.</strong> <code>service_key = svt.se</code> is stable grouping. <code>block_id</code> identifies one temporal activity interval. Never put one block ID on a connection. Stable blocks keep their IDs as retention clips their visible start; provisional splits and merges may replace IDs through a session revision.</div>
+    <p class="note">If exact navigation, foreground time or dwell time becomes a requirement, add an explicit browser-side signal as a separate product feature. Passive metadata alone cannot supply it. The accepted core remains useful without that signal.</p>
+  </section>
 
-  <section id="limits" aria-labelledby="limits-title"><p class="eyebrow">What the picture can and cannot say</p><h2 id="limits-title">We can show connections. We cannot replay the webpage.</h2><div class="limits">
-    <article class="limit"><h3>Visible: endpoints, timing and volume</h3><p>We observe IPs, ports, protocols, counts and timings. Local DNS can supply candidate hostnames. The flow list includes other apps’ traffic too, not just the browser.</p></article>
-    <article class="limit"><h3>Hidden inside HTTPS: the content</h3><p>We do not decrypt or store article paths, query strings, cookies, form contents, HTML, images or video. The phone and the remote HTTPS endpoint handle that content.</p></article>
-    <article class="limit"><h3>Encrypted DNS / VPN / Private Relay</h3><p>Hostname evidence can disappear. A tunnel can leave us seeing only the tunnel or relay endpoint and its traffic volume, not the websites inside.</p></article>
-    <article class="limit"><h3>The map is an approximation</h3><p>Route probes are separate packets; internet routes can differ in each direction. Drawing incoming traffic along a measured route does not mean we measured the return route.</p></article>
-  </div></section>
+  <section id="model" aria-labelledby="model-title">
+    <div class="section-no">04 / The accepted durable model</div>
+    <h2 id="model-title">Seven collections with seven clear jobs.</h2>
+    <p class="intro">Store bounded numeric samples and the evidence needed to interpret them. JSON is appropriate for a fixed-size sample array or hop list; it should not hide unbounded lists of flows, memberships, jobs and caches inside one record.</p>
+    <div class="table-wrap"><table class="schema-table">
+      <thead><tr><th>Collection</th><th>Record grain &amp; principal fields</th><th>Ownership and bounds</th></tr></thead>
+      <tbody>
+        <tr><td><code>sessions</code><p><span class="tag">Lifecycle</span></p></td><td>One observation period. Start/end, mode, retention, current capture health, revision, schema version and grouping-policy snapshot.</td><td>Store the actual thresholds and alias rules with the resolver/version identity. Closed sessions cannot be reopened for probing. Client labels are a bounded session summary or derived from chunks, not another permanent registry.</td></tr>
+        <tr><td><code>traffic_chunks</code><p><span class="tag">Primary facts</span></p></td><td>One five-second chunk per session, capture epoch, client scope, service key, destination snapshot, protocol, destination port and network epoch.</td><td>At most 100 sparse 50 ms bins. Store sent/received wire bytes, payload-byte counts and packets; small bounded attribution evidence and confidence. No source port or durable flow relation. A unique key prevents duplicate rows; monotonic snapshot generations and conditional saves reject stale retries.</td></tr>
+        <tr><td><code>capture_intervals</code><p><span class="tag">Quality</span></p></td><td>Time intervals of complete, partial or unavailable capture; capture epoch, confirmed-through time, dropped-event counters and reason.</td><td>Advance independently of traffic. Coverage ends at confirmed persistence, never at a future time implied by “running.” Coalesce equal adjacent intervals with a maximum interval length; retain zero-traffic coverage.</td></tr>
+        <tr><td><code>activity_blocks</code><p><span class="tag">Derived</span></p></td><td>Client/service, first/last activity, active milliseconds, directional totals, confidence, quality, provisional/closed state and derivation revision.</td><td>Recompute retained totals from chunks and coverage under the pinned policy. After source retention, seed reconstruction from surviving block anchors to preserve original identity/start. No member-flow list or copied destination arrays. Mark clipped starts explicitly.</td></tr>
+        <tr><td><code>destinations</code><p><span class="tag">Context</span></p></td><td>Compact versioned IP context: geography and precision, provider/ASN, optional PTR, source/version and lookup time.</td><td>Reuse identical metadata snapshots; new metadata creates a new version. Chunks reference the version used. Garbage-collect versions only when no retained data refers to them.</td></tr>
+        <tr><td><code>route_evidence</code><p><span class="tag">History</span></p></td><td>Typed path publications or network invalidations. Session/network epoch, binding, availability, original measurement time, fixed expiry and bounded hop evidence.</td><td>Path bodies are self-contained. No duplicate observation bundle or persistent cache copy. One useful terminal publication, with at most one meaningful enrichment revision per run in the initial policy.</td></tr>
+        <tr><td><code>probe_runs</code><p><span class="tag optional">Core operations</span></p></td><td>One durable admission per actual probe-method attempt. Session quota scope, stable network fingerprint/family, binding, method, admitted/completed time, outcome, reserved cost and retry-after.</td><td>Admin-only. Reserve in a transaction before execution; incomplete runs stay charged. Bounded indexed history reconstructs budgets and suppression. Retention can outlive session deletion; this is required operating state, not optional debug logging.</td></tr>
+      </tbody>
+    </table></div>
+    <details open>
+      <summary>What a traffic chunk contains</summary>
+      <div class="detail-body">
+        <pre><code>key: session + capture_epoch + client_scope + service_key
+     + destination_version + protocol + destination_port
+     + network_epoch + chunk_start
 
-  <section class="panel" aria-labelledby="exception-title"><h2 id="exception-title">The exception: explicitly armed Proxy Lab</h2><p>Everything above describes the default passive mode. <code>LAB_GATE_ENABLED</code> is <code>false</code> by default. Enabling support alone still does not hold client traffic.</p><details><summary>What changes when an operator arms the gate?</summary><div class="detail-body"><p>An authenticated operator selects IPv4 clients in an active session. Linux <code>NFQUEUE</code> then holds selected packets while the Go gate decides when to accept or drop them. Here, selected traffic really does wait for a backend verdict before forwarding or local DNS delivery.</p><ul><li><strong>Flow mode:</strong> holds admission of new TCP/UDP flows.</li><li><strong>Strict mode:</strong> steps packets for one exact connection tuple in both directions.</li><li><strong>DNS mode:</strong> gates selected traffic going to local dnsmasq.</li></ul><p>Accepted traffic continues through the normal network path. This still does not decrypt HTTPS. Timeouts and fail-open behavior limit stalls. Gate decisions have a separate audit trail in <code>gate_events</code>.</p><p><code>DEBUG_TRACE_ENABLED</code> is another, independent option: bounded in-memory metadata events streamed to the debug dashboard. Passive tracing alone does not hold packets.</p></div></details></section>
+sample format v2:
+[offset_ms, wire_sent, wire_received,
+ payload_sent, payload_received, packets_sent, packets_received]
 
-  <section aria-labelledby="last-title"><h2 id="last-title">The shortest explanation</h2><p class="answer">The phone asks for an address, then talks securely to the website through our Pi. The Pi forwards both directions. Our backend records connection metadata and visible DNS, then adds inferred names and approximate routes. The phone receives, decrypts and displays the page.</p><p class="small">Scope: default Compose configuration and current working-tree code, reviewed 17 September 2026. No live Pi or SVT capture was used. This report is self-contained and makes no external network requests.</p>
-    <details><summary>Code behind this explanation</summary><div class="detail-body"><p>These links point to the repository files next to this report. Source code takes precedence where older prose describes earlier behavior.</p><div class="source-list">
-      <div><a href="entrypoint.sh">entrypoint.sh</a><span>NAT, forwarding, DNS redirect, removal of old web-proxy redirects.</span></div>
-      <div><a href="dnsmasq.conf">dnsmasq.conf</a> · <a href="docker-compose.yml">docker-compose.yml</a><span>DHCP, upstream DNS, logging, interfaces and default options.</span></div>
-      <div><a href="pocketbase/main.go">pocketbase/main.go</a><span>Observer startup; the old handleConnection function is not wired to a listener.</span></div>
-      <div><a href="pocketbase/observer/dnsmasq.go">observer/dnsmasq.go</a> · <a href="pocketbase/observer/conntrack.go">conntrack.go</a><span>DNS ingestion and sampled flow fields.</span></div>
-      <div><a href="pocketbase/observer/packet_activity_linux.go">observer/packet_activity_linux.go</a> · <a href="pocketbase/netmeta/packet.go">netmeta/packet.go</a><span>256-byte capture cap and header-derived metadata.</span></div>
-      <div><a href="pocketbase/observer/activity_chunks.go">observer/activity_chunks.go</a> · <a href="pocketbase/observer/scope.go">scope.go</a><span>Activity storage, retention and observation exclusions.</span></div>
-      <div><a href="pocketbase/observer/correlator.go">observer/correlator.go</a> · <a href="pocketbase/observer/domain_groups.json">domain_groups.json</a><span>Hostname inference and the SVT grouping aliases.</span></div>
-      <div><a href="pocketbase/observer/destination.go">observer/destination.go</a> · <a href="pocketbase/routing/probe.go">routing/probe.go</a><span>Reverse DNS, local location/provider context and separate probes.</span></div>
-      <div><a href="docs/implementation-guides/live-route-discovery.md">Live route discovery guide</a><span>Probe budgets, cache behavior and evidence boundaries.</span></div>
-      <div><a href="docs/implementation-guides/proxy-lab.md">Proxy Lab guide</a> · <a href="docs/implementation-guides/domain-grouping.md">Domain grouping guide</a><span>Opt-in traffic gates and current grouping semantics.</span></div>
-    </div></div></details>
+example attribution summary:
+{ hostname_example, source, matched_ip, evidence_time,
+  confidence, ambiguity, policy_version }  // small, explicitly bounded</code></pre>
+        <p class="small">Aggregate across connections only when these dimensions agree. This preserves different services sharing a CDN IP and different route bindings on one IP. An unknown endpoint remains separate from a confidently named service. Confidence is conservative when evidence is mixed; a bounded example list is not presented as complete raw provenance.</p>
+        <p class="small"><strong>One byte authority:</strong> captured wire bytes include headers and retransmissions. Do not add conntrack lifetime counters to them. Conntrack helps transient identity and diagnostics; capture gaps stay gaps in core mode. No inferred waveform fills missing data.</p>
+      </div>
+    </details>
+    <div class="two spaced">
+      <div class="rule"><h3>Persist promptly; classify briefly</h3><p>Keep the current roughly 400 ms flush cadence as an initial target. Provisional aggregates are durable before their classification is final. A bounded RAM contribution ledger supports corrections during the ten-second tail; an atomic transaction subtracts and adds exactly the same bytes.</p><p>On restart, seal the persisted tail with its existing labels, start a new capture epoch, and mark any unacknowledged interval unknown. Rebuild open blocks from persisted chunks. Fresh snapshots must never overwrite earlier samples from the same five-second wall-clock interval.</p></div>
+      <div class="rule"><h3>Capture first; enrich afterward</h3><p>Keep packets that conntrack polling never sees. A provisional tuple can be classified or stay unknown without waiting for a durable flow record. Bound DNS, tuple and contribution caches by time and capacity; an eviction loses a label opportunity, not captured traffic.</p><p>Use connection generations where observable: connection ID, teardown, disappearance or counter reset. Reuse between polls may remain ambiguous. After reuse, eviction or restart, prefer unknown over carrying a stale hostname forward.</p></div>
+    </div>
+    <div class="callout warning"><strong>Historical labels become explicit snapshots.</strong> Unlike an event archive, the sealed core cannot reconstruct every past DNS decision or globally reclassify old connections. Contradictory evidence can retract provisional labels; after sealing it affects new traffic. Pin policy for the session and apply alias changes to new sessions. An opt-in raw recording may support a separate, deliberate reprocessing workflow.</div>
+  </section>
+
+  <section id="routes" aria-labelledby="routes-title">
+    <div class="section-no">05 / Simplify the most stateful subsystem</div>
+    <h2 id="routes-title">Two route records: what we attempted, and what the map knew.</h2>
+    <p class="intro">The current route subsystem has six collection families. Replace them with <code>probe_runs</code> for durable admission and <code>route_evidence</code> for playback. Simplify the policy at the same time, so six lifecycles do not reappear inside a generic state document.</p>
+    <div class="two spaced">
+      <div class="panel"><h3>Keep the safety and evidence</h3><ul class="small">
+        <li>One paced worker, finite per-session and network/family budgets, bounded path storage, and cooldown after repeated failures.</li>
+        <li>Charge each method attempt before launching it. A crash or cancellation does not refund the charge. Queries use a stable network fingerprint, not a restart-created capture epoch.</li>
+        <li>Use a deterministic hourly admission scope for continuous sessions, and lifetime scope for an open recorded session. Preserve manual-attempt limits.</li>
+        <li>Bind evidence to IP, protocol, destination port and session network epoch. An unknown network identity uses a conservative quota scope, not a fresh allowance.</li>
+        <li>Keep measured time separate from available time. Select the latest applicable publication, then check expiry/invalidation; never resurrect an older path after newer invalidation.</li>
+      </ul></div>
+      <div class="panel"><h3>Delete or reduce the extra behavior</h3><ul class="small">
+        <li><strong>No cross-session persistent cache.</strong> Reuse a valid path only within the same session and network epoch, without refreshing its measurement age.</li>
+        <li><strong>Publish terminal useful paths.</strong> Drop persistent progress and confirmation histories. A path may appear later, once the bounded probe completes.</li>
+        <li><strong>Bound enrichment.</strong> Keep the path self-contained. At most one useful enrichment revision per run; no separate event reconciliation layer.</li>
+        <li><strong>Derive current status.</strong> Latest attempt outcomes and ledger counts supply the admin summary. No separate outcome, budget or cache collection.</li>
+        <li><strong>Detailed probe bundles are optional fields.</strong> Bound their size and retention within diagnostic mode; path hops and essential quality remain core.</li>
+      </ul></div>
+    </div>
+    <p class="small spaced">Retain the current defaults as the initial ceiling: 20 automatic targets, 40 automatic attempts, 40 network/family attempts per rolling hour, 10 manual attempts, 100 path snapshots and a 16 MiB evidence cap. Within each admission scope, allow at most one automatic attempt per selected method (at most two methods) for a binding, and stop on useful evidence. Preserve the 30-minute pause after five distinct completed comparisons without useful gain; five individual attempt rows are not five comparisons. Removing budget-reset or “extra allowance” controls is a deliberate simplification; manual work still consumes an explicit allowance. Validate the exact policy against existing route contract tests before replacing the coordinator.</p>
+    <div class="callout warning"><strong>Visible consequence:</strong> a new session may initially show destination points without route paths, and may be unable to probe immediately if earlier sessions exhausted the network budget. Deleting a session must not delete those recent charges. Keep admission records through the longest quota/cooldown horizon; keep all attempts needed for an open recorded session’s lifetime budget.</div>
+    <p class="note">A <code>path</code> and a <code>network_invalidated</code> record are two explicit variants of map evidence, with validated fields. They are not arbitrary key/value events or fake empty traceroutes. Network invalidation remains a historical fact even if no path was currently visible. <a href="#source-routes">Routing evidence ↓</a></p>
+  </section>
+
+  <section id="api" aria-labelledby="api-title">
+    <div class="section-no">06 / Fewer joins, fewer moving parts</div>
+    <h2 id="api-title">Give the browser a map window.</h2>
+    <p class="intro">The browser should own playback, camera movement, filtering and rendering. Go should own attribution, grouping and the rules for selecting historical evidence. Keep the existing Go/PocketBase stack and a single process.</p>
+    <pre><code>GET /api/sessions/:id/manifest
+  → lifecycle, retention, clock, policy, capture health, revision
+
+GET /api/sessions/:id/map?from=…&amp;to=…&amp;resolution=…
+  → block segments + traffic series + capture coverage
+    + referenced destinations + route-evidence revisions
+
+GET /api/sessions/:id/blocks?from=…&amp;to=…&amp;cursor=…
+  → paged activity summaries for the retained interval
+
+GET /api/sessions/:id/diagnostics/…   // only when enabled
+  → raw connection / DNS / detailed probe information</code></pre>
+    <p class="small">Use bounded aligned windows, a response-size cap and versioned replacement semantics. A response carries the session revision, covered interval and completeness; a revision mismatch or retention advance causes a refetch. One coalesced session revision signal replaces collection-by-collection subscriptions. Compute coarse display resolutions from the same samples, cache bounded windows in memory, and keep fine samples available on demand.</p>
+    <p class="small">A playback window includes the route revisions that become available inside it plus the necessary pre-window anchor and invalidation state. It must not apply the latest route to the whole window. Clients can play cached windows locally; this is not a request per animation frame.</p>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Backend boundary</th><th>One responsibility</th><th>Code that can disappear</th></tr></thead>
+      <tbody>
+        <tr><td>Observer</td><td>Bounded ingestion, transient classification, aggregate persistence and capture coverage.</td><td>Separate attribution/association writes, full-session group synchronization, raw-DNS persistence in core mode, catalogue checkpoints.</td></tr>
+        <tr><td>Activity projector</td><td>A deterministic interval algorithm over chunks and coverage; materialize small block summaries.</td><td>Permanent “episode” membership and five-way derivation scans.</td></tr>
+        <tr><td>Routing</td><td>Reserve attempts, run bounded probes, publish useful evidence and invalidations.</td><td>Cache payload copies, observation copies, mutable outcome store and independent evidence-update merging.</td></tr>
+        <tr><td>Timeline / map API</td><td>Read bounded windows, enforce replay semantics and produce one product DTO.</td><td>Eleven-array collector-shaped responses, independent collection cursors and duplicate activity-summary transport logic.</td></tr>
+        <tr><td>Shared frontend runtime</td><td>Window cache, revision handling, retention and playback.</td><td>Collector entity maps, flow/attribution/episode/association joins, collection ownership and reference-count plumbing.</td></tr>
+      </tbody>
+    </table></div>
+    <p class="note">Keep these as a few concrete modules and pure functions. A generic event bus, plugin framework, repository interface per table or new database is unnecessary. Preserve HTTP/server-write boundaries and admin-only access for operational and diagnostic data; do not expose a generic state collection to simplify reading.</p>
+  </section>
+
+  <section id="inventory" aria-labelledby="inventory-title">
+    <div class="section-no">07 / Every collection accounted for</div>
+    <h2 id="inventory-title">The “22 collections” count needs one correction.</h2>
+    <p class="intro">Read-only inspection of this checkout’s local database found <strong>19 current application collections + two legacy collections + the <code>users</code> auth collection</strong>. That explains 22 visible collections. Five PocketBase system/auth collections bring the registered total to 27; those are separate from this product redesign.</p>
+    <p class="small">The honest target is <strong>19 → 7 core application collections</strong>, a 63% reduction in collection count, or ten with all three diagnostic collections installed. This is not a claim of 63% less disk use or code. A fresh core installation would show eight non-system collections if <code>users</code> remains. Development starts with fresh application data; old recordings do not need conversion.</p>
+    <details>
+      <summary>Full disposition of all 19 current application collections</summary>
+      <div class="detail-body">
+        <div class="table-wrap"><table class="inventory">
+          <thead><tr><th>Current collection</th><th>Decision</th><th>Where its useful information goes</th></tr></thead>
+          <tbody>
+            <tr><td><code>sessions</code></td><td>Keep</td><td>Lifecycle, policy snapshot, revision and compact current capture state.</td></tr>
+            <tr><td><code>clients</code></td><td>Remove from core</td><td>Client scope on samples; labels from bounded session metadata. No current collector writer was found for this registry.</td></tr>
+            <tr><td><code>flows</code></td><td>Optional</td><td>Transient tuple/generation cache in core; optional <code>flow_diagnostics</code> stores connection history with embedded attribution evidence.</td></tr>
+            <tr><td><code>dns_queries</code></td><td>Optional</td><td>Keep DNS ingestion and bounded correlation in memory; retain small evidence summaries on chunks.</td></tr>
+            <tr><td><code>flow_attributions</code></td><td>Remove</td><td>Inline classification and evidence on aggregate traffic, or on optional diagnostic flows.</td></tr>
+            <tr><td><code>activity_episodes</code></td><td>Replace</td><td>Canonical service keys on chunks plus genuine temporal <code>activity_blocks</code>.</td></tr>
+            <tr><td><code>flow_associations</code></td><td>Remove</td><td>Block membership follows sample time and service identity, not stored flow links.</td></tr>
+            <tr><td><code>flow_activity_chunks</code></td><td>Replace</td><td><code>traffic_chunks</code>, aggregating compatible connections before persistence.</td></tr>
+            <tr><td><code>flow_activity_status</code></td><td>Merge</td><td>Compact current state in <code>sessions</code>; historical coverage in intervals.</td></tr>
+            <tr><td><code>flow_activity_windows</code></td><td>Replace</td><td><code>capture_intervals</code>, independent of whether packets arrive.</td></tr>
+            <tr><td><code>destinations</code></td><td>Keep / simplify</td><td>Compact, referenced metadata versions rather than mutable replay geography.</td></tr>
+            <tr><td><code>routes</code></td><td>Replace</td><td>Self-contained path publications in <code>route_evidence</code>.</td></tr>
+            <tr><td><code>route_observations</code></td><td>Remove</td><td>Useful hops in route evidence; optional detailed probe fields in the attempt record.</td></tr>
+            <tr><td><code>route_cache</code></td><td>Remove</td><td>Query valid same-session publications. Drop cross-session persistent reuse.</td></tr>
+            <tr><td><code>route_outcomes</code></td><td>Remove</td><td>Latest terminal <code>probe_runs</code> outcomes supply operational status.</td></tr>
+            <tr><td><code>route_budget_state</code></td><td>Replace</td><td>Explicit pre-execution reservations in <code>probe_runs</code>, queried by quota scope.</td></tr>
+            <tr><td><code>route_evidence_updates</code></td><td>Remove</td><td>Typed invalidations and bounded full revisions in <code>route_evidence</code>; remove progress/confirmation persistence.</td></tr>
+            <tr><td><code>gate_events</code></td><td>Optional</td><td>Required bounded audit when the optional Lab gate is enabled. Disabling diagnostics cannot silently disable the gate’s audit obligation.</td></tr>
+            <tr><td><code>domain_catalogue</code></td><td>Remove</td><td>Use explicit diagnostic exports for alias review. Drop its all-time counters and private checkpoint table.</td></tr>
+          </tbody>
+        </table></div>
+      </div>
+    </details>
+    <div class="two spaced">
+      <div class="rule"><h3>Optional means optional storage</h3><p>The full diagnostic profile adds <code>flow_diagnostics</code>, <code>dns_queries</code> and <code>gate_events</code>, each with a time and byte cap. Detailed probe fields live on bounded attempt records. Enabling it is a forward-looking capture choice; it cannot recover old raw data.</p><p>A core installation should not create these three collections. Turning a diagnostic profile off stops writes; it does not silently delete its existing records or schema. The UI should clearly indicate whether raw diagnostics were recorded.</p></div>
+      <div class="rule"><h3>Start with a clean application schema</h3><p>Exclude the legacy <code>packets</code> and <code>traceroutes</code> tables from fresh setup. Existing development recordings are disposable; no import, conversion or old-recording reader is needed. Keep the auth schema required by the application.</p><p>PocketBase’s five system/auth collections and internal metadata tables remain. Remove <code>_domain_catalogue_checkpoints</code> only together with the retired catalogue feature. A hidden custom table still counts as complexity.</p></div>
+    </div>
+  </section>
+
+  <section id="retention" aria-labelledby="retention-title">
+    <div class="section-no">08 / Make storage genuinely smaller</div>
+    <h2 id="retention-title">Reduce write amplification, then measure.</h2>
+    <p class="intro">The useful reduction comes from aggregating compatible connections, removing duplicate derivation writes and retaining only deliberate evidence. Fewer collection names alone say little about storage cost.</p>
+    <div class="callout"><strong>Illustrative sizing, not a benchmark.</strong> Two minutes of continuous activity produce about 24 five-second rows per active dimension set. Thirty simultaneously active flows across three compatible service/destination bindings would produce roughly <strong>720 current flow chunks versus 72 aggregate chunks</strong>, before other records. Real savings depend on concurrency, alignment, sparsity, attribution, protocol/port diversity and epoch changes; in the worst case, every flow has a distinct binding and aggregation saves little.</div>
+    <div class="table-wrap"><table>
+      <thead><tr><th>Data</th><th>Retention contract</th><th>What must survive cleanup</th></tr></thead>
+      <tbody>
+        <tr><td>Traffic &amp; capture coverage</td><td>Keep configured rolling detail for ephemeral sessions; preserve full detail for saved recordings until an explicit deletion/archive policy.</td><td>Coverage through confirmed persistence, immutable chunk identities and the boundary needed to clip partial chunks.</td></tr>
+        <tr><td>Activity blocks</td><td>Derived from retained detail. Clip ephemeral totals to that same window. Do not retain an undeclared lifetime history.</td><td>A block crossing the cutoff keeps its ID and known original start as a restart anchor, but reports only retained bytes/active time and a clipped-start flag. Delete the anchor when the block no longer overlaps retained detail.</td></tr>
+        <tr><td>Route evidence</td><td>Bound count and encoded bytes. For rolling sessions, retain evidence necessary to interpret the retained interval.</td><td>The last relevant pre-window path and invalidation context, plus within-window revisions. Source deletion never leaves dangling cache references because there is no cross-session cache.</td></tr>
+        <tr><td>Probe admission</td><td>Retain through all network quota/suppression windows, even after deleting the source session. Open recorded-session totals need their full admission history.</td><td>Admitted-but-unfinished attempts, manual spending and failure/capability cooldowns. Restart or deletion cannot grant a new budget.</td></tr>
+        <tr><td>Destination versions</td><td>Delete when unreferenced by retained chunks/evidence.</td><td>Historical location precision and source version.</td></tr>
+        <tr><td>Diagnostics</td><td>Short independently capped retention, configured explicitly. Gate audit follows the enabled gate’s contract.</td><td>Declare losses/eviction; optional diagnostic pruning must not break any core relation.</td></tr>
+      </tbody>
+    </table></div>
+    <p class="small">Check the new implementation with representative Raspberry Pi traffic: database/WAL growth, row and encoded-JSON counts, writes per second, peak memory, flush latency, and p95 map-window latency/response bytes. Use these measurements to catch excessive or unbounded work and tune the configured limits. A comparison deployment of the old model is not a prerequisite.</p>
+  </section>
+
+  <section id="implementation" aria-labelledby="implementation-title">
+    <div class="section-no">09 / Implementation sequence</div>
+    <h2 id="implementation-title">Adopt the new model and rewrite directly.</h2>
+    <p class="intro">The seven-collection architecture is the new standard. Start with fresh application data and replace the existing implementation. These steps are a working order, not separate releases or approval gates.</p>
+    <div class="callout"><strong>Working checklist:</strong> <a href="implementation-plan.md">implementation-plan.md</a> contains the checkable tasks. Existing development recordings are disposable. Git provides the fallback for code; an older version can run against a fresh database for that version. There is no migration, legacy playback, dual writing or shadow mode to build.</div>
+    <div class="phase"><div class="n">01</div><div><h3>Establish the new schema and vocabulary</h3><p>Record the accepted architecture in the domain documentation and a storage ADR. Replace the application migration history with a clean seven-collection schema, define the new types and provide one development reset/bootstrap path. Use the new model as the basis for every subsequent change.</p></div></div>
+    <div class="phase"><div class="n">02</div><div><h3>Rewrite capture, aggregation and blocks</h3><p>Persist aggregate traffic directly from capture, with bounded in-memory classification and independent capture coverage. Implement the provisional tail, crash-safe flushes, temporal block projection and rolling retention. Keep useful capture code; remove the durable flow/attribution/association chain.</p></div></div>
+    <div class="phase"><div class="n">03</div><div><h3>Simplify routing around admissions and evidence</h3><p>Use transactional probe reservations and self-contained terminal path publications. Preserve quotas, historical invalidation and replay semantics. Remove the persistent cross-session cache, duplicated observations and confirmation/progress machinery. Reuse the existing probe engine and supported method rules.</p></div></div>
+    <div class="phase"><div class="n">04</div><div><h3>Replace the API and frontend data path</h3><p>Build the manifest, bounded map windows, activity-block endpoints and one revision signal. Move both dashboards to the new contract, keep playback local and add activity-block browsing. Delete the old collector joins and transport bookkeeping as their replacements are built.</p></div></div>
+    <div class="phase"><div class="n">05</div><div><h3>Finish diagnostics and remove obsolete code</h3><p>Make raw flow/DNS history and gate audit an explicit diagnostic profile with bounded storage. Preserve the gate’s fail-open and audit requirements. Delete obsolete collections, catalogue checkpoints, compatibility paths, configuration and tests. Update scripts, fixtures and guides to the new standard.</p></div></div>
+    <div class="phase"><div class="n">06</div><div><h3>Verify the new implementation</h3><p>Use focused fixtures and a fresh database to check accounting, grouping, capture gaps, restart behavior, retention and route limits. Run the relevant tests and builds, check both dashboards in a browser, and smoke-test representative traffic on the gateway. Completion means one working data path, seven core collections and three optional diagnostic collections.</p></div></div>
+    <details>
+      <summary>Correctness checks for the new model</summary>
+      <div class="detail-body">
+        <ul class="small">
+          <li><strong>Conservation:</strong> every durably persisted sample contributes its wire bytes exactly once; named blocks plus independent/control traffic reconcile. Capture, queue and pre-flush crash losses produce incomplete coverage. Seeking and clipping exclude future and expired bytes.</li>
+          <li><strong>Identity and time:</strong> shared-IP services stay separate; tuple/lease reuse cannot inherit stale labels; one continuing connection can form two blocks; concurrent activity contributes a union of active intervals.</li>
+          <li><strong>Durability:</strong> duplicate/stale flushes and restart cannot overwrite or double-count chunks. Coverage stops at the acknowledged watermark, and retained block anchors survive restart.</li>
+          <li><strong>Inference:</strong> uncertain traffic stays independent; provisional reassignment is atomic; sealed labels retain the session’s policy.</li>
+          <li><strong>Routes:</strong> expiry, availability, invalidation and pre-window anchors remain correct in replay. Restart or session deletion cannot reset spent allowances.</li>
+          <li><strong>Bounds and behavior:</strong> long-running capture, high binding cardinality and optional diagnostics remain bounded. Forwarding continues when route discovery or diagnostics are unavailable.</li>
+        </ul>
+      </div>
+    </details>
+  </section>
+
+  <section id="sources" aria-labelledby="sources-title">
+    <div class="section-no">10 / Evidence and decision boundaries</div>
+    <h2 id="sources-title">Grounded in this checkout.</h2>
+    <p class="small">Reviewed repository code, current architecture documents and read-only local collection metadata. Local data was used to reconcile collection names/counts, not to infer browsing behavior or performance. The seven-collection architecture and direct rewrite approach are accepted. Thresholds are starting defaults to tune during implementation; the original collection audit describes the pre-rewrite checkout, and source links now point to its replacements.</p>
+    <div class="sources spaced">
+      <div><a href="CONTEXT.md">Accepted domain model</a><span>Aggregate traffic, activity blocks, coverage and optional diagnostics.</span></div>
+      <div><a href="docs/adr/0003-map-activity-storage.md">Accepted storage decision</a><span>Seven core collections and a direct rewrite against fresh application data.</span></div>
+      <div><a href="pocketbase/data/schema.go">Core and optional schemas</a><span>Current fields, indexes, bounds and private collection access.</span></div>
+      <div><a href="pocketbase/data/types.go">Shared product facts</a><span>Traffic samples, temporal blocks, capture quality and destination context.</span></div>
+      <div><a href="pocketbase/observer/aggregate.go">Captured aggregate construction</a><span>Bounded connection identity, direct packet counters and provisional classification corrections.</span></div>
+      <div><a href="pocketbase/observer/storage.go">Capture persistence</a><span>Atomic replacements, epoch/generation fencing and confirmed coverage.</span></div>
+      <div><a href="pocketbase/observer/blocks.go">Temporal activity projection</a><span>Quiet gaps, active-time unions, ACK-only accounting and retained anchors.</span></div>
+      <div><a href="pocketbase/observer/domain_groups.json">Explicit service aliases</a><span>The SVT examples used in the activity-block illustration.</span></div>
+      <div id="source-frontend"><a href="packages/session-state/src/runtime.ts">Frontend runtime</a><span>Product windows, revision refetch and local playback replace collector joins.</span></div>
+      <div><a href="dashboard/src/map/destinationVolumes.ts">Map volume semantics</a><span>Directional captured counters at the playback cursor.</span></div>
+      <div id="source-routes"><a href="pocketbase/routing/storage.go">Route publication</a><span><a href="pocketbase/routing/budget.go">Durable admission</a>, terminal paths, invalidations and quota retention.</span></div>
+      <div><a href="packages/session-state/src/data/routeEvidence.ts">Historical route selection</a><span>Availability, expiry and invalidation rules shared by both frontends.</span></div>
+      <div><a href="pocketbase/timeline/reader.go">Product API</a><span>Bounded map windows, block queries and consistent revisions.</span></div>
+      <div><a href="docs/adr/0001-metadata-gateway-not-transparent-tls-proxy.md">Metadata gateway decision</a><span>Forwarding and privacy requirements remain in force.</span></div>
+      <div><a href="docs/adr/0002-opt-in-nfqueue-flow-admission.md">Optional Lab gate</a><span>Explicit enablement, fail-open behavior and audit obligations.</span></div>
+    </div>
+    <p class="note spaced">The accepted standard is recorded in <code>CONTEXT.md</code> and ADR 0003. Follow <a href="implementation-plan.md">implementation-plan.md</a> for the execution order and checkable tasks.</p>
   </section>
 </main>
-<footer class="wrap">InfraReveal · A plain-language guide to the current gateway implementation</footer>
+<footer class="wrap">InfraReveal · Accepted storage redesign · 15 October 2026<br>Standalone report. The interactive example uses synthetic data; no network resources are loaded. Source links are relative to this repository.</footer>
+<script>
+(() => {
+  const bursts = [[0,8],[23,31],[48,55],[75,83],[109,120],[210,225]];
+  const slider = document.getElementById('gap');
+  const value = document.getElementById('gap-value');
+  const shapes = document.getElementById('block-shapes');
+  const results = document.getElementById('block-results');
+  const description = document.getElementById('chart-desc');
+  const duration = seconds => seconds >= 60
+    ? Math.floor(seconds / 60) + ' min' + (seconds % 60 ? ' ' + seconds % 60 + ' s' : '')
+    : seconds + ' s';
+  function render() {
+    const gap = Number(slider.value);
+    const blocks = [];
+    for (const [start,end] of bursts) {
+      const current = blocks[blocks.length - 1];
+      if (current && start - current.end <= gap) {
+        current.end = end;
+        current.active += end - start;
+      } else blocks.push({start,end,active:end-start});
+    }
+    value.textContent = gap + ' seconds';
+    shapes.replaceChildren();
+    results.replaceChildren();
+    blocks.forEach((block, index) => {
+      const rect = document.createElementNS('http://www.w3.org/2000/svg','rect');
+      for (const [key,val] of Object.entries({x:135 + block.start * 2.3,y:82,width:(block.end-block.start)*2.3,height:22,rx:3})) rect.setAttribute(key,String(val));
+      shapes.append(rect);
+      const pill = document.createElement('div');
+      pill.className = 'block-pill';
+      const title = document.createElement('b');
+      title.textContent = 'Block ' + (index + 1);
+      pill.append(title, ' · ' + duration(block.end-block.start) + ' span · ' + duration(block.active) + ' active');
+      results.append(pill);
+    });
+    description.textContent = 'Six synthetic SVT bursts form ' + blocks.length + ' blocks with a ' + gap + '-second quiet-gap threshold. The independent service remains separate. Total active time is always 57 seconds.';
+  }
+  slider.addEventListener('input',render);
+  render();
+  let openedForPrint = [];
+  addEventListener('beforeprint', () => {
+    openedForPrint = [...document.querySelectorAll('details:not([open])')];
+    openedForPrint.forEach(detail => detail.open = true);
+  });
+  addEventListener('afterprint', () => {
+    openedForPrint.forEach(detail => detail.open = false);
+    openedForPrint = [];
+  });
+})();
+</script>
 </body>
 </html>

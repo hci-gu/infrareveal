@@ -1,8 +1,5 @@
 import type { PipelineDirection, PipelineEventKind, PipelineStage } from '../types'
 
-export const PROXY_COMPOSITION_WIDTH = 1600
-export const PROXY_COMPOSITION_HEIGHT = 900
-
 export type GraphNodeId =
   | 'client' | 'wlan0' | 'dnsmasq' | 'conntrack' | 'header_capture' | 'flow_gate'
   | 'dns_gate'
@@ -12,36 +9,30 @@ export type GraphNodeId =
 export type GraphNode = {
   id: GraphNodeId
   label: string
-  labelLines?: readonly string[]
   x: number
   y: number
   plane: 'data' | 'observation'
 }
 
 export const GRAPH_NODES: readonly GraphNode[] = [
-  { id: 'client', label: 'Client', x: 100, y: 350, plane: 'data' },
-  { id: 'wlan0', label: 'wlan0', x: 300, y: 350, plane: 'data' },
-  { id: 'conntrack', label: 'conntrack', x: 510, y: 350, plane: 'data' },
-  { id: 'flow_gate', label: 'Flow gate', x: 710, y: 350, plane: 'data' },
-  { id: 'forward', label: 'FORWARD', x: 910, y: 350, plane: 'data' },
-  { id: 'nat', label: 'NAT', x: 1110, y: 350, plane: 'data' },
-  { id: 'remote', label: 'Remote', x: 1480, y: 350, plane: 'data' },
-  { id: 'drop', label: 'Drop', x: 710, y: 555, plane: 'data' },
-  { id: 'dns_gate', label: 'DNS gate', x: 420, y: 130, plane: 'data' },
-  { id: 'dnsmasq', label: 'dnsmasq', x: 620, y: 130, plane: 'observation' },
-  {
-    id: 'header_capture',
-    label: 'Traffic activity capture',
-    labelLines: ['Traffic activity', 'capture'],
-    x: 510,
-    y: 570,
-    plane: 'observation',
-  },
-  { id: 'correlator', label: 'DNS attribution', x: 790, y: 115, plane: 'observation' },
-  { id: 'enricher', label: 'GeoIP + reverse DNS', x: 1000, y: 115, plane: 'observation' },
-  { id: 'route_worker', label: 'Traceroute', x: 1210, y: 115, plane: 'observation' },
-  { id: 'pocketbase', label: 'PocketBase', x: 1000, y: 245, plane: 'observation' },
+  { id: 'client', label: 'Client', x: 90, y: 305, plane: 'data' },
+  { id: 'wlan0', label: 'wlan0', x: 280, y: 305, plane: 'data' },
+  { id: 'conntrack', label: 'conntrack', x: 470, y: 305, plane: 'data' },
+  { id: 'flow_gate', label: 'Flow gate', x: 660, y: 305, plane: 'data' },
+  { id: 'forward', label: 'FORWARD', x: 850, y: 305, plane: 'data' },
+  { id: 'nat', label: 'NAT', x: 1040, y: 305, plane: 'data' },
+  { id: 'remote', label: 'Remote', x: 1230, y: 305, plane: 'data' },
+  { id: 'drop', label: 'Drop', x: 660, y: 470, plane: 'data' },
+  { id: 'dns_gate', label: 'DNS gate', x: 280, y: 108, plane: 'data' },
+  { id: 'dnsmasq', label: 'dnsmasq', x: 480, y: 108, plane: 'observation' },
+  { id: 'header_capture', label: 'Traffic activity capture', x: 370, y: 555, plane: 'observation' },
+  { id: 'correlator', label: 'DNS attribution', x: 700, y: 108, plane: 'observation' },
+  { id: 'enricher', label: 'GeoIP + reverse DNS', x: 930, y: 108, plane: 'observation' },
+  { id: 'route_worker', label: 'Traceroute', x: 1170, y: 108, plane: 'observation' },
+  { id: 'pocketbase', label: 'PocketBase', x: 990, y: 555, plane: 'observation' },
 ] as const
+
+const nodesById = new Map(GRAPH_NODES.map(node => [node.id, node]))
 
 export type PathDefinition = {
   id: string
@@ -97,7 +88,7 @@ export function pathForEvent(event: {
 }
 
 export function nodeById(id: GraphNodeId) {
-  const node = GRAPH_NODES.find((candidate) => candidate.id === id)
+  const node = nodesById.get(id)
   if (!node) throw new Error(`Unknown graph node: ${id}`)
   return node
 }

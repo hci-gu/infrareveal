@@ -5,6 +5,8 @@
 report.html
 
 data
+!pocketbase/data
+!pocketbase/data/**
 
 **/node_modules
 **/dist

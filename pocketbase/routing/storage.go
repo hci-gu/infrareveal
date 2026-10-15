@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"myapp/data"
+	"myapp/netmeta"
 	"net"
 	"os"
 	"strings"
@@ -13,7 +15,6 @@ import (
 	"github.com/oschwald/geoip2-golang"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
-	"myapp/netmeta"
 )
 
 type evidenceStore struct {
@@ -31,7 +32,6 @@ func newEvidenceStore(app core.App, geo *geoip2.Reader, config Config) evidenceS
 	}
 	return evidenceStore{app: app, geo: geo, geoVersion: version, locations: map[string]*Location{}, config: config}
 }
-
 func (r evidenceStore) limits() Config {
 	if r.config.MaxSnapshots == 0 {
 		return defaultConfig()
@@ -39,75 +39,261 @@ func (r evidenceStore) limits() Config {
 	return r.config
 }
 
-func (r evidenceStore) activateNetwork(session, network string, now time.Time) error {
-	if session == "" || network == "unknown" {
-		return nil
+// activateNetwork publishes the old epoch's invalidation and new current epoch
+// atomically. A restart with unchanged routing inputs keeps the committed epoch.
+func (r evidenceStore) activateNetwork(session, network string, now time.Time) (string, error) {
+	if session == "" || network == "" || network == "unknown" {
+		return "", nil
 	}
-	return r.app.RunInTransaction(func(app core.App) error {
-		value := struct {
-			Network string `json:"network"`
-		}{}
-		record, err := loadState(app, "context:"+session, &value)
+	epoch := ""
+	err := r.app.RunInTransaction(func(app core.App) error {
+		rec, err := app.FindRecordById("sessions", session)
 		if err != nil {
 			return err
 		}
-		if value.Network == network {
+		if !rec.GetBool("active") {
 			return nil
 		}
-		old := map[string]bool{}
-		if value.Network != "" {
-			old[value.Network] = true
-		} else {
-			var rows []struct {
-				Network string `db:"network_context"`
-			}
-			if err := app.DB().NewQuery("SELECT DISTINCT network_context FROM routes WHERE session={:s} AND network_context != {:n}").Bind(dbx.Params{"s": session, "n": network}).All(&rows); err != nil {
+		old := rec.GetString("network_epoch")
+		if old != "" && rec.GetString("network_context") == network {
+			epoch = old
+			return nil
+		}
+		if old != "" {
+			count, err := app.CountRecords("route_evidence", dbx.NewExp("session={:s} AND network_epoch={:e} AND kind='path'", dbx.Params{"s": session, "e": old}))
+			if err != nil {
 				return err
 			}
-			for _, row := range rows {
-				old[row.Network] = true
+			if count > 0 {
+				value := data.RouteEvidence{ID: data.ID("invalidate", session, old), Session: session, Kind: "network_invalidated", NetworkContext: rec.GetString("network_context"), NetworkEpoch: old, AvailableMS: now.UnixMilli(), Hops: []data.Hop{}, EvidenceBytes: 512}
+				// Equal-millisecond enrichment may have advanced availability by one.
+				// An invalidation must dominate every publication in the old epoch.
+				var edge struct {
+					Available int64 `db:"available"`
+				}
+				if err = app.DB().NewQuery("SELECT max(available_ms) available FROM route_evidence WHERE session={:s} AND network_epoch={:e}").Bind(dbx.Params{"s": session, "e": old}).One(&edge); err != nil {
+					return err
+				}
+				value.AvailableMS = max(value.AvailableMS, edge.Available+1)
+				if _, err = data.Write(app, "route_evidence", value); err != nil {
+					return err
+				}
 			}
 		}
-		for previous := range old {
-			if err := (evidenceStore{app: app}).invalidateSession(session, previous, now); err != nil {
-				return err
-			}
-		}
-		value.Network = network
-		record.Set("session", session)
-		return saveState(app, record, value)
+		epoch = data.NewID()
+		_, err = app.DB().NewQuery("UPDATE sessions SET network_context={:n},network_epoch={:e},revision=revision+1 WHERE id={:s}").Bind(dbx.Params{"n": network, "e": epoch, "s": session}).Execute()
+		return err
+	})
+	return epoch, err
+}
+
+// recoverAdmissions seals interrupted physical attempts without refunding them.
+func (r evidenceStore) recoverAdmissions(now time.Time) error {
+	return r.app.RunInTransaction(func(app core.App) error {
+		_, err := app.DB().NewQuery("UPDATE probe_runs SET status='interrupted',class='indeterminate',reason='observer restarted',finished_ms={:now},cooldown_until_ms={:until} WHERE status='admitted'").Bind(dbx.Params{"now": now.UnixMilli(), "until": now.Add(r.limits().Cooldown).UnixMilli()}).Execute()
+		return err
 	})
 }
 
-// One epoch event invalidates all evidence from the old source context, including
-// bindings no longer in the demand queue. It is never a fake empty route.
-func (r evidenceStore) invalidateSession(session, network string, now time.Time) error {
-	if session == "" {
+// finish seals one admitted attempt. Only completed useful geometry can enter
+// the product stream. Progress and outcomes never masquerade as route paths.
+func (r evidenceStore) finish(a admission, s snapshot, now time.Time, publish bool) error {
+	if s.Finished.IsZero() {
 		return nil
 	}
 	return r.app.RunInTransaction(func(app core.App) error {
-		key := fmt.Sprintf("epoch:%s:%s:%d", session, network, now.UnixMilli())
-		_, e := app.FindFirstRecordByFilter("route_evidence_updates", "key={:key}", dbx.Params{"key": key})
-		if e == nil {
+		record, err := app.FindRecordById("probe_runs", a.Attempt)
+		if err != nil {
+			return err
+		}
+		run, err := data.Decode[data.ProbeRun](record)
+		if err != nil {
+			return err
+		}
+		if run.Status != "admitted" {
 			return nil
 		}
-		if !errors.Is(e, sql.ErrNoRows) {
-			return e
+		if run.Session != a.Binding.Session || run.NetworkContext != a.Binding.Network || run.NetworkEpoch != a.Binding.Epoch || run.BindingKey != a.Binding.Target.binding() || run.Method != a.Method {
+			return fmt.Errorf("probe admission does not match result")
 		}
-		c, e := app.FindCollectionByNameOrId("route_evidence_updates")
-		if e != nil {
-			return e
+		run.FinishedMS = now.UnixMilli()
+		run.Status = s.Status
+		if run.Status == "" || run.Status == "probing" {
+			run.Status = "interrupted"
 		}
-		rec := core.NewRecord(c)
-		rec.Set("key", key)
-		rec.Set("session", session)
-		rec.Set("network_context", network)
-		rec.Set("kind", "network_invalidated")
-		rec.Set("available_at", date(now))
-		rec.Set("value", map[string]any{"network_context": network})
-		return app.Save(rec)
+		run.Error = s.Error
+		if len(run.Error) > 700 {
+			run.Error = run.Error[:700]
+		}
+		active, err := app.FindRecordById("sessions", run.Session)
+		if errors.Is(err, sql.ErrNoRows) {
+			run.Status = "interrupted"
+			run.Class = "indeterminate"
+			run.Reason = "session deleted"
+			_, err = data.Write(app, "probe_runs", run)
+			return err
+		}
+		if err != nil {
+			return err
+		}
+		l, err := readLedger(app, a.Binding, now)
+		if err != nil {
+			return err
+		}
+		class := classifyRouteEvidence(s, a.Binding.Target, establishedAccess(l.access))
+		run.Class, run.Reason = class.Class, class.Reason
+		run.Useful = class.Class == "useful_path" && run.Status != "cancelled" && run.Status != "interrupted"
+		run.AccessPrefix = learnAccess(accessEvidence{}, s, a.Binding.Target).Prefix
+		if run.AccessPrefix == nil {
+			run.AccessPrefix = []data.AccessPosition{}
+		}
+		finishedMethods := map[string]bool{a.Method: true}
+		for _, other := range l.runs {
+			if other.Session == run.Session && other.Scope == run.Scope && other.NetworkContext == run.NetworkContext && other.BindingKey == run.BindingKey && !other.Manual && other.Status != "admitted" {
+				finishedMethods[other.Method] = true
+			}
+		}
+		run.ComparisonComplete = !run.Manual && run.Status != "cancelled" && run.Status != "interrupted" && len(finishedMethods) >= len(probeMethods(a.Binding.Target))
+		if !run.Useful {
+			run.CooldownUntilMS = now.Add(r.limits().Cooldown).UnixMilli()
+			if capabilityFailure(s.Error) {
+				run.Class = "engine_unavailable"
+				run.PauseUntilMS = now.Add(5 * time.Minute).UnixMilli()
+				run.ComparisonComplete = false
+			} else {
+				if run.ComparisonComplete {
+					l.noGain[run.DestinationIP] = true
+				}
+				if len(l.noGain) >= 5 || (l.lastPause > 0 && run.AdmittedMS >= l.lastPause) {
+					run.PauseUntilMS = now.Add(r.limits().Cooldown).UnixMilli()
+				}
+			}
+		}
+		if r.limits().Diagnostics {
+			details := &data.ProbeDetails{Engine: s.Engine, EngineVersion: s.EngineVersion, SourceIP: s.SourceIP, ProbeCount: s.ProbeCount, ProbedTTL: s.ProbedTTL, StopReason: s.StopReason, Hops: s.Hops}
+			encoded, _ := json.Marshal(details)
+			if len(encoded) > 16384 {
+				details.Hops = nil
+				encoded, _ = json.Marshal(details)
+			}
+			if len(encoded) <= 16384 {
+				run.Details = details
+			}
+		}
+		if publish && run.Useful && active.GetBool("active") && active.GetString("network_epoch") == run.NetworkEpoch {
+			shown := r.enrich(s, a.Binding.Target)
+			shown.Hops = compactHops(shown.Hops)
+			evidence := data.RouteEvidence{ID: data.ID(run.ID, "1"), Session: run.Session, Kind: "path", NetworkContext: run.NetworkContext, NetworkEpoch: run.NetworkEpoch, BindingKey: run.BindingKey, DestinationIP: run.DestinationIP, Protocol: run.Protocol, DestinationPort: run.DestinationPort, AttemptID: run.ID, Revision: 1, Method: s.Method, Status: s.Status, Reason: class.Reason, Fingerprint: pathFingerprint(s, a.Binding.Target, run.NetworkContext), MeasuredMS: s.Measured.UnixMilli(), AvailableMS: now.UnixMilli(), FreshUntilMS: s.Measured.Add(r.limits().FreshTTL).UnixMilli(), ValidUntilMS: s.Measured.Add(r.limits().StaleTTL).UnixMilli(), DestinationReached: s.Reached, Hops: shown.Hops, DestinationLocation: shown.Location}
+			if s.Measured.IsZero() {
+				evidence.MeasuredMS = run.AdmittedMS
+				evidence.FreshUntilMS = run.AdmittedMS + r.limits().FreshTTL.Milliseconds()
+				evidence.ValidUntilMS = run.AdmittedMS + r.limits().StaleTTL.Milliseconds()
+			}
+			encoded, err := json.Marshal(evidence)
+			if err != nil {
+				return err
+			}
+			evidence.EvidenceBytes = len(encoded) + 512
+			if len(encoded) <= 65536 && l.paths() < r.limits().MaxSnapshots && l.bytes+evidence.EvidenceBytes <= r.limits().MaxBytes {
+				if _, err = data.Write(app, "route_evidence", evidence); err != nil {
+					return err
+				}
+				if err = data.BumpRevision(app, run.Session); err != nil {
+					return err
+				}
+			} else {
+				run.Useful = false
+				run.Class = "storage_limited"
+				run.Reason = "bounded evidence storage exhausted"
+			}
+		}
+		_, err = data.Write(app, "probe_runs", run)
+		return err
 	})
 }
+
+// enrichPublication permits one full replacement revision with the original
+// measurement/expiry. It cannot confirm freshness, mutate geometry, or resurrect
+// evidence after an epoch change, clear, retention, or session closure.
+func (r evidenceStore) enrichPublication(a admission, s snapshot, now time.Time) error {
+	return r.app.RunInTransaction(func(app core.App) error {
+		rec, err := app.FindRecordById("route_evidence", data.ID(a.Attempt, "1"))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		original, err := data.Decode[data.RouteEvidence](rec)
+		if err != nil {
+			return err
+		}
+		newer, err := app.CountRecords("route_evidence", dbx.NewExp("session={:s} AND network_epoch={:e} AND binding_key={:b} AND kind='path' AND attempt_id!={:a} AND available_ms>={:at}", dbx.Params{"s": original.Session, "e": original.NetworkEpoch, "b": original.BindingKey, "a": original.AttemptID, "at": original.AvailableMS}))
+		if err != nil {
+			return err
+		}
+		if newer > 0 {
+			return nil
+		}
+		session, err := app.FindRecordById("sessions", original.Session)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if !session.GetBool("active") || session.GetString("network_epoch") != original.NetworkEpoch || now.UnixMilli() >= original.ValidUntilMS {
+			return nil
+		}
+		if _, err = app.FindRecordById("route_evidence", data.ID(a.Attempt, "2")); err == nil {
+			return nil
+		} else if !errors.Is(err, sql.ErrNoRows) {
+			return err
+		}
+		if pathFingerprint(s, a.Binding.Target, a.Binding.Network) != original.Fingerprint {
+			return nil
+		}
+		shown := r.enrich(s, a.Binding.Target)
+		shown.Hops = compactHops(shown.Hops)
+		before := comparableHops(original.Hops)
+		after := comparableHops(shown.Hops)
+		if string(before) == string(after) {
+			return nil
+		}
+		original.ID = data.ID(a.Attempt, "2")
+		original.Revision = 2
+		original.AvailableMS = max(now.UnixMilli(), original.AvailableMS+1)
+		original.Hops = shown.Hops
+		original.DestinationLocation = shown.Location
+		encoded, err := json.Marshal(original)
+		if err != nil {
+			return err
+		}
+		original.EvidenceBytes = len(encoded) + 512
+		l, err := readLedger(app, a.Binding, now)
+		if err != nil {
+			return err
+		}
+		if len(encoded) > 65536 || l.paths() >= r.limits().MaxSnapshots || l.bytes+original.EvidenceBytes > r.limits().MaxBytes {
+			return nil
+		}
+		if _, err = data.Write(app, "route_evidence", original); err != nil {
+			return err
+		}
+		return data.BumpRevision(app, original.Session)
+	})
+}
+
+func capabilityFailure(message string) bool {
+	s := strings.ToLower(message)
+	for _, v := range []string{"executable file not found", "permission denied", "operation not permitted", "unsupported", "invalid option", "network is unreachable"} {
+		if strings.Contains(s, v) {
+			return true
+		}
+	}
+	return false
+}
+
 func (r evidenceStore) location(ip string) *Location {
 	if !netmeta.PublicAddress(ip) || r.geo == nil {
 		return nil
@@ -143,7 +329,7 @@ func (r evidenceStore) enrich(s snapshot, t target) snapshot {
 			if loc := r.location(ip); loc != nil {
 				v := evidence[ip]
 				v.Geo = loc
-				v.GeoAvailableAt = date(time.Now())
+				v.GeoAvailableMS = time.Now().UnixMilli()
 				v.GeoSource = "local GeoIP City database"
 				if v.Confidence == "" {
 					v.Confidence = "approximate"
@@ -164,38 +350,6 @@ func (r evidenceStore) enrich(s snapshot, t target) snapshot {
 	s.Location = r.location(t.IP)
 	return s
 }
-func (r evidenceStore) load(key string) (cacheEntry, error) {
-	rec, e := r.app.FindFirstRecordByFilter("route_cache", "cache_key={:key}", dbx.Params{"key": key})
-	if errors.Is(e, sql.ErrNoRows) {
-		return cacheEntry{}, nil
-	}
-	if e != nil {
-		return cacheEntry{}, e
-	}
-	var value cacheEntry
-	b, e := json.Marshal(rec.Get("entry"))
-	if e == nil {
-		e = json.Unmarshal(b, &value)
-	}
-	return value, e
-}
-func saveCache(app core.App, key string, e cacheEntry, now time.Time) error {
-	rec, err := app.FindFirstRecordByFilter("route_cache", "cache_key={:key}", dbx.Params{"key": key})
-	if errors.Is(err, sql.ErrNoRows) {
-		c, err := app.FindCollectionByNameOrId("route_cache")
-		if err != nil {
-			return err
-		}
-		rec = core.NewRecord(c)
-		rec.Set("cache_key", key)
-	} else if err != nil {
-		return err
-	}
-	// No duplicate per-method copies or raw failed hop arrays in cache.
-	rec.Set("entry", e)
-	rec.Set("last_used_at", date(now))
-	return app.Save(rec)
-}
 func compactHops(hops []Hop) []Hop {
 	out := []Hop{}
 	for _, h := range hops {
@@ -215,338 +369,17 @@ func compactHops(hops []Hop) []Hop {
 	return out
 }
 
-// publish is the single persistent path gate. Progress without a new useful
-// path writes nothing; terminal failures get one mutable outcome, not a route.
-func (r evidenceStore) publish(p publication, now time.Time) (cacheEntry, error) {
-	key, network, session, t := p.Binding.key(), p.Binding.Network, p.Binding.Session, p.Binding.Target
-	entry, s, provenance := p.Cache, p.Snapshot, p.Provenance
-	state := s.Status
-	if session == "" {
-		return entry, nil
-	}
-	limits := r.limits()
-	err := r.app.RunInTransaction(func(app core.App) error {
-		active, e := app.FindRecordById("sessions", session)
-		if e != nil {
-			return e
-		}
-		if !active.GetBool("active") {
-			return nil
-		}
-		sr, b, e := loadSessionBudgetAt(app, session, now)
-		if e != nil {
-			return e
-		}
-		n := networkBudget{}
-		nr, e := loadState(app, networkKey(network, t), &n)
-		if e != nil {
-			return e
-		}
-		shown := s
-		if provenance == "cache" {
-			shown = entry.Best
-		}
-		class := classifyRouteEvidence(shown, t, establishedAccess(n.Access))
-		terminal := !s.Finished.IsZero()
-		recordTerminal := terminal && provenance != "cache"
-		if recordTerminal && s.Attempt != "" && b.Completed[s.Attempt] {
-			return nil
-		}
-		if recordTerminal && s.Attempt != "" {
-			// Engine admissions are finite. Reject unbounded direct publications too.
-			if len(b.Completed) >= limits.MaxAttempts+b.ExtraAttempts+limits.ManualAttempts {
-				return nil
-			}
-			b.Completed[s.Attempt] = true
-		}
-		saveBudgets := func() error {
-			if e := saveState(app, nr, n); e != nil {
-				return e
-			}
-			return saveState(app, sr, b)
-		}
-		if recordTerminal {
-			// Idempotent terminal callbacks charge summaries/visibility only once.
-			v := b.Targets[key]
-			if v.Finished != s.Attempt {
-				v.Finished = s.Attempt
-				if class.Class == "useful_path" {
-					n.NoGain = nil
-					n.PausedUntil = time.Time{}
-					n.Trial = ""
-				} else {
-					b.NoGain++
-					if n.Trial == s.Attempt {
-						n.PausedUntil = now.Add(limits.Cooldown)
-						n.Trial = ""
-					}
-					if state == "failed" && capabilityFailure(s.Error) {
-						n.CapabilityUntil = now.Add(5 * time.Minute)
-					}
-					if v.Attempts >= len(probeMethods(t)) && !capabilityFailure(s.Error) {
-						found := false
-						for _, ip := range n.NoGain {
-							if ip == t.IP {
-								found = true
-							}
-						}
-						if !found && len(n.NoGain) < 5 {
-							n.NoGain = append(n.NoGain, t.IP)
-						}
-						if len(n.NoGain) >= 5 {
-							n.PausedUntil = now.Add(limits.Cooldown)
-						}
-					}
-					negKey := "negative:" + key + ":" + strings.Split(s.Method, ":")[0]
-					value := struct {
-						Until time.Time `json:"until"`
-					}{now.Add(limits.Cooldown)}
-					neg, e := loadState(app, negKey, &struct{}{})
-					if e != nil {
-						return e
-					}
-					neg.Set("available_at", date(now))
-					if e = saveState(app, neg, value); e != nil {
-						return e
-					}
-				}
-				b.Targets[key] = v
-				n.Access = learnAccess(n.Access, s, t)
-				if e = recordOutcome(app, session, network, t, s, class, now, &b, limits); e != nil {
-					return e
-				}
-			}
-		}
-		if class.Class != "useful_path" {
-			if terminal {
-				if e = saveState(app, nr, n); e != nil {
-					return e
-				}
-				return saveState(app, sr, b)
-			}
-			return nil
-		}
-		if shown.Attempt == "" {
-			return nil
-		}
-		fingerprint := pathFingerprint(shown, t, network)
-		existing, e := app.FindFirstRecordByFilter("routes", "session={:s} && network_context={:n} && binding_key={:b} && fingerprint={:f} && schema_version=2", dbx.Params{"s": session, "n": network, "b": t.binding(), "f": fingerprint})
-		if e != nil && !errors.Is(e, sql.ErrNoRows) {
-			return e
-		}
-		v := b.Targets[key]
-		if e == nil {
-			v.Useful = true
-			b.Targets[key] = v
-			if !terminal {
-				return nil
-			}
-			// Confirmation extends knowledge through a small timestamped event; the
-			// immutable original route and measurement age remain unchanged.
-			b.Duplicates++
-			if terminal && provenance != "cache" {
-				shown = r.enrich(shown, t)
-				evidence := map[string]any{}
-				for _, h := range shown.Hops {
-					if len(h.Evidence) > 0 {
-						evidence[fmt.Sprint(h.TTL)] = h.Evidence
-					}
-				}
-				if len(evidence) > 0 {
-					if e = writeEvidenceUpdate(app, session, network, existing.Id, "enriched", shown.Attempt, evidence, now, &b, limits); e != nil {
-						return e
-					}
-				}
-			}
-
-			if terminal && provenance != "cache" && shown.Measured.After(existing.GetDateTime("fresh_until").Time()) {
-				if e = writeEvidenceUpdate(app, session, network, existing.Id, "confirmed", shown.Attempt, map[string]any{"measured_at": date(shown.Measured), "fresh_until": date(now.Add(limits.FreshTTL)), "valid_until": date(now.Add(limits.StaleTTL))}, now, &b, limits); e != nil {
-					return e
-				}
-			}
-			if terminal {
-				if e = saveState(app, nr, n); e != nil {
-					return e
-				}
-			}
-			return saveState(app, sr, b)
-		}
-		var count struct {
-			N int `db:"n"`
-		}
-		if e = app.DB().NewQuery("SELECT count(*) n FROM routes WHERE session={:s} AND attempt_id={:a} AND schema_version=2").Bind(dbx.Params{"s": session, "a": shown.Attempt}).One(&count); e != nil {
-			return e
-		}
-		if count.N >= 2 || (!terminal && count.N >= 1) || b.Snapshots >= limits.MaxSnapshots {
-			if recordTerminal {
-				return saveBudgets()
-			}
-			return nil
-		}
-		shown = r.enrich(shown, t)
-		// Path evidence has no queued/running lifecycle. Progress lives in memory.
-		shown.Status = "partial"
-		if shown.Reached {
-			shown.Status = "reached"
-		}
-		shown.Hops = compactHops(shown.Hops)
-		payload, e := json.Marshal(shown)
-		if e != nil {
-			return e
-		}
-		if len(payload) > 65536 {
-			return fmt.Errorf("route evidence exceeds 64 KiB")
-		}
-		// Route projection, evidence bundle and cache copy plus metadata/references.
-		cost := 3*len(payload) + 8192
-		if b.Bytes+cost > limits.MaxBytes {
-			if recordTerminal {
-				return saveBudgets()
-			}
-			return nil
-		}
-		obsCollection, e := app.FindCollectionByNameOrId("route_observations")
-		if e != nil {
-			return e
-		}
-		obs, err := app.FindFirstRecordByFilter("route_observations", "attempt_id={:a} && revision={:r}", dbx.Params{"a": shown.Attempt, "r": shown.Revision})
-		if errors.Is(err, sql.ErrNoRows) {
-			obs = core.NewRecord(obsCollection)
-			obs.Set("cache_key", key)
-			obs.Set("attempt_id", shown.Attempt)
-			obs.Set("revision", shown.Revision)
-			obs.Set("snapshot", shown)
-			obs.Set("measured_at", date(shown.Measured))
-			if e = app.Save(obs); e != nil {
-				return e
-			}
-		} else if err != nil {
-			return err
-		}
-		shown.ObservationID = obs.Id
-		c, e := app.FindCollectionByNameOrId("routes")
-		if e != nil {
-			return e
-		}
-		route := core.NewRecord(c)
-		values := map[string]any{"schema_version": 2, "session": session, "network_context": network, "binding_key": t.binding(), "destination_ip": t.IP, "destination_port": t.Port, "protocol": t.Protocol, "fingerprint": fingerprint, "evidence_class": class.Class, "evidence_reason": class.Reason, "attempt_id": shown.Attempt, "revision": shown.Revision, "observation_id": obs.Id, "method": shown.Method, "status": shown.Status, "provenance": provenance, "hops": shown.Hops, "complete": shown.Reached, "destination_reached": shown.Reached, "responding_hops": shown.replies(), "located_hops": shown.located(), "destination_location": shown.Location, "probe_details": probeDetails(shown), "available_at": date(now), "started_at": date(shown.Started), "measured_at": date(shown.Measured), "completed_at": date(shown.Finished)}
-		fresh, valid := shown.Measured.Add(limits.FreshTTL), shown.Measured.Add(limits.StaleTTL)
-		values["fresh_until"] = date(fresh)
-		values["valid_until"] = date(valid)
-		// Millisecond storage must preserve publication ordering.
-		var prev []*core.Record
-		if e = app.RecordQuery("routes").AndWhere(dbx.HashExp{"session": session, "binding_key": t.binding()}).OrderBy("available_at DESC").Limit(1).All(&prev); e != nil {
-			return e
-		}
-		if len(prev) > 0 && !now.Truncate(time.Millisecond).After(prev[0].GetDateTime("available_at").Time()) {
-			values["available_at"] = date(prev[0].GetDateTime("available_at").Time().Add(time.Millisecond))
-		}
-		for k, v := range values {
-			route.Set(k, v)
-		}
-		if e = app.Save(route); e != nil {
-			return e
-		}
-		v.Useful = true
-		b.Targets[key] = v
-		b.Snapshots++
-		b.Bytes += cost
-		entry.Best = shown
-		entry.FreshUntil = fresh
-		entry.ValidUntil = valid
-		if e = saveCache(app, key, entry, now); e != nil {
-			return e
-		}
-		if e = saveState(app, nr, n); e != nil {
-			return e
-		}
-		return saveState(app, sr, b)
-	})
-	if err != nil {
-		// The transaction may have reached cache construction before a later save
-		// failed. Never expose that uncommitted evidence to the scheduler.
-		return p.Cache, err
-	}
-	return entry, nil
-}
-func capabilityFailure(message string) bool {
-	s := strings.ToLower(message)
-	for _, v := range []string{"executable file not found", "permission denied", "operation not permitted", "unsupported", "invalid option", "network is unreachable"} {
-		if strings.Contains(s, v) {
-			return true
+// Availability timestamps alone are not an enrichment.
+func comparableHops(hops []Hop) []byte {
+	copyHops := append([]Hop(nil), hops...)
+	for i := range copyHops {
+		copyHops[i].Evidence = map[string]InterfaceEvidence{}
+		for ip, v := range hops[i].Evidence {
+			v.AvailableMS = 0
+			v.GeoAvailableMS = 0
+			copyHops[i].Evidence[ip] = v
 		}
 	}
-	return false
-}
-func recordOutcome(app core.App, session, network string, t target, s snapshot, class evidenceClass, now time.Time, b *sessionBudget, c Config) error {
-	key := session + ":" + t.key(network)
-	rec, e := app.FindFirstRecordByFilter("route_outcomes", "key={:k}", dbx.Params{"k": key})
-	oldSize := 0
-	if errors.Is(e, sql.ErrNoRows) {
-		col, e := app.FindCollectionByNameOrId("route_outcomes")
-		if e != nil {
-			return e
-		}
-		rec = core.NewRecord(col)
-		rec.Set("key", key)
-	} else if e != nil {
-		return e
-	} else {
-		data, _ := json.Marshal(rec.Get("value"))
-		oldSize = len(data) + 512
-	}
-	value := outcome{t.IP, t.Protocol, t.Port, class.Class, class.Reason, s.Status, s.Method, s.Attempt, date(s.Measured), s.Reached, s.replies(), s.Error}
-	if len(value.Error) > 700 {
-		value.Error = value.Error[:700]
-	}
-	data, _ := json.Marshal(value)
-	if len(data) > 4096 || b.Bytes+len(data)+512-oldSize > c.MaxBytes {
-		return nil
-	}
-	b.Bytes += max(0, len(data)+512-oldSize)
-	rec.Set("session", session)
-	rec.Set("network_context", network)
-	rec.Set("binding_key", t.binding())
-	rec.Set("available_at", date(now))
-	rec.Set("value", value)
-	return app.Save(rec)
-}
-func writeEvidenceUpdate(app core.App, session, network, routeID, kind, identity string, value any, now time.Time, b *sessionBudget, c Config) error {
-	key := hash(session + "|" + routeID + "|" + kind + "|" + identity)
-	_, e := app.FindFirstRecordByFilter("route_evidence_updates", "key={:k}", dbx.Params{"k": key})
-	if e == nil {
-		return nil
-	}
-	if !errors.Is(e, sql.ErrNoRows) {
-		return e
-	}
-	data, _ := json.Marshal(value)
-	if len(data) > 16384 || b.Updates >= c.MaxUpdates || b.Bytes+len(data)+512 > c.MaxBytes {
-		return nil
-	}
-	col, e := app.FindCollectionByNameOrId("route_evidence_updates")
-	if e != nil {
-		return e
-	}
-	rec := core.NewRecord(col)
-	rec.Set("key", key)
-	rec.Set("session", session)
-	rec.Set("network_context", network)
-	rec.Set("binding_key", routeID)
-	rec.Set("kind", kind)
-	rec.Set("available_at", date(now))
-	rec.Set("value", value)
-	if e = app.Save(rec); e != nil {
-		return e
-	}
-	b.Updates++
-	b.Bytes += len(data) + 512
-	return nil
-}
-func probeDetails(s snapshot) map[string]any {
-	replies := 0
-	for _, h := range s.Hops {
-		replies += len(h.Replies)
-	}
-	return map[string]any{"engine": s.Engine, "engine_version": s.EngineVersion, "profile": s.Profile, "flow_id": s.FlowID, "source_ip": s.SourceIP, "probe_count": s.ProbeCount, "probed_ttl": s.ProbedTTL, "hop_coverage": s.coverage(), "reply_count": replies, "stop_reason": s.StopReason}
+	encoded, _ := json.Marshal(copyHops)
+	return encoded
 }

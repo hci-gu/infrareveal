@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"maps"
 	"sync"
 	"sync/atomic"
 )
@@ -33,11 +34,7 @@ func NewMultiplexQueue(queues map[Mode]PacketQueue) (*MultiplexQueue, error) {
 			return nil, fmt.Errorf("missing %s packet queue", mode)
 		}
 	}
-	copyQueues := make(map[Mode]PacketQueue, len(queues))
-	for mode, queue := range queues {
-		copyQueues[mode] = queue
-	}
-	return &MultiplexQueue{queues: copyQueues, ready: make(chan struct{}), owners: make(map[uint32]packetOwner)}, nil
+	return &MultiplexQueue{queues: maps.Clone(queues), ready: make(chan struct{}), owners: make(map[uint32]packetOwner)}, nil
 }
 
 func (queue *MultiplexQueue) Ready() <-chan struct{} { return queue.ready }

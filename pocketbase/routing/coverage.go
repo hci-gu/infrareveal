@@ -23,7 +23,7 @@ type scamperProbe struct {
 	run        func(context.Context, []string) ([]byte, error)
 }
 
-func (p scamperProbe) Run(parent context.Context, t target, plan probePlan, publish func(snapshot)) snapshot {
+func (p scamperProbe) Run(parent context.Context, t target, plan probePlan) snapshot {
 	budget := p.deadline
 	if budget <= 0 {
 		budget = 45 * time.Second
@@ -44,7 +44,7 @@ func (p scamperProbe) Run(parent context.Context, t target, plan probePlan, publ
 	if method != "icmp-paris" {
 		label += ":" + strconv.Itoa(t.Port)
 	}
-	s := snapshot{Attempt: attempt, Method: label, Engine: "scamper", Profile: "selective", EngineVersion: "20211212-1.1", FlowID: fmt.Sprintf("%d/%s/%s/%d", sourcePort, t.IP, method, t.Port), Started: now, Measured: now, Status: "probing"}
+	s := snapshot{Attempt: attempt, Method: label, Engine: "scamper", EngineVersion: "20211212-1.1", Started: now, Measured: now, Status: "probing"}
 	if family(t) == "ipv6" && method == "udp-paris" {
 		s.Status = "failed"
 		s.Error = "unsupported probe method: UDP Paris IPv6 is unqualified in Scamper 20211212-1.1; use ICMP Paris"
@@ -132,16 +132,14 @@ func (p scamperProbe) execute(ctx context.Context, args []string) ([]byte, error
 }
 
 type scamperHop struct {
-	Address        string          `json:"addr"`
-	Extensions     json.RawMessage `json:"icmpext,omitempty"`
-	ICMPExtensions json.RawMessage `json:"icmp_ext,omitempty"`
-	TTL            int             `json:"probe_ttl"`
-	ProbeID        int             `json:"probe_id"`
-	RTT            float64         `json:"rtt"`
-	ICMPType       *int            `json:"icmp_type"`
-	ICMPCode       *int            `json:"icmp_code"`
-	TCPFlags       *int            `json:"tcp_flags"`
-	TX             struct {
+	Address  string  `json:"addr"`
+	TTL      int     `json:"probe_ttl"`
+	ProbeID  int     `json:"probe_id"`
+	RTT      float64 `json:"rtt"`
+	ICMPType *int    `json:"icmp_type"`
+	ICMPCode *int    `json:"icmp_code"`
+	TCPFlags *int    `json:"tcp_flags"`
+	TX       struct {
 		Sec  int64 `json:"sec"`
 		Usec int64 `json:"usec"`
 	} `json:"tx"`
@@ -197,15 +195,12 @@ func decodeScamperTrace(data []byte, t target, from, to int, identities ...probe
 			hops[ttl] = &Hop{TTL: ttl, Missing: true, State: "no_reply", Timings: []float64{}}
 		}
 		for _, reply := range row.Hops {
-			if len(reply.Extensions) == 0 {
-				reply.Extensions = reply.ICMPExtensions
-			}
 			address, err := netip.ParseAddr(reply.Address)
 			h := hops[reply.TTL]
 			if err != nil || h == nil || reply.RTT < 0 || math.IsNaN(reply.RTT) || math.IsInf(reply.RTT, 0) || len(h.Replies) >= 16 {
 				return snapshot{}, errors.New("invalid scamper hop response")
 			}
-			seen := ""
+			seen := int64(0)
 			// The packaged engine can underflow TCP RTTs on very short local
 			// paths (~2^32 microseconds). Retain the response and original value,
 			// but never turn that artifact into a latency or a future timestamp.
@@ -217,9 +212,9 @@ func decodeScamperTrace(data []byte, t target, from, to int, identities ...probe
 				reportedRTT = &reply.RTT
 			}
 			if reply.TX.Sec > 0 && rtt != nil {
-				seen = date(time.Unix(reply.TX.Sec, reply.TX.Usec*1000).Add(time.Duration(reply.RTT * float64(time.Millisecond))))
+				seen = time.Unix(reply.TX.Sec, reply.TX.Usec*1000).Add(time.Duration(reply.RTT * float64(time.Millisecond))).UnixMilli()
 			}
-			h.Replies = append(h.Replies, HopReply{Address: address.String(), RTT: rtt, ReportedRTT: reportedRTT, ProbeID: reply.ProbeID, ICMPType: reply.ICMPType, ICMPCode: reply.ICMPCode, TCPFlags: reply.TCPFlags, SeenAt: seen, Extensions: reply.Extensions})
+			h.Replies = append(h.Replies, HopReply{Address: address.String(), RTT: rtt, ReportedRTT: reportedRTT, ProbeID: reply.ProbeID, ICMPType: reply.ICMPType, ICMPCode: reply.ICMPCode, TCPFlags: reply.TCPFlags, SeenMS: seen})
 			h.Missing = false
 			if h.Address == "" {
 				h.Address = address.String()

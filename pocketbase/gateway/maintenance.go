@@ -2,38 +2,41 @@ package gateway
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"myapp/data"
 	"myapp/labgate"
 	"myapp/observer"
 	"myapp/routing"
 	"myapp/timeline"
 )
 
-const ephemeralWindow = 5 * time.Minute // Compatibility default for existing sessions.
-
 func sessionRetention(record *core.Record) time.Duration { return timeline.RetentionWindow(record) }
 
-// Keep the original creation date for identity; started_at is the retained edge.
+// Retention moves a separate durable edge; it never changes recording identity
+// or reopens an ended session.
 func normalizeEphemeralSession(record *core.Record, now time.Time) {
-	if !record.GetBool("ephemeral") {
-		return
+	floor := record.GetInt64("started_ms")
+	if record.GetBool("ephemeral") && record.GetBool("active") {
+		floor = max(floor, now.Add(-sessionRetention(record)).UnixMilli())
+		var policy data.Policy
+		_ = record.UnmarshalJSONField("policy", &policy)
+		bucket := policy.BucketMS
+		if bucket <= 0 {
+			bucket = 50
+		}
+		floor = (floor + bucket - 1) / bucket * bucket
 	}
-	record.Set("active", true)
-	record.Set("ended_at", "")
-	if record.GetDateTime("started_at").IsZero() {
-		record.Set("started_at", now)
-	} else if record.GetDateTime("started_at").Time().Before(now.Add(-sessionRetention(record))) {
-		record.Set("started_at", now.Add(-sessionRetention(record)))
-	}
+	record.Set("retained_from_ms", max(floor, record.GetInt64("retained_from_ms")))
 }
 
 func (g *Runtime) maintain(ctx context.Context) {
-	var lastPacketSweep time.Time
 	ticker := time.NewTicker(15 * time.Second)
 	defer ticker.Stop()
 	for {
@@ -41,22 +44,15 @@ func (g *Runtime) maintain(ctx context.Context) {
 			return
 		}
 		now := time.Now().UTC()
-		g.operations.Lock()
-		if ctx.Err() != nil {
-			g.operations.Unlock()
+		if err := lockOperation(ctx, &g.operations); err != nil {
 			return
 		}
-		packetDue := now.Sub(lastPacketSweep) >= time.Minute
-		err := g.sweep(now, packetDue)
-		if packetDue {
-			lastPacketSweep = now
-		}
+		err := g.sweep(now)
 		g.operations.Unlock()
 		g.updateDemoMaintenance(now, err)
 		if err != nil {
-			log.Printf("demo maintenance: %v", err)
+			log.Printf("gateway maintenance: %v", err)
 		}
-
 		select {
 		case <-ctx.Done():
 			return
@@ -65,72 +61,110 @@ func (g *Runtime) maintain(ctx context.Context) {
 	}
 }
 
-// Set-based deletion intentionally avoids per-row SSE storms. The browser owns
-// age-based eviction, including while disconnected. SQLite reuses freed pages.
-// Short transactions serialize against observer writes. No ordinary session rows
-// are deleted; shared destination evidence is retained while any flow/route uses it.
 func (g *Runtime) pruneEphemeralSessions(now time.Time) error {
-	app := g.app
-	sessions, err := app.FindRecordsByFilter("sessions", "ephemeral=true", "", 0, 0)
-	var errs []error
+	sessions, err := g.app.FindRecordsByFilter("sessions", "ephemeral=true && active=true", "", 0, 0)
 	if err != nil {
-		errs = append(errs, err)
+		return err
 	}
+	var errs []error
 	for _, session := range sessions {
-		err = app.RunInTransaction(func(tx core.App) error {
-			// A settings edit may have disabled retention since the outer query.
+		err := g.app.RunInTransaction(func(tx core.App) error {
 			current, err := tx.FindRecordById("sessions", session.Id)
 			if err != nil {
 				return err
 			}
-			if !current.GetBool("ephemeral") {
+			if !current.GetBool("ephemeral") || !current.GetBool("active") {
 				return nil
 			}
-			if err := g.collectDemoDomains(tx, current); err != nil {
+			cutoff := max(current.GetInt64("started_ms"), current.GetInt64("retained_from_ms"), now.Add(-sessionRetention(current)).UnixMilli())
+			var policy data.Policy
+			if err := current.UnmarshalJSONField("policy", &policy); err != nil {
 				return err
 			}
-			cutoff := now.Add(-sessionRetention(current))
-			if err := observer.RetainSession(tx, session.Id, cutoff); err != nil {
+			bucket := policy.BucketMS
+			if bucket <= 0 {
+				bucket = 50
+			}
+			cutoff = (cutoff + bucket - 1) / bucket * bucket
+			if err := observer.PruneSession(tx, session.Id, cutoff); err != nil {
 				return err
 			}
-			if err := routing.RetainSession(tx, session.Id, cutoff); err != nil {
+			if err := routing.RetainSession(tx, session.Id, time.UnixMilli(cutoff)); err != nil {
 				return err
 			}
-			if err := labgate.RetainSession(tx, session.Id, cutoff); err != nil {
+			if _, err := tx.FindCollectionByNameOrId("gate_events"); err == nil {
+				if err := labgate.RetainSession(tx, session.Id, time.UnixMilli(cutoff)); err != nil {
+					return err
+				}
+			} else if !errors.Is(err, sql.ErrNoRows) {
 				return err
 			}
-			_, err = tx.DB().NewQuery(`UPDATE sessions SET active=true, ended_at='', started_at=CASE WHEN started_at < {:cut} OR started_at='' THEN {:cut} ELSE started_at END WHERE id={:session}`).Bind(dbx.Params{"session": session.Id, "cut": cutoff.UTC().Format("2006-01-02 15:04:05.000Z")}).Execute()
-			if err != nil {
-				return err
-			}
-			return nil
+			_, err = tx.DB().NewQuery("UPDATE sessions SET retained_from_ms={:cut}, revision=revision+1 WHERE id={:id} AND retained_from_ms < {:cut}").Bind(dbx.Params{"id": session.Id, "cut": cutoff}).Execute()
+			return err
 		})
-		if err != nil {
-			errs = append(errs, err)
-		}
+		errs = append(errs, err)
 	}
-	errs = append(errs, observer.PruneDomainCatalogueCheckpoints(app))
-	if len(sessions) == 0 {
-		return errors.Join(append(errs, routing.RetainShared(app, now.Add(-24*time.Hour), now.Add(-24*time.Hour)))...)
-	}
-	// Shared caches are bounded independently, even when route probing is disabled.
-	sharedWindow := ephemeralWindow
-	for _, session := range sessions {
-		if window := sessionRetention(session); window > sharedWindow {
-			sharedWindow = window
-		}
-	}
-	errs = append(errs, observer.RetainShared(app, now.Add(-sharedWindow)), routing.RetainShared(app, now.Add(-sharedWindow), now.Add(-24*time.Hour)))
 	return errors.Join(errs...)
 }
 
-// Chores share a clock, not a failure domain: a catalogue error must not suspend
-// global cache bounds or ordinary inactive-session packet detail expiry.
-func (g *Runtime) sweep(now time.Time, packetDue bool) error {
-	err := g.pruneEphemeralSessions(now)
-	if packetDue {
-		_, packetErr := observer.PruneInactiveActivity(g.app, now.Add(-g.config.Observation.Packet.Retention), 500)
-		err = errors.Join(err, packetErr)
-	}
+// Chores share a clock, not a failure domain. Saved product history is retained;
+// optional diagnostics and durable probe charges have their own bounds.
+func (g *Runtime) sweep(now time.Time) error {
+	return errors.Join(g.pruneEphemeralSessions(now), routing.RetainShared(g.app, now), pruneDestinations(g.app), g.pruneDiagnostics(now))
+}
+
+func pruneDestinations(app core.App) error {
+	_, err := app.DB().NewQuery("DELETE FROM destinations WHERE NOT EXISTS (SELECT 1 FROM traffic_chunks WHERE destination_id=destinations.id)").Execute()
 	return err
+}
+
+// Bound diagnostic payload bytes independently of traffic retention. Queued gate
+// records belong to the bounded fail-open controller and must not be evicted
+// before their terminal verdict has been recorded.
+func (g *Runtime) pruneDiagnostics(now time.Time) error {
+	retention := g.config.DiagnosticRetention
+	if retention <= 0 {
+		retention = time.Hour
+	}
+	budget := g.config.DiagnosticMaxBytes
+	if budget <= 0 {
+		budget = 16 * 1024 * 1024
+	}
+	var errs []error
+	for _, spec := range []struct{ name, age, predicate string }{
+		{"flow_diagnostics", "last_ms", "1=1"},
+		{"dns_queries", "observed_ms", "1=1"},
+		{"gate_events", "queued_at", "state != 'queued'"},
+	} {
+		collection, err := g.app.FindCollectionByNameOrId(spec.name)
+		if errors.Is(err, sql.ErrNoRows) {
+			continue
+		}
+		if err != nil {
+			errs = append(errs, err)
+			continue
+		}
+		err = g.app.RunInTransaction(func(tx core.App) error {
+			var cutoff any = now.Add(-retention).UnixMilli()
+			if spec.age == "queued_at" {
+				cutoff = now.Add(-retention).UTC().Format("2006-01-02 15:04:05.000Z")
+			}
+			if _, err := tx.DB().NewQuery("DELETE FROM " + spec.name + " WHERE " + spec.predicate + " AND " + spec.age + " < {:cut}").Bind(dbx.Params{"cut": cutoff}).Execute(); err != nil {
+				return err
+			}
+			// json_object includes field names and escapes JSON/text, conservatively
+			// accounting for each stored row without loading every payload into Go.
+			fields := make([]string, 0, len(collection.Fields))
+			for _, field := range collection.Fields {
+				name := field.GetName()
+				fields = append(fields, "'"+strings.ReplaceAll(name, "'", "''")+"', \""+strings.ReplaceAll(name, "\"", "\"\"")+"\"")
+			}
+			size := "length(CAST(json_object(" + strings.Join(fields, ",") + ") AS BLOB))"
+			query := "DELETE FROM " + spec.name + " WHERE id IN (SELECT id FROM (SELECT id, SUM(" + size + ") OVER (ORDER BY updated DESC,id DESC ROWS UNBOUNDED PRECEDING) AS payload_bytes FROM " + spec.name + " WHERE " + spec.predicate + ") WHERE payload_bytes > {:budget})"
+			_, err := tx.DB().NewQuery(query).Bind(dbx.Params{"budget": budget / 3}).Execute()
+			return err
+		})
+		errs = append(errs, err)
+	}
+	return errors.Join(errs...)
 }

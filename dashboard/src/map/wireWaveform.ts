@@ -1,4 +1,5 @@
-import type { MapConnection } from './mapTracks'
+import { captureQuality } from '@infrareveal/session-state'
+import type { MapSeries } from './mapTracks'
 import type { DestinationVolumeIndex } from './destinationVolumes'
 import type { TrafficDirection } from './mapWorkspace'
 
@@ -7,45 +8,37 @@ export type WireRange = { from: number; to: number }
 
 /** A playhead or total change cannot invalidate immutable captured intervals. */
 export function createWireWaveformCache() {
-  const entries = new Map<string, { series: unknown[]; bins: WireBin[] }>()
-  return (connections: readonly MapConnection[], index: DestinationVolumeIndex, range: WireRange, count = 96) => {
-    const ordered = [...connections].sort((a, b) => a.flow.id.localeCompare(b.flow.id))
-    const key = JSON.stringify([range.from, range.to, count, index.fromMs ?? 0, ordered.map(c => [c.flow.id, c.startMs, c.endMs])])
-    const series = ordered.map(c => index.get(c.flow.id))
+  const entries = new Map<string, { series: unknown[]; coverage: unknown; bins: WireBin[] }>()
+  return (series: readonly MapSeries[], index: DestinationVolumeIndex, range: WireRange, count = 96) => {
+    const ordered = [...series].sort((a, b) => a.id.localeCompare(b.id))
+    const key = JSON.stringify([range.from, range.to, count, index.fromMs ?? 0, ordered.map(c => [c.id, c.startMs, c.endMs])])
+    const captured = ordered.map(c => index.get(c.id))
     const cached = entries.get(key)
-    if (cached && series.every((value, i) => value === cached.series[i])) return cached.bins
+    if (cached && cached.coverage === index.coverage && captured.every((value, i) => value === cached.series[i])) return cached.bins
     const bins = wireWaveform(ordered, index, range, count)
-    entries.set(key, { series, bins })
+    entries.set(key, { series: captured, coverage: index.coverage, bins })
     if (entries.size > 64) entries.delete(entries.keys().next().value!)
     return bins
   }
 }
-/** Captured wire-byte averages, never interpolated lifetime counters or invented payload. */
-export function wireWaveform(connections: readonly MapConnection[], index: DestinationVolumeIndex, range: WireRange, count = 96): WireBin[] {
+/** Rate bars divide only observed sample volume; missing intervals stay visible gaps. */
+export function wireWaveform(series: readonly MapSeries[], index: DestinationVolumeIndex, range: WireRange, count = 96): WireBin[] {
   const duration = range.to - range.from
   if (count <= 0 || duration <= 0) return []
   const size = duration / count
-  const bins = Array.from({ length: count }, () => ({ received: 0, sent: 0, complete: true, observed: false }))
-  for (const connection of connections) {
-    const covered = new Float64Array(count)
-    const intervals = index.get(connection.flow.id)?.intervals ?? []
-    for (const interval of intervals) {
-      const start = Math.max(range.from, interval.start), end = Math.min(range.to, interval.end)
-      if (end <= start || interval.end <= interval.start) continue
-      const first = Math.max(0, Math.floor((start - range.from) / size)), last = Math.min(count - 1, Math.ceil((end - range.from) / size) - 1)
-      for (let i = first; i <= last; i++) {
-        const overlap = Math.max(0, Math.min(end, range.from + (i + 1) * size) - Math.max(start, range.from + i * size))
-        const fraction = overlap / (interval.end - interval.start)
-        bins[i].received += interval.received * fraction * 1000 / size
-        bins[i].sent += interval.sent * fraction * 1000 / size
-        bins[i].observed ||= overlap > 0
-        bins[i].complete &&= !interval.partial && !(index.fromMs && interval.start < index.fromMs && index.fromMs < interval.end)
-        covered[i] += overlap
-      }
-    }
-    for (let i = 0; i < count; i++) {
-      const expected = Math.max(0, Math.min(range.to, connection.endMs, range.from + (i + 1) * size) - Math.max(range.from, connection.startMs, range.from + i * size))
-      if (covered[i] + 1 < expected) bins[i].complete = false
+  const bins = Array.from({ length: count }, (_, i) => {
+    const quality = captureQuality(index.coverage ?? [], range.from + i*size, range.from + (i+1)*size)
+    return { received: 0, sent: 0, complete: quality === 'complete', observed: quality !== 'unavailable' }
+  })
+  for (const item of series) for (const interval of index.get(item.id)?.intervals ?? []) {
+    const start = Math.max(range.from, interval.start), end = Math.min(range.to, interval.end)
+    if (end <= start) continue
+    const first = Math.max(0, Math.floor((start-range.from)/size)), last = Math.min(count-1, Math.ceil((end-range.from)/size)-1)
+    for (let i=first; i<=last; i++) {
+      const overlap = Math.max(0, Math.min(end, range.from+(i+1)*size)-Math.max(start, range.from+i*size))
+      const fraction = overlap/(interval.end-interval.start)
+      bins[i].received += interval.received*fraction*1000/size; bins[i].sent += interval.sent*fraction*1000/size
+      bins[i].observed = true; bins[i].complete &&= !interval.partial
     }
   }
   return bins

@@ -74,8 +74,8 @@ export function SessionsPage() {
 }
 
 function SessionCard({ session }: { session: Session }) {
-  const startedAt = parseDate(session.started_at ?? session.created)
-  const endedAt = session.ended_at ? parseDate(session.ended_at) : null
+  const startedAt = new Date(session.started_ms)
+  const endedAt = session.ended_ms ? new Date(session.ended_ms) : null
 
   return (
     <Link
@@ -121,12 +121,6 @@ function SessionsLoading() {
       ))}
     </div>
   )
-}
-
-function parseDate(value: string) {
-  const normalized = value.includes('T') ? value : value.replace(' ', 'T')
-  const date = new Date(normalized)
-  return Number.isNaN(date.getTime()) ? null : date
 }
 
 function formatDate(date: Date | null) {

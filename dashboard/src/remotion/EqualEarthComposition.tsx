@@ -24,7 +24,7 @@ export function EqualEarthComposition({ onInspectorChange, preferences, workspac
     if (!id) requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`button[data-track-id="${CSS.escape(selectedId ?? '')}"]`)?.focus({ preventScroll: true }))
   }, [selectedId])
   const selectLocation = useCallback((locationId: string | null) => onWorkspace({ ...workspace, locationId }), [workspace, onWorkspace])
-  const locations = useMemo(() => activeOnly ? overview.locations.filter(location => location.connections.some(connection => connection.active)) : overview.locations, [activeOnly, overview.locations])
+  const locations = useMemo(() => activeOnly ? overview.locations.filter(location => location.series.some(connection => connection.active)) : overview.locations, [activeOnly, overview.locations])
   const anchor = Math.floor(cursorMs / TRAFFIC_BUCKET_MS) * TRAFFIC_BUCKET_MS
   const profiles = useMemo(() => {
     if (!selected) return null
@@ -38,7 +38,7 @@ export function EqualEarthComposition({ onInspectorChange, preferences, workspac
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [workspace, onWorkspace])
-  const quality = destinationLoading ? 'loading' : destinationError ? 'unavailable' : overview.total.estimated ? 'estimated' : overview.total.partial ? 'partial' : 'captured'
+  const quality = destinationLoading ? 'loading' : destinationError ? 'unavailable' : overview.total.partial ? 'partial' : 'captured'
   return <div className="atlas-composition" data-selected-track={selected?.id} data-track-count={overview.tracks.length} data-destination-count={locations.length} data-workspace={workspace.expanded ? 'timeline' : 'map'} data-location-filter={workspace.locationId ?? ''}>
     <div className="atlas-map-surface" hidden={workspace.expanded}>
       <EqualEarthMap controlsRef={controls} locations={locations} origin={scene.origin} direction={workspace.direction} selected={workspace.locationId} onSelect={selectLocation} labels={preferences.labels} showTraffic={showTraffic} />
@@ -46,12 +46,12 @@ export function EqualEarthComposition({ onInspectorChange, preferences, workspac
       <div className="atlas-map-heading"><MapIcon name="globe" size={15} /><span>NETWORK ATLAS</span><i /><span className="atlas-map-heading-detail">Equal Earth · {directionLabel(workspace.direction)}</span></div>
       <div className="atlas-view-options"><button type="button" className="atlas-layer-button" aria-pressed={showTraffic} onClick={() => setShowTraffic(value => !value)} title="Show or hide flowing traffic"><MapIcon name="layers" size={16} /><span>Traffic</span><i className="atlas-dot" /></button></div>
       {scene.endpoints.length === 0 && <div className="atlas-empty"><MapIcon name="globe" size={30} /><h2>{unavailable ? 'Session data unavailable' : loading ? 'Connecting to your session' : 'No mapped destinations yet'}</h2><p>{unavailable ? 'Check the gateway connection and try again.' : loading ? 'Loading the network view…' : 'Geolocated traffic will appear here as it is observed.'}</p></div>}
-      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded · to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent · from your devices</span>{locations.some(location => location.country) && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p className="atlas-column-scale" data-volume-source={quality}>Paired bars · shared linear scale · {directionLabel(workspace.direction)}{destinationLoading ? ' · Loading…' : destinationError ? ' · Capture unavailable' : overview.total.estimated ? ' · ≈ Includes estimates' : overview.total.partial ? ' · Partial capture' : ''}</p><p>Simplified connections · country anchors are approximate · Coarse IP locations</p></div>
+      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded · to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent · from your devices</span>{locations.some(location => location.country) && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p className="atlas-column-scale" data-volume-source={quality}>Paired bars · shared linear scale · {directionLabel(workspace.direction)}{destinationLoading ? ' · Loading…' : destinationError ? ' · Capture unavailable' : overview.total.partial ? ' · Partial capture' : ''}</p><p>Simplified series · country anchors are approximate · Coarse IP locations</p></div>
     </div>
-    <MapOverview data={overview} state={workspace} onChange={onWorkspace} startMs={scene.startMs} cursorMs={cursorMs} loading={destinationLoading} error={destinationError} selectedTrack={selected?.id ?? null} onTrack={selectTrack} activeOnly={activeOnly} onActiveOnly={setActiveOnly} />
-    {workspace.expanded && <MapTimeline data={overview} state={workspace} onChange={onWorkspace} index={destinationIndex} startMs={scene.startMs} endMs={endMs} cursorMs={cursorMs} onSeek={onSeekTime} onTrack={selectTrack} loading={destinationLoading} error={destinationError} />}
+    <MapOverview data={overview} state={workspace} onChange={onWorkspace} startMs={destinationIndex.fromMs ?? scene.startMs} cursorMs={cursorMs} loading={destinationLoading} error={destinationError} selectedTrack={selected?.id ?? null} onTrack={selectTrack} activeOnly={activeOnly} onActiveOnly={setActiveOnly} />
+    {workspace.expanded && <MapTimeline data={overview} state={workspace} onChange={onWorkspace} index={destinationIndex} startMs={destinationIndex.fromMs ?? scene.startMs} endMs={endMs} cursorMs={cursorMs} onSeek={onSeekTime} onTrack={selectTrack} loading={destinationLoading} error={destinationError} />}
     {selected && traffic && <MapTrackInspector key={selected.id} direction={workspace.direction} track={selected} catalog={trackCatalog} cursorMs={cursorMs} traffic={traffic} onClose={() => selectTrack(null)} onFit={() => {
-      controls.current?.fit([[scene.origin.longitude, scene.origin.latitude], ...locations.filter(location => location.connections.some(connection => connection.id === selected.id)).flatMap(location => location.country ? countryFitPositions(location.country) : location.position ? [location.position] : [])])
+      controls.current?.fit([[scene.origin.longitude, scene.origin.latitude], ...locations.filter(location => location.series.some(connection => connection.trackId === selected.id)).flatMap(location => location.country ? countryFitPositions(location.country) : location.position ? [location.position] : [])])
       if (workspace.expanded) onWorkspace({ ...workspace, expanded: false })
     }} />}
   </div>

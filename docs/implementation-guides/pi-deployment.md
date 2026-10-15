@@ -25,7 +25,16 @@ The UI and API remain accessible without an internet uplink, but the current
 basemap tiles/fonts require internet. This is an IPv4 deployment; IPv6 forwarding
 and access from both Wi-Fi interfaces are blocked to prevent an isolation bypass.
 
-## Existing Pi: verified inventory
+## Existing Pi: historical inventory
+
+**8 October update:** commit `85d30a6` is deployed from
+`/home/pi/Documents/infrareveal-releases/85d30a6`, using `docker-compose.yml` plus
+`compose.release.yml` and the `debug` profile. Compose `2.39.4` is installed;
+the radios are named `ir-ap` and `ir-admin`. The original checkout and persistent
+data remain in `/home/pi/Documents/infrareveal`. Use the
+[deployment and rollback report](../validation/raspberry-pi-deployment-2026-10-08.md)
+for that historical installation; verify the current Compose project before replacing it. The September inventory and initial setup steps
+below describe its earlier state.
 
 Checked on 2026-09-17:
 
@@ -36,7 +45,7 @@ Checked on 2026-09-17:
 - Repository: `/home/pi/Documents/infrareveal`.
 - Old container: `infrareveal-server`.
 - Existing database: `/home/pi/Documents/infrareveal/data`, mounted at
-  `/root/pb/pb_data`. The new deployment uses that same directory explicitly.
+  `/root/pb/pb_data`. The map/activity rewrite requires a fresh directory, such as `data-map-activity`.
 - Host networking uses `dhcpcd`. Compose is not installed.
 
 The Dockerfiles select the target Go architecture automatically, and use Node 22
@@ -59,7 +68,7 @@ git pull --ff-only
 ```
 
 If tracked local edits prevent the pull, preserve/reconcile them first. Do not
-reset the checkout or delete the existing `data` directory.
+reset unrelated local edits. Use a fresh application data directory for this rewrite.
 
 For this Pi's older Docker engine, install the pinned ARMv7 Compose plugin below.
 The pin keeps deployment tooling reproducible; it is not a claim that this is the
@@ -85,17 +94,19 @@ The plugin is system-wide so `sudo docker compose` can find it.
 
 ```bash
 cp -n .env.example .env
-mkdir -p data geoip
+mkdir -p data-map-activity geoip
 nano .env
+# Set DATA_DIR=./data-map-activity for the new schema.
 ```
 
 The `Infrareveal-admin` Wi-Fi password is always **`password123`**. No password
 file or Compose secret is needed. Existing `secrets/admin-wifi-password` files
-are ignored after upgrading. This is the Wi-Fi password; your PocketBase
-superuser login remains the one you created. `.env`, `data` and `geoip` are
+are ignored. This is the Wi-Fi password; a fresh PocketBase database needs a
+new superuser account. `.env`, `data` and `geoip` are
 excluded from Git and the Docker build context.
 
-In `.env`, retain `wlan0` / `wlan1` and country `SE` for this Pi. Optionally set
+In `.env`, use the verified current radio names (`ir-ap` / `ir-admin` on the
+8 October installation) and country `SE`. Optionally set
 `ADMIN_WIFI_MAC=38:a2:8c:a2:1f:c9` to verify that `wlan1` is the inspected adapter.
 Uncomment `COMPOSE_PROFILES=debug` to deploy the debug dashboard too.
 
@@ -159,26 +170,28 @@ source was not in dhcpcd.conf. Inspect `ip -4 address show eth0` and any custom
 startup scripts; remove that obsolete static configuration when identified.
 Do not remove the active DHCP address or default route.
 
-## 5. Stop the old container, back up, and start Compose
+## 5. Replace the build against fresh application data
 
-This step interrupts participant Wi-Fi. Stop the old gateway before starting
-the new one, because both own the same interfaces, firewall and database.
+Stop the current gateway before starting the replacement: both own the same
+interfaces and firewall. Use the current deployment's Compose files and project
+name when stopping it; the historical release may use `compose.release.yml`.
+Do not launch two gateway containers on the same radios.
 
 ```bash
 cd /home/pi/Documents/infrareveal
-sudo docker update --restart=no infrareveal-server
-sudo docker stop infrareveal-server
-backup_dir="../infrareveal-data-backup-$(date +%Y%m%d-%H%M%S)"
-sudo cp -a data "$backup_dir"
+# Stop the verified current deployment first, then start the new build.
+sudo docker compose stop
 sudo docker compose up -d --no-build
 sudo docker compose ps
 sudo docker compose logs --tail=100 proxy dashboard
 ```
 
-Keep the stopped old container and the backup until the new setup is verified.
-The gateway explicitly uses `/root/pb/pb_data`, preserving the existing bind
-mount. Do not run both old and new binaries against that directory concurrently.
-Migrations may change the database; rollback should use the stopped-state backup.
+Set `DATA_DIR=./data-map-activity` before starting. A new empty directory creates
+seven core application collections. `DIAGNOSTICS_ENABLED=true` creates ten;
+the explicitly enabled gate also requires its audit collection. Keep the licensed
+GeoIP assets. Old development recordings are disposable and are not imported.
+The previous source remains in Git; an older version can use a fresh database
+for its own schema. No parallel old/new data path is required.
 
 ## 6. Verify from the two networks
 
@@ -206,20 +219,18 @@ allowed-origin configuration.
 
 ## Subsequent updates
 
-Once the first migration is complete:
+For later changes to this new standard:
 
 ```bash
 cd /home/pi/Documents/infrareveal
 git pull --ff-only
 sudo bash scripts/build-pi-images.sh
 sudo docker compose stop
-backup_dir="../infrareveal-data-backup-$(date +%Y%m%d-%H%M%S)"
-sudo cp -a data "$backup_dir"
 sudo docker compose up -d --no-build
 sudo docker compose ps
 ```
 
-Keep `.env`, `data`, and `geoip` between updates. `restart: always` starts the
+Keep `.env`, the selected new `DATA_DIR`, and `geoip` between updates. `restart: always` starts the
 services again after reboot. The gateway waits for both radios, including a USB
 adapter plugged in after startup, then validates configuration and starts the
 network. While a radio is missing, the proxy is unhealthy. Dashboard containers
@@ -297,42 +308,23 @@ isolation/DNS test passed. The changes have not yet been applied to the physical
 Pi; association, DHCP leases and reboot behavior remain deployment acceptance
 checks.
 
-## Always-on lab demo
+## Always-on lab demo and rolling sessions
 
-For the unattended lab display, use the [lab demo guide](lab-demo.md). Set
-`DEMO_MODE=true`, `DEMO_RETENTION_MINUTES=30`, and `DEMO_DOMAIN_CATALOGUE=true`
-in `.env`, rebuild/recreate the containers, and open `http://10.77.0.1/demo`.
-This creates a dedicated rolling session, resumes it after restarts, renews route
-budgets, and retains a separate domain-review catalogue.
+Use the [lab demo guide](lab-demo.md). Set `DEMO_MODE=true` and
+`DEMO_RETENTION_MINUTES=30`, rebuild/recreate, then open `http://10.77.0.1/demo`.
+A live continuous session reuses its identity across a process restart. An ended
+session stays ended; a new demo session receives a new identity. Network quota
+charges survive both restart and session deletion.
 
-## Always-on ephemeral sessions
+Set `ephemeral` and `retention_minutes` on a session for rolling capture. Only
+active continuous sessions advance `retained_from_ms`. `started_ms` is immutable.
+Every 15 seconds cleanup removes expired traffic samples and coverage, preserves
+crossing block identities and original starts, and retains applicable route
+anchors. A paused playhead clamps when its retained window expires. Saved
+recordings retain product history until deletion.
 
-After rebuilding and recreating the containers, migrations add an `ephemeral`
-checkbox to the `sessions` collection in PocketBase. Open
-**http://10.77.0.1/_/**, sign in, edit the current active session, enable
-**ephemeral**, and save. Both dashboards pick up the change automatically.
-The same session stays active across restarts; its timeline grows to five
-minutes and then slides forward (or use the session’s `retention_minutes`
-setting for a different duration). A paused playhead is clamped when it expires.
-
-Enabling this option on an existing session discards history older than five
-minutes. Disable it to keep new history from the remaining window; also clear
-`active` if you want to stop the session. Ordinary sessions are unaffected.
-
-Every 15 seconds the backend removes expired observations and packet chunks.
-Connections still seen in the window retain their identity and necessary DNS
-and route evidence, even when they were opened hours ago. Traffic columns use
-only retained packet chunks, with partial boundary chunks marked as partial.
-Browser records, timeline indexes, colors, queued events and detail pages are
-also evicted; requests are cancelled on teardown and time out on lost networks.
-
-Storage depends on traffic volume and concurrent connections, rather than how
-many days this session has run. SQLite reuses deleted pages, so an existing large
-database may keep its previous file size. Other recorded sessions still take up
-space. Docker logs rotate at 10 MiB with three files per service, and the DNS
-capture spool is truncated after it exceeds 8 MiB and the reader has caught up.
-
-To apply these changes on the Pi, use the normal update commands above, including
-`sudo bash scripts/build-pi-images.sh` and
-`sudo docker compose up -d --no-build --force-recreate`.
-Reconnect to admin Wi-Fi with `password123` after the gateway restarts.
+Storage follows traffic volume and the retained window. SQLite reuses deleted
+pages, so database file size may remain above its live payload size. Diagnostic
+storage has independent age/byte limits. There is no permanent domain catalogue,
+raw connection requirement or old-data conversion. Docker logs rotate at 10 MiB
+with three files per service, and consumed DNS spool data is bounded at 8 MiB.

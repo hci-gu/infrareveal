@@ -4,7 +4,8 @@ Date: 2026-06-25
 
 ## Status
 
-Accepted
+Accepted. The storage decisions below are superseded by
+[ADR 0003](0003-map-activity-storage.md); the metadata-only forwarding decision remains in force.
 
 ## Context
 

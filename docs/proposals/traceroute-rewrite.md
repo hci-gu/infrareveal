@@ -2,7 +2,7 @@
 
 Status: proposed, 17 September 2026. This is an implementation plan, not a claim that the deployed failure has been reproduced or fixed.
 
-Superseded for implementation by [implementation-plan.md](../../implementation-plan.md). The updated plan prioritizes a small number of useful visual route approximations, hard limits on automatic work and storage, and elimination of duplicate/status-only route records. Its collection, persistence, retry and rollout decisions take precedence over the broader proposal below.
+Historical proposal, superseded by the [map/activity implementation plan](../../implementation-plan.md) and [current route contract](../implementation-guides/live-route-discovery.md). The replacement uses a fresh database, `route_evidence` and `probe_runs`, with no cross-session route cache or old-recording adapter. The additive migration, shadow rollout, six-store model and legacy runtime engine below are historical proposals, not supported operations.
 
 Replace route discovery with an evidence-based measurement module: observe the real remote endpoint, measure a synthetic gateway flow with a controlled probe engine, retain the responses and measurement limits, and derive network and geographic explanations separately. The product must provide useful endpoint and network information even when intermediate routers remain silent.
 

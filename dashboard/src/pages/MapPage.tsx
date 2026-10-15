@@ -7,12 +7,11 @@ import { Link, useParams } from 'react-router-dom'
 import {
   FPS,
   frameForTime,
-  parseEpoch,
   sessionTimelineStore,
   setTimelinePlayback,
   timeForFrame,
-  useGatewayData,
-  useFlowActivityRange,
+  useSession,
+  useMapWindow,
 } from '@infrareveal/session-state'
 import { gatewayOrigin, mapStyleUrl } from '../config'
 import { buildMapTimelineScene } from '../map/mapModel'
@@ -23,7 +22,8 @@ import { MapTransport } from '../map/MapTransport'
 import { formatCursor } from '../map/format'
 import { indexMapTraffic } from '../map/mapTraffic'
 import { buildMapTrackCatalog, TrackColors } from '../map/mapTracks'
-import { useDestinationVolumes } from '../map/useDestinationVolumes'
+import { indexDestinationVolumes } from '../map/destinationVolumes'
+import { ActivityBlockBrowser } from '../map/ActivityBlockBrowser'
 import { MapSettings } from '../map/MapSettings'
 import { mapRenderQuality, useMapPreferences } from '../map/mapPreferences'
 import { projectWorkspace } from '../map/mapWorkspace'
@@ -44,7 +44,9 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const { preferences, setPreferences, theme } = useMapPreferences()
   const renderQuality = mapRenderQuality(preferences.quality)
   const publishMs = renderQuality.dataIntervalMs
-  const [inspectorOpen, setInspectorOpen] = useState(false)
+  const [, setInspectorOpen] = useState(false)
+  const [blocksOpen, setBlocksOpen] = useState(false)
+  const [historySpan, setHistorySpan] = useState(300_000)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [view, setView] = useState<WorkspaceState & { sessionId: string }>({ sessionId: sessionID, direction: 'both', locationId: null, expanded: false })
   const workspace = useMemo<WorkspaceState>(() => view.sessionId === sessionID ? view : { direction: view.direction, locationId: null, expanded: false }, [view, sessionID])
@@ -59,39 +61,28 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const initializedSessionRef = useRef<string | null>(null)
   const programmaticSeekTargetRef = useRef<number | null>(null)
   const lastCursorPublishRef = useRef(0)
-  const { connectionState, data, timeline, error, refresh } = useGatewayData(sessionID, true, publishMs)
+  const { timeline, refresh } = useSession(sessionID)
+  const { connectionState, error } = timeline
   const trackPalette = useMemo(() => ({ sessionID, colors: new TrackColors() }), [sessionID])
-  // The server advances startedAt on every rolling-history manifest. Pin the
-  // first origin for this session: rebasing it would move even a paused clock
-  // into the future and make every connection fail the Active now filter.
-  const [playbackOrigin, setPlaybackOrigin] = useState<{ sessionId: string; epochMs: number } | null>(null)
-  if (timeline.manifest?.sessionId === sessionID && playbackOrigin?.sessionId !== sessionID) {
-    setPlaybackOrigin({ sessionId: sessionID, epochMs: parseEpoch(timeline.manifest.startedAt, timeline.epochMs) })
-  }
-  const playbackEpochMs = playbackOrigin?.sessionId === sessionID ? playbackOrigin.epochMs : timeline.epochMs
+  const playbackEpochMs = timeline.epochMs
   const cursorMs = timeForFrame(playbackEpochMs, currentFrame, FPS)
-  const activityStartMs = Math.floor(cursorMs / 30_000) * 30_000 - 30_000
-  const activity = useFlowActivityRange(data.selectedSession?.id ?? null, activityStartMs, activityStartMs + 90_000, undefined, publishMs, preferences.projection === 'mercator' || workspace.expanded || inspectorOpen)
-  const routeData = useMemo(() => ({...data, routes: [...new Map([...data.routes, ...activity.routes].map(route => [route.id, route])).values()]}), [data, activity.routes])
-  const scene = useMemo(
-    () => buildMapTimelineScene(routeData, gatewayOrigin, timeline.epochMs),
-    [routeData, timeline.epochMs],
-  )
+  const windowAnchor = Math.floor((timeline.manifest ? Math.max(cursorMs, timeline.manifest.retained_from_ms) : 0) / 30_000) * 30_000
+  const windowTo = windowAnchor + 30_000
+  const windowFrom = Math.max(timeline.manifest?.retained_from_ms ?? 0, windowTo - historySpan)
+  const bucketMs = timeline.manifest?.policy.bucket_ms ?? 50
+  const history = useMapWindow(sessionID, windowFrom, windowTo, Math.ceil(1000/bucketMs)*bucketMs)
+  const activity = useMapWindow(sessionID, Math.max(windowFrom, windowAnchor - 30_000), windowAnchor + 60_000, bucketMs)
+  const scene = useMemo(() => buildMapTimelineScene(history.window, timeline.manifest, gatewayOrigin), [history.window, timeline.manifest])
   const contentEndMs = Math.max(scene.startMs + 1_000, scene.endMs, timeline.liveEdgeMs)
   const contentDurationInFrames = Math.max(FPS, frameForTime(playbackEpochMs, contentEndMs, FPS) + 1)
-  // Playback needs a little headroom between clock ticks to avoid emitting
-  // 'ended' at the live edge. The visible transport still uses contentEndMs.
-  const durationInFrames = timeline.mode === 'live'
-    ? roundLiveDuration(contentDurationInFrames)
-    : contentDurationInFrames
-  // Request a bounded 90-second window at 500 ms LOD, moving every 30 seconds.
-  const trackCatalog = useMemo(() => buildMapTrackCatalog({ ...routeData, dnsQueries: activity.dnsQueries }, trackPalette.colors), [activity.dnsQueries, routeData, trackPalette])
-  const trafficIndex = useMemo(() => indexMapTraffic(activity.chunks), [activity.chunks])
-  const destinationVolumes = useDestinationVolumes(scene.sessionId, timeline.mode === 'live', timeline.manifest?.ephemeral, timeline.epochMs)
+  const durationInFrames = timeline.mode === 'live' ? roundLiveDuration(contentDurationInFrames) : contentDurationInFrames
+  const trackCatalog = useMemo(() => buildMapTrackCatalog(history.window, timeline.manifest, trackPalette.colors), [history.window, timeline.manifest, trackPalette])
+  const trafficIndex = useMemo(() => indexMapTraffic(activity.window.series, activity.window.coverage), [activity.window])
+  const destinationIndex = useMemo(() => indexDestinationVolumes(history.window.series, windowFrom, history.window.coverage), [history.window, windowFrom])
   const projectionCursor = timeline.playback === 'paused' ? cursorMs : Math.floor(cursorMs / publishMs) * publishMs
-  const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationVolumes.index, projectionCursor, workspace), [trackCatalog, scene, destinationVolumes.index, projectionCursor, workspace])
+  const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationIndex, projectionCursor, workspace), [trackCatalog, scene, destinationIndex, projectionCursor, workspace])
   const waveform = useMemo(() => createWireWaveformCache(), [])
-  const playbackBins = useMemo(() => waveform([...overview.byFlow.values()], destinationVolumes.index, { from: scene.startMs, to: contentEndMs }), [waveform, overview.byFlow, destinationVolumes.index, scene.startMs, contentEndMs])
+  const playbackBins = useMemo(() => waveform([...overview.bySeries.values()], destinationIndex, { from: scene.startMs, to: contentEndMs }), [waveform, overview.bySeries, destinationIndex, scene.startMs, contentEndMs])
   const demoWarning = demo && (demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow)))
   const styledMap = useMemo(() => themedAtlasStyle(mapStyleUrl, theme, preferences.labels), [theme, preferences.labels])
   const timelineRef = useRef({
@@ -172,10 +163,10 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     loading: !scene.sessionId && connectionState !== 'error' && connectionState !== 'offline',
     trafficIndex,
     trafficLoading: activity.loading,
-    destinationIndex: destinationVolumes.index,
-    destinationLoading: destinationVolumes.loading,
-    destinationError: destinationVolumes.error,
-  }), [clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trackCatalog, trafficIndex, destinationVolumes.index, destinationVolumes.loading, destinationVolumes.error, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
+    destinationIndex,
+    destinationLoading: history.loading,
+    destinationError: Boolean(history.error),
+  }), [clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trackCatalog, trafficIndex, destinationIndex, history.loading, history.error, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
   useEffect(() => { clock.configure({ durationInFrames, rate: timeline.rate }) }, [clock, durationInFrames, timeline.rate])
   useEffect(() => () => clock.dispose(), [clock])
 
@@ -319,13 +310,15 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
         <Link to="/" className="atlas-brand" aria-label="InfraReveal — all sessions"><span className="atlas-brand-mark"><MapIcon name="globe" size={23} /></span><span>infra<span>reveal</span><small>NETWORK OBSERVABILITY</small></span></Link>
         <div className="atlas-header-divider" />
         <nav className="atlas-breadcrumb" aria-label="Breadcrumb"><Link to="/" aria-label="All sessions"><MapIcon name="back" size={15} /><span>Sessions</span></Link><span className="atlas-breadcrumb-slash">/</span><span className="atlas-session-name" title={scene.sessionName}>{scene.sessionName}</span></nav>
-        <div className="atlas-header-right"><button type="button" className="atlas-icon-button" aria-label="Open display settings" title="Display settings" onClick={() => setSettingsOpen(true)}><MapIcon name="settings" /></button><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(cursorMs)}</strong><span>UTC</span></div></div>
+        <div className="atlas-header-right"><select aria-label="Loaded map history" value={historySpan} onChange={event => setHistorySpan(Number(event.target.value))}><option value={60_000}>1 min</option><option value={300_000}>5 min</option><option value={1800_000}>30 min</option></select><button type="button" className="atlas-icon-button" aria-label="Browse activity blocks" onClick={() => setBlocksOpen(value => !value)}>Activity</button><button type="button" className="atlas-icon-button" aria-label="Open display settings" title="Display settings" onClick={() => setSettingsOpen(true)}><MapIcon name="settings" /></button><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(cursorMs)}</strong><span>UTC</span></div></div>
       </header>
-      {(error || fullscreenError) && <div className="atlas-connection-notice" role="status"><span>{error || fullscreenError}</span>{error ? <button type="button" onClick={() => void refresh()}>Retry connection</button> : <button type="button" onClick={() => setFullscreenError('')}>Dismiss</button>}</div>}
+      {(error || history.error || activity.error || fullscreenError) && <div className="atlas-connection-notice" role="status"><span>{error || history.error || activity.error || fullscreenError}</span>{error || history.error || activity.error ? <button type="button" onClick={() => { void refresh(); history.refresh(); activity.refresh() }}>Retry connection</button> : <button type="button" onClick={() => setFullscreenError('')}>Dismiss</button>}</div>}
+      {timeline.manifest?.capture.error && <div className="atlas-connection-notice" role="status">Capture {timeline.manifest.capture.quality}: {timeline.manifest.capture.error}</div>}
       {demoWarning && <div className="atlas-connection-notice" role="status">{demoWarning}</div>}
       <div ref={mapContainerRef} className="atlas-map-container">
       <MapComposition {...inputProps} />
       </div>
+      {blocksOpen && <ActivityBlockBrowser sessionId={sessionID} fromMs={windowFrom} toMs={Math.min(windowTo, contentEndMs)} onSeek={seekTime} onClose={() => setBlocksOpen(false)} />}
       <MapSettings open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />
       <MapTransport scene={scene} bins={playbackBins} direction={workspace.direction} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}

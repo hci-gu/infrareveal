@@ -2,6 +2,7 @@ package labgate
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"sync"
 	"sync/atomic"
@@ -156,14 +157,8 @@ func (writer *AuditWriter) persist(item auditItem) {
 		close(item.flush)
 		return
 	}
-	var err error
 	for attempt := 0; attempt < 3; attempt++ {
-		if item.terminal {
-			err = writer.persistTerminal(item.decision)
-		} else {
-			err = writer.persistQueued(item.decision)
-		}
-		if err == nil {
+		if err := writer.persistDecision(item.decision, item.terminal); err == nil {
 			return
 		}
 		time.Sleep(time.Duration(20*(attempt+1)) * time.Millisecond)
@@ -171,44 +166,22 @@ func (writer *AuditWriter) persist(item auditItem) {
 	writer.recordDrop(item.decision.SessionID)
 }
 
-func (writer *AuditWriter) persistQueued(decision Decision) error {
-	if _, err := writer.find(decision); err == nil {
-		return nil
-	}
-	collection, err := writer.app.FindCollectionByNameOrId("gate_events")
-	if err != nil {
-		return err
-	}
-	record := core.NewRecord(collection)
-	setAuditRecord(record, decision)
-	return writer.app.Save(record)
-}
-
-func (writer *AuditWriter) persistTerminal(decision Decision) error {
-	record, err := writer.find(decision)
-	if err != nil {
-		collection, collectionErr := writer.app.FindCollectionByNameOrId("gate_events")
-		if collectionErr != nil {
-			return collectionErr
+func (writer *AuditWriter) persistDecision(decision Decision, terminal bool) error {
+	record, err := writer.app.FindFirstRecordByFilter("gate_events", "session={:session} && decision_id={:decision}", dbx.Params{"session": decision.SessionID, "decision": decision.ID})
+	if errors.Is(err, sql.ErrNoRows) {
+		collection, err := writer.app.FindCollectionByNameOrId("gate_events")
+		if err != nil {
+			return err
 		}
 		record = core.NewRecord(collection)
-	}
-	if record.GetString("state") != "" && record.GetString("state") != string(DecisionQueued) {
+	} else if err != nil {
+		return err
+	} else if state := record.GetString("state"); !terminal || (state != "" && state != string(DecisionQueued)) {
+		// Queued retries never overwrite records; terminal verdicts are immutable.
 		return nil
 	}
 	setAuditRecord(record, decision)
 	return writer.app.Save(record)
-}
-
-func (writer *AuditWriter) find(decision Decision) (*core.Record, error) {
-	records, err := writer.app.FindRecordsByFilter("gate_events", "session={:session} && decision_id={:decision}", "", 1, 0, dbx.Params{"session": decision.SessionID, "decision": decision.ID})
-	if err != nil {
-		return nil, err
-	}
-	if len(records) == 0 {
-		return nil, errors.New("gate audit record not found")
-	}
-	return records[0], nil
 }
 
 func setAuditRecord(record *core.Record, decision Decision) {

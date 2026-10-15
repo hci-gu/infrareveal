@@ -1,5 +1,4 @@
-import type { Destination, Route } from '@infrareveal/session-state'
-import { routeAvailableAt } from '@infrareveal/session-state'
+import type { Destination, RouteEvidence } from '@infrareveal/session-state'
 import type { GatewayOrigin, MapPosition, MapRoutePath } from './mapModel'
 import { isCountryLocation } from './countryFootprints'
 
@@ -17,13 +16,13 @@ export function hasMapCoordinates(lat: unknown, lon: unknown): boolean {
     && lat >= -90 && lat <= 90 && lon >= -180 && lon <= 180 && (lat !== 0 || lon !== 0)
 }
 
-export function orderedRouteHops(route: Route) {
+export function orderedRouteHops(route: RouteEvidence) {
   return [...(route.hops ?? [])].filter(hop => Number.isInteger(hop.ttl) && hop.ttl > 0).sort((a, b) => a.ttl - b.ttl)
 }
 
 /** Preserve unanswered/unlocated spans without placing private or unknown routers at 0,0. */
-export function mapRoutePath(route: Route, origin: GatewayOrigin, destination: Destination): MapRoutePath {
-  const location = route.available_at ? route.destination_location : destination
+export function mapRoutePath(route: RouteEvidence, origin: GatewayOrigin, destination: Destination): MapRoutePath {
+  const location = route.destination_location ?? destination
   const destinationLocated = hasMapCoordinates(location?.lat, location?.lon)
   const nodes: RouteNode[] = [{ position: [origin.longitude, origin.latitude], kind: 'gateway', ttl: 0, address: '', label: origin.label, rttMs: null }]
   const gaps: boolean[] = []
@@ -47,7 +46,7 @@ export function mapRoutePath(route: Route, origin: GatewayOrigin, destination: D
     const destinationHop = hop.address === route.destination_ip
     const timings = (hop.timings ?? []).filter(value => Number.isFinite(value) && value >= 0)
     add({
-      position: destinationHop && destinationLocated ? [location!.lon, location!.lat] : [hop.lon!, hop.lat!],
+      position: destinationHop && destinationLocated ? [location!.lon!, location!.lat!] : [hop.lon!, hop.lat!],
       kind: destinationHop ? 'destination' : 'hop', ttl: hop.ttl, address: hop.address,
       label: [hop.city, hop.country].filter(Boolean).join(', ') || hop.hostname || hop.address,
       rttMs: timings.length ? Math.min(...timings) : null,
@@ -57,9 +56,9 @@ export function mapRoutePath(route: Route, origin: GatewayOrigin, destination: D
   }
   if (nodes[nodes.length - 1].kind !== 'destination' && destinationLocated) {
     const reply = hops.find(hop => !hop.missing && hop.address === route.destination_ip)
-    add({ position: [location!.lon, location!.lat], kind: 'destination', ttl: reply?.ttl ?? previousTTL + 1, address: route.destination_ip, label: destination.city || destination.country || route.destination_ip, rttMs: reply?.timings?.find(value => Number.isFinite(value) && value >= 0) ?? null }, true)
+    add({ position: [location!.lon!, location!.lat!], kind: 'destination', ttl: reply?.ttl ?? previousTTL + 1, address: route.destination_ip, label: destination.city || destination.country || route.destination_ip, rttMs: reply?.timings?.find(value => Number.isFinite(value) && value >= 0) ?? null }, true)
   }
-  return { id: route.id, evidence: route, completedAtMs: routeAvailableAt(route), positions: nodes.map(node => node.position), nodes, gaps, complete: route.complete }
+  return { id: route.id, evidence: route, completedAtMs: route.available_ms, positions: nodes.map(node => node.position), nodes, gaps, complete: route.destination_reached }
 }
 
 /** One phase spans the entire displayed route instead of restarting at every router. */

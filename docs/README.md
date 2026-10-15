@@ -5,25 +5,27 @@ Start with the [project README](../README.md) for setup and deployment, [CONTEXT
 ## Architecture decisions
 
 - [Metadata gateway, not transparent TLS proxy](adr/0001-metadata-gateway-not-transparent-tls-proxy.md): observation scope and privacy boundaries.
+- [Aggregate traffic and activity blocks](adr/0003-map-activity-storage.md): accepted seven-collection storage and direct rewrite.
 - [Opt-in NFQUEUE flow admission](adr/0002-opt-in-nfqueue-flow-admission.md): experimental control policy and fail-open requirements.
 
 ## Implementation and operations
 
 - [PocketBase architecture](implementation-guides/pocketbase-architecture.md): lifecycle ownership, observation derivation, maintenance and transport contracts.
 
-- [Two-network Pi deployment](implementation-guides/pi-deployment.md): admin Wi-Fi, local UI/API hosting, ARMv7/ARM64 builds, migration and updates.
+- [Two-network Pi deployment](implementation-guides/pi-deployment.md): admin Wi-Fi, local UI/API hosting, ARMv7/ARM64 builds, fresh data and updates.
 
 - [Flow activity bursts](implementation-guides/flow-activity-bursts.md): capture, aggregation, persistence, quality and visualization contracts.
 - [Proxy Lab](implementation-guides/proxy-lab.md): runtime components, control APIs, first run and emergency recovery.
-- [Live route discovery](implementation-guides/live-route-discovery.md): scheduling, cache reuse, progressive evidence, replay and diagnostics.
+- [Live route discovery](implementation-guides/live-route-discovery.md): durable admissions, terminal evidence, replay and diagnostics.
 
 ## Validation procedures
 
-- [PocketBase restructuring](validation/pocketbase-restructuring.md): compatibility comparison, local verification and remaining physical gateway checks.
+- [Map and activity rewrite](validation/map-activity-rewrite.md): completed checks, fresh collection counts, browser coverage and Pi smoke measurements.
+- [PocketBase restructuring](validation/pocketbase-restructuring.md): historical refactor evidence; superseded storage contracts are identified.
 - [Dashboard browser checks](validation/debug-dashboard.md): fixtures, interaction, accessibility, performance and lifecycle checks.
 - [Flow activity on Raspberry Pi](validation/flow-activity-raspberry-pi.md): raw capture, timing, privacy and resource measurements.
 - [Proxy Lab on Raspberry Pi](validation/proxy-lab-raspberry-pi.md): namespace, failure, soak, client and recovery checks.
-- [Live route discovery](validation/live-route-discovery.md): timing targets, cache/replay scenarios and pending Pi measurements.
+- [Live route discovery](validation/live-route-discovery.md): timing targets, evidence/replay scenarios and pending Pi measurements.
 
 ## Domain grouping
 
@@ -35,4 +37,4 @@ Keep current contracts, decisions, operator instructions and repeatable validati
 
 Put generated screenshots, logs, data exports and benchmark results under `output/` or attach them to the relevant issue or release. Completed task checklists and implementation handoff reports belong in version history; carry their lasting decisions and unresolved checks into the guides above.
 
-- [Unattended lab demo](implementation-guides/lab-demo.md): rolling retention, kiosk setup, permanent domain catalogue, exports, and soak validation.
+- [Unattended lab demo](implementation-guides/lab-demo.md): rolling retention, kiosk setup and soak validation.

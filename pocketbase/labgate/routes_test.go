@@ -142,7 +142,7 @@ func newRouteFixture(t *testing.T) *routeFixture {
 	session := testsupport.Save(t, app, "sessions", map[string]any{
 		"name":       "Gate route",
 		"active":     true,
-		"started_at": time.Now(),
+		"started_ms": time.Now().UnixMilli(),
 	})
 	config := testConfig()
 	queue := NewFakeQueue()

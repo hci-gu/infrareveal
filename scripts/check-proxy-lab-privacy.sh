@@ -3,13 +3,17 @@ set -euo pipefail
 
 REPOSITORY_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPOSITORY_ROOT"
+command -v rg >/dev/null
 
 gate_sources=(
   pocketbase/labgate
-  pocketbase/migrations/202609030001_gate_events.go
-  pocketbase/migrations/202609030002_gate_event_packet_metadata.go
+  pocketbase/data
   debug-dashboard/src/experiments/proxy-lab
 )
+
+for source in "${gate_sources[@]}"; do
+  test -e "$source" || { echo "missing privacy source: $source" >&2; exit 1; }
+done
 
 if rg -n --glob '!**/*_test.*' '(raw_payload|payload_content|packet_body|request_body)' "${gate_sources[@]}"; then
   echo "forbidden content-bearing gate field found" >&2

@@ -19,7 +19,7 @@ func TestLinuxSilentTraceFinishesWithinBudget(t *testing.T) {
 	}
 	// The router still answers TTL 1, but forwards to a silent destination.
 	// The production command must flush that evidence before its deadline.
-	result := (scamperProbe{deadline: 45 * time.Second}).Run(context.Background(), target{"10.249.2.2", "udp", 49999}, probePlan{Method: "udp-paris"}, func(snapshot) {})
+	result := (scamperProbe{deadline: 45 * time.Second}).Run(context.Background(), target{"10.249.2.2", "udp", 49999}, probePlan{Method: "udp-paris"})
 	if result.Error != "" || result.replies() != 1 || result.ProbedTTL < 16 || result.StopReason != "HOPLIMIT" {
 		t.Fatalf("silent trace lost its initial reply at the deadline: %+v", result)
 	}
@@ -40,7 +40,7 @@ func TestLinuxWholeTaskBoundaries(t *testing.T) {
 	if mode == "cancel" {
 		deadline = 300 * time.Millisecond
 	}
-	result := (scamperProbe{deadline: deadline}).Run(context.Background(), dst, probePlan{Method: method}, func(snapshot) {})
+	result := (scamperProbe{deadline: deadline}).Run(context.Background(), dst, probePlan{Method: method})
 	if mode == "v6-udp-paris" {
 		if result.ProbeCount != 0 || !strings.Contains(result.Error, "unsupported probe method") {
 			t.Fatal("unqualified method launched", result)
@@ -49,7 +49,7 @@ func TestLinuxWholeTaskBoundaries(t *testing.T) {
 		if methods := probeMethods(dst); len(methods) != 1 || methods[0] != "icmp-paris" {
 			t.Fatal("missing qualified fallback", methods)
 		}
-		result = (scamperProbe{deadline: deadline}).Run(context.Background(), dst, probePlan{}, func(snapshot) {})
+		result = (scamperProbe{deadline: deadline}).Run(context.Background(), dst, probePlan{})
 	}
 	if mode == "cancel" {
 		if result.Error == "" || result.Reached || result.ProbedTTL != 0 || len(result.Hops) != 1 || result.Hops[0].State != "unknown" {
@@ -87,7 +87,7 @@ func TestLinuxCoverageNetwork(t *testing.T) {
 		t.Fatal("unknown namespace test case")
 	}
 	probe := scamperProbe{deadline: 12 * time.Second}
-	result := probe.Run(ctx, target, probePlan{Method: method, Sequence: 4242, SourcePort: 45551}, func(snapshot) {})
+	result := probe.Run(ctx, target, probePlan{Method: method, Sequence: 4242, SourcePort: 45551})
 	if !result.Reached || result.replies() != 2 || result.Hops[0].Address != "10.249.1.1" || result.ProbeCount <= 2 {
 		t.Fatalf("coverage did not recover the dropped router response: %+v", result)
 	}

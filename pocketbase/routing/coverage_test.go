@@ -2,8 +2,6 @@ package routing
 
 import (
 	"context"
-	"encoding/json"
-	"myapp/testsupport"
 	"strings"
 	"testing"
 	"time"
@@ -63,7 +61,7 @@ func TestCoverageRetainsReplyWithoutUsingWrappedRTT(t *testing.T) {
 		t.Fatalf("wrapped RTT corrupted route evidence: %+v %v", got, err)
 	}
 	reply := got.Hops[0].Replies[0]
-	if reply.RTT != nil || reply.ReportedRTT == nil || reply.SeenAt != "" {
+	if reply.RTT != nil || reply.ReportedRTT == nil || reply.SeenMS != 0 {
 		t.Fatalf("wrapped RTT became a measurement or future timestamp: %+v", reply)
 	}
 }
@@ -75,7 +73,7 @@ func TestCoverageUsesSingleTaskAndPreservesOutputOnCancellation(t *testing.T) {
 		cancel()
 		return []byte(`{"type":"trace","dst":"9.9.9.9","firsthop":1,"hop_count":4,"probe_count":6,"stop_reason":"HOPLIMIT","hops":[{"addr":"1.1.1.1","probe_ttl":1,"rtt":1,"icmp_type":11,"icmp_code":0}]}`), context.Canceled
 	}}
-	result := p.Run(ctx, target{"9.9.9.9", "tcp", 443}, probePlan{Method: "tcp"}, func(snapshot) {})
+	result := p.Run(ctx, target{"9.9.9.9", "tcp", 443}, probePlan{Method: "tcp"})
 	if calls != 1 || result.replies() != 1 || result.Status != "cancelled" {
 		t.Fatalf("lost whole-task cancellation evidence: %+v", result)
 	}
@@ -88,35 +86,9 @@ func TestCoverageFitsSilentWaitsAndReportsUnprobedTail(t *testing.T) {
 		}
 		return []byte(`{"type":"trace","dst":"9.9.9.9","firsthop":1,"hop_count":20,"probe_count":39,"stop_reason":"HOPLIMIT","hops":[{"addr":"1.1.1.1","probe_ttl":1,"rtt":1,"icmp_type":11,"icmp_code":0}]}`), nil
 	}}
-	s := p.Run(context.Background(), target{"9.9.9.9", "udp", 443}, probePlan{Method: "udp-paris"}, func(snapshot) { t.Fatal("whole-task result published before its final probe extent") })
+	s := p.Run(context.Background(), target{"9.9.9.9", "udp", 443}, probePlan{Method: "udp-paris"})
 	tail := s.Hops[len(s.Hops)-1]
 	if s.Error != "" || s.ProbedTTL != 20 || tail.TTL != 21 || tail.EndTTL != 32 || tail.State != "not_probed" {
 		t.Fatalf("probe extent misreported: %+v", s)
-	}
-}
-
-func TestAlternateMethodsRemainSeparateUsefulPaths(t *testing.T) {
-	app := testsupport.App(t)
-	session := testSession(t, app)
-	repo := evidenceStore{app: app}
-	now := time.Now()
-	tgt := target{"9.9.9.9", "tcp", 443}
-	for i, method := range []string{"tcp:443", "icmp-paris"} {
-		s := snapshot{Attempt: method, Revision: 1, Method: method, Measured: now, Finished: now, Reached: true, Hops: []Hop{{TTL: 5, Address: []string{"1.1.1.1", "8.8.8.8"}[i]}, {TTL: 8, Address: tgt.IP}}}
-		if _, err := repo.publish(publication{Binding: routeBinding{Session: session, Network: "network", Target: tgt}, Cache: cacheEntry{}, Snapshot: s, Provenance: "measured"}, now.Add(time.Duration(i)*time.Second)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	records, _ := app.FindAllRecords("routes")
-	if len(records) != 2 {
-		t.Fatal(len(records))
-	}
-	for _, r := range records {
-		var hops []Hop
-		data, _ := json.Marshal(r.Get("hops"))
-		_ = json.Unmarshal(data, &hops)
-		if len(hops) != 2 {
-			t.Fatal("spliced attempts")
-		}
 	}
 }

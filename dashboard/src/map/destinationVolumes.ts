@@ -1,132 +1,82 @@
-import { parseEpoch } from '@infrareveal/session-state'
-import type { ActivityChunkSummary } from '@infrareveal/session-state'
+import { captureQuality, seriesKey } from '@infrareveal/session-state'
+import type { CaptureInterval, TrafficChunk } from '@infrareveal/session-state'
 import type { MapPosition, MapTimelineScene } from './mapModel'
-import type { MapConnection } from './mapTracks'
+import type { MapSeries } from './mapTracks'
 import { hasMapCoordinates } from './mapRoutes'
 import { countryFootprint } from './countryFootprints'
 import type { CountryFootprint } from './countryFootprints'
-
-export type VolumeChunk = ActivityChunkSummary
 type Interval = { start: number; end: number; received: number; sent: number; partial: boolean }
 type VolumeSeries = { intervals: Interval[]; received: number[]; sent: number[]; partial: number[] }
-export type DestinationVolumeIndex = Map<string, VolumeSeries> & { fromMs?: number }
-export type ByteTotals = { received: number; sent: number; estimated: boolean; partial: boolean }
+export type DestinationVolumeIndex = Map<string, VolumeSeries> & { fromMs?: number; coverage?: CaptureInterval[] }
+export type ByteTotals = { received: number; sent: number; partial: boolean }
 export type DestinationVolume = ByteTotals & {
   id: string; position: MapPosition; location: string; bytes: number; height: number
-  ips: string[]; flowCount: number; tracks: DestinationColumn[]
+  ips: string[]; seriesCount: number; tracks: DestinationColumn[]
   country?: CountryFootprint | null
 }
 export type DestinationColumn = ByteTotals & {
   trackId: string; label: string; bytes: number; base: number; height: number; destination: DestinationVolume
 }
 
-/** Compact wire counters, independent of the evictable activity/rate window. */
-export function indexDestinationVolumes(records: readonly VolumeChunk[], fromMs = 0): DestinationVolumeIndex {
-  const unique = new Map<string, VolumeChunk>()
-  for (const record of records) {
-    const previous = unique.get(record.id)
-    if (!previous || revision(record) >= revision(previous)) unique.set(record.id, record)
-  }
-  const flows = new Map<string, Map<number, VolumeChunk>>()
-  for (const record of unique.values()) {
-    const start = parseEpoch(record.chunk_start, NaN)
-    if (!record.flow || !Number.isFinite(start) || !Number.isFinite(record.chunk_ms) || record.chunk_ms <= 0 || record.chunk_ms > 60_000
-      || !validBytes(record.wire_bytes_in) || !validBytes(record.wire_bytes_out)) continue
-    const chunks = flows.get(record.flow) ?? new Map<number, VolumeChunk>()
-    const previous = chunks.get(start)
-    if (!previous || revision(record) >= revision(previous)) chunks.set(start, record)
-    flows.set(record.flow, chunks)
-  }
-  const index: DestinationVolumeIndex = new Map([...flows].map(([flow, chunks]) => {
-    const series: VolumeSeries = { intervals: [], received: [0], sent: [0], partial: [0] }
-    for (const [start, chunk] of [...chunks].sort(([a], [b]) => a - b)) {
-      // Wire counters have chunk-level timing; the last packet bounds growth.
-      const end = Math.max(start, Math.min(start + chunk.chunk_ms, parseEpoch(chunk.updated_at_source, start + chunk.chunk_ms)))
-      if (end <= fromMs) continue
-      const clippedStart = Math.max(start, fromMs)
-      const fraction = end > start ? (end - clippedStart) / (end - start) : 1
-      const interval = { start: clippedStart, end, received: chunk.wire_bytes_in * fraction, sent: chunk.wire_bytes_out * fraction, partial: clippedStart > start || !chunk.capture_complete || chunk.dropped_events > 0 }
-      series.intervals.push(interval)
-      series.received.push(series.received[series.received.length - 1] + interval.received)
-      series.sent.push(series.sent[series.sent.length - 1] + interval.sent)
-      series.partial.push(series.partial[series.partial.length - 1] + Number(interval.partial))
+
+/** Wire totals and waveforms share the same captured bins as the map response. */
+export function indexDestinationVolumes(chunks: readonly TrafficChunk[], fromMs = 0, coverage: CaptureInterval[] = []): DestinationVolumeIndex {
+  const index: DestinationVolumeIndex = new Map()
+  for (const chunk of chunks) {
+    const key = seriesKey(chunk), value = index.get(key) ?? { intervals: [], received: [0], sent: [0], partial: [0] }
+    for (const sample of chunk.samples) {
+      const start = chunk.start_ms + sample[0], end = start + chunk.bucket_ms
+      if (start < fromMs) continue
+      value.intervals.push({ start, end, received: sample[2], sent: sample[1], partial: captureQuality(coverage, start, end) !== 'complete' })
     }
-    return [flow, series]
-  }))
-  index.fromMs = fromMs
+    index.set(key, value)
+  }
+  for (const value of index.values()) {
+    value.intervals.sort((a,b) => a.end-b.end)
+    for (const interval of value.intervals) { value.received.push(value.received[value.received.length - 1] + interval.received); value.sent.push(value.sent[value.sent.length - 1] + interval.sent); value.partial.push(value.partial[value.partial.length - 1] + Number(interval.partial)) }
+  }
+  index.fromMs = fromMs; index.coverage = coverage
   return index
 }
-
-export function connectionVolume(connection: MapConnection, index: DestinationVolumeIndex, cursorMs: number): ByteTotals {
-  const empty = { received: 0, sent: 0, estimated: false, partial: false }
-  const cutoff = index.fromMs ?? 0
-  if (cursorMs < connection.startMs || cursorMs <= cutoff) return empty
-  const series = index.get(connection.flow.id)
-  if (!series) {
-    if (index.fromMs) return { ...empty, partial: true }
-    const fraction = elapsedFraction(cursorMs, connection.startMs, connection.endMs)
-    return { received: safeBytes(connection.flow.bytes_in) * fraction, sent: safeBytes(connection.flow.bytes_out) * fraction, estimated: true, partial: false }
-  }
-  const at = (time: number) => {
-    const i = intervalAt(series, time)
-    if (i < 0) return { received: 0, sent: 0, i, fraction: 0 }
-    const chunk = series.intervals[i]
-    const fraction = elapsedFraction(time, Math.max(chunk.start, connection.startMs), chunk.end)
-    return { received: series.received[i] + chunk.received * fraction, sent: series.sent[i] + chunk.sent * fraction, i, fraction }
-  }
-  const end = at(cursorMs), start = at(cutoff)
-  if (end.i < 0) return empty
-  const boundary = series.intervals[start.i]
-  const first = start.i < 0 ? 0 : start.i + Number(boundary.end <= cutoff)
-  const partial = series.partial[end.i] + Number(end.fraction > 0 && series.intervals[end.i].partial) - series.partial[first]
-  return {
-    received: Math.max(0, end.received - start.received), sent: Math.max(0, end.sent - start.sent), estimated: false,
-    partial: partial > 0 || Boolean(boundary && cutoff > boundary.start && cutoff < boundary.end),
-  }
+export function seriesVolume(series: MapSeries, index: DestinationVolumeIndex, cursorMs: number): ByteTotals {
+  const value = index.get(series.id)
+  if (!value) return { received: 0, sent: 0, partial: true }
+  let low = 0, high = value.intervals.length
+  while (low < high) { const middle = (low+high) >>> 1; if (value.intervals[middle].end <= cursorMs) low = middle+1; else high = middle }
+  return { received: value.received[low], sent: value.sent[low], partial: captureQuality(index.coverage ?? [], Math.max(index.fromMs ?? 0, series.startMs), Math.min(cursorMs, series.endMs)) !== 'complete' }
 }
-
-function intervalAt(series: VolumeSeries, cursorMs: number) {
-  let low = 0, high = series.intervals.length
-  while (low < high) {
-    const middle = (low + high) >>> 1
-    if (series.intervals[middle].start <= cursorMs) low = middle + 1
-    else high = middle
-  }
-  return low - 1
-}
-
-/** Each connection contributes once, regardless of route splits or hop count. */
-export function projectDestinationVolumes(scene: MapTimelineScene, connections: Map<string, MapConnection>, index: DestinationVolumeIndex, cursorMs: number, visibleIPs?: Set<string>): DestinationVolume[] {
+/** Each series contributes once, regardless of route splits or hop count. */
+export function projectDestinationVolumes(scene: MapTimelineScene, series: Map<string, MapSeries>, index: DestinationVolumeIndex, cursorMs: number, visibleIPs?: Set<string>): DestinationVolume[] {
   const groups = new Map<string, DestinationVolume>()
-  const seenFlows = new Set<string>()
+  const seenSeries = new Set<string>()
   for (const endpoint of scene.endpoints) {
     const country = countryFootprint(endpoint)
     const position = country?.position ?? endpoint.position
     if (!hasMapCoordinates(position[1], position[0])) continue
     if (endpoint.availableFromMs > cursorMs || (visibleIPs && !visibleIPs.has(endpoint.ip))) continue
     const id = country ? `country:${country.code}` : endpoint.position.join(',')
-    for (const flow of endpoint.flows) {
-      const connection = connections.get(flow.id)
-      if (!connection || seenFlows.has(flow.id) || connection.startMs > cursorMs) continue
-      seenFlows.add(flow.id)
-      const volume = connectionVolume(connection, index, cursorMs)
+    for (const item of endpoint.series) {
+      const source = series.get(item.id)
+      if (!source || seenSeries.has(item.id) || source.startMs > cursorMs) continue
+      seenSeries.add(item.id)
+      const volume = seriesVolume(source, index, cursorMs)
       const bytes = volume.received + volume.sent
       if (bytes <= 0) continue
       const group = groups.get(id) ?? {
         id, position, country, location: country?.name ?? ([endpoint.city, endpoint.country].filter(Boolean).join(', ') || endpoint.label),
-        received: 0, sent: 0, bytes: 0, height: 0, estimated: false, partial: false, ips: [], flowCount: 0, tracks: [],
+        received: 0, sent: 0, bytes: 0, height: 0, partial: false, ips: [], seriesCount: 0, tracks: [],
       }
       group.received += volume.received; group.sent += volume.sent; group.bytes += bytes
-      group.estimated ||= volume.estimated; group.partial ||= volume.partial
-      group.flowCount += 1
+      group.partial ||= volume.partial
+      group.seriesCount += 1
       if (!group.ips.includes(endpoint.ip)) group.ips.push(endpoint.ip)
-      let track = group.tracks.find(track => track.trackId === connection.id)
+      let track = group.tracks.find(track => track.trackId === source.trackId)
       if (!track) {
-        track = { trackId: connection.id, label: connection.label, received: 0, sent: 0, bytes: 0, height: 0, base: 0, estimated: false, partial: false, destination: group }
+        track = { trackId: source.trackId, label: source.label, received: 0, sent: 0, bytes: 0, height: 0, base: 0, partial: false, destination: group }
         group.tracks.push(track)
       }
       track.received += volume.received; track.sent += volume.sent; track.bytes += bytes
-      track.estimated ||= volume.estimated; track.partial ||= volume.partial
+      track.partial ||= volume.partial
       groups.set(id, group)
     }
   }
@@ -151,13 +101,6 @@ export function destinationHeight(bytes: number) {
 export function columnMetersPerPixel(latitude: number, zoom: number) {
   return 40_075_016.686 * Math.cos(Math.max(-85, Math.min(85, latitude)) * Math.PI / 180) / (512 * 2 ** zoom)
 }
-
-function elapsedFraction(cursor: number, start: number, end: number) {
-  return cursor < start ? 0 : end <= start ? 1 : Math.max(0, Math.min(1, (cursor - start) / (end - start)))
-}
-function revision(chunk: VolumeChunk) { return parseEpoch(chunk.updated || chunk.updated_at_source, 0) }
-function validBytes(value: unknown): value is number { return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 }
-function safeBytes(value: number) { return validBytes(value) ? value : 0 }
 
 export type DirectionalColumn = DestinationColumn & { direction: number }
 /** Paired, independently scaled sent/received stacks; track selection stays available. */

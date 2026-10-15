@@ -3,21 +3,15 @@ package observer
 import (
 	"bufio"
 	"context"
-	"database/sql"
 	"errors"
 	"io"
 	"log"
 	"net"
 	"os"
 	"regexp"
+	"slices"
 	"strings"
-	"sync"
 	"time"
-
-	"myapp/debugtrace"
-
-	"github.com/pocketbase/pocketbase"
-	"github.com/pocketbase/pocketbase/core"
 )
 
 var (
@@ -25,13 +19,6 @@ var (
 	dnsReplyRE       = regexp.MustCompile(`\b(?:reply|cached)\s+(\S+)\s+is\s+(\S+)`)
 	dnsExtraPrefixRE = regexp.MustCompile(`(?:^|:\s)(\d+)\s+\S+\s+(?:query\[|reply\b|cached\b)`)
 )
-
-type recentDNSQuery struct {
-	recordID  string
-	clientIP  string
-	queryName string
-	seenAt    time.Time
-}
 
 type dnsLogEvent struct {
 	serial    string
@@ -43,14 +30,8 @@ type dnsLogEvent struct {
 }
 
 type DNSMasqIngestor struct {
-	scope          ObservationScope
-	app            *pocketbase.PocketBase
-	path           string
-	sessionID      func() string
-	mu             sync.Mutex
-	recentByName   map[string][]recentDNSQuery
-	recentBySerial map[string][]recentDNSQuery
-	trace          debugtrace.Sink
+	path string
+	emit func(dnsLogEvent)
 }
 
 func (d *DNSMasqIngestor) run(ctx context.Context) {
@@ -101,7 +82,9 @@ func (d *DNSMasqIngestor) follow(ctx context.Context) error {
 			}
 			return err
 		}
-		d.handleLine(strings.TrimSpace(line))
+		if event, ok := parseDNSMasqLine(strings.TrimSpace(line)); ok {
+			d.emit(event)
+		}
 	}
 }
 
@@ -132,21 +115,6 @@ func resetDNSLogAtEOF(file *os.File, reader *bufio.Reader) error {
 	return nil
 }
 
-func (d *DNSMasqIngestor) handleLine(line string) {
-	event, ok := parseDNSMasqLine(line)
-	if !ok {
-		return
-	}
-	if event.isQuery {
-		if !d.scope.ContainsClient(event.clientIP) {
-			return
-		}
-		d.recordQuery(event.serial, event.clientIP, event.queryName, event.queryType)
-		return
-	}
-	d.recordAnswer(event.serial, event.queryName, event.answer)
-}
-
 func parseDNSMasqLine(line string) (dnsLogEvent, bool) {
 	serial := ""
 	if matches := dnsExtraPrefixRE.FindStringSubmatch(line); len(matches) == 2 {
@@ -164,163 +132,19 @@ func parseDNSMasqLine(line string) (dnsLogEvent, bool) {
 	return dnsLogEvent{}, false
 }
 
-func (d *DNSMasqIngestor) recordQuery(serial, clientIP, queryName, queryType string) {
-	sessionID := d.sessionID()
-	if sessionID == "" {
-		return
-	}
-
-	collection, err := d.app.FindCollectionByNameOrId("dns_queries")
-	if err != nil {
-		log.Printf("dnsmasq observer collection error: %v", err)
-		return
-	}
-
-	now := time.Now().UTC()
-	record := core.NewRecord(collection)
-	record.Set("session", sessionID)
-	record.Set("client_ip", clientIP)
-	record.Set("query_name", strings.TrimSuffix(strings.ToLower(queryName), "."))
-	record.Set("query_type", queryType)
-	record.Set("answers", []string{})
-	record.Set("aliases", []string{})
-	record.Set("timestamp", now.Format(time.RFC3339))
-	record.Set("source", "dnsmasq")
-
-	if err := d.app.Save(record); err != nil {
-		log.Printf("dnsmasq observer save query error: %v", err)
-		return
-	}
-	processedAt := now.UnixMilli()
-	d.trace.TryEmit(debugtrace.Event{
-		ID: "dns-query:" + record.Id, SessionID: sessionID, TraceID: "dns:" + record.Id,
-		Kind: debugtrace.KindDNS, Stage: debugtrace.StageDNS, Direction: debugtrace.ClientToRemote,
-		OccurredAtMs: now.UnixMilli(), ProcessedAtMs: &processedAt, Timing: debugtrace.TimingObserved,
-		Summary: debugtrace.Summary{
-			Protocol: "udp", ClientIP: clientIP, RemotePort: tracePort(53),
-			DNSName: normalizeDNSName(queryName), DNSType: queryType,
-		},
-	})
-
-	key := normalizeDNSName(queryName)
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	d.pruneLocked(now)
-	item := recentDNSQuery{
-		recordID:  record.Id,
-		clientIP:  clientIP,
-		queryName: normalizeDNSName(queryName),
-		seenAt:    now,
-	}
-	d.recentByName[key] = append(d.recentByName[key], item)
-	if serial != "" {
-		d.recentBySerial[serial] = append(d.recentBySerial[serial], item)
-	}
-}
-
-func (d *DNSMasqIngestor) recordAnswer(serial, queryName, answer string) {
-	key := normalizeDNSName(queryName)
-	now := time.Now().UTC()
-
-	d.mu.Lock()
-	d.pruneLocked(now)
-	recent := append([]recentDNSQuery(nil), d.recentBySerial[serial]...)
-	if len(recent) == 0 {
-		recent = append(recent, d.recentByName[key]...)
-	}
-	d.mu.Unlock()
-
-	for _, item := range recent {
-		record, err := d.app.FindRecordById("dns_queries", item.recordID)
-		if err != nil {
-			if !errors.Is(err, sql.ErrNoRows) {
-				log.Printf("dnsmasq observer find query error: %v", err)
-			}
-			continue
-		}
-		answers, aliases, changed := applyDNSReply(
-			item.queryName,
-			record.GetStringSlice("answers"),
-			record.GetStringSlice("aliases"),
-			key,
-			answer,
-			serial != "",
-		)
-		if !changed {
-			continue
-		}
-		record.Set("answers", answers)
-		record.Set("aliases", aliases)
-		if err := d.app.Save(record); err != nil {
-			log.Printf("dnsmasq observer save answer error: %v", err)
-			continue
-		}
-		processedAt := now.UnixMilli()
-		d.trace.TryEmit(debugtrace.Event{
-			ID: traceEventID("dns-answer", record.Id, now), SessionID: record.GetString("session"),
-			TraceID: "dns:" + record.Id, ParentID: "dns-query:" + record.Id,
-			Kind: debugtrace.KindDNS, Stage: debugtrace.StageDNS, Direction: debugtrace.RemoteToClient,
-			OccurredAtMs: now.UnixMilli(), ProcessedAtMs: &processedAt, Timing: debugtrace.TimingObserved,
-			Summary: debugtrace.Summary{
-				Protocol: "udp", ClientIP: item.clientIP, RemotePort: tracePort(53),
-				DNSName: item.queryName,
-			},
-		})
-	}
-}
-
 func applyDNSReply(originalName string, answers, aliases []string, replyName, answer string, transactionAware bool) ([]string, []string, bool) {
 	changed := false
-	if net.ParseIP(answer) != nil && !containsString(answers, answer) {
+	if net.ParseIP(answer) != nil && !slices.Contains(answers, answer) {
 		answers = append(answers, answer)
 		changed = true
 	}
-	if transactionAware && replyName != "" && replyName != originalName && !containsString(aliases, replyName) {
+	if transactionAware && replyName != "" && replyName != originalName && !slices.Contains(aliases, replyName) {
 		aliases = append(aliases, replyName)
 		changed = true
 	}
 	return answers, aliases, changed
 }
 
-func (d *DNSMasqIngestor) pruneLocked(now time.Time) {
-	cutoff := now.Add(-45 * time.Second)
-	for name, items := range d.recentByName {
-		kept := items[:0]
-		for _, item := range items {
-			if item.seenAt.After(cutoff) {
-				kept = append(kept, item)
-			}
-		}
-		if len(kept) == 0 {
-			delete(d.recentByName, name)
-		} else {
-			d.recentByName[name] = kept
-		}
-	}
-	for serial, items := range d.recentBySerial {
-		kept := items[:0]
-		for _, item := range items {
-			if item.seenAt.After(cutoff) {
-				kept = append(kept, item)
-			}
-		}
-		if len(kept) == 0 {
-			delete(d.recentBySerial, serial)
-		} else {
-			d.recentBySerial[serial] = kept
-		}
-	}
-}
-
 func normalizeDNSName(name string) string {
 	return strings.TrimSuffix(strings.ToLower(name), ".")
-}
-
-func containsString(values []string, needle string) bool {
-	for _, value := range values {
-		if value == needle {
-			return true
-		}
-	}
-	return false
 }

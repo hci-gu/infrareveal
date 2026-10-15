@@ -21,7 +21,7 @@ func TestControllerStateMachineAndArmGuards(t *testing.T) {
 		t.Fatalf("pause off: %v", err)
 	}
 	status, err := controller.Arm(ctx, validArm())
-	if err != nil || status.State != StateActive || !status.Armed {
+	if err != nil || status.State != StateActive || !status.Armed || status.Paused {
 		t.Fatalf("arm: %+v %v", status, err)
 	}
 	if _, err := controller.Arm(ctx, validArm()); !errors.Is(err, ErrInvalidTransition) {
@@ -38,11 +38,11 @@ func TestControllerStateMachineAndArmGuards(t *testing.T) {
 		t.Fatalf("drain: %+v %v", status, err)
 	}
 	status, err = controller.Resume(ctx)
-	if err != nil || status.State != StateActive {
+	if err != nil || status.State != StateActive || status.Paused {
 		t.Fatalf("resume: %+v %v", status, err)
 	}
 	status, err = controller.Disarm(ctx)
-	if err != nil || status.State != StateOff || len(status.Clients) != 0 {
+	if err != nil || status.State != StateOff || status.Paused || len(status.Clients) != 0 {
 		t.Fatalf("disarm: %+v %v", status, err)
 	}
 	if status, err = controller.Disarm(ctx); err != nil || status.State != StateOff {
@@ -89,14 +89,14 @@ func TestDisarmRuleFailureStaysVisibleFailOpenAndRetryable(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, err := controller.Disarm(ctx)
-	if err == nil || status.State != StateDegraded || !status.Armed || len(status.Clients) != 1 {
+	if err == nil || status.State != StateDegraded || !status.Armed || !status.Paused || len(status.Clients) != 1 {
 		t.Fatalf("failed cleanup must remain visible and retryable: %+v %v", status, err)
 	}
 	packet := tcpPacket(900, 50900)
 	queue.inject(t, ctx, packet)
 	queue.assertVerdict(t, ctx, packet.ID, VerdictAccept)
 	status, err = controller.Disarm(ctx)
-	if err != nil || status.State != StateOff || status.Armed {
+	if err != nil || status.State != StateOff || status.Armed || status.Paused {
 		t.Fatalf("cleanup retry = %+v %v", status, err)
 	}
 }

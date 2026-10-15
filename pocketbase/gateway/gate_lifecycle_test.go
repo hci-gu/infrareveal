@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/pocketbase/pocketbase/core"
+	"myapp/data"
 	"myapp/labgate"
 	"myapp/netmeta"
 )
@@ -21,6 +22,9 @@ func TestGatewayTransitionsDrainHeldGateBeforeAuditCompletion(t *testing.T) {
 			app := testsupport.App(t)
 			g := testRuntime(t, app)
 			g.Register()
+			if err := data.EnsureGateAudit(app); err != nil {
+				t.Fatal(err)
+			}
 			session := testsupport.Save(t, app, "sessions", map[string]any{"name": action, "active": true})
 			queue := &lifecycleQueue{ready: make(chan struct{}), packets: make(chan labgate.QueuedPacket, 1), verdicts: make(chan labgate.Verdict, 1)}
 			g.audit = labgate.NewAuditWriter(app, 8)
@@ -81,7 +85,7 @@ func TestGatewayTransitionsDrainHeldGateBeforeAuditCompletion(t *testing.T) {
 					t.Fatal(err)
 				}
 				stored, err := app.FindRecordById("sessions", session.Id)
-				if err != nil || !stored.GetBool("gate_audit_complete") || stored.GetInt("gate_audit_drops") != 0 || g.CurrentSessionID() != "" {
+				if err != nil || !stored.GetBool("gate_audit_complete") || stored.GetInt64("gate_audit_drops") != 0 || g.CurrentSessionID() != "" {
 					t.Fatalf("session completion did not flush accepted audit: %v", err)
 				}
 				events, err := app.FindRecordsByFilter("gate_events", "", "", 10, 0)
@@ -129,3 +133,48 @@ func (q *lifecycleQueue) SetVerdict(_ uint32, verdict labgate.Verdict) error {
 }
 func (q *lifecycleQueue) Stats() labgate.QueueStats { return labgate.QueueStats{} }
 func (q *lifecycleQueue) Close() error              { return nil }
+
+func TestInterruptedAuditIsNotPresentedAsARecordedVerdict(t *testing.T) {
+	app := testsupport.App(t)
+	if err := data.EnsureGateAudit(app); err != nil {
+		t.Fatal(err)
+	}
+	g := testRuntime(t, app)
+	g.Register()
+	session := testsupport.Save(t, app, "sessions", map[string]any{"active": true})
+	event := testsupport.Save(t, app, "gate_events", map[string]any{"session": session.Id, "decision_id": "crash", "state": "queued", "queued_at": time.Now().Add(-2 * time.Hour)})
+	if err := recoverInterruptedAudit(app); err != nil {
+		t.Fatal(err)
+	}
+	if err := recoverInterruptedAudit(app); err != nil {
+		t.Fatal(err)
+	}
+	interrupted, err := app.FindRecordById("gate_events", event.Id)
+	if err != nil || interrupted.GetString("state") != "interrupted" || !interrupted.GetDateTime("decided_at").IsZero() {
+		t.Fatal("invented a terminal verdict after restart", err)
+	}
+	session, _ = app.FindRecordById("sessions", session.Id)
+	if session.GetBool("gate_audit_complete") || session.GetInt64("gate_audit_drops") != 1 {
+		t.Fatal("restart audit loss not recorded exactly once")
+	}
+	g.audit = labgate.NewAuditWriter(app, 8)
+	t.Cleanup(func() {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		_ = g.Close(ctx)
+	})
+	session.Set("active", false)
+	if err := app.Save(session); err != nil {
+		t.Fatal(err)
+	}
+	session, _ = app.FindRecordById("sessions", session.Id)
+	if session.GetBool("gate_audit_complete") || session.GetInt64("gate_audit_drops") != 1 {
+		t.Fatal("ending session erased earlier audit loss")
+	}
+	if err := g.pruneDiagnostics(time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := app.FindRecordById("gate_events", event.Id); err == nil {
+		t.Fatal("interrupted audit escaped diagnostics retention")
+	}
+}

@@ -6,6 +6,7 @@ package labgate
 import (
 	"errors"
 	"log"
+	"maps"
 	"os"
 	"strconv"
 	"strings"
@@ -132,10 +133,7 @@ func (config Config) withDefaults() Config {
 		defaults.AllowedOrigins = append([]string(nil), config.AllowedOrigins...)
 	}
 	if config.KernelSettings != nil {
-		defaults.KernelSettings = make(map[string]string, len(config.KernelSettings))
-		for key, value := range config.KernelSettings {
-			defaults.KernelSettings[key] = value
-		}
+		defaults.KernelSettings = maps.Clone(config.KernelSettings)
 	}
 	return defaults
 }

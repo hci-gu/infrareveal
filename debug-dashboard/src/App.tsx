@@ -15,10 +15,7 @@ function ActiveSessionRedirect({ experiment }: { experiment: 'timeline' | 'proxy
   useEffect(() => {
     if (status !== 'ready' || !sessions.length) return
     const search = new URLSearchParams(location.search)
-    const legacySession = search.get('session')
-    search.delete('session')
-    const selected = sessions.find(session => session.id === legacySession)
-      ?? sessions.find(session => session.active)
+    const selected = sessions.find(session => session.active)
       ?? sessions[0]
     const query = search.toString()
     navigate(`/${experiment}/${selected.id}${query ? `?${query}` : ''}`, { replace: true })

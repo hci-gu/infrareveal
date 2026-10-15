@@ -3,25 +3,15 @@
 package routing
 
 import (
-	"context"
 	"os"
 	"testing"
-	"time"
 )
 
-// Run in the shipped proxy image with ROUTE_TEST_LINUX=1. Loopback requires
-// no outside network and exercises the real executable, flags and parser.
-func TestShippedLinuxTraceroute(t *testing.T) {
+// Run in the shipped proxy image with ROUTE_TEST_LINUX=1. This reads local
+// routing configuration without sending measurement traffic.
+func TestLinuxNetworkFingerprintStable(t *testing.T) {
 	if os.Getenv("ROUTE_TEST_LINUX") != "1" {
-		t.Skip("requires traceroute and raw socket capability")
-	}
-	for _, protocol := range []string{"tcp", "udp"} {
-		t.Run(protocol, func(t *testing.T) {
-			s := (tracerouteProbe{deadline: 3 * time.Second}).Run(context.Background(), target{"127.0.0.1", protocol, 49999}, probePlan{}, func(snapshot) {})
-			if !s.Reached || s.replies() != 1 || s.Error != "" {
-				t.Fatalf("real Linux probe: %+v", s)
-			}
-		})
+		t.Skip("requires Linux routing commands")
 	}
 	first, err := networkContext()
 	if err != nil {

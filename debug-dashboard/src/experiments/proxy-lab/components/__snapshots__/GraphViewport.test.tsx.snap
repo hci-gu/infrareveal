@@ -1,0 +1,11 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`preserves graph geometry and traffic at 0 ms 1`] = `"b612d0380aa0fc2b67632a6a6f3f1b48e61d199feec0a3cce3eb74cfc85dd940"`;
+
+exports[`preserves graph geometry and traffic at 1000 ms 1`] = `"d5115d39778e387f6c599761758889343b82e898c1b90ebe160689e1ba452ec1"`;
+
+exports[`preserves graph geometry and traffic at 4200 ms 1`] = `"d66ce50b340908e54366e81d3a7adc42f3f45a4dec9dec89d78c9bf3d5ef99c3"`;
+
+exports[`preserves graph geometry and traffic at 5500 ms 1`] = `"bccac8e93f5b8ee34b233ea4aa9a8f37ef2c9245db6226648df72fa04db86779"`;
+
+exports[`preserves graph geometry and traffic at 6800 ms 1`] = `"e50c9c83ee083f546307c99536efb4b8e3265b73b015e3b2123168fe7ba2cf0a"`;

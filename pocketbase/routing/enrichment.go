@@ -12,21 +12,6 @@ import (
 	"time"
 )
 
-type InterfaceEvidence struct {
-	Geo            *Location `json:"geo,omitempty"`
-	GeoAvailableAt string    `json:"geo_available_at,omitempty"`
-	GeoSource      string    `json:"geo_source,omitempty"`
-	PTRSource      string    `json:"ptr_source,omitempty"`
-	ASNSource      string    `json:"asn_source,omitempty"`
-	PTR            string    `json:"ptr,omitempty"`
-	ASN            uint      `json:"origin_asn,omitempty"`
-	Organization   string    `json:"organization,omitempty"`
-	Prefix         string    `json:"prefix,omitempty"`
-	Source         string    `json:"source"`
-	Version        string    `json:"version"`
-	AvailableAt    string    `json:"available_at"`
-	Confidence     string    `json:"confidence"`
-}
 type interfaceEnricher struct {
 	mu      sync.Mutex
 	asn     *maxminddb.Reader
@@ -59,7 +44,7 @@ func (e *interfaceEnricher) lookup(ctx context.Context, ip string) InterfaceEvid
 	if ok {
 		return v
 	}
-	v = InterfaceEvidence{Source: "local-asn/ptr", Version: e.version, AvailableAt: date(time.Now()), Confidence: "inferred"}
+	v = InterfaceEvidence{Source: "local-asn/ptr", Version: e.version, AvailableMS: time.Now().UnixMilli(), Confidence: "inferred"}
 	if !netmeta.PublicAddress(ip) {
 		v.Source = "special-address"
 		v.Confidence = "unknown"
@@ -106,7 +91,10 @@ func (e *interfaceEnricher) enrich(ctx context.Context, s snapshot) snapshot {
 			if ctx.Err() != nil {
 				return s
 			}
-			h.Evidence[ip] = e.lookup(ctx, ip)
+			v := e.lookup(ctx, ip)
+			if v.ASN != 0 || v.PTR != "" || v.Organization != "" || v.Prefix != "" {
+				h.Evidence[ip] = v
+			}
 		}
 	}
 	return s

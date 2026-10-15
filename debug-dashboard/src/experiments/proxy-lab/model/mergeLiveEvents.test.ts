@@ -2,19 +2,21 @@ import { describe, expect, it } from 'vitest'
 import type { PipelineEvent } from '../types'
 import { gapEvent, mergeLiveEvents } from './mergeLiveEvents'
 import gateFixture from '../../../../../testdata/gate-event-contract-v1.json'
-import { emptyGatewayData } from '@infrareveal/session-state'
-import type { GateEvent } from '@infrareveal/session-state'
-import { projectRecordedEvents } from './projectRecordedEvents'
 import { decodePipelineStreamEnvelope } from '../data/traceClient'
 
 describe('mergeLiveEvents', () => {
-  it('uses measured timing while retaining durable labels and removes duplicates', () => {
-    const durable = event('flow:record-1:discovered', 1000, 0, 'derived', { hostname: 'durable.example', flowKey: 'flow-key' })
-    const live = event('flow-discovered:record-1', 900, 14, 'observed', { protocol: 'tcp', flowKey: 'flow-key' })
+  it('deduplicates exact source IDs while preserving persisted facts', () => {
+    const durable = event('event-1', 1000, 0, 'observed', { hostname: 'durable.example', flowKey: 'flow-key' })
+    const live = event('event-1', 900, 14, 'observed', { protocol: 'tcp', flowKey: 'flow-key' })
     const merged = mergeLiveEvents([durable], [live], 1100)
     expect(merged).toHaveLength(1)
-    expect(merged[0]).toMatchObject({ occurredAtMs: 900, sequence: 14, timing: 'observed' })
-    expect(merged[0].summary).toMatchObject({ protocol: 'tcp', hostname: 'durable.example' })
+    expect(merged[0]).toEqual(durable)
+  })
+
+  it('keeps separate diagnostic events on the same flow and time bucket', () => {
+    const first = event('a', 1000, 1, 'observed', { flowKey: 'same' })
+    const second = event('b', 1001, 2, 'observed', { flowKey: 'same' })
+    expect(mergeLiveEvents([], [first, second], 1100)).toEqual([first, second])
   })
 
   it('deduplicates sequence numbers and expires unmatched live events', () => {
@@ -31,23 +33,17 @@ describe('mergeLiveEvents', () => {
     })).toMatchObject({ kind: 'health', summary: { droppedEvents: 12, captureComplete: false } })
   })
 
-  it.each(['live', 'legacyLive'] as const)('keeps queued and verdict phases distinct and reconciles %s with durable audit', source => {
+  it('keeps queued and verdict phases distinct', () => {
     const live = decodePipelineStreamEnvelope({
-      version: 1, sessionId: gateFixture.record.session, events: gateFixture[source],
+      version: 1, sessionId: gateFixture.record.session, events: gateFixture.live,
       droppedEvents: 0, oldestSequence: 41, newestSequence: 42, serverNowMs: gateFixture.live[1].occurredAtMs,
     }).events
-    const durable = projectRecordedEvents(emptyGatewayData(), [gateFixture.record as GateEvent], {
-      fromMs: live[0].occurredAtMs - 1, toMs: live[1].occurredAtMs + 1,
-    })
-    expect(durable.map(item => item.id)).toEqual(gateFixture.expectedIDs)
     expect(live[0].stage).toBe(live[1].stage)
     expect(Math.floor(live[0].occurredAtMs / 50)).toBe(Math.floor(live[1].occurredAtMs / 50))
     const liveOnly = mergeLiveEvents([], live, live[1].occurredAtMs)
     expect(liveOnly.map(item => item.id)).toEqual(gateFixture.expectedIDs)
     expect(liveOnly[1]).toMatchObject({ parentId: gateFixture.expectedIDs[0], summary: { verdict: 'drop' } })
-    const merged = mergeLiveEvents(durable, live, live[1].occurredAtMs)
-    expect(merged).toEqual(durable)
-    expect(merged[1]).toMatchObject({ parentId: gateFixture.expectedIDs[0], summary: { verdict: 'rejected' } })
+
   })
 
   it('keeps different decisions and bypassed packets on the same flow and bucket distinct', () => {

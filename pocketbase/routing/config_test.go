@@ -21,7 +21,7 @@ func TestCapturedConfigSurvivesEnvironmentChanges(t *testing.T) {
 		t.Fatal("ASN database path changed after configuration was captured")
 	}
 	now := time.Now()
-	binding := routeBinding{Session: session, Network: "network", Target: target{"9.9.9.9", "tcp", 443}}
+	binding := bindingFor(t, store, session, "9.9.9.9", now)
 	first, err := store.reserve(binding, false, now)
 	if err != nil || first.Reason != "" {
 		t.Fatalf("first admission: %+v %v", first, err)

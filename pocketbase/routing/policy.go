@@ -3,8 +3,10 @@ package routing
 import (
 	"encoding/json"
 	"fmt"
+	"myapp/data"
 	"myapp/netmeta"
 	"net/netip"
+	"slices"
 	"sort"
 )
 
@@ -17,10 +19,7 @@ type accessWitness struct {
 	Attempt string `json:"attempt"`
 	At      string `json:"at"`
 }
-type accessPosition struct {
-	TTL       int      `json:"ttl"`
-	Addresses []string `json:"addresses"`
-}
+type accessPosition = data.AccessPosition
 type accessEvidence struct {
 	Prefix    []accessPosition `json:"prefix"`
 	Witnesses []accessWitness  `json:"witnesses"`
@@ -52,7 +51,7 @@ func classifyRouteEvidence(s snapshot, t target, access []accessPosition) eviden
 			intermediate++
 			covered := false
 			for _, p := range access {
-				if p.TTL == h.TTL && fmt.Sprint(p.Addresses) == fmt.Sprint(aa) {
+				if p.TTL == h.TTL && slices.Equal(p.Addresses, aa) {
 					covered = true
 					break
 				}
@@ -140,13 +139,7 @@ func learnAccess(old accessEvidence, s snapshot, t target) accessEvidence {
 		if h.TTL != len(prefix)+1 || len(a) == 0 {
 			break
 		}
-		destination := false
-		for _, v := range a {
-			if v == t.IP {
-				destination = true
-			}
-		}
-		if destination {
+		if slices.Contains(a, t.IP) {
 			break
 		}
 		prefix = append(prefix, accessPosition{h.TTL, a})
@@ -166,7 +159,7 @@ func learnAccess(old accessEvidence, s snapshot, t target) accessEvidence {
 		old.Prefix = prefix
 	} else {
 		n := 0
-		for n < len(prefix) && n < len(old.Prefix) && fmt.Sprint(prefix[n]) == fmt.Sprint(old.Prefix[n]) {
+		for n < len(prefix) && n < len(old.Prefix) && prefix[n].TTL == old.Prefix[n].TTL && slices.Equal(prefix[n].Addresses, old.Prefix[n].Addresses) {
 			n++
 		}
 		old.Prefix = old.Prefix[:n]

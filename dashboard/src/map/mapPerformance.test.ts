@@ -1,18 +1,20 @@
 import { describe, expect, it } from 'vitest'
 import type { MapArc } from './mapModel'
-import type { MapConnection } from './mapTracks'
+import type { MapSeries } from './mapTracks'
 import { createMapGeometryCache, sameTrafficArcGeometry, sameTrafficPathGeometry } from './mapGeometryCache'
 import { trafficPathEdges } from './trafficPaths'
 import { createWireWaveformCache } from './wireWaveform'
+import fixture from '../../../testdata/aggregate-window-v2.json'
+import { seriesKey, type TrafficChunk } from '@infrareveal/session-state'
 import { indexDestinationVolumes } from './destinationVolumes'
 import { mapRenderQuality, parseMapPreferences } from './mapPreferences'
 
-const route: MapArc = { id: 'a', endpointId: 'e', trackId: 't', routeId: 'r', sourcePosition: [12, 57], targetPosition: [-74, 41], gap: false, bytes: 100, activeFlowCount: 1, tilt: 0 }
+const route: MapArc = { id: 'a', endpointId: 'e', trackId: 't', routeId: 'r', sourcePosition: [12, 57], targetPosition: [-74, 41], gap: false, bytes: 100, activeSeriesCount: 1, tilt: 0 }
 describe('map work independent of the animation clock', () => {
   it('reuses geometry across counters, but invalidates a changed itinerary or quality', () => {
     const geometry = createMapGeometryCache()
     const first = geometry([route], 160)
-    expect(geometry([{ ...route, bytes: 200, activeFlowCount: 0 }], 160)).toBe(first)
+    expect(geometry([{ ...route, bytes: 200, activeSeriesCount: 0 }], 160)).toBe(first)
     const light = geometry([route], 48)
     expect(light.tracedPaths[0].samples.length).toBeLessThan(first.tracedPaths[0].samples.length)
     expect(light.tracedPaths[0].legs[0].path[0]).toEqual(first.tracedPaths[0].legs[0].path[0])
@@ -22,14 +24,16 @@ describe('map work independent of the animation clock', () => {
 
   it('reuses a waveform across playhead totals and refreshes capture and connection coverage', () => {
     const waveform = createWireWaveformCache()
-    const connection = { flow: { id: 'f' }, startMs: 1000, endMs: 6000, bytes: 10 } as MapConnection
-    const index = indexDestinationVolumes([{ id: 'c', flow: 'f', session: 's', chunk_start: new Date(1000).toISOString(), chunk_ms: 5000, wire_bytes_in: 4000, wire_bytes_out: 1000, updated_at_source: new Date(6000).toISOString(), capture_complete: true, dropped_events: 0, updated: '' }])
-    const range = { from: 1000, to: 6000 }
+    const chunk = fixture.window.series[0] as TrafficChunk
+    const id = seriesKey(chunk)
+    const connection = { id, startMs: chunk.start_ms, endMs: chunk.start_ms + 100, bytes: 10 } as MapSeries
+    const index = indexDestinationVolumes([chunk], chunk.start_ms, fixture.window.coverage)
+    const range = { from: chunk.start_ms, to: chunk.start_ms+100 }
     const first = waveform([connection], index, range)
-    expect(waveform([{ ...connection, bytes: 100 }], new Map(index), range)).toBe(first)
+    expect(waveform([{ ...connection, bytes: 100 }], Object.assign(new Map(index), { fromMs: index.fromMs, coverage: index.coverage }), range)).toBe(first)
     expect(waveform([{ ...connection, endMs: 5000 }], index, range)).not.toBe(first)
     const revised = new Map(index)
-    revised.set('f', { ...index.get('f')!, intervals: [] })
+    revised.set(id, { ...index.get(id)!, intervals: [] })
     expect(waveform([connection], revised, range)).not.toBe(first)
   })
 

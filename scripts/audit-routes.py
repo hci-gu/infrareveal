@@ -1,120 +1,95 @@
 #!/usr/bin/env python3
-"""Read-only route audit; optional exact-duplicate compaction of an offline COPY.
+"""Read-only audit of the route evidence and probe admission ledger.
 
-python3 scripts/audit-routes.py pocketbase/pb_data/data.db --session ID
-python3 scripts/audit-routes.py /tmp/copy.db --compact --backup /tmp/before.db
-Never opens the input writable unless --compact and a new --backup are supplied.
+python3 scripts/audit-routes.py /tmp/recording-copy.db --session SESSION_ID
+Requires the seven-collection schema. It never modifies the database.
 """
 import argparse
-import hashlib
-import ipaddress
+from collections import Counter
 import json
 from pathlib import Path
 import sqlite3
-from collections import Counter
 
 
-def parsed(value, fallback):
-    if not isinstance(value, str):
-        return value if value is not None else fallback
-    try:
-        return json.loads(value)
-    except (ValueError, TypeError):
-        return fallback
-
-
-def digest(value):
-    return hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':')).encode()).hexdigest()
-
-
-def responders(hop):
-    return sorted({a for a in [hop.get('address'), *[r.get('address') for r in hop.get('replies', [])]] if a})
+def parsed(value):
+    if isinstance(value, str):
+        try:
+            value = json.loads(value)
+        except ValueError:
+            return []
+    return value if isinstance(value, list) else []
 
 
 def audit(db, session=None):
-    tables = {r[0] for r in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-    rows = [dict(r) for r in db.execute('SELECT * FROM routes' + (' WHERE session=?' if session else ''), (session,) if session else ())]
-    classes, paths, bindings, attempts = Counter(), set(), set(), set()
-    cached_fingerprints = Counter()
-    zero_reply = 0
-    exact, removable, retained = {}, [], []
-    payload_bytes = 0
-    for r in rows:
-        hops = parsed(r.get('hops'), []) or []
-        observed = [(h.get('ttl'), responders(h)) for h in hops if responders(h)]
-        zero_reply += not observed
-        intermediate = [a for _, aa in observed for a in aa if a != r.get('destination_ip')]
-        reached = bool(r.get('destination_reached') or r.get('complete'))
-        # Access consensus cannot be safely reconstructed from arbitrary legacy
-        # rows. Count local-only and use stored v2 classifications when present.
-        public = any(ipaddress.ip_address(a).is_global for a in intermediate)
-        kind = r.get('evidence_class') or ('useful_candidate' if intermediate and (public or reached) else 'access_only' if intermediate else 'endpoint_only' if reached else 'no_path')
-        classes[kind] += 1
-        binding = tuple(r.get(k) for k in ('session', 'destination_ip', 'protocol', 'destination_port', 'network_context'))
-        bindings.add(binding)
-        if r.get('attempt_id'):
-            attempts.add(r['attempt_id'])
-        material = digest([binding, r.get('method'), reached, observed])
-        paths.add(material)
-        if r.get('provenance') == 'cache':
-            cached_fingerprints[material] += 1
-        # Preserve *all* temporal, provenance, outcome and observation fields.
-        # Only duplicate physical rows with identical evidence can be removed.
-        signature = digest({k: v for k, v in r.items() if k not in ('id', 'created', 'updated')})
-        if signature in exact:
-            removable.append(r['id'])
-        else:
-            exact[signature] = r['id']
-            retained.append(r['id'])
-        payload_bytes += len(json.dumps(r).encode())
+    tables = {row[0] for row in db.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    required = {"sessions", "route_evidence", "probe_runs"}
+    if not required <= tables:
+        raise ValueError("requires the current schema; missing " + ", ".join(sorted(required - tables)))
+    where, params = (" WHERE session=?", (session,)) if session else ("", ())
+    evidence = [dict(row) for row in db.execute("SELECT * FROM route_evidence" + where, params)]
+    runs = [dict(row) for row in db.execute("SELECT * FROM probe_runs" + where, params)]
+    paths = [row for row in evidence if row["kind"] == "path"]
+    attempts = Counter(row["attempt_id"] for row in paths)
+    issues = Counter()
+    for row in paths:
+        hops = parsed(row["hops"])
+        if not any(hop.get("address") or any(reply.get("address") for reply in hop.get("replies", [])) for hop in hops):
+            issues["path_without_responders"] += 1
+        if row["revision"] not in (1, 2):
+            issues["invalid_path_revision"] += 1
+        if not row["attempt_id"] or not row["binding_key"] or not row["network_epoch"]:
+            issues["missing_path_identity"] += 1
+        if row["valid_until_ms"] <= row["measured_ms"]:
+            issues["invalid_path_expiry"] += 1
+    issues["attempts_exceeding_two_publications"] = sum(count > 2 for count in attempts.values())
     collections = {}
-    for name in ('routes', 'route_observations', 'route_cache', 'route_outcomes', 'route_budget_state', 'route_evidence_updates'):
-        if name not in tables:
-            continue
-        records = db.execute('SELECT * FROM "' + name + '"')
+    for name in ("route_evidence", "probe_runs"):
         count = size = 0
-        for record in records:
+        for row in db.execute("SELECT * FROM " + name):
             count += 1
-            size += len(json.dumps(dict(record)).encode())
-        collections[name] = {'global_rows': count, 'serialized_bytes': size}
-    physical = db.execute('PRAGMA page_count').fetchone()[0] * db.execute('PRAGMA page_size').fetchone()[0]
-    return {'session': session, 'route_rows': len(rows), 'distinct_bindings': len(bindings), 'known_attempts': len(attempts),
-            'material_fingerprints': len(paths), 'zero_reply_rows': zero_reply, 'repeated_cached_copies': sum(max(0,n-1) for n in cached_fingerprints.values()), 'classes': dict(classes), 'cached_rows': sum(r.get('provenance') == 'cache' for r in rows),
-            'route_serialized_bytes': payload_bytes, 'database_allocated_bytes_including_indexes': physical,
-            'collections': collections, 'exact_duplicate_rows': len(removable), 'retain_ids': retained, 'remove_ids': removable,
-            'limitations': 'Legacy useful_candidate is provisional: no historical access consensus. Allocated bytes do not shrink without a separate VACUUM; WAL is reported separately.'}
+            size += len(json.dumps(dict(row)).encode())
+        collections[name] = {"global_rows": count, "serialized_bytes": size}
+    orphaned = db.execute("SELECT count(*) FROM probe_runs p WHERE NOT EXISTS (SELECT 1 FROM sessions s WHERE s.id=p.session)").fetchone()[0]
+    return {
+        "session": session,
+        "evidence_rows": len(evidence),
+        "evidence_kinds": dict(Counter(row["kind"] for row in evidence)),
+        "useful_path_publications": len(paths),
+        "distinct_bindings": len({(row["session"], row["network_epoch"], row["binding_key"]) for row in paths}),
+        "published_attempts": len(attempts),
+        "distinct_path_fingerprints": len({row["fingerprint"] for row in paths}),
+        "charged_evidence_bytes": sum(row["evidence_bytes"] for row in evidence),
+        "admitted_attempts": len(runs),
+        "manual_attempts": sum(bool(row["manual"]) for row in runs),
+        "attempt_statuses": dict(Counter(row["status"] for row in runs)),
+        "attempt_outcomes": dict(Counter(row["class"] or "pending" for row in runs)),
+        "structural_issues": {key: count for key, count in issues.items() if count},
+        "global_admissions_after_session_deletion": orphaned,
+        "collections": collections,
+        "database_allocated_bytes_including_indexes": db.execute("PRAGMA page_count").fetchone()[0] * db.execute("PRAGMA page_size").fetchone()[0],
+        "limitations": "Publications are revisions, not distinct routes. Deleted-session admissions are retained deliberately for quota/cooldown enforcement. Serialized bytes differ from SQLite allocation; WAL is separate. Useful-path classification is not reconstructed by this audit.",
+    }
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('database', type=Path)
-    parser.add_argument('--session')
-    parser.add_argument('--compact', action='store_true', help='Delete only exact duplicates from an offline database copy')
-    parser.add_argument('--backup', type=Path, help='Required new SQLite backup file before compaction')
+    parser.add_argument("database", type=Path)
+    parser.add_argument("--session")
     args = parser.parse_args()
     path = args.database.resolve(strict=True)
-    if args.compact and (not args.backup or args.backup.exists()):
-        parser.error('--compact requires a --backup path that does not already exist')
-    db = sqlite3.connect(path.as_uri() + ('?mode=rw' if args.compact else '?mode=ro'), uri=True)
+    db = sqlite3.connect(path.as_uri() + "?mode=ro", uri=True)
     db.row_factory = sqlite3.Row
-    with db:
-        if args.compact:
-            # Lock out concurrent writers between backup, audit and deletion.
-            db.execute('BEGIN IMMEDIATE')
-            backup = sqlite3.connect(args.backup)
-            reader = sqlite3.connect(path.as_uri() + '?mode=ro', uri=True)
-            reader.backup(backup)
-            reader.close()
-            backup.close()
+    try:
+        db.execute("BEGIN")
         result = audit(db, args.session)
-        wal = Path(str(path) + '-wal')
-        result['wal_bytes'] = wal.stat().st_size if wal.exists() else 0
-        if args.compact:
-            db.executemany('DELETE FROM routes WHERE id=?', [(x,) for x in result['remove_ids']])
-        result['compacted'] = args.compact
-    print(json.dumps(result, indent=2))
-    db.close()
+        wal = Path(str(path) + "-wal")
+        result["wal_bytes"] = wal.stat().st_size if wal.exists() else 0
+        print(json.dumps(result, indent=2))
+    except (ValueError, sqlite3.DatabaseError) as error:
+        parser.error(str(error))
+    finally:
+        db.close()
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

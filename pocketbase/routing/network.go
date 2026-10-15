@@ -11,7 +11,8 @@ import (
 )
 
 // Fingerprint routing inputs, excluding counters and expiring lifetimes. The
-// cache remains a gateway approximation; upstream changes are bounded by TTL.
+// result identifies gateway source context; unseen upstream changes remain
+// bounded by each published path's fixed expiry.
 func networkContext() (string, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()

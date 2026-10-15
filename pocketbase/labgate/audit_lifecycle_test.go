@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"myapp/data"
 	"myapp/testsupport"
 	"sync"
 	"testing"
@@ -223,13 +224,16 @@ func blockedAuditWriter(t *testing.T) (core.App, *AuditWriter, Decision, <-chan 
 func newAuditFixture(t *testing.T) (core.App, Decision) {
 	t.Helper()
 	app := testsupport.App(t)
+	if err := data.EnsureGateAudit(app); err != nil {
+		t.Fatal(err)
+	}
 	session := testsupport.Save(t, app, "sessions", map[string]any{
 		"name":   "Audit lifecycle",
 		"active": true,
 	})
 	packet := tcpPacket(1, 50000)
 	return app, Decision{
-		ID: "audit-seed", SessionID: session.Id, FlowKey: packet.Tuple.Key(), Tuple: packet.Tuple,
+		ID: "audit-seed", SessionID: session.Id, FlowKey: packet.Tuple.Key(),
 		ClientIP: packet.Tuple.ClientIP.String(), ClientPort: packet.Tuple.ClientPort,
 		RemoteIP: packet.Tuple.RemoteIP.String(), RemotePort: packet.Tuple.RemotePort,
 		Protocol: packet.Tuple.Protocol, Mode: ModeFlow, Direction: packet.Direction,

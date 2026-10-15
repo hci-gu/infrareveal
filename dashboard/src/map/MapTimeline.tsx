@@ -23,8 +23,8 @@ export function MapTimeline({ data, state, onChange, index, startMs, endMs, curs
   // Bounded SVG work even for sessions containing thousands of service/location groups.
   const rows = data.rows.slice(first, first + 32)
   const waveform = useMemo(() => createWireWaveformCache(), [])
-  const signature = rows.map(row => row.connections.map(c => [c.flow.id, c.startMs, c.endMs].join(':')).join(',')).join('|')
-  const waveforms = useMemo(() => rows.map(row => waveform(row.connections, index, range)),
+  const signature = rows.map(row => row.series.map(c => [c.id, c.startMs, c.endMs].join(':')).join(',')).join('|')
+  const waveforms = useMemo(() => rows.map(row => waveform(row.series, index, range)),
     // Connection identity and capture index own samples; cursor-only total changes do not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [waveform, signature, index, range.from, range.to])
@@ -42,7 +42,7 @@ export function MapTimeline({ data, state, onChange, index, startMs, endMs, curs
           const bins = waveforms[i]
           const hasCapture = bins.some(bin => bin.observed)
           return <div className="atlas-detail-row" key={row.id} style={{ top: (first + i) * ROW_HEIGHT, '--playhead': `${progress}%` } as CSSProperties} data-timeline-location={row.locationId}>
-            <button type="button" className="atlas-detail-track" onClick={() => onTrack(row.trackId)} title={`${row.label} · ${row.client} · ${row.connections.length} connections`}><strong>{row.label}</strong><small>{row.location} · {row.client}</small><span>{state.direction !== 'sent' && <span className="atlas-down">↓ {loading || error ? '—' : formatBytes(row.received)}</span>}{state.direction !== 'received' && <span className="atlas-up">↑ {loading || error ? '—' : formatBytes(row.sent)}</span>}</span></button>
+            <button type="button" className="atlas-detail-track" onClick={() => onTrack(row.trackId)} title={`${row.label} · ${row.client} · ${row.series.length} series`}><strong>{row.label}</strong><small>{row.location} · {row.client}</small><span>{state.direction !== 'sent' && <span className="atlas-down">↓ {loading || error ? '—' : formatBytes(row.received)}</span>}{state.direction !== 'received' && <span className="atlas-up">↑ {loading || error ? '—' : formatBytes(row.sent)}</span>}</span></button>
             <div className="atlas-detail-lane"><svg viewBox="0 0 1000 64" preserveAspectRatio="none" aria-hidden="true"><line x1="0" y1="32" x2="1000" y2="32" className="atlas-wave-zero" />{!loading && !error && (['received', 'sent'] as const).filter(direction => state.direction === 'both' || state.direction === direction).flatMap(direction => wireBars(bins, direction, ceiling).map((bar, j) => <rect key={`${direction}-${j}`} x={bar.x} y={direction === 'received' ? 32 - bar.height : 32} width={bar.width} height={bar.height} className={`atlas-wave-${direction}${bar.partial ? ' is-partial' : ''}`} />))}</svg>
               {(!hasCapture || loading || error) && <span className="atlas-no-capture">{loading ? 'Loading…' : error ? 'Capture unavailable' : 'No captured samples'}</span>}
               <i className="atlas-detail-playhead" /><input type="range" aria-label={`Seek ${row.label} timeline`} aria-valuetext={formatCursor(cursorMs)} min={range.from} max={Math.max(range.from + 1, range.to)} step={100} value={Math.max(range.from, Math.min(range.to, cursorMs))} onChange={event => onSeek(Number(event.target.value))} />

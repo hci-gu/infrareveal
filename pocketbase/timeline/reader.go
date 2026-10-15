@@ -1,565 +1,352 @@
+// Package timeline exposes bounded, revision-consistent product windows.
 package timeline
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"maps"
 	"net/url"
-	"sort"
 	"strconv"
-	"strings"
+	"sync"
 	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
-	"myapp/observer"
+	"myapp/data"
 	"myapp/routing"
 )
 
 const (
-	defaultTimelinePageSize = 500
-	maxTimelinePageSize     = 1000
-	maxTimelineDetailSpan   = 15 * time.Minute
-	maxTimelineFlowFilter   = 200
+	defaultPageSize   = 500
+	maxPageSize       = 1000
+	maxWindowMS       = int64(30 * time.Minute / time.Millisecond)
+	maxContextRecords = 4000
+	maxResponseBytes  = 8 * 1024 * 1024
 )
 
-type Manifest struct {
-	SessionID         string           `json:"sessionId"`
-	Name              string           `json:"name"`
-	StartedAt         string           `json:"startedAt"`
-	EndedAt           *string          `json:"endedAt"`
-	Active            bool             `json:"active"`
-	RetentionMinutes  int              `json:"retentionMinutes"`
-	Ephemeral         bool             `json:"ephemeral"`
-	ServerNow         string           `json:"serverNow"`
-	Watermark         string           `json:"watermark"`
-	Counts            map[string]int64 `json:"counts"`
-	Coverage          Range            `json:"coverage"`
-	GateAuditComplete bool             `json:"gateAuditComplete"`
-	GateAuditDrops    int              `json:"gateAuditDrops"`
+var (
+	ErrSessionNotFound = errors.New("session not found")
+	ErrRevisionChanged = errors.New("session changed; restart this window request")
+	ErrWindowTooLarge  = errors.New("window exceeds response limits; request a shorter interval")
+	ErrInvalidQuery    = errors.New("invalid window query")
+)
+
+type Reader struct {
+	app       core.App
+	mu        sync.Mutex
+	snapshots []pageSnapshot
 }
-
-type Range struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-}
-
-type Window struct {
-	Range                Range            `json:"range"`
-	LOD                  string           `json:"lod"`
-	Watermark            string           `json:"watermark"`
-	Flows                []map[string]any `json:"flows"`
-	DNSQueries           []map[string]any `json:"dnsQueries"`
-	Attributions         []map[string]any `json:"attributions"`
-	ActivityEpisodes     []map[string]any `json:"activityEpisodes"`
-	FlowAssociations     []map[string]any `json:"flowAssociations"`
-	FlowActivityChunks   []map[string]any `json:"flowActivityChunks"`
-	FlowActivityWindows  []map[string]any `json:"flowActivityWindows"`
-	FlowActivityStatuses []map[string]any `json:"flowActivityStatuses"`
-	Destinations         []map[string]any `json:"destinations"`
-	Routes               []map[string]any `json:"routes"`
-	GateEvents           []map[string]any `json:"gateEvents"`
-	NextCursor           *string          `json:"nextCursor"`
-}
-
-type timelineCursor map[string]int
-
-// Reader assembles storage records without knowing about HTTP or worker lifecycles.
-type Reader struct{ app core.App }
 
 func New(app core.App) *Reader { return &Reader{app: app} }
 
-var ErrSessionNotFound = errors.New("session not found")
-
-// RetentionWindow also defines the compatibility default for older recordings.
 func RetentionWindow(record *core.Record) time.Duration {
 	minutes := record.GetInt("retention_minutes")
 	if minutes < 1 || minutes > 1440 {
-		return 5 * time.Minute
+		minutes = 30
 	}
 	return time.Duration(minutes) * time.Minute
 }
 
-func (r *Reader) Manifest(sessionID string, now time.Time) (Manifest, error) {
-	app := r.app
-	record, err := app.FindRecordById("sessions", sessionID)
+func (r *Reader) Manifest(id string, now time.Time) (data.Manifest, error) {
+	record, err := r.app.FindRecordById("sessions", id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return data.Manifest{}, ErrSessionNotFound
+	}
 	if err != nil {
-		return Manifest{}, ErrSessionNotFound
+		return data.Manifest{}, err
 	}
-
-	started := record.GetDateTime("started_at").Time()
-	if started.IsZero() {
-		started = record.GetDateTime("created").Time()
+	session, err := data.Decode[data.Session](record)
+	if err != nil {
+		return data.Manifest{}, err
 	}
-	ephemeral := record.GetBool("ephemeral")
-	active := record.GetBool("active") || ephemeral
-	ended := record.GetDateTime("ended_at").Time()
-	if !active && ended.IsZero() {
-		ended = record.GetDateTime("updated").Time()
-	}
-
-	coverageFrom := started
-	coverageTo := ended
-	if active || coverageTo.IsZero() {
-		coverageTo = now
-	}
-	if firstRecords, findErr := app.FindRecordsByFilter("flows", "session={:session}", "start", 1, 0, dbx.Params{"session": sessionID}); findErr == nil && len(firstRecords) > 0 {
-		candidate := firstRecords[0].GetDateTime("start").Time()
-		if !candidate.IsZero() && (coverageFrom.IsZero() || candidate.Before(coverageFrom)) {
-			coverageFrom = candidate
-		}
-	}
-	if lastRecords, findErr := app.FindRecordsByFilter("flows", "session={:session}", "-last_seen", 1, 0, dbx.Params{"session": sessionID}); findErr == nil && len(lastRecords) > 0 {
-		candidate := lastRecords[0].GetDateTime("last_seen").Time()
-		if !candidate.IsZero() && candidate.After(coverageTo) {
-			coverageTo = candidate
-		}
-	}
-	if coverageFrom.IsZero() {
-		coverageFrom = now
-	}
-	if coverageTo.Before(coverageFrom) {
-		coverageTo = coverageFrom
-	}
-
-	if ephemeral {
-		if started.Before(now.Add(-RetentionWindow(record))) {
-			started = now.Add(-RetentionWindow(record))
-		}
-		coverageFrom, coverageTo, ended = started, now, time.Time{}
-	}
-
-	counts := map[string]int64{}
-	for _, collection := range []string{
-		"flows", "dns_queries", "flow_attributions", "activity_episodes",
-		"flow_associations", "flow_activity_chunks", "flow_activity_windows", "routes",
-		"gate_events",
-	} {
-		count, countErr := app.CountRecords(collection, dbx.HashExp{"session": sessionID})
-		if countErr != nil {
-			return Manifest{}, fmt.Errorf("count %s: %w", collection, countErr)
-		}
-		counts[collection] = count
-	}
-
-	manifest := Manifest{
-		SessionID:         sessionID,
-		Name:              record.GetString("name"),
-		StartedAt:         started.UTC().Format(time.RFC3339Nano),
-		Active:            active,
-		Ephemeral:         ephemeral,
-		RetentionMinutes:  int(RetentionWindow(record) / time.Minute),
-		ServerNow:         now.Format(time.RFC3339Nano),
-		Watermark:         now.Format(time.RFC3339Nano),
-		Counts:            counts,
-		GateAuditComplete: record.GetBool("gate_audit_complete"),
-		GateAuditDrops:    record.GetInt("gate_audit_drops"),
-		Coverage: Range{
-			From: coverageFrom.UTC().Format(time.RFC3339Nano),
-			To:   coverageTo.UTC().Format(time.RFC3339Nano),
-		},
-	}
-	if !ended.IsZero() {
-		value := ended.UTC().Format(time.RFC3339Nano)
-		manifest.EndedAt = &value
-	}
-	return manifest, nil
+	session.RetainedFromMS = max(session.StartedMS, session.RetainedFromMS)
+	return data.Manifest{Session: session, ServerMS: now.UnixMilli()}, nil
 }
 
-// Query is valid only when constructed by ParseQuery. Its fields stay private.
 type Query struct {
-	from, to time.Time
-	lod      string
-	lodMS    int
-	overview bool
-	limit    int
-	cursor   timelineCursor
-	flowIDs  []string
+	from, to, resolution int64
+	limit                int
+	block                string
+	cursor               string
+}
+
+type pageCursor struct {
+	Revision   int64  `json:"r"`
+	Offset     int    `json:"o"`
+	From       int64  `json:"f"`
+	To         int64  `json:"t"`
+	Resolution int64  `json:"s"`
+	Block      string `json:"b,omitempty"`
+	Snapshot   string `json:"x,omitempty"`
 }
 
 func ParseQuery(values map[string][]string) (Query, error) {
-	query := url.Values(values)
-	from, err := parseTimelineTime(query.Get("from"))
-	if err != nil {
-		return Query{}, fmt.Errorf("invalid from: %w", err)
-	}
-	to, err := parseTimelineTime(query.Get("to"))
-	if err != nil {
-		return Query{}, fmt.Errorf("invalid to: %w", err)
-	}
-	if !to.After(from) {
-		return Query{}, fmt.Errorf("to must be after from")
-	}
-
-	lod, lodMS, overview, err := parseTimelineLOD(query.Get("lod"))
-	if err != nil {
-		return Query{}, err
-	}
-	if !overview && to.Sub(from) > maxTimelineDetailSpan {
-		return Query{}, fmt.Errorf("detail windows are limited to %s", maxTimelineDetailSpan)
-	}
-
-	limit := defaultTimelinePageSize
-	if value := query.Get("limit"); value != "" {
-		parsed, parseErr := strconv.Atoi(value)
-		if parseErr != nil || parsed < 1 || parsed > maxTimelinePageSize {
-			return Query{}, fmt.Errorf("limit must be between 1 and %d", maxTimelinePageSize)
-		}
-		limit = parsed
-	}
-	cursor, err := decodeTimelineCursor(query.Get("cursor"), overview)
-	if err != nil {
-		return Query{}, err
-	}
-	requestedFlowIDs := parseFlowIDs(query.Get("flow"))
-	if len(requestedFlowIDs) > maxTimelineFlowFilter {
-		return Query{}, fmt.Errorf("at most %d flow ids may be requested", maxTimelineFlowFilter)
-	}
-
-	return Query{from, to, lod, lodMS, overview, limit, cursor, requestedFlowIDs}, nil
+	return parseQuery(values, true)
 }
 
-func (r *Reader) Window(sessionID string, query Query) (Window, error) {
-	app := r.app
-	if _, err := app.FindRecordById("sessions", sessionID); err != nil {
-		return Window{}, ErrSessionNotFound
+// Blocks are already aggregated and paged. A recorded session's block browser
+// can span its full duration; only raw map windows need the 30-minute cap.
+func ParseBlockQuery(values map[string][]string) (Query, error) {
+	return parseQuery(values, false)
+}
+
+func parseQuery(values map[string][]string, mapWindow bool) (Query, error) {
+	v := url.Values(values)
+	q := Query{resolution: 50, limit: defaultPageSize, block: v.Get("block"), cursor: v.Get("cursor")}
+	var err error
+	if q.from, err = strconv.ParseInt(v.Get("from"), 10, 64); err != nil || q.from < 0 {
+		return Query{}, fmt.Errorf("from must be Unix milliseconds")
 	}
-	if query.limit == 0 {
-		return Window{}, fmt.Errorf("window query must be parsed")
+	if q.to, err = strconv.ParseInt(v.Get("to"), 10, 64); err != nil || q.to <= q.from {
+		return Query{}, fmt.Errorf("to must be Unix milliseconds after from")
 	}
-	from, to, lod, lodMS, overview, limit, requestedFlowIDs := query.from, query.to, query.lod, query.lodMS, query.overview, query.limit, query.flowIDs
-	cursor := maps.Clone(query.cursor)
-	var flows, episodes, dnsQueries, gateEvents, chunks, windows []*core.Record
-	// Only the first two pages belong to overview. Every collection advances its
-	// own cursor; related rows below follow the visible flow page instead.
-	pages := []struct {
-		collection, cursor, timeField, flowField string
-		lookback                                 time.Duration
-		rows                                     *[]*core.Record
-	}{
-		{"flows", "flows", "start", "id", 0, &flows},
-		{"activity_episodes", "episodes", "start", "", 0, &episodes},
-		{"dns_queries", "dns", "timestamp", "", 5 * time.Minute, &dnsQueries},
-		{"gate_events", "gates", "queued_at", "", 0, &gateEvents},
-		{"flow_activity_chunks", "chunks", "chunk_start", "flow", 10 * time.Second, &chunks},
-		{"flow_activity_windows", "windows", "window_start", "", time.Minute, &windows},
+	if mapWindow && q.to-q.from > maxWindowMS {
+		return Query{}, fmt.Errorf("map windows are limited to 30 minutes")
 	}
-	if overview {
-		pages = pages[:2]
-	}
-	for _, page := range pages {
-		condition := fmt.Sprintf("[[%s]] >= {:from} AND [[%s]] < {:to}", page.timeField, page.timeField)
-		if page.timeField == "start" {
-			condition = "[[start]] < {:to} AND [[last_seen]] >= {:from}"
+	if value := v.Get("resolution"); value != "" {
+		q.resolution, err = strconv.ParseInt(value, 10, 64)
+		if err != nil || q.resolution < 1 || q.resolution > 60000 {
+			return Query{}, fmt.Errorf("resolution must be 1–60000 milliseconds")
 		}
-		expressions := []dbx.Expression{
-			dbx.HashExp{"session": sessionID},
-			dbx.NewExp(condition, dbx.Params{"from": formatPocketBaseTimelineDate(from.Add(-page.lookback)), "to": formatPocketBaseTimelineDate(to)}),
+	}
+	if value := v.Get("limit"); value != "" {
+		q.limit, err = strconv.Atoi(value)
+		if err != nil || q.limit < 1 || q.limit > maxPageSize {
+			return Query{}, fmt.Errorf("limit must be 1–%d", maxPageSize)
 		}
-		if page.flowField != "" {
-			var err error
-			expressions, err = appendStringSetExpression(expressions, page.flowField, requestedFlowIDs)
+	}
+	if len(q.cursor) > 2048 || len(q.block) > 100 {
+		return Query{}, fmt.Errorf("invalid cursor or block")
+	}
+	return q, nil
+}
+
+func (q Query) offset(revision int64) (int, error) {
+	if q.cursor == "" {
+		return 0, nil
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(q.cursor)
+	if err != nil {
+		return 0, fmt.Errorf("%w: invalid cursor", ErrInvalidQuery)
+	}
+	var cursor pageCursor
+	if err = json.Unmarshal(payload, &cursor); err != nil || cursor.Offset < 0 || cursor.Offset > 1000000 || cursor.From != q.from || cursor.To != q.to || cursor.Resolution != q.resolution || cursor.Block != q.block {
+		return 0, fmt.Errorf("%w: cursor does not match this request", ErrInvalidQuery)
+	}
+	if cursor.Revision != revision {
+		return 0, ErrRevisionChanged
+	}
+	return cursor.Offset, nil
+}
+
+// A page advances only the primary traffic stream. Coverage and block summaries
+// are bounded window context; there is no independent cursor per collection.
+func (r *Reader) readWindow(id string, q Query) (pageSnapshot, error) {
+	snapshot := pageSnapshot{session: id, kind: "map", query: queryCursor(q)}
+	result := data.MapWindow{SessionID: id, ResolutionMS: q.resolution, Complete: true, Series: []data.TrafficChunk{}, Coverage: []data.CaptureInterval{}, Blocks: []data.ActivityBlock{}, Destinations: []data.Destination{}, Routes: []data.RouteEvidence{}}
+	err := r.app.RunInTransaction(func(app core.App) error {
+		manifest, err := New(app).Manifest(id, time.Now())
+		if err != nil {
+			return err
+		}
+		snapshot.epoch = manifest.Capture.Epoch
+		result.Revision = manifest.Revision
+		result.FromMS = max(q.from, manifest.RetainedFromMS)
+		end := manifest.EndedMS
+		if manifest.Active || end == 0 {
+			end = manifest.ServerMS
+		}
+		result.ToMS = max(result.FromMS, min(q.to, end))
+		params := dbx.Params{"session": id, "from": result.FromMS, "to": result.ToMS}
+		filter := "session={:session} AND start_ms < {:to} AND start_ms + chunk_ms > {:from}"
+		if q.block != "" {
+			block, err := New(app).Block(id, q.block)
 			if err != nil {
-				return Window{}, err
+				return err
+			}
+			result.FromMS = max(result.FromMS, block.StartMS)
+			result.ToMS = max(result.FromMS, min(result.ToMS, block.EndMS))
+			params["from"], params["to"] = result.FromMS, result.ToMS
+			params["client"], params["service"] = block.ClientID, block.ServiceKey
+			filter += " AND client_id={:client} AND service_key={:service}"
+		}
+		if result.ToMS <= result.FromMS {
+			return nil
+		}
+		chunks, err := data.ReadTraffic(app.DB().Select("*").From("traffic_chunks").Where(dbx.NewExp(filter, params)).OrderBy("start_ms", "id").Limit(maxContextRecords + 1))
+		if err != nil {
+			return err
+		}
+		if len(chunks) > maxContextRecords {
+			return ErrWindowTooLarge
+		}
+		destinationIDs := map[string]bool{}
+		for _, chunk := range chunks {
+			// Retain fine bins at partially visible edges. Coarse bins must never
+			// move future counts before the playback cursor or smear missing capture.
+			chunk.Samples = visibleSamples(chunk, result.FromMS, result.ToMS)
+			chunk = coarsen(chunk, q.resolution, result.FromMS, result.ToMS)
+			if len(chunk.Samples) == 0 {
+				continue
+			}
+			result.Series = append(result.Series, chunk)
+			if chunk.DestinationID != "" {
+				destinationIDs[chunk.DestinationID] = true
 			}
 		}
-		records, more, err := queryTimelinePage(app, page.collection, expressions, []string{page.timeField, "id"}, limit, cursor[page.cursor])
+		result.Coverage, err = readBounded[data.CaptureInterval](app, "capture_intervals", "session={:session} && start_ms < {:to} && end_ms > {:from}", "start_ms,id", params)
 		if err != nil {
-			return Window{}, err
+			return err
 		}
-		*page.rows = records
-		advanceTimelineCursor(cursor, page.cursor, more, limit)
-	}
-
-	visibleFlowIDs := make([]string, 0, len(flows))
-	destinationIPs := make([]string, 0, len(flows))
-	seenIPs := map[string]bool{}
-	for _, flow := range flows {
-		visibleFlowIDs = append(visibleFlowIDs, flow.Id)
-		ip := flow.GetString("destination_ip")
-		if ip != "" && !seenIPs[ip] {
-			seenIPs[ip] = true
-			destinationIPs = append(destinationIPs, ip)
+		for i := range result.Coverage {
+			result.Coverage[i].StartMS = max(result.Coverage[i].StartMS, result.FromMS)
+			result.Coverage[i].EndMS = min(result.Coverage[i].EndMS, result.ToMS)
 		}
-	}
-	attributions, err := queryRelatedRecords(app, "flow_attributions", "flow", visibleFlowIDs, "observed_at")
-	if err != nil {
-		return Window{}, err
-	}
-	associations, err := queryRelatedRecords(app, "flow_associations", "flow", visibleFlowIDs, "observed_at")
-	if err != nil {
-		return Window{}, err
-	}
-	destinations, err := queryRelatedRecords(app, "destinations", "ip", destinationIPs, "ip")
-	if err != nil {
-		return Window{}, err
-	}
-	routePage, err := routing.QueryRoutes(app, routing.RouteQuery{Session: sessionID, From: from, To: to, FlowIDs: requestedFlowIDs, Overview: overview, Limit: limit, Offset: cursor["routes"]})
-	if err != nil {
-		return Window{}, err
-	}
-	routePayload, err := routing.ExportRoutes(app, routePage.Records, to)
-	if err != nil {
-		return Window{}, err
-	}
-	statuses, _, err := queryTimelinePage(app, "flow_activity_status", []dbx.Expression{
-		dbx.HashExp{"session": sessionID},
-	}, []string{"reported_at DESC"}, 1, 0)
-	if err != nil {
-		return Window{}, err
-	}
-
-	advanceTimelineCursor(cursor, "routes", routePage.More, limit)
-	nextCursor, err := encodeTimelineCursor(cursor)
-	if err != nil {
-		return Window{}, err
-	}
-
-	return Window{
-		Range: Range{
-			From: from.UTC().Format(time.RFC3339Nano),
-			To:   to.UTC().Format(time.RFC3339Nano),
-		},
-		LOD:                  lod,
-		Watermark:            time.Now().UTC().Format(time.RFC3339Nano),
-		Flows:                exportRecords(flows),
-		DNSQueries:           exportRecords(dnsQueries),
-		Attributions:         exportRecords(attributions),
-		ActivityEpisodes:     exportRecords(episodes),
-		FlowAssociations:     exportRecords(associations),
-		FlowActivityChunks:   exportActivityRecords(chunks, lodMS),
-		FlowActivityWindows:  exportRecords(windows),
-		FlowActivityStatuses: exportRecords(statuses),
-		Destinations:         exportRecords(destinations),
-		Routes:               routePayload,
-		GateEvents:           exportRecords(gateEvents),
-		NextCursor:           nextCursor,
-	}, nil
+		blockFilter := "session={:session} && start_ms < {:to} && end_ms > {:from}"
+		if q.block != "" {
+			blockFilter += " && id={:block}"
+			params["block"] = q.block
+		}
+		result.Blocks, err = readBounded[data.ActivityBlock](app, "activity_blocks", blockFilter, "start_ms,id", params)
+		if err != nil {
+			return err
+		}
+		if len(destinationIDs) > 0 {
+			ids := make([]any, 0, len(destinationIDs))
+			for destinationID := range destinationIDs {
+				ids = append(ids, destinationID)
+			}
+			rows, err := app.FindAllRecords("destinations", dbx.In("id", ids...))
+			if err != nil {
+				return err
+			}
+			for _, row := range rows {
+				destination, err := data.Decode[data.Destination](row)
+				if err != nil {
+					return err
+				}
+				result.Destinations = append(result.Destinations, destination)
+			}
+		}
+		evidence, err := routing.QueryEvidence(app, routing.EvidenceQuery{Session: id, From: time.UnixMilli(result.FromMS), To: time.UnixMilli(result.ToMS), Limit: 1000})
+		if err != nil {
+			return err
+		}
+		if evidence.More {
+			return ErrWindowTooLarge
+		}
+		for _, row := range evidence.Records {
+			evidence, err := data.Decode[data.RouteEvidence](row)
+			if err != nil {
+				return err
+			}
+			result.Routes = append(result.Routes, evidence)
+		}
+		payload, err := json.Marshal(result)
+		if err != nil {
+			return err
+		}
+		snapshot.size = len(payload)
+		if snapshot.size > maxResponseBytes {
+			return ErrWindowTooLarge
+		}
+		return nil
+	})
+	snapshot.window, snapshot.from = result, result.FromMS
+	return snapshot, err
 }
 
-func queryTimelinePage(app core.App, collection string, expressions []dbx.Expression, sortFields []string, limit, offset int) ([]*core.Record, bool, error) {
-	if offset < 0 {
-		return []*core.Record{}, false, nil
+// Counts are emitted when a complete source bucket is known. A cursor inside a
+// 50 ms bin must not count packets that may have arrived later in that bin.
+func visibleSamples(chunk data.TrafficChunk, from, to int64) []data.Sample {
+	samples := make([]data.Sample, 0, len(chunk.Samples))
+	for _, sample := range chunk.Samples {
+		start := chunk.StartMS + sample[0]
+		if start >= from && start+chunk.BucketMS <= to {
+			samples = append(samples, sample)
+		}
 	}
-	records, err := queryRecordsPage(app, collection, expressions, sortFields, limit+1, offset)
-	if err != nil {
-		return nil, false, err
-	}
-	more := len(records) > limit
-	if more {
-		records = records[:limit]
-	}
-	return records, more, nil
+	return samples
 }
 
-func queryRelatedRecords(app core.App, collection, field string, values []string, sortFields string) ([]*core.Record, error) {
-	if len(values) == 0 {
-		return []*core.Record{}, nil
+// Resolution is preferred: keep source bins at window/chunk edges unless every
+// coarse bin can be emitted in full. Each series reports its actual bucket size.
+func coarsen(chunk data.TrafficChunk, resolution, from, to int64) data.TrafficChunk {
+	step := min(resolution, chunk.ChunkMS)
+	if chunk.BucketMS <= 0 || step <= chunk.BucketMS || step%chunk.BucketMS != 0 || chunk.ChunkMS%step != 0 || from > chunk.StartMS || to < chunk.StartMS+chunk.ChunkMS {
+		return chunk
 	}
-	expressions, err := appendStringSetExpression(nil, field, values)
+	samples := make([]data.Sample, 0, len(chunk.Samples))
+	for _, sample := range chunk.Samples {
+		offset := sample[0] / step * step
+		if len(samples) == 0 || samples[len(samples)-1][0] != offset {
+			samples = append(samples, data.Sample{offset})
+		}
+		for column := 1; column < len(sample); column++ {
+			samples[len(samples)-1][column] += sample[column]
+		}
+	}
+	chunk.Samples = samples
+	chunk.BucketMS = step
+	return chunk
+}
+
+func readBounded[T any](app core.App, collection, filter, sort string, params dbx.Params) ([]T, error) {
+	rows, err := app.FindRecordsByFilter(collection, filter, sort, maxContextRecords+1, 0, params)
 	if err != nil {
 		return nil, err
 	}
-	return queryRecordsPage(app, collection, expressions, []string{sortFields}, 0, 0)
+	if len(rows) > maxContextRecords {
+		return nil, ErrWindowTooLarge
+	}
+	result := make([]T, 0, len(rows))
+	for _, row := range rows {
+		item, err := data.Decode[T](row)
+		if err != nil {
+			return nil, err
+		}
+		result = append(result, item)
+	}
+	return result, nil
 }
 
-func queryRecordsPage(app core.App, collection string, expressions []dbx.Expression, sortFields []string, limit, offset int) ([]*core.Record, error) {
-	query := app.RecordQuery(collection)
-	for _, expression := range expressions {
-		query.AndWhere(expression)
-	}
-	if len(sortFields) > 0 {
-		query.OrderBy(sortFields...)
-	}
-	if limit > 0 {
-		query.Limit(int64(limit))
-	}
-	if offset > 0 {
-		query.Offset(int64(offset))
-	}
-
-	records := []*core.Record{}
-	if err := query.All(&records); err != nil {
-		return nil, fmt.Errorf("query %s: %w", collection, err)
-	}
-	return records, nil
-}
-
-// appendStringSetExpression keeps set membership constant-sized by passing the
-// values as one JSON parameter. Fields are internal schema constants, never
-// request-provided identifiers; set values remain bound query parameters.
-func appendStringSetExpression(expressions []dbx.Expression, field string, values []string) ([]dbx.Expression, error) {
-	if len(values) == 0 {
-		return expressions, nil
-	}
-	payload, err := json.Marshal(values)
+func (r *Reader) Block(session, id string) (data.ActivityBlock, error) {
+	record, err := r.app.FindRecordById("activity_blocks", id)
 	if err != nil {
-		return nil, fmt.Errorf("encode %s value set: %w", field, err)
+		return data.ActivityBlock{}, err
 	}
-	return append(expressions, dbx.NewExp(
-		fmt.Sprintf("[[%s]] IN (SELECT value FROM json_each({:valueSet}))", field),
-		dbx.Params{"valueSet": string(payload)},
-	)), nil
+	if record.GetString("session") != session {
+		return data.ActivityBlock{}, sql.ErrNoRows
+	}
+	return data.Decode[data.ActivityBlock](record)
 }
 
-func exportRecords(records []*core.Record) []map[string]any {
-	result := make([]map[string]any, 0, len(records))
-	for _, record := range records {
-		result = append(result, record.PublicExport())
-	}
-	return result
-}
-
-func exportActivityRecords(records []*core.Record, targetBucketMS int) []map[string]any {
-	result := make([]map[string]any, 0, len(records))
-	for _, record := range records {
-		exported := record.PublicExport()
-		if targetBucketMS > 0 {
-			exported = aggregateActivityRecord(exported, targetBucketMS)
+func (r *Reader) readBlocks(id string, q Query) (pageSnapshot, error) {
+	snapshot := pageSnapshot{session: id, kind: "blocks", query: queryCursor(q), blocks: data.BlockPage{SessionID: id, Items: []data.ActivityBlock{}}}
+	err := r.app.RunInTransaction(func(app core.App) error {
+		manifest, err := New(app).Manifest(id, time.Now())
+		if err != nil {
+			return err
 		}
-		result = append(result, exported)
-	}
-	return result
-}
-
-func aggregateActivityRecord(record map[string]any, targetBucketMS int) map[string]any {
-	raw, err := json.Marshal(record["samples"])
-	if err != nil {
-		return record
-	}
-	payload := observer.ActivitySamplePayload{}
-	if err := json.Unmarshal(raw, &payload); err != nil || payload.Version != 1 || payload.BucketMS <= 0 || targetBucketMS <= payload.BucketMS {
-		return record
-	}
-	if payload.ChunkMS <= 0 || targetBucketMS > payload.ChunkMS {
-		targetBucketMS = payload.ChunkMS
-	}
-	type totals [4]int64
-	bins := map[int64]totals{}
-	for _, sample := range payload.Samples {
-		if len(sample) < 5 || sample[0] < 0 {
-			continue
+		snapshot.blocks.Revision, snapshot.epoch = manifest.Revision, manifest.Capture.Epoch
+		snapshot.from = max(q.from, manifest.RetainedFromMS)
+		// A long saved range is allowed, but never an unbounded recording read.
+		items, err := readBounded[data.ActivityBlock](app, "activity_blocks", "session={:session} && start_ms < {:to} && end_ms > {:from}", "start_ms,id", dbx.Params{"session": id, "from": snapshot.from, "to": q.to})
+		if err != nil {
+			return err
 		}
-		offset := (sample[0] / int64(targetBucketMS)) * int64(targetBucketMS)
-		value := bins[offset]
-		for index := 0; index < 4; index++ {
-			if sample[index+1] > 0 {
-				value[index] += sample[index+1]
-			}
+		snapshot.blocks.Items = items
+		payload, err := json.Marshal(snapshot.blocks)
+		if err != nil {
+			return err
 		}
-		bins[offset] = value
-	}
-	offsets := make([]int64, 0, len(bins))
-	for offset := range bins {
-		offsets = append(offsets, offset)
-	}
-	sort.Slice(offsets, func(i, j int) bool { return offsets[i] < offsets[j] })
-	aggregated := make([][]int64, 0, len(offsets))
-	for _, offset := range offsets {
-		value := bins[offset]
-		aggregated = append(aggregated, []int64{offset, value[0], value[1], value[2], value[3]})
-	}
-	payload.BucketMS = targetBucketMS
-	payload.Samples = aggregated
-	record["bucket_ms"] = targetBucketMS
-	record["samples"] = payload
-	return record
-}
-
-func parseTimelineTime(value string) (time.Time, error) {
-	if value == "" {
-		return time.Time{}, fmt.Errorf("value is required")
-	}
-	if milliseconds, err := strconv.ParseInt(value, 10, 64); err == nil {
-		return time.UnixMilli(milliseconds).UTC(), nil
-	}
-	parsed, err := time.Parse(time.RFC3339Nano, value)
-	if err != nil {
-		return time.Time{}, fmt.Errorf("expected epoch milliseconds or RFC3339")
-	}
-	return parsed.UTC(), nil
-}
-
-func parseTimelineLOD(value string) (string, int, bool, error) {
-	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "", "50ms", "raw":
-		return "50ms", 50, false, nil
-	case "500ms":
-		return "500ms", 500, false, nil
-	case "1s", "1000ms":
-		return "1s", 1000, false, nil
-	case "5s", "5000ms":
-		return "5s", 5000, false, nil
-	case "overview":
-		return "overview", 0, true, nil
-	default:
-		return "", 0, false, fmt.Errorf("lod must be one of 50ms, 500ms, 1s, 5s, or overview")
-	}
-}
-
-func parseFlowIDs(value string) []string {
-	seen := map[string]bool{}
-	result := []string{}
-	for _, item := range strings.Split(value, ",") {
-		id := strings.TrimSpace(item)
-		if id != "" && !seen[id] {
-			seen[id] = true
-			result = append(result, id)
+		snapshot.size = len(payload)
+		if snapshot.size > maxResponseBytes {
+			return ErrWindowTooLarge
 		}
-	}
-	return result
-}
-
-func decodeTimelineCursor(value string, overview bool) (timelineCursor, error) {
-	cursor := timelineCursor{"flows": 0, "episodes": 0, "dns": 0, "chunks": 0, "windows": 0, "gates": 0, "routes": 0}
-	if overview {
-		cursor["dns"] = -1
-		cursor["chunks"] = -1
-		cursor["windows"] = -1
-		cursor["gates"] = -1
-	}
-	if value == "" {
-		return cursor, nil
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(value)
-	if err != nil || json.Unmarshal(raw, &cursor) != nil {
-		return nil, fmt.Errorf("invalid cursor")
-	}
-	for _, key := range []string{"flows", "episodes", "dns", "chunks", "windows", "gates", "routes"} {
-		if _, ok := cursor[key]; !ok || cursor[key] < -1 {
-			return nil, fmt.Errorf("invalid cursor")
-		}
-	}
-	return cursor, nil
-}
-
-func encodeTimelineCursor(cursor timelineCursor) (*string, error) {
-	for _, value := range cursor {
-		if value >= 0 {
-			raw, err := json.Marshal(cursor)
-			if err != nil {
-				return nil, err
-			}
-			encoded := base64.RawURLEncoding.EncodeToString(raw)
-			return &encoded, nil
-		}
-	}
-	return nil, nil
-}
-
-func advanceTimelineCursor(cursor timelineCursor, key string, more bool, limit int) {
-	if cursor[key] < 0 {
-		return
-	}
-	if more {
-		cursor[key] += limit
-	} else {
-		cursor[key] = -1
-	}
-}
-
-func formatPocketBaseTimelineDate(value time.Time) string {
-	return value.UTC().Format("2006-01-02 15:04:05.000Z")
+		return nil
+	})
+	return snapshot, err
 }

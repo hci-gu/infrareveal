@@ -1,10 +1,9 @@
 package routing
 
 import (
-	"database/sql"
-	"encoding/json"
-	"errors"
 	"fmt"
+	"hash/crc32"
+	"myapp/data"
 	"net/netip"
 	"time"
 
@@ -12,55 +11,10 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 )
 
-type bindingBudget struct {
-	Attempts    int    `json:"attempts"`
-	Useful      bool   `json:"useful"`
-	Manual      bool   `json:"manual"`
-	LastAttempt string `json:"last_attempt"`
-	Finished    string `json:"finished"`
-}
+// Keep the bounded network learning window independently of recordings. In
+// particular, deleting a session never deletes its recent spending or pauses.
+const networkHistory = 24 * time.Hour
 
-func (v bindingBudget) comparisonPending(t target) bool {
-	return v.Attempts > 0 && v.Attempts < len(probeMethods(t)) && !v.Useful
-}
-
-type sessionBudget struct {
-	RenewsAt      time.Time                `json:"renews_at,omitempty"`
-	Targets       map[string]bindingBudget `json:"targets"`
-	Attempts      int                      `json:"attempts"`
-	Manual        int                      `json:"manual"`
-	Snapshots     int                      `json:"snapshots"`
-	Updates       int                      `json:"updates"`
-	Bytes         int                      `json:"bytes"`
-	Duplicates    int                      `json:"duplicates"`
-	NoGain        int                      `json:"no_gain"`
-	Completed     map[string]bool          `json:"completed"`
-	ExtraTargets  int                      `json:"extra_targets"`
-	ExtraAttempts int                      `json:"extra_attempts"`
-}
-type networkBudget struct {
-	Starts          []time.Time    `json:"starts"`
-	NoGain          []string       `json:"no_gain"`
-	PausedUntil     time.Time      `json:"paused_until"`
-	CapabilityUntil time.Time      `json:"capability_until"`
-	Access          accessEvidence `json:"access"`
-	LastStart       time.Time      `json:"last_start"`
-	Trial           string         `json:"trial,omitempty"`
-}
-type outcome struct {
-	IP         string `json:"destination_ip"`
-	Protocol   string `json:"protocol"`
-	Port       int    `json:"destination_port"`
-	Class      string `json:"class"`
-	Reason     string `json:"reason"`
-	Status     string `json:"status"`
-	Method     string `json:"method"`
-	Attempt    string `json:"attempt"`
-	At         string `json:"measured_at"`
-	Reached    bool   `json:"destination_reached"`
-	Responding int    `json:"responding_hops"`
-	Error      string `json:"error,omitempty"`
-}
 type admission struct {
 	Binding                 routeBinding
 	Method, Attempt, Reason string
@@ -75,237 +29,236 @@ func family(t target) string {
 	}
 	return "ipv4"
 }
-func networkKey(network string, t target) string { return "network:" + network + ":" + family(t) }
-func loadState(app core.App, key string, dst any) (*core.Record, error) {
-	r, e := app.FindFirstRecordByFilter("route_budget_state", "key={:key}", dbx.Params{"key": key})
-	if errors.Is(e, sql.ErrNoRows) {
-		c, e := app.FindCollectionByNameOrId("route_budget_state")
-		if e != nil {
-			return nil, e
-		}
-		r = core.NewRecord(c)
-		r.Set("key", key)
-		return r, nil
+
+func scopeFor(session *core.Record, now time.Time) string {
+	if !session.GetBool("ephemeral") {
+		return session.Id
 	}
-	if e != nil {
-		return nil, e
-	}
-	b, e := json.Marshal(r.Get("value"))
-	if e == nil {
-		e = json.Unmarshal(b, dst)
-	}
-	return r, e
-}
-func saveState(app core.App, r *core.Record, v any) error { r.Set("value", v); return app.Save(r) }
-func loadSessionBudget(app core.App, session string) (*core.Record, sessionBudget, error) {
-	return loadSessionBudgetAt(app, session, time.Now().UTC())
+	start := int64(session.GetFloat("started_ms"))
+	epoch := max(int64(0), (now.UnixMilli()-start)/time.Hour.Milliseconds())
+	return fmt.Sprintf("%s:%d", session.Id, epoch)
 }
 
-func loadSessionBudgetAt(app core.App, session string, now time.Time) (*core.Record, sessionBudget, error) {
-	b := sessionBudget{}
-	r, e := loadState(app, "session:"+session, &b)
-	if e != nil {
-		return r, b, e
-	}
-	active, err := app.FindRecordById("sessions", session)
+type ledger struct {
+	scope                                                          string
+	runs                                                           []data.ProbeRun
+	evidence                                                       []data.RouteEvidence
+	access                                                         accessEvidence
+	attempts, manual, targets, hourly, bytes                       int
+	lastStart, pausedUntil, capabilityUntil, lastPause, lastUseful int64
+	noGain                                                         map[string]bool
+}
+
+func readLedger(app core.App, b routeBinding, now time.Time) (ledger, error) {
+	l := ledger{noGain: map[string]bool{}}
+	session, err := app.FindRecordById("sessions", b.Session)
 	if err != nil {
-		return r, b, err
+		return l, err
 	}
-	if active.GetBool("ephemeral") {
-		// Renew admission hourly. Network rolling-hour limits and suppression persist.
-		if b.RenewsAt.IsZero() || !now.Before(b.RenewsAt) {
-			b = sessionBudget{RenewsAt: now.Add(time.Hour)}
-		}
-		// Charge retained evidence, including conservative observation/cache overhead.
-		var usage struct {
-			Snapshots int `db:"snapshots"`
-			Updates   int `db:"updates"`
-			Bytes     int `db:"bytes"`
-		}
-		err = app.DB().NewQuery(`SELECT
-   (SELECT count(*) FROM routes WHERE session={:s}) snapshots,
-   (SELECT count(*) FROM route_evidence_updates WHERE session={:s}) updates,
-   (SELECT COALESCE(sum(8192 + 3*length(COALESCE(o.snapshot,''))),0) FROM routes r LEFT JOIN route_observations o ON o.id=r.observation_id WHERE r.session={:s}) +
-   (SELECT COALESCE(sum(512+length(value)),0) FROM route_evidence_updates WHERE session={:s}) +
-   (SELECT COALESCE(sum(512+length(value)),0) FROM route_outcomes WHERE session={:s}) bytes`).Bind(dbx.Params{"s": session}).One(&usage)
+	l.scope = scopeFor(session, now)
+	records, err := app.FindRecordsByFilter("probe_runs", "(session={:s} && scope={:scope}) || (network_context={:n} && family={:f} && admitted_ms>={:cut})", "admitted_ms,id", 0, 0,
+		dbx.Params{"s": b.Session, "scope": l.scope, "n": b.Network, "f": family(b.Target), "cut": now.Add(-networkHistory).UnixMilli()})
+	if err != nil {
+		return l, err
+	}
+	targets := map[string]bool{}
+	for _, rec := range records {
+		run, err := data.Decode[data.ProbeRun](rec)
 		if err != nil {
-			return r, b, err
+			return l, err
 		}
-		b.Snapshots, b.Updates, b.Bytes = usage.Snapshots, usage.Updates, usage.Bytes
+		l.runs = append(l.runs, run)
+		if run.Session == b.Session && run.Scope == l.scope {
+			if run.Manual {
+				l.manual++
+			} else {
+				l.attempts++
+				targets[run.NetworkContext+"|"+run.BindingKey] = true
+			}
+		}
+		if run.NetworkContext != b.Network || run.Family != family(b.Target) || run.AdmittedMS < now.Add(-networkHistory).UnixMilli() {
+			continue
+		}
+		l.lastStart = max(l.lastStart, run.AdmittedMS)
+		if run.AdmittedMS > now.Add(-time.Hour).UnixMilli() {
+			l.hourly++
+		}
+		if run.Useful {
+			l.lastUseful = max(l.lastUseful, run.FinishedMS)
+		}
+		if run.Class == "engine_unavailable" {
+			l.capabilityUntil = max(l.capabilityUntil, run.PauseUntilMS)
+		}
+		if len(run.AccessPrefix) > 0 {
+			s := snapshot{Attempt: run.ID, Measured: time.UnixMilli(run.FinishedMS), Finished: time.UnixMilli(run.FinishedMS)}
+			for _, p := range run.AccessPrefix {
+				h := Hop{TTL: p.TTL}
+				for _, ip := range p.Addresses {
+					h.Replies = append(h.Replies, HopReply{Address: ip})
+				}
+				s.Hops = append(s.Hops, h)
+			}
+			l.access = learnAccess(l.access, s, target{run.DestinationIP, run.Protocol, run.DestinationPort})
+		}
 	}
-	if b.Targets == nil {
-		b.Targets = map[string]bindingBudget{}
+	l.targets = len(targets)
+	for _, run := range l.runs {
+		if run.NetworkContext != b.Network || run.Family != family(b.Target) || run.AdmittedMS < now.Add(-networkHistory).UnixMilli() || run.FinishedMS <= l.lastUseful {
+			continue
+		}
+		if run.Class != "engine_unavailable" {
+			l.pausedUntil = max(l.pausedUntil, run.PauseUntilMS)
+			l.lastPause = max(l.lastPause, run.PauseUntilMS)
+		}
+		if run.ComparisonComplete && !run.Useful {
+			l.noGain[run.DestinationIP] = true
+		}
 	}
-	if b.Completed == nil {
-		b.Completed = map[string]bool{}
+	records, err = app.FindRecordsByFilter("route_evidence", "session={:s}", "available_ms,id", 0, 0, dbx.Params{"s": b.Session})
+	if err != nil {
+		return l, err
 	}
-	if r != nil {
-		r.Set("session", session)
+	for _, rec := range records {
+		e, err := data.Decode[data.RouteEvidence](rec)
+		if err != nil {
+			return l, err
+		}
+		l.evidence = append(l.evidence, e)
+		l.bytes += e.EvidenceBytes
 	}
-	return r, b, e
+	return l, nil
 }
 
-// reserve charges before starting the process. Crashes and cancelled starts never
-// refund probe allowances. The transaction is also the multi-caller admission lock.
-func (r evidenceStore) reserve(binding routeBinding, manual bool, now time.Time) (admission, error) {
-	session, network, t := binding.Session, binding.Network, binding.Target
-	c := r.limits()
-	if network == "unknown" || network == "" {
-		return admission{Reason: "network_unavailable"}, nil
+func (l ledger) methods(b routeBinding) map[string]bool {
+	methods := map[string]bool{}
+	for _, run := range l.runs {
+		if run.Session == b.Session && run.Scope == l.scope && run.NetworkContext == b.Network && run.BindingKey == b.Target.binding() && !run.Manual {
+			methods[run.Method] = true
+		}
 	}
-	result := admission{}
+	return methods
+}
+func (l ledger) useful(b routeBinding, now time.Time) bool {
+	return EvidenceAt(l.evidence, b.Epoch, b.Target.binding(), now.UnixMilli()) != nil
+}
+func (l ledger) automaticDone(b routeBinding) bool {
+	for _, run := range l.runs {
+		if run.Session == b.Session && run.Scope == l.scope && run.NetworkContext == b.Network && run.BindingKey == b.Target.binding() && run.Useful {
+			return true
+		}
+	}
+	return false
+}
+func (l ledger) hasTarget(b routeBinding) bool {
+	for _, run := range l.runs {
+		if run.Session == b.Session && run.Scope == l.scope && run.NetworkContext == b.Network && run.BindingKey == b.Target.binding() && !run.Manual {
+			return true
+		}
+	}
+	return false
+}
+func (l ledger) paths() int {
+	n := 0
+	for _, e := range l.evidence {
+		if e.Kind == "path" {
+			n++
+		}
+	}
+	return n
+}
+
+// reserve is the cross-caller admission lock. The row is committed before the
+// worker starts; all terminal states, including cancellation, stay charged.
+func (r evidenceStore) reserve(b routeBinding, manual bool, now time.Time) (admission, error) {
+	result := admission{Binding: b}
+	if b.Network == "" || b.Network == "unknown" || b.Epoch == "" {
+		result.Reason = "network_unavailable"
+		return result, nil
+	}
 	err := r.app.RunInTransaction(func(app core.App) error {
-		sr, b, e := loadSessionBudgetAt(app, session, now)
-		if e != nil {
-			return e
-		}
-		n := networkBudget{}
-		nr, e := loadState(app, networkKey(network, t), &n)
-		if e != nil {
-			return e
-		}
+		session, err := app.FindRecordById("sessions", b.Session)
 		reject := func(reason string) error { result.Reason = reason; return nil }
-		active, e := app.FindRecordById("sessions", session)
-		if e != nil || !active.GetBool("active") {
+		if err != nil {
+			return err
+		}
+		if !session.GetBool("active") {
 			return reject("session_closed")
 		}
-		if b.Snapshots+2 > c.MaxSnapshots || b.Bytes+512*1024 > c.MaxBytes {
+		if session.GetString("network_epoch") != b.Epoch || session.GetString("network_context") != b.Network {
+			return reject("network_changed")
+		}
+		l, err := readLedger(app, b, now)
+		if err != nil {
+			return err
+		}
+		cfg := r.limits()
+		if l.paths() >= cfg.MaxSnapshots || l.bytes >= cfg.MaxBytes {
 			return reject("storage_budget")
 		}
-		if now.Before(n.CapabilityUntil) {
+		if now.UnixMilli() < l.capabilityUntil {
 			return reject("engine_unavailable")
 		}
-		if !manual && now.Before(n.PausedUntil) {
+		if !manual && now.UnixMilli() < l.pausedUntil {
 			return reject("visibility_paused")
 		}
-		starts := []time.Time{}
-		for _, at := range n.Starts {
-			if at.After(now.Add(-time.Hour)) {
-				starts = append(starts, at)
-			}
-		}
-		n.Starts = starts
-		if len(starts) >= c.HourlyAttempts {
+		if l.hourly >= cfg.HourlyAttempts {
 			return reject("hourly_budget")
 		}
-		if now.Sub(n.LastStart) < 200*time.Millisecond {
+		if now.UnixMilli()-l.lastStart < 200 {
 			return reject("paced")
 		}
-		key := t.key(network)
-		if !manual && active.GetBool("ephemeral") {
-			useful, err := app.CountRecords("routes", dbx.NewExp("session={:s} AND network_context={:n} AND binding_key={:b} AND valid_until>{:now} AND evidence_class='useful_path'", dbx.Params{"s": session, "n": network, "b": t.binding(), "now": date(now)}))
-			if err != nil {
-				return err
-			}
-			if useful > 0 {
-				return reject("useful_path_saved")
-			}
-		}
-		v, exists := b.Targets[key]
+		methods := probeMethods(b.Target)
+		method := methods[0]
 		if manual {
-			if b.Manual >= c.ManualAttempts {
+			if l.manual >= cfg.ManualAttempts {
 				return reject("manual_budget")
 			}
 		} else {
-			if v.Useful {
+			if l.useful(b, now) || l.automaticDone(b) {
 				return reject("useful_path_saved")
 			}
-			if v.Attempts >= len(probeMethods(t)) {
-				return reject("comparison_finished")
-			}
-			if b.Attempts >= c.MaxAttempts+b.ExtraAttempts {
-				return reject("session_budget")
-			}
-			count := 0
-			for _, x := range b.Targets {
-				if !x.Manual {
-					count++
+			tried := l.methods(b)
+			method = ""
+			for _, candidate := range methods {
+				if !tried[candidate] {
+					method = candidate
+					break
 				}
 			}
-			if (!exists || v.Manual) && count >= c.MaxTargets+b.ExtraTargets {
+			if method == "" {
+				return reject("comparison_finished")
+			}
+			if l.attempts >= cfg.MaxAttempts {
+				return reject("session_budget")
+			}
+			if !l.hasTarget(b) && l.targets >= cfg.MaxTargets {
 				return reject("target_budget")
 			}
+			for _, run := range l.runs {
+				if run.NetworkContext == b.Network && run.BindingKey == b.Target.binding() && run.Method == method && run.CooldownUntilMS > now.UnixMilli() {
+					return reject("method_cooldown")
+				}
+			}
 		}
-		methods := probeMethods(t)
-		method := methods[min(v.Attempts, len(methods)-1)]
-		if manual {
-			method = probeMethods(t)[0]
+		// Keep synthetic tuples distinct across restart and session deletion.
+		// The 20,000-port range exceeds the bounded 24-hour network ledger.
+		port := 40000
+		for _, run := range l.runs {
+			if run.NetworkContext == b.Network && run.Family == family(b.Target) && run.SourcePort >= 40000 && run.SourcePort < 60000 {
+				port = 40000 + (run.SourcePort-40000+1)%20000
+			}
 		}
-		// Negative state outlives session changes. The alternate gets its own key.
-		negative := struct {
-			Until time.Time `json:"until"`
-		}{}
-		_, e = loadState(app, "negative:"+key+":"+method, &negative)
-		if e != nil {
-			return e
-		}
-		if !manual && now.Before(negative.Until) {
-			return reject("negative_cache")
-		}
-		attempt := hash(fmt.Sprintf("%s/%s/%d/%d", session, key, now.UnixNano(), b.Attempts+b.Manual))[:24]
-		if manual {
-			b.Manual++
-		} else {
-			b.Attempts++
-			v.Attempts++
-			v.Manual = false
-		}
-		if !exists {
-			v.Manual = manual
-		}
-		v.LastAttempt = attempt
-		b.Targets[key] = v
-		n.Starts = append(n.Starts, now)
-		n.LastStart = now
-		nr.Set("available_at", date(now))
-		// A trial after a visibility pause counts as the next failed round if it adds nothing.
-		if !n.PausedUntil.IsZero() && !now.Before(n.PausedUntil) {
-			n.PausedUntil = time.Time{}
-			n.Trial = attempt
-		}
-		if e = saveState(app, sr, b); e != nil {
-			return e
-		}
-		if e = saveState(app, nr, n); e != nil {
-			return e
-		}
-		// One persistent scalar allocates synthetic probe identities across
-		// sessions/restarts; no per-packet ledger or rapidly reused source tuple.
-		identity := struct {
-			Sequence uint32 `json:"sequence"`
-		}{}
-		ir, err := loadState(app, "engine_sequence", &identity)
-		if err != nil {
+		run := data.ProbeRun{ID: data.NewID(), Session: b.Session, Scope: l.scope, NetworkContext: b.Network, NetworkEpoch: b.Epoch, Family: family(b.Target), BindingKey: b.Target.binding(), DestinationIP: b.Target.IP, Protocol: b.Target.Protocol, DestinationPort: b.Target.Port, SourcePort: port, Method: method, Manual: manual, AdmittedMS: now.UnixMilli(), Status: "admitted", AccessPrefix: []data.AccessPosition{}}
+		if _, err = data.Write(app, "probe_runs", run); err != nil {
 			return err
 		}
-		identity.Sequence++
-		if identity.Sequence == 0 {
-			identity.Sequence = 1
+		result.Attempt, result.Method = run.ID, method
+		result.Sequence = crc32.ChecksumIEEE([]byte(run.ID))
+		if result.Sequence == 0 {
+			result.Sequence = 1
 		}
-		if err := saveState(app, ir, identity); err != nil {
-			return err
-		}
-		result = admission{Binding: binding, Method: method, Attempt: attempt, Sequence: identity.Sequence, SourcePort: 40000 + int(identity.Sequence%20000)}
+		result.SourcePort = run.SourcePort
 		return nil
 	})
 	return result, err
-}
-
-func (r evidenceStore) extend(session string) error {
-	return r.app.RunInTransaction(func(app core.App) error {
-		active, err := app.FindRecordById("sessions", session)
-		if err != nil || !active.GetBool("active") {
-			return fmt.Errorf("select an active session")
-		}
-		sr, b, e := loadSessionBudget(app, session)
-		if e != nil {
-			return e
-		}
-		if b.ExtraTargets >= 80 {
-			return fmt.Errorf("maximum session extension reached")
-		}
-		b.ExtraTargets += 20
-		b.ExtraAttempts += 40
-		return saveState(app, sr, b)
-	})
 }

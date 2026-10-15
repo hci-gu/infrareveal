@@ -23,6 +23,10 @@ func runPacketCapture(
 	onReady func(),
 	emit func(PacketActivityEvent),
 ) error {
+	return runPacketCaptureHealth(ctx, interfaceName, scope, onReady, emit, nil)
+}
+
+func runPacketCaptureHealth(ctx context.Context, interfaceName string, scope ObservationScope, onReady func(), emit func(PacketActivityEvent), heartbeat func(time.Time, int64)) error {
 	networkInterface, err := net.InterfaceByName(interfaceName)
 	if err != nil {
 		return err
@@ -56,10 +60,24 @@ func runPacketCapture(
 	}
 
 	onReady()
+	lastHeartbeat := time.Now()
+	beat := func() {
+		now := time.Now()
+		if heartbeat == nil || now.Sub(lastHeartbeat) < 100*time.Millisecond {
+			return
+		}
+		var dropped int64
+		if stats, err := unix.GetsockoptTpacketStats(fd, unix.SOL_PACKET, unix.PACKET_STATISTICS); err == nil {
+			dropped = int64(stats.Drops)
+		}
+		heartbeat(now, dropped)
+		lastHeartbeat = now
+	}
 
 	buffer := make([]byte, packetCaptureHeaderBytes)
 	control := make([]byte, unix.CmsgSpace(packetAuxdataBytes))
 	for {
+		beat()
 		if err := ctx.Err(); err != nil {
 			return err
 		}

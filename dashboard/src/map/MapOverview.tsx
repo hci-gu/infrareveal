@@ -18,7 +18,7 @@ export const MapOverview = memo(function MapOverview({ data, state, onChange, st
   const aside = useRef<HTMLElement>(null)
   const peak = Math.max(1, ...data.locations.map(location => location.bytes))
   const location = data.locations.find(location => location.id === state.locationId)
-  const quality = loading ? 'Loading totals…' : error ? 'Totals unavailable · retrying' : data.total.estimated ? '≈ Includes counter estimates' : data.total.partial ? 'Captured wire bytes · partial' : 'Captured wire bytes'
+  const quality = loading ? 'Loading totals…' : error ? 'Totals unavailable · retrying' : data.total.partial ? 'Captured wire bytes · partial' : 'Captured wire bytes'
   return <aside ref={aside} className="atlas-overview atlas-workspace-overview" aria-label="Traffic overview" style={dragWidth ? { '--overview-width': `${dragWidth}px` } as CSSProperties : undefined}>
     <div className="atlas-overview-heading"><h1>Traffic overview</h1><button type="button" className="atlas-icon-button" aria-label={state.expanded ? 'Back to map' : 'Expand traffic timeline'} onClick={() => onChange({ ...state, expanded: !state.expanded })}><MapIcon name={state.expanded ? 'back' : 'expand'} size={17} /></button></div>
     <p className="atlas-scope">{formatCursor(startMs)}–{formatCursor(cursorMs)} UTC</p>
@@ -30,7 +30,7 @@ export const MapOverview = memo(function MapOverview({ data, state, onChange, st
     </div><p className="atlas-quality" role="status">{quality} · to playhead</p>
     <div className="atlas-overview-tabs" aria-label="Overview content"><button type="button" aria-pressed={tab === 'locations'} onClick={() => setTab('locations')}>Locations <small>{data.locations.length}</small></button><button type="button" aria-pressed={tab === 'tracks'} onClick={() => setTab('tracks')}>Tracks <small>{data.tracks.length}</small></button></div>
     {tab === 'locations' ? <div className="atlas-location-list" aria-label="Remote locations"><div className="atlas-location-sort">By {directionLabel(state.direction).toLowerCase()}</div>{data.locations.map(location => <button type="button" key={location.id} className="atlas-location-row" aria-pressed={state.locationId === location.id} data-location-id={location.id} onClick={() => onChange({ ...state, locationId: state.locationId === location.id ? null : location.id })}>
-      <span>{location.label}</span><strong>{loading || error ? '—' : `${location.estimated ? '≈ ' : ''}${formatBytes(location.bytes)}`}</strong><small>{location.detail}</small>
+      <span>{location.label}</span><strong>{loading || error ? '—' : formatBytes(location.bytes)}</strong><small>{location.detail}</small>
       <span className="atlas-location-bars" aria-hidden="true">{state.direction !== 'sent' && <i className="atlas-down-bar" style={{ width: `${location.received / peak * 100}%` }} />}{state.direction !== 'received' && <i className="atlas-up-bar" style={{ width: `${location.sent / peak * 100}%` }} />}</span>
     </button>)}{!data.locations.length && <p className="atlas-list-empty">{loading ? 'Loading locations…' : 'No traffic observed at this time.'}</p>}</div> : <MapTrackList tracks={data.tracks} selectedId={selectedTrack} activeOnly={activeOnly} onActiveOnly={onActiveOnly} onSelect={onTrack} />}
     <div className="atlas-overview-bottom"><span>{state.expanded ? 'Filters apply to every track' : 'Drag the edge to explore'}</span><button type="button" onClick={() => onChange({ ...state, expanded: !state.expanded })}>{state.expanded ? 'Map ↙' : 'Timeline ↗'}</button></div>

@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest'
-import { chooseLOD } from '../transport/sessionController'
 import { frameForTime, timeForFrame, windowSegments } from './time'
 
 describe('shared canonical timeline projection', () => {
@@ -18,9 +17,5 @@ describe('shared canonical timeline projection', () => {
     ])
   })
 
-  it('selects activity resolution from the requested viewport span', () => {
-    expect(chooseLOD(0, 60_000)).toBe('50ms')
-    expect(chooseLOD(0, 300_000)).toBe('500ms')
-    expect(chooseLOD(0, 300_001)).toBe('5s')
-  })
+
 })

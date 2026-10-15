@@ -1,15 +1,22 @@
 # PocketBase restructuring validation
 
+> Historical validation of the preceding refactor. The map/activity rewrite in
+> [ADR 0003](../adr/0003-map-activity-storage.md) supersedes its storage, collection
+> compatibility and old recording contracts. See the root implementation checklist
+> for the current execution and remaining hardware checks.
+
+
 Candidate: working tree, 8 October 2026. Baseline: `ea3ec5f517ab5d845843f2f5367db10d35bee0ba`.
 See the [architecture guide](../implementation-guides/pocketbase-architecture.md)
 for current ownership and the [original plan](../proposals/pocketbase-restructuring.md)
 for scope. No migration, collection rename, PocketBase upgrade or probe-engine
 upgrade accompanies this restructuring.
 
-The user confirmed that no test Pi is available and asked for the remaining
-hardware checks to be documented. Physical gateway acceptance and deployment
-remain unverified. Local namespace tests are isolated Linux evidence; cross-builds
-establish compilation only. No live gateway or deployed recording was changed.
+At implementation close, no test Pi was available and no live gateway or deployed
+recording was changed. The subsequent [8 October Pi deployment report](raspberry-pi-deployment-2026-10-08.md)
+records deployment, database preservation, reboot recovery and native ARMv7/kernel
+checks. It distinguishes completed checks from remaining physical-client,
+sustained-load, gate-failure and display acceptance.
 
 ## Local verification
 
@@ -161,9 +168,11 @@ or run these probes against the deployed data directory.
 
 ## Remaining physical gateway acceptance
 
-All items below are pending. The blocker is the absence of a test Pi and an
-offline copy of an actual deployed installation. No SSH target was supplied;
-no deployment or live-network intervention was attempted.
+This was the pending checklist at implementation close. The
+[follow-up deployment report](raspberry-pi-deployment-2026-10-08.md) records the
+completed installation/rollback, reboot, native test and isolated kernel checks.
+The full checklist below is not yet complete; physical-client and sustained-load
+acceptance must not be inferred from those automated results.
 
 1. **Existing installation and rollback.** Stop a dedicated test installation and
    preserve its image, configuration and complete data directory. Work on a copy
