@@ -4,7 +4,7 @@ This guide shows how to run InfraReveal on a Raspberry Pi as a Wi‑Fi access po
 
 What you get
 - Participant Wi-Fi on wlan0 (SSID: Infrareveal)
-- WPA2-protected admin Wi-Fi on a second radio, wlan1 (SSID: Infrareveal-admin)
+- Optional WPA2-protected admin Wi-Fi on a second radio, wlan1 (SSID: Infrareveal-admin)
 - DHCP on 10.0.0.0/24 (dnsmasq), gateway at 10.0.0.1
 - NAT to the internet via eth0 by default
 - DNS query observations from dnsmasq
@@ -55,32 +55,37 @@ The regular dashboard and debug dashboard are pnpm workspace consumers of
 `@infrareveal/session-state`. The shared package owns PocketBase transport,
 session manifests, revision-driven window replacement, bounded caching and local
 playback state. Each dashboard keeps its own UI and map/activity presentation.
+Use Node 22 and the pnpm version pinned in `package.json` (11.25.0). Corepack
+selects that version even if an older global pnpm is on your PATH. Checks fail
+when dependencies are stale; rerun the frozen install to bring them up to date.
 
 ```bash
-pnpm install
-pnpm build
-pnpm test
-pnpm lint
+corepack pnpm install --frozen-lockfile
+corepack pnpm build
+corepack pnpm test
+corepack pnpm lint
 ```
 
-Run an individual dashboard with `pnpm --filter @infrareveal/dashboard dev` or
-`pnpm --filter @infrareveal/debug-dashboard dev`. Set `VITE_POCKETBASE_URL`
+Run an individual dashboard with `corepack pnpm --filter @infrareveal/dashboard dev` or
+`corepack pnpm --filter @infrareveal/debug-dashboard dev`. Set `VITE_POCKETBASE_URL`
 when PocketBase is not on port 8090 of the dashboard host.
 
 Note: The AP is open (no password) by default. Use only in controlled environments.
 
-Follow the **[two-network Pi deployment guide](docs/implementation-guides/pi-deployment.md)**
+Follow the **[Pi deployment guide](docs/implementation-guides/pi-deployment.md)**
 for the existing Pi at `pi@192.168.10.120`. It covers pulling changes, installing
 Compose on its 32-bit OS, building images,
 preparing host networking and starting the new build against fresh application data.
 
-The gateway requires two AP-capable Wi-Fi radios and an Ethernet uplink. The
-inspected built-in radio and Ralink RT5370 USB adapter meet the advertised
-capabilities. Images support ARMv7 and ARM64; the Docker target platform selects
+The proxy-only gateway requires one AP-capable Wi-Fi radio and an Ethernet
+uplink. The existing Pi uses its built-in radio, with admin Wi-Fi and dashboard
+containers disabled. The optional admin network requires a second radio.
+Images support ARMv7 and ARM64; the Docker target platform selects
 the Go binary architecture automatically. The host OS obtains Ethernet settings
 through DHCP. Upstream authentication and subnet conflicts still need handling.
 
-Join `Infrareveal-admin` with **`password123`** to open **http://10.77.0.1/** or
+When the optional admin network is enabled, join `Infrareveal-admin` with
+**`password123`** to open **http://10.77.0.1/** or
 **http://infrareveal.home.arpa/**. The UI and API share that address; no Ethernet IP
 needs to be discovered. Port 8090 is loopback-only. Participant devices continue
 to use `Infrareveal`, with internet and observation on `10.0.0.0/24`.
@@ -92,7 +97,8 @@ configurations from these settings; there are no hand-edited root-level AP confi
 
 Configuration knobs (via env in `docker-compose.yml`):
 - AP_IFACE: participant Wi-Fi interface (default wlan0)
-- ADMIN_IFACE: admin Wi-Fi interface (default wlan1)
+- ADMIN_WIFI_ENABLED: require/start the admin radio (default true); use false and `compose.proxy-only.yml` for a built-in-radio-only proxy managed over Ethernet SSH
+- ADMIN_IFACE: admin Wi-Fi interface (default wlan1, ignored when admin Wi-Fi is disabled)
 - ADMIN_WIFI_MAC: optional expected adapter MAC address
 - ADMIN_SSID: admin Wi-Fi name (default Infrareveal-admin)
 - AP_PREFIX / ADMIN_PREFIX: private /24 prefixes (10.0.0 / 10.77.0), checked for collisions

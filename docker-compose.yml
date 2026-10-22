@@ -18,6 +18,7 @@ services:
     logging: *bounded-logs
     environment:
       - AP_IFACE=${AP_IFACE:-wlan0}
+      - ADMIN_WIFI_ENABLED=${ADMIN_WIFI_ENABLED:-true}
       - ADMIN_IFACE=${ADMIN_IFACE:-wlan1}
       - ADMIN_WIFI_MAC=${ADMIN_WIFI_MAC:-}
       - INTERNET_IFACE=${INTERNET_IFACE:-eth0}

@@ -2,6 +2,11 @@
 # Sourced by entrypoint.sh. Keep policy scoped to InfraReveal-owned chains.
 network_defaults() {
   AP_IFACE="${AP_IFACE:-wlan0}"
+  ADMIN_WIFI_ENABLED="${ADMIN_WIFI_ENABLED:-true}"
+  case "$ADMIN_WIFI_ENABLED" in
+    true|false) ;;
+    *) echo 'ADMIN_WIFI_ENABLED must be true or false' >&2; return 1 ;;
+  esac
   ADMIN_IFACE="${ADMIN_IFACE:-wlan1}"
   INTERNET_IFACE="${INTERNET_IFACE:-eth0}"
   AP_PREFIX="${AP_PREFIX:-10.0.0}"
@@ -12,12 +17,18 @@ network_defaults() {
   AP_CHANNEL="${AP_CHANNEL:-1}"
   ADMIN_CHANNEL="${ADMIN_CHANNEL:-6}"
   CONFIG_DIR="${CONFIG_DIR:-/run/infrareveal}"
-  export AP_IFACE ADMIN_IFACE INTERNET_IFACE AP_PREFIX ADMIN_PREFIX
+  export AP_IFACE ADMIN_IFACE ADMIN_WIFI_ENABLED INTERNET_IFACE AP_PREFIX ADMIN_PREFIX
   export SSID ADMIN_SSID WIFI_COUNTRY AP_CHANNEL ADMIN_CHANNEL
   # One source of truth: admin addresses can never enter the observation scope.
   export CLIENT_CIDRS="$AP_PREFIX.0/24" GATEWAY_IP="$AP_PREFIX.1"
   export PACKET_ACTIVITY_IFACE="$AP_IFACE" LAB_GATE_CLIENT_SUBNET="$AP_PREFIX.0/24"
   export DNSMASQ_LOG_PATH=/var/log/dnsmasq.log
+  WIFI_IFACES=("$AP_IFACE")
+  WIFI_PREFIXES=("$AP_PREFIX")
+  if [ "$ADMIN_WIFI_ENABLED" = true ]; then
+    WIFI_IFACES+=("$ADMIN_IFACE")
+    WIFI_PREFIXES+=("$ADMIN_PREFIX")
+  fi
 }
 
 write_network_configs() {
@@ -34,7 +45,8 @@ ieee80211n=1
 wmm_enabled=1
 auth_algs=1
 CONFIG
-  cat > "$CONFIG_DIR/admin.hostapd" <<CONFIG
+  if [ "$ADMIN_WIFI_ENABLED" = true ]; then
+    cat > "$CONFIG_DIR/admin.hostapd" <<CONFIG
 interface=$ADMIN_IFACE
 driver=nl80211
 ssid=$ADMIN_SSID
@@ -49,6 +61,9 @@ wpa_key_mgmt=WPA-PSK
 rsn_pairwise=CCMP
 wpa_passphrase=password123
 CONFIG
+  else
+    rm -f "$CONFIG_DIR/admin.hostapd" "$CONFIG_DIR/admin.dnsmasq"
+  fi
   cat > "$CONFIG_DIR/participants.dnsmasq" <<CONFIG
 interface=$AP_IFACE
 listen-address=$AP_PREFIX.1
@@ -66,7 +81,8 @@ log-facility=/var/log/dnsmasq.log
 log-queries=extra
 log-dhcp
 CONFIG
-  cat > "$CONFIG_DIR/admin.dnsmasq" <<CONFIG
+  if [ "$ADMIN_WIFI_ENABLED" = true ]; then
+    cat > "$CONFIG_DIR/admin.dnsmasq" <<CONFIG
 interface=$ADMIN_IFACE
 listen-address=$ADMIN_PREFIX.1
 bind-interfaces
@@ -84,6 +100,7 @@ local=/home.arpa/
 # No query logging on the admin resolver.
 log-facility=-
 CONFIG
+  fi
   # dnsmasq drops privileges; the directory remains private to root. Keep DHCP
   # lease writes in a separate directory accessible to the dnsmasq user.
   install -d -o dnsmasq -g nogroup -m 750 /var/lib/infrareveal
@@ -103,10 +120,12 @@ configure_firewall() {
   reset_chain iptables filter IR_INPUT INPUT
   # Binding an address alone does not constrain its ingress interface on Linux.
   iptables -w -A IR_INPUT -i lo -j RETURN
-  iptables -w -A IR_INPUT -i "$ADMIN_IFACE" -s "$ADMIN_PREFIX.0/24" -p tcp -m multiport --dports 22,80,8081 -j ACCEPT
+  if [ "$ADMIN_WIFI_ENABLED" = true ]; then
+    iptables -w -A IR_INPUT -i "$ADMIN_IFACE" -s "$ADMIN_PREFIX.0/24" -p tcp -m multiport --dports 22,80,8081 -j ACCEPT
+  fi
   iptables -w -A IR_INPUT -p tcp -m multiport --dports 80,8080,8081,8090 -j REJECT
-  local iface prefix
-  for iface in "$AP_IFACE" "$ADMIN_IFACE"; do
+  local iface prefix i
+  for iface in "${WIFI_IFACES[@]}"; do
     iptables -w -A IR_INPUT -i "$iface" -p udp --dport 67 -j ACCEPT
     iptables -w -A IR_INPUT -i "$iface" -p udp --dport 53 -j ACCEPT
     iptables -w -A IR_INPUT -i "$iface" -p tcp --dport 53 -j ACCEPT
@@ -115,9 +134,9 @@ configure_firewall() {
   done
 
   reset_chain iptables filter IR_FORWARD FORWARD
-  for iface in "$AP_IFACE" "$ADMIN_IFACE"; do
-    prefix=$AP_PREFIX
-    [ "$iface" != "$ADMIN_IFACE" ] || prefix=$ADMIN_PREFIX
+  for i in "${!WIFI_IFACES[@]}"; do
+    iface=${WIFI_IFACES[$i]}
+    prefix=${WIFI_PREFIXES[$i]}
     iptables -w -A IR_FORWARD -i "$iface" -o "$INTERNET_IFACE" -s "$prefix.0/24" -j ACCEPT
     iptables -w -A IR_FORWARD -i "$INTERNET_IFACE" -o "$iface" -d "$prefix.0/24" -m conntrack --ctstate RELATED,ESTABLISHED -j ACCEPT
     iptables -w -A IR_FORWARD -i "$iface" -j REJECT
@@ -125,7 +144,7 @@ configure_firewall() {
   done
 
   reset_chain iptables nat IR_NAT POSTROUTING
-  for prefix in "$AP_PREFIX" "$ADMIN_PREFIX"; do
+  for prefix in "${WIFI_PREFIXES[@]}"; do
     iptables -w -t nat -A IR_NAT -s "$prefix.0/24" -o "$INTERNET_IFACE" -j MASQUERADE
   done
   reset_chain iptables nat IR_DNS PREROUTING
@@ -139,7 +158,7 @@ configure_firewall() {
     reset_chain ip6tables filter IR_FORWARD FORWARD
     ip6tables -w -A IR_INPUT -i lo -j RETURN
     ip6tables -w -A IR_INPUT -p tcp -m multiport --dports 80,8080,8081,8090 -j REJECT
-    for iface in "$AP_IFACE" "$ADMIN_IFACE"; do
+    for iface in "${WIFI_IFACES[@]}"; do
       ip6tables -w -A IR_INPUT -i "$iface" -j DROP
       ip6tables -w -A IR_FORWARD -i "$iface" -j DROP
       ip6tables -w -A IR_FORWARD -o "$iface" -j DROP

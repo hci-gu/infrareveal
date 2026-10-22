@@ -51,7 +51,7 @@ elif name in ('curl', 'wget'):
             path.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.root) + os.pathsep + os.environ['PATH'],
                         NETWORK_STATE=str(self.state), AP_IFACE='wlan0', ADMIN_IFACE='wlan1',
-                        AP_PREFIX='10.0.0', ADMIN_PREFIX='10.77.0')
+                        AP_PREFIX='10.0.0', ADMIN_PREFIX='10.77.0', ADMIN_WIFI_ENABLED='true')
         self.interfaces = [self.interface('wlan0', 3, '10.0.0.1'),
                            self.interface('wlan1', 4, '10.77.0.1')]
         self.save()
@@ -128,6 +128,29 @@ elif name in ('curl', 'wget'):
         self.save(api_exit=7)
         self.assertEqual(self.start('health').wait(timeout=3), 1)
 
+    def test_single_radio_health_and_watch_ignore_admin_but_require_participant(self):
+        self.env['ADMIN_WIFI_ENABLED'] = 'false'
+        adapter = self.interfaces.pop()
+        self.save(iw='Interface wlan0\n type AP')
+        self.assertEqual(self.start('wait').wait(timeout=3), 0)
+        self.assertEqual(self.start('health').wait(timeout=3), 0)
+        process = self.start('watch')
+        self.ready(process, 'Monitoring')
+        # Even a reconnected admin radio must stay outside the runtime's scope.
+        adapter['flags'] = []
+        adapter['addr_info'] = []
+        self.interfaces.append(adapter)
+        self.save(iw='Interface wlan0\n type AP\nInterface wlan1\n type managed')
+        time.sleep(0.2)
+        self.assertIsNone(process.poll())
+        self.assertEqual(self.start('health').wait(timeout=3), 0)
+        self.save(api_exit=7)
+        self.assertEqual(self.start('health').wait(timeout=3), 1)
+        self.interfaces[0]['flags'] = []
+        self.save()
+        self.assertEqual(process.wait(timeout=3), 1)
+        self.assertEqual(self.start('health').wait(timeout=3), 1)
+
     def test_shutdown_while_waiting(self):
         self.interfaces.pop()
         self.save()
@@ -144,8 +167,9 @@ elif name in ('curl', 'wget'):
         scripts.mkdir()
         shutil.copy(SCRIPT, scripts / SCRIPT.name)
         (scripts / 'gateway-preflight.py').write_text('pass\n')
-        (scripts / 'gateway-network.sh').write_text('''
-network_defaults() { export CONFIG_DIR="$FIXTURE_ROOT/config"; }
+        (scripts / 'gateway-network.sh').write_text(
+            'source "' + str(repo / 'scripts/gateway-network.sh') + '"\n' + '''
+export CONFIG_DIR="$FIXTURE_ROOT/config"
 write_network_configs() { :; }
 configure_firewall() { :; }
 remove_legacy_rules() { :; }
@@ -158,8 +182,9 @@ remove_legacy_rules() { :; }
         for name in ('hostapd', 'dnsmasq', 'pb/infra-reveal'):
             command = self.root / name
             command.write_text(f'#!{sys.executable}\n' + '''
-import os, pathlib, signal, time
+import json, os, pathlib, signal, sys, time
 path = pathlib.Path(os.environ['FIXTURE_ROOT']) / ('daemon-' + str(os.getpid()))
+path.with_suffix('.args').write_text(json.dumps(sys.argv))
 path.write_text('running')
 def stop(*args):
     path.write_text('stopped')
@@ -218,6 +243,22 @@ while True: time.sleep(0.05)
         self.save()
         process = self.start_entrypoint()
         self.ready(process, 'Waiting')
+        process.terminate()
+        self.assertEqual(process.wait(timeout=3), 0)
+        self.await_daemons(0)
+
+    def test_single_radio_supervisor_starts_without_usb_and_never_launches_admin(self):
+        self.entrypoint_fixture()
+        self.env['ADMIN_WIFI_ENABLED'] = 'false'
+        self.interfaces.pop()
+        self.save(iw='Interface wlan0\n type AP')
+        process = self.start_entrypoint()
+        running = self.await_daemons(3)
+        commands = [json.loads(p.with_suffix('.args').read_text()) for p in running]
+        hostapd = next(c for c in commands if c[0].endswith('/hostapd'))
+        self.assertEqual(hostapd[1:], [str(self.root / 'config/participants.hostapd')])
+        self.assertFalse(any('admin.' in arg for c in commands for arg in c))
+        self.assertEqual(self.start('health').wait(timeout=3), 0)
         process.terminate()
         self.assertEqual(process.wait(timeout=3), 0)
         self.await_daemons(0)

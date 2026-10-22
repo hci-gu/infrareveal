@@ -52,13 +52,13 @@ cleanup_lab_rules
 configure_firewall
 remove_legacy_rules
 
-# The host must leave both Wi-Fi interfaces unmanaged; Ethernet stays on DHCP.
-for iface in "$AP_IFACE" "$ADMIN_IFACE"; do
+# The host must leave enabled Wi-Fi interfaces unmanaged; Ethernet stays on DHCP.
+for i in "${!WIFI_IFACES[@]}"; do
+  iface=${WIFI_IFACES[$i]}
   ip link set "$iface" up
   ip -4 addr flush dev "$iface"
+  ip addr add "${WIFI_PREFIXES[$i]}.1/24" dev "$iface"
 done
-ip addr add "$AP_PREFIX.1/24" dev "$AP_IFACE"
-ip addr add "$ADMIN_PREFIX.1/24" dev "$ADMIN_IFACE"
 echo 1 > /proc/sys/net/ipv4/ip_forward
 
 # Capture interface identities before starting daemons. The watcher exits even
@@ -66,12 +66,18 @@ echo 1 > /proc/sys/net/ipv4/ip_forward
 python3 /root/scripts/gateway-runtime.py watch &
 children+=("$!")
 
-hostapd "$CONFIG_DIR/participants.hostapd" "$CONFIG_DIR/admin.hostapd" &
+hostapd_configs=("$CONFIG_DIR/participants.hostapd")
+if [ "$ADMIN_WIFI_ENABLED" = true ]; then
+  hostapd_configs+=("$CONFIG_DIR/admin.hostapd")
+fi
+hostapd "${hostapd_configs[@]}" &
 children+=("$!")
 dnsmasq --keep-in-foreground --conf-file="$CONFIG_DIR/participants.dnsmasq" &
 children+=("$!")
-dnsmasq --keep-in-foreground --conf-file="$CONFIG_DIR/admin.dnsmasq" &
-children+=("$!")
+if [ "$ADMIN_WIFI_ENABLED" = true ]; then
+  dnsmasq --keep-in-foreground --conf-file="$CONFIG_DIR/admin.dnsmasq" &
+  children+=("$!")
+fi
 /root/pb/infra-reveal serve --http=127.0.0.1:8090 --dir=/root/pb/pb_data &
 children+=("$!")
 

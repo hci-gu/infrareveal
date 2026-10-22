@@ -6,6 +6,16 @@ import type { TrafficDirection } from './mapWorkspace'
 export type WireBin = { received: number; sent: number; complete: boolean; observed: boolean }
 export type WireRange = { from: number; to: number }
 
+/** Anchor buckets to the clock so live panning cannot redistribute past traffic. */
+export function waveformGrid(range: WireRange, count = 96) {
+  const target = Math.max(1, (range.to - range.from) / Math.max(1, count))
+  const magnitude = 10 ** Math.floor(Math.log10(target))
+  const binMs = ([1, 2, 5, 10].find(step => step * magnitude >= target) ?? 10) * magnitude
+  const from = Math.floor(range.from / binMs) * binMs
+  const to = Math.max(from + binMs, Math.ceil(range.to / binMs) * binMs)
+  return { from, to, binMs, count: Math.round((to - from) / binMs) }
+}
+
 /** A playhead or total change cannot invalidate immutable captured intervals. */
 export function createWireWaveformCache() {
   const entries = new Map<string, { series: unknown[]; coverage: unknown; bins: WireBin[] }>()
@@ -43,11 +53,13 @@ export function wireWaveform(series: readonly MapSeries[], index: DestinationVol
   }
   return bins
 }
-export function waveformCeiling(series: WireBin[][], direction: TrafficDirection) {
+export function waveformCeiling(series: WireBin[][], direction: TrafficDirection, previous = 0) {
   let peak = 1
   for (const bins of series) for (const bin of bins) peak = Math.max(peak, direction === 'sent' ? 0 : bin.received, direction === 'received' ? 0 : bin.sent)
-  const magnitude = 10 ** Math.floor(Math.log10(peak))
-  return ([1, 2, 5, 10].find(step => step * magnitude >= peak) ?? 10) * magnitude
+  if (peak <= previous) return previous
+  // Hold the scale through quiet periods; new peaks get 25% breathing room.
+  const step = 10 ** (Math.floor(Math.log10(peak)) - 1)
+  return Math.ceil(peak * 1.25 / step) * step
 }
 /** Each bar is an interval average. Missing capture stays a gap, partial stays marked. */
 export function wireBars(bins: WireBin[], direction: 'received' | 'sent', ceiling: number) {

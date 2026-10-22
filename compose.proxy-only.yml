@@ -1,0 +1,10 @@
+# Add after docker-compose.yml (and any release override) for one-radio gateways.
+# No dashboard starts on a normal `docker compose up`; manage over Ethernet SSH.
+services:
+  proxy:
+    environment:
+      ADMIN_WIFI_ENABLED: "false"
+  dashboard:
+    profiles: [admin-ui]
+  debug-dashboard:
+    profiles: [admin-ui]

@@ -1,0 +1,22 @@
+[
+  {
+    "label": "SVT first visit",
+    "service": "svt.se",
+    "urls": ["https://www.svt.se/nyheter", "https://www.svt.se/nyheter/inrikes", "https://www.svt.se/nyheter/utrikes"],
+    "seconds_per_page": 40
+  },
+  {
+    "label": "Wikipedia visit",
+    "service": "wikipedia.org",
+    "allow_ambiguous": true,
+    "urls": ["https://sv.wikipedia.org/wiki/Raspberry_Pi", "https://sv.wikipedia.org/wiki/Internet"],
+    "seconds_per_page": 25
+  },
+  { "idle_seconds": 65 },
+  {
+    "label": "SVT return visit",
+    "service": "svt.se",
+    "urls": ["https://www.svt.se/nyheter"],
+    "seconds_per_page": 30
+  }
+]

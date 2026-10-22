@@ -4,8 +4,8 @@
   "version": "0.0.0",
   "packageManager": "pnpm@11.25.0",
   "scripts": {
-    "build": "pnpm -r --if-present run build",
-    "test": "pnpm -r --if-present run test",
-    "lint": "pnpm -r --if-present run lint"
+    "build": "corepack pnpm -r --if-present run build",
+    "test": "corepack pnpm -r --if-present run test",
+    "lint": "corepack pnpm -r --if-present run lint"
   }
 }

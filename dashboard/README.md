@@ -29,6 +29,13 @@ exact sums at their boundaries. Capture intervals distinguish observed silence,
 partial capture and unavailable evidence. An unlocated endpoint still contributes
 to totals. Shared IPs retain separate service, protocol, port and network bindings.
 
+The expanded traffic timeline gives each series its own lane, including distinct
+endpoints and capture epochs within one service. Lanes keep their order as totals
+change. Clock-aligned buckets keep old bar heights stable while the live window
+advances. All selected series share a scale that expands for new peaks and holds
+through quieter updates and scrolling; **Fit scale** fits it to the current data.
+Changing the time window or filters also refits the scale.
+
 **Activity** opens a paged block browser. Blocks are inferred service activity
 separated by quiet gaps, not proof of browsing attention. Details show original
 and retained starts, active time, captured totals, confidence and capture quality.

@@ -29,6 +29,22 @@ describe('captured series map projection',()=>{
     expect(view.tracks.every(track=>track.activeCount===0)).toBe(true)
     expect(projectMapFrame(view.scene,start+20000).activeSeriesCount).toBe(0)
   })
+  it('gives distinct series their own timeline lanes even at the same service and location',()=>{
+    const original=window.series[0]
+    const parallel={...original,id:'parallel',destination_port:8443}
+    const restarted={...original,id:'restarted',capture_epoch:'capture-2'}
+    const {view}=project({...window,series:[...window.series,parallel,restarted]})
+    expect(view.rows).toHaveLength(view.bySeries.size)
+    expect(view.rows.every(row=>row.series.length===1)).toBe(true)
+    expect(view.rows.filter(row=>row.label==='svt.se')).toHaveLength(3)
+    expect(view.rows.reduce((sum,row)=>sum+row.received,0)).toBe(view.total.received)
+    expect(view.rows.reduce((sum,row)=>sum+row.sent,0)).toBe(view.total.sent)
+  })
+  it('does not move timeline lanes when another service gains traffic',()=>{
+    const before=project().view.rows.map(row=>row.id)
+    const changed={...window,series:window.series.map(chunk=>chunk.service_key.startsWith('endpoint:')?{...chunk,samples:chunk.samples.map(sample=>[sample[0],sample[1]*100,sample[2]*100,...sample.slice(3)] as typeof sample)}:chunk)}
+    expect(project(changed).view.rows.map(row=>row.id)).toEqual(before)
+  })
   it('preserves outward and return bursts independently without lifetime estimation',()=>{
     const {view}=project(window,start+500)
     const profiles=projectTrafficProfiles(view.scene,indexMapTraffic(window.series,window.coverage),start+500)

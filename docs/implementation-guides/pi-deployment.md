@@ -1,6 +1,8 @@
-# Deploy the two-network Raspberry Pi gateway
+# Deploy the Raspberry Pi gateway
 
-The Pi runs the UI, PocketBase, two access points, DHCP/DNS and NAT. Ethernet
+The default two-radio configuration runs the UI, PocketBase, two access points,
+DHCP/DNS and NAT. The existing Pi uses the single-radio proxy-only configuration
+described below. Ethernet
 obtains an uplink address from the host OS. No upstream port forwarding or fixed
 Ethernet address is needed.
 
@@ -25,7 +27,79 @@ The UI and API remain accessible without an internet uplink, but the current
 basemap tiles/fonts require internet. This is an IPv4 deployment; IPv6 forwarding
 and access from both Wi-Fi interfaces are blocked to prevent an isolation bypass.
 
-## Existing Pi: historical inventory
+## Single-radio proxy-only deployment
+
+Use `compose.proxy-only.yml` to run the participant AP on the built-in radio
+without the USB admin adapter or dashboard containers. It sets
+`ADMIN_WIFI_ENABLED=false`: startup, preflight, watchdog and health checks only
+require the participant radio. No admin hostapd/DNS configuration, IP address,
+firewall exception or NAT rule is installed. Plugging in another radio does not
+enable admin Wi-Fi. Ethernet remains the internet uplink and SSH management path;
+the backend API remains on `127.0.0.1:8090`.
+
+For a source checkout, set these values in `.env` (use the actual built-in
+interface name, `ir-ap` on the existing Pi):
+
+```dotenv
+AP_IFACE=ir-ap
+ADMIN_WIFI_ENABLED=false
+COMPOSE_FILE=docker-compose.yml:compose.proxy-only.yml
+COMPOSE_PROFILES=
+```
+
+If the deployment has `compose.release.yml`, place it between the two files in
+`COMPOSE_FILE`. Build the gateway image before switching, keeping its existing
+data and GeoIP mounts. Stop and remove existing dashboard containers once;
+otherwise their previous restart policies can bring them back after reboot.
+Then run `docker compose up -d --no-build proxy`. With this configuration, plain
+`docker compose up -d` also selects only the proxy. The dashboard profiles are
+available only through an explicit override.
+
+Manage the Pi over `ssh pi@192.168.10.120`. To access the backend locally, use
+`ssh -L 8090:127.0.0.1:8090 pi@192.168.10.120` and open
+`http://127.0.0.1:8090/_/`. The participant network still blocks management ports.
+The API, DHCP/DNS, capture and internet forwarding all remain part of the proxy.
+
+## Existing Pi: current deployment and history
+
+**22 October update:** the Pi now runs only the proxy from
+`/home/pi/Documents/infrareveal-releases/fb86b7c-single-radio-20261022`, using
+`docker-compose.yml`, `compose.release.yml` and `compose.proxy-only.yml` through
+its saved `COMPOSE_FILE`. Admin Wi-Fi is disabled and both dashboard containers
+have been removed. The built-in `ir-ap` broadcasts `Infrareveal`; Ethernet
+provides SSH management and the uplink. The existing data and GeoIP mounts are
+retained. A full reboot confirmed automatic recovery, healthy API/DNS and
+advancing capture with no reported drops. See the
+[single-radio validation report](../validation/single-radio-raspberry-pi.md)
+for image identity, regression tests, evidence and operating commands.
+
+**15 October update:** the `data-refactor` release `fb86b7c` is deployed from
+`/home/pi/Documents/infrareveal-releases/fb86b7c`. Use `docker-compose.yml` plus
+`compose.release.yml`, project `infrareveal`, and the `debug` profile. Its fresh
+application data directory is `/home/pi/Documents/infrareveal/data-map-activity`;
+the existing PocketBase administrator account and GeoIP assets are retained.
+The seven core collections are enabled, diagnostics/trace/gate are disabled,
+and demo mode keeps a 30-minute window. The route engine is `scamper`.
+The host runs kernel `6.1.21-v8+` with its existing ARMv7 userspace and images.
+
+The frontend build required converting the lockfile to the pinned pnpm version,
+removing the obsolete luma.gl patch, and copying the shared test fixtures into
+the dashboard build. These deployment fixes are present in the release worktree
+and the local working tree; they are not part of commit `fb86b7c`. Build and
+verification evidence is in `output/pocketbase-restructuring/pi-deployment-2026-10-15/`.
+When editing an existing `.env`, replace every occurrence of a changed key and
+inspect the effective Compose volumes before starting the services.
+
+All three ARMv7 images built, and all 101 frontend tests passed in clean build
+containers. After reboot, the API, both dashboards, map/block reads, revision
+stream, DNS and both AP interfaces passed checks; the same demo session resumed.
+Browser checks covered the live map and activity views without console errors.
+The follow-up [physical client browsing test](../validation/client-browsing-e2e.md)
+on `pi@192.168.10.139` joined the participant AP and loaded six public SVT and
+Wikipedia pages. Its first run captured 5.46 MB with complete coverage and no
+reported drops, populated map destinations and separated the SVT revisit into
+a new activity block. Sustained adapter stability and physical admin Wi-Fi
+client connectivity remain unverified.
 
 **8 October update:** commit `85d30a6` is deployed from
 `/home/pi/Documents/infrareveal-releases/85d30a6`, using `docker-compose.yml` plus
@@ -219,7 +293,12 @@ allowed-origin configuration.
 
 ## Subsequent updates
 
-For later changes to this new standard:
+For the single-radio Pi, use its current release directory and saved
+`COMPOSE_FILE` above. Rebuild only the gateway image and run
+`sudo docker compose up -d --no-build proxy`; retain the proxy-only override and
+`ADMIN_WIFI_ENABLED=false` across releases.
+
+For a full two-radio checkout:
 
 ```bash
 cd /home/pi/Documents/infrareveal
@@ -231,18 +310,20 @@ sudo docker compose ps
 ```
 
 Keep `.env`, the selected new `DATA_DIR`, and `geoip` between updates. `restart: always` starts the
-services again after reboot. The gateway waits for both radios, including a USB
-adapter plugged in after startup, then validates configuration and starts the
-network. While a radio is missing, the proxy is unhealthy. Dashboard containers
+services again after reboot. The gateway waits for its enabled radios, then
+validates configuration and starts the network. With `ADMIN_WIFI_ENABLED=false`,
+the admin radio is completely excluded from startup and runtime checks. In the
+default two-radio mode, a USB adapter plugged in after startup is also supported.
+While a required radio is missing, the proxy is unhealthy. Dashboard containers
 start independently and wait for the gateway API before binding the admin
 address, so firewall isolation is installed before they begin serving requests.
 Rebuild all three images when upgrading to this recovery behavior.
 
-Every two seconds, a watchdog checks both radios, their interface identities,
-and gateway addresses. Losing or replacing either radio stops the gateway
+Every two seconds, a watchdog checks enabled radios, their interface identities,
+and gateway addresses. Losing or replacing a required radio stops the gateway
 daemons and lets Compose restart the proxy. It waits for the adapter to return,
 then restores addresses, Wi-Fi, DNS and the API. This interrupts both Wi-Fi
-networks and observation during recovery. Health checks also require both radios
+networks and observation during recovery. Health checks also require enabled radios
 to be in AP mode and the API to respond. USB enumeration failures still require
 reseating or replacing the adapter; application recovery cannot repair hardware.
 

@@ -10,7 +10,7 @@ import type { MapSeries, MapTrack, MapTrackCatalog } from './mapTracks'
 export type TrafficDirection = 'both' | 'received' | 'sent'
 export type WorkspaceState = { direction: TrafficDirection; locationId: string | null; expanded: boolean }
 export type LocationTraffic = ByteTotals & { id: string; label: string; detail: string; position?: MapPosition; country?: CountryFootprint | null; bytes: number; series: MapSeries[] }
-export type TimelineTrafficRow = ByteTotals & { id: string; trackId: string; label: string; client: string; location: string; locationId: string; series: MapSeries[]; bytes: number }
+export type TimelineTrafficRow = ByteTotals & { id: string; trackId: string; label: string; client: string; endpoint: string; location: string; locationId: string; series: MapSeries[]; bytes: number }
 export const directionalBytes = (value: { received: number; sent: number }, direction: TrafficDirection) => direction === 'both' ? value.received + value.sent : value[direction]
 export const directionLabel = (direction: TrafficDirection) => direction === 'received' ? 'Downloaded' : direction === 'sent' ? 'Sent' : 'Downloaded + sent'
 export const directionColor = (direction: number, light = false): [number, number, number] => direction === 1 ? light ? [168, 83, 32] : [239, 179, 120] : light ? [22, 123, 106] : [114, 222, 199]
@@ -30,7 +30,7 @@ export function projectWorkspace(catalog: MapTrackCatalog, scene: MapTimelineSce
   const all = projectMapTracks(catalog, scene, cursor, index)
   const byEndpoint = new Map(scene.endpoints.filter(e => e.availableFromMs <= cursor).map(e => [e.id, endpointLocation(e)]))
   const locations = new Map<string, LocationTraffic>()
-  const rows = new Map<string, TimelineTrafficRow>()
+  const rows: TimelineTrafficRow[] = []
   const bySeries = new Map<string, MapSeries>()
   const total = zero()
   const volumeBySeries = new Map<string, ByteTotals>()
@@ -47,14 +47,15 @@ export function projectWorkspace(catalog: MapTrackCatalog, scene: MapTimelineSce
     if (state.direction !== 'both' && volume[state.direction] === 0 && !volume.partial) continue
     const scoped = { ...series, bytes: directionalBytes(volume, state.direction) }
     bySeries.set(series.id, scoped)
-    const id = JSON.stringify([series.trackId, location.id])
-    const row = rows.get(id) ?? { id, trackId: series.trackId, label: series.label, client: series.client, location: location.label, locationId: location.id, ...zero(), bytes: 0, series: [] }
-    add(row, volume); row.bytes = directionalBytes(row, state.direction); row.series.push(scoped); rows.set(id, row)
+    const chunk = series.chunks[0]
+    rows.push({ id: series.id, trackId: series.trackId, label: series.label, client: series.client, endpoint: `${chunk.destination_ip}:${chunk.destination_port} · ${chunk.protocol.toUpperCase()}`, location: location.label, locationId: location.id, ...volume, bytes: scoped.bytes, series: [scoped] })
   }
   const tracks: MapTrack[] = all.tracks.map(track => {
     const series = track.series.flatMap(c => bySeries.has(c.id) ? [bySeries.get(c.id)!] : [])
     return { ...track, series, bytes: series.reduce((sum, c) => sum + c.bytes, 0), activeCount: series.filter(c => c.active).length, mappedCount: series.filter(c => c.mapped).length }
   }).filter(track => track.series.length).sort((a, b) => b.bytes - a.bytes || a.id.localeCompare(b.id))
-  return { locations: [...locations.values()].filter(location => state.direction === 'both' || location.bytes > 0 || location.partial).sort((a, b) => b.bytes - a.bytes || a.id.localeCompare(b.id)), rows: [...rows.values()].sort((a, b) => b.bytes - a.bytes || a.id.localeCompare(b.id)), total, bySeries, tracks, volumeBySeries, scene: sceneForTracks(scene, bySeries) }
+  // A changing byte total must not move a series into a different lane.
+  rows.sort((a, b) => a.label.localeCompare(b.label) || a.client.localeCompare(b.client) || a.trackId.localeCompare(b.trackId) || a.series[0].startMs - b.series[0].startMs || a.id.localeCompare(b.id))
+  return { locations: [...locations.values()].filter(location => state.direction === 'both' || location.bytes > 0 || location.partial).sort((a, b) => b.bytes - a.bytes || a.id.localeCompare(b.id)), rows, total, bySeries, tracks, volumeBySeries, scene: sceneForTracks(scene, bySeries) }
 }
 export type WorkspaceProjection = ReturnType<typeof projectWorkspace>

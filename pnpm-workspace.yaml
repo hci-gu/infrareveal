@@ -2,9 +2,14 @@ packages:
   - packages/*
   - dashboard
   - debug-dashboard
+# Use the same dependency layout locally, in CI and in container builds.
+enableGlobalVirtualStore: false
+# Checks must fail on stale dependencies instead of silently reinstalling them.
+verifyDepsBeforeRun: error
 minimumReleaseAgeExclude:
   # Already present in the baseline lockfile; keep reproducible installs working
   # while the local pnpm supply-chain policy's release-age window elapses.
   - eslint-plugin-react-refresh@0.5.6
-patchedDependencies:
-  "@luma.gl/core@9.3.6": patches/@luma.gl__core@9.3.6.patch
+  - node-releases@2.0.59
+  - react@19.3.1
+  - react-dom@19.3.1

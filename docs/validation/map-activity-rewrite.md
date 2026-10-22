@@ -4,6 +4,10 @@ Completed 2026-10-15 against the implementation in this working tree. The
 [implementation checklist](../../implementation-plan.md) is complete. The accepted
 contract is [ADR 0003](../adr/0003-map-activity-storage.md).
 
+The results below describe the original rewrite acceptance. Later checks include
+the successful [physical-client browsing run](client-browsing-e2e.md) on 15 October
+and [single-radio proxy deployment](single-radio-raspberry-pi.md) on 22 October.
+
 ## Result
 
 Fresh core startup creates seven application collections: `sessions`,

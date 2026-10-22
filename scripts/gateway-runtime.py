@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wait for USB radios, detect runtime loss, and check complete gateway health."""
+"""Wait for configured radios, detect runtime loss, and check gateway health."""
 import argparse
 import json
 import os
@@ -14,10 +14,15 @@ def command(*args):
 
 
 def radios():
-    return {
+    enabled = os.environ.get('ADMIN_WIFI_ENABLED', 'true')
+    if enabled not in ('true', 'false'):
+        raise ValueError('ADMIN_WIFI_ENABLED must be true or false')
+    result = {
         os.environ.get('AP_IFACE', 'wlan0'): os.environ.get('AP_PREFIX', '10.0.0') + '.1',
-        os.environ.get('ADMIN_IFACE', 'wlan1'): os.environ.get('ADMIN_PREFIX', '10.77.0') + '.1',
     }
+    if enabled == 'true':
+        result[os.environ.get('ADMIN_IFACE', 'wlan1')] = os.environ.get('ADMIN_PREFIX', '10.77.0') + '.1'
+    return result
 
 
 def snapshot(require_addresses=True):

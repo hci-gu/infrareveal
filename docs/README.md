@@ -12,7 +12,7 @@ Start with the [project README](../README.md) for setup and deployment, [CONTEXT
 
 - [PocketBase architecture](implementation-guides/pocketbase-architecture.md): lifecycle ownership, observation derivation, maintenance and transport contracts.
 
-- [Two-network Pi deployment](implementation-guides/pi-deployment.md): admin Wi-Fi, local UI/API hosting, ARMv7/ARM64 builds, fresh data and updates.
+- [Pi deployment](implementation-guides/pi-deployment.md): single-radio proxy operation, optional admin Wi-Fi/UI, ARMv7/ARM64 builds, fresh data and updates.
 
 - [Flow activity bursts](implementation-guides/flow-activity-bursts.md): capture, aggregation, persistence, quality and visualization contracts.
 - [Proxy Lab](implementation-guides/proxy-lab.md): runtime components, control APIs, first run and emergency recovery.
@@ -20,6 +20,8 @@ Start with the [project README](../README.md) for setup and deployment, [CONTEXT
 
 ## Validation procedures
 
+- [Single-radio Pi deployment](validation/single-radio-raspberry-pi.md): proxy-only startup and reboot, disabled admin Wi-Fi, network regression checks and operating commands.
+- [Physical client browsing](validation/client-browsing-e2e.md): real Chromium visits over a second Pi's Wi-Fi, map/activity assertions and repeatable artifacts.
 - [Map and activity rewrite](validation/map-activity-rewrite.md): completed checks, fresh collection counts, browser coverage and Pi smoke measurements.
 - [PocketBase restructuring](validation/pocketbase-restructuring.md): historical refactor evidence; superseded storage contracts are identified.
 - [Dashboard browser checks](validation/debug-dashboard.md): fixtures, interaction, accessibility, performance and lifecycle checks.

@@ -2,7 +2,7 @@
 
 **Status: implemented and verified on 2026-10-15.**
 
-See the [validation report](docs/validation/map-activity-rewrite.md) for test coverage, code-size changes and gateway measurements. The Pi smoke passed using real capture on isolated virtual interfaces; physical Wi-Fi testing was unavailable because the existing admin adapter was missing.
+See the [validation report](docs/validation/map-activity-rewrite.md) for test coverage, code-size changes and gateway measurements. The initial Pi smoke used isolated virtual interfaces; the subsequent [physical-client browsing test](docs/validation/client-browsing-e2e.md) passed on 15 October. The [single-radio deployment](docs/validation/single-radio-raspberry-pi.md) passed startup and reboot checks on 22 October after removing the admin-adapter dependency.
 
 The seven-collection model in [report.html](report.html) is the new standard. This checklist replaces the previous route implementation plan.
 

@@ -32,6 +32,19 @@ class PreflightTests(unittest.TestCase):
             with self.subTest(key=key), self.assertRaises(ValueError):
                 preflight.validate(dict(self.env, **{key: value}), [])
 
+    def test_single_radio_does_not_require_admin_settings_or_reserve_its_subnet(self):
+        env = {k: v for k, v in self.env.items() if not k.startswith('ADMIN_')}
+        env['ADMIN_WIFI_ENABLED'] = 'false'
+        preflight.validate(env, [dict(dst='10.77.0.0/24', dev='eth0')])
+        with self.assertRaisesRegex(ValueError, 'overlaps route'):
+            preflight.validate(env, [dict(dst='10.0.0.0/24', dev='eth0')])
+        with self.assertRaises(ValueError):
+            preflight.validate(dict(env, AP_IFACE='eth0'), [])
+
+    def test_admin_switch_rejects_typos(self):
+        with self.assertRaisesRegex(ValueError, 'ADMIN_WIFI_ENABLED'):
+            preflight.validate(dict(self.env, ADMIN_WIFI_ENABLED='flase'), [])
+
 
 if __name__ == '__main__':
     unittest.main()

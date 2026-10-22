@@ -11,8 +11,8 @@ node_modules/
 **/dist/
 *.tsbuildinfo
 .playwright-cli/
-output/playwright/
-output/pocketbase-restructuring/
+# Generated validation evidence, firmware logs and local host backups.
+/output/
 
 # Deployment configuration and persistent state
 .env
