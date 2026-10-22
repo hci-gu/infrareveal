@@ -120,6 +120,8 @@ configure_firewall() {
   reset_chain iptables filter IR_INPUT INPUT
   # Binding an address alone does not constrain its ingress interface on Linux.
   iptables -w -A IR_INPUT -i lo -j RETURN
+  # Local dashboards connect directly to PocketBase through the Ethernet LAN.
+  iptables -w -A IR_INPUT -i "$INTERNET_IFACE" -p tcp --dport 8090 -j ACCEPT
   if [ "$ADMIN_WIFI_ENABLED" = true ]; then
     iptables -w -A IR_INPUT -i "$ADMIN_IFACE" -s "$ADMIN_PREFIX.0/24" -p tcp -m multiport --dports 22,80,8081 -j ACCEPT
   fi

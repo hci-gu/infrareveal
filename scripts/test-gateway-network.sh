@@ -46,10 +46,21 @@ configure_firewall
 
 python3 -m http.server 80 --bind 0.0.0.0 >/tmp/http.log 2>&1 &
 server_pid=$!
+python3 -m http.server 8090 --bind 0.0.0.0 >/tmp/api.log 2>&1 &
+api_pid=$!
 ip netns exec upstream python3 -m http.server 8000 --bind 0.0.0.0 >/tmp/upstream.log 2>&1 &
 upstream_pid=$!
-trap 'kill "$server_pid" "$upstream_pid" 2>/dev/null || true' EXIT
+trap 'kill "$server_pid" "$api_pid" "$upstream_pid" 2>/dev/null || true' EXIT
 sleep 1
+# The backend is available to LAN clients; participant Wi-Fi stays isolated.
+ip netns exec upstream curl -fsS --max-time 3 http://198.18.0.1:8090/ >/dev/null
+curl -fsS --max-time 3 http://127.0.0.1:8090/ >/dev/null
+for address in 10.0.0.1 198.18.0.1; do
+  if ip netns exec participant curl -fsS --max-time 2 "http://$address:8090/" >/dev/null 2>&1; then
+    echo "Participant reached the backend: $address" >&2
+    exit 1
+  fi
+done
 if [ "$ADMIN_WIFI_ENABLED" = true ]; then
   ip netns exec admin curl -fsS --max-time 3 http://10.77.0.1/ >/dev/null
 else
@@ -125,4 +136,4 @@ assert response[:2] == b'\x12\x34' and response[3] & 15 == 0, response
 PY
 fi
 kill "$dns_participant"
-echo "PASS: management isolation, NAT, repeatable rules and DNS; ADMIN_WIFI_ENABLED=$ADMIN_WIFI_ENABLED"
+echo "PASS: LAN backend access, management isolation, NAT, repeatable rules and DNS; ADMIN_WIFI_ENABLED=$ADMIN_WIFI_ENABLED"

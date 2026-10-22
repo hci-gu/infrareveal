@@ -78,7 +78,7 @@ if [ "$ADMIN_WIFI_ENABLED" = true ]; then
   dnsmasq --keep-in-foreground --conf-file="$CONFIG_DIR/admin.dnsmasq" &
   children+=("$!")
 fi
-/root/pb/infra-reveal serve --http=127.0.0.1:8090 --dir=/root/pb/pb_data &
+/root/pb/infra-reveal serve --http=0.0.0.0:8090 --dir=/root/pb/pb_data &
 children+=("$!")
 
 # Any essential daemon or the network watcher exiting triggers Compose recovery.

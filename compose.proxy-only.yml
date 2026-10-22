@@ -1,5 +1,5 @@
 # Add after docker-compose.yml (and any release override) for one-radio gateways.
-# No dashboard starts on a normal `docker compose up`; manage over Ethernet SSH.
+# No dashboard starts on a normal `docker compose up`; PocketBase is on LAN :8090.
 services:
   proxy:
     environment:

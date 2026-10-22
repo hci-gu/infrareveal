@@ -14,13 +14,16 @@ Ethernet address is needed.
 | Admin dashboard | Main UI and same-origin API | `http://10.77.0.1/` |
 | Admin hostname | Resolved by the Pi's admin DNS | `http://infrareveal.home.arpa/` |
 | PocketBase console | Via dashboard reverse proxy | `http://10.77.0.1/_/` |
+| Direct PocketBase API/console | Ethernet LAN | `http://<Pi Ethernet IP>:8090/` / `/_/` |
 | Debug dashboard | Enable the `debug` Compose profile | `http://10.77.0.1:8081/` |
 
 Both wireless networks have internet through Ethernet. Forwarding between them
 is blocked. Only participant traffic is captured; separate DNS services and a
 backend client-subnet filter exclude admin DNS too. PocketBase listens on
-`127.0.0.1:8090`. The web servers bind the admin address, and ingress firewall
-rules reject web management access from Ethernet and participant Wi-Fi. SSH
+`0.0.0.0:8090`; the firewall allows direct access through `INTERNET_IFACE`
+for anyone on the Ethernet LAN. The web servers bind the admin address, and
+ingress firewall rules still reject dashboard ports from Ethernet and all web
+management ports from participant Wi-Fi. SSH
 remains available over Ethernet and is allowed from admin Wi-Fi.
 
 The UI and API remain accessible without an internet uplink, but the current
@@ -35,7 +38,7 @@ without the USB admin adapter or dashboard containers. It sets
 require the participant radio. No admin hostapd/DNS configuration, IP address,
 firewall exception or NAT rule is installed. Plugging in another radio does not
 enable admin Wi-Fi. Ethernet remains the internet uplink and SSH management path;
-the backend API remains on `127.0.0.1:8090`.
+the backend API is available directly at the Pi's Ethernet address on port 8090.
 
 For a source checkout, set these values in `.env` (use the actual built-in
 interface name, `ir-ap` on the existing Pi):
@@ -55,14 +58,21 @@ Then run `docker compose up -d --no-build proxy`. With this configuration, plain
 `docker compose up -d` also selects only the proxy. The dashboard profiles are
 available only through an explicit override.
 
-Manage the Pi over `ssh pi@192.168.10.120`. To access the backend locally, use
-`ssh -L 8090:127.0.0.1:8090 pi@192.168.10.120` and open
-`http://127.0.0.1:8090/_/`. The participant network still blocks management ports.
+Manage the Pi over `ssh pi@192.168.10.120`. Open the PocketBase console at
+`http://192.168.10.120:8090/_/` from the same LAN. For a local dashboard, set
+`VITE_POCKETBASE_URL=http://192.168.10.120:8090` in its `.env.local`, then restart
+Vite. No SSH tunnel is needed. The participant network still blocks management ports.
 The API, DHCP/DNS, capture and internet forwarding all remain part of the proxy.
 
 ## Existing Pi: current deployment and history
 
-**22 October update:** the Pi now runs only the proxy from
+**22 October LAN API update:** the Pi runs the proxy from
+`/home/pi/Documents/infrareveal-releases/2f6480c-lan-api-20261022`, with PocketBase
+listening on `0.0.0.0:8090` and a firewall exception for the Ethernet interface.
+The local dashboard connects directly to `http://192.168.10.120:8090`.
+The built-in radio, disabled admin services and existing data mounts are retained.
+
+**22 October single-radio update:** the Pi was switched to only the proxy from
 `/home/pi/Documents/infrareveal-releases/fb86b7c-single-radio-20261022`, using
 `docker-compose.yml`, `compose.release.yml` and `compose.proxy-only.yml` through
 its saved `COMPOSE_FILE`. Admin Wi-Fi is disabled and both dashboard containers
@@ -281,7 +291,8 @@ for its own schema. No parallel old/new data path is required.
 5. Browse from the admin device and confirm its `10.77.0.x` address does not
    appear as an observed client or DNS source. Participant devices must not be
    able to open either dashboard or access admin clients.
-6. Confirm dashboard/API access from Ethernet is rejected. SSH still works.
+6. From Ethernet, confirm `http://<Pi Ethernet IP>:8090/api/health` and `/_/`
+   work. Dashboard ports remain blocked; SSH still works.
 7. Reboot the Pi and repeat the checks. Then test moving Ethernet to another
    ordinary DHCP network. A missing uplink should not prevent local admin access.
 
@@ -350,9 +361,10 @@ reproduced failure, hardware comparisons and proposed repair sequence.
   interface. The preflight and hostapd errors appear in `docker compose logs proxy`.
 - **Host networking conflicts:** verify dhcpcd/NetworkManager/wpa_supplicant no
   longer manage the radios. The gateway deliberately does not kill host processes.
-- **UI unavailable:** `sudo docker compose ps` should show a healthy proxy and
-  running dashboard. Check the admin lease/address and logs. PocketBase's direct
-  port `8090` is intentionally inaccessible from other machines.
+- **UI unavailable:** `sudo docker compose ps` should show a healthy proxy.
+  In proxy-only mode, run the dashboard locally and set `VITE_POCKETBASE_URL`
+  to `http://<Pi Ethernet IP>:8090`. Check `/api/health` from that machine.
+  In two-radio mode, also check the dashboard container and admin lease/address.
 - **No internet:** inspect the host's `ip route` and DNS configuration. dnsmasq
   uses the container's resolver configuration inherited from the host; recreate
   the proxy if an uplink change leaves stale DNS servers.
@@ -375,7 +387,8 @@ docker run --rm --privileged --entrypoint bash \
 ```
 
 The network test uses veth clients in disposable network namespaces. Never add
-`--network host` to it. It verifies management isolation, cross-subnet blocking,
+`--network host` to it. It verifies direct LAN backend access, participant
+management isolation, cross-subnet blocking,
 both uplink NAT paths, repeatable rules, separate DNS services and the local admin
 hostname. Run it in a **native-architecture** Linux container: emulated ARMv7
 netlink/iptables calls are not a reliable network-policy test on an ARM64 host.

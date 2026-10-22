@@ -10,6 +10,10 @@ corepack pnpm install
 corepack pnpm --filter @infrareveal/dashboard dev
 ```
 
+To use the running Pi backend from the same Ethernet LAN, set
+`VITE_POCKETBASE_URL=http://192.168.10.120:8090` in `.env.local` and restart Vite.
+This connects to the Pi's PocketBase API directly; the frontend runs on your Mac.
+
 Both Equal Earth and Mercator show service/client tracks, directional traffic,
 unknown locations, country estimates and captured wire totals. Mercator keeps the
 route/direct toggle, perspective controls and animated directional payload bursts.

@@ -2,6 +2,9 @@
 
 Date: 22 October 2026. Host: `pi@192.168.10.120`.
 
+The original deployment below used a loopback-only API. The later LAN access
+update at the end of this report supersedes that binding and release path.
+
 The admin USB adapter was removed. The previous proxy waited indefinitely for
 `ir-admin`; the participant AP was down and the backend API was unavailable.
 The replacement runs only the proxy, using built-in radio `ir-ap`, SSID
@@ -76,3 +79,28 @@ through `ssh -L 8090:127.0.0.1:8090 pi@192.168.10.120`, then
 `http://127.0.0.1:8090/_/`. There is no admin Wi-Fi or frontend dashboard service.
 The previous release and image remain available, but starting their unmodified
 two-radio configuration would restore the missing-adapter dependency.
+
+## Later LAN access update
+
+PocketBase now listens on `0.0.0.0:8090`; the gateway firewall permits port 8090
+through the Ethernet uplink interface. Anyone on that LAN can use
+`http://192.168.10.120:8090` and the PocketBase console at `/_/`. The local
+dashboard selects this backend with `VITE_POCKETBASE_URL` in `.env.local`.
+
+The current release is `/home/pi/Documents/infrareveal-releases/2f6480c-lan-api-20261022`,
+using image `infrareveal-gateway:2f6480c-lan-api-20261022`. It replaces only the
+entrypoint and firewall script in the verified single-radio image. The Go binary
+and data mounts are unchanged. Only the proxy runs, with the admin radio and both
+dashboard containers still disabled.
+
+Both disposable network tests passed on the Pi: direct Ethernet API access,
+participant isolation, NAT, repeatable firewall rules and DNS. All eleven runtime
+tests passed locally and on the Pi. After recreation, the proxy is healthy with
+zero restarts and the same active session resumed with complete capture and zero
+reported drops. From the Mac, the health API, session manifest, CORS preflight,
+live revision stream and PocketBase console all work directly. Vite serves the
+Pi backend URL. Evidence is in `output/pocketbase-restructuring/lan-api-2026-10-22/`;
+the release's `deployment-evidence/` also records its Dockerfile and source diff.
+
+The existing `restart: always` policy and saved Compose configuration retain this
+setup across restarts. A second host reboot was not required for this update.

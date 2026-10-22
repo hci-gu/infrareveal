@@ -70,6 +70,10 @@ Run an individual dashboard with `corepack pnpm --filter @infrareveal/dashboard 
 `corepack pnpm --filter @infrareveal/debug-dashboard dev`. Set `VITE_POCKETBASE_URL`
 when PocketBase is not on port 8090 of the dashboard host.
 
+For the current Pi, put `VITE_POCKETBASE_URL=http://192.168.10.120:8090`
+in `dashboard/.env.local` (or `debug-dashboard/.env.local`) and restart Vite.
+PocketBase accepts direct connections from the Pi's Ethernet LAN.
+
 Note: The AP is open (no password) by default. Use only in controlled environments.
 
 Follow the **[Pi deployment guide](docs/implementation-guides/pi-deployment.md)**
@@ -87,7 +91,8 @@ through DHCP. Upstream authentication and subnet conflicts still need handling.
 When the optional admin network is enabled, join `Infrareveal-admin` with
 **`password123`** to open **http://10.77.0.1/** or
 **http://infrareveal.home.arpa/**. The UI and API share that address; no Ethernet IP
-needs to be discovered. Port 8090 is loopback-only. Participant devices continue
+needs to be discovered. PocketBase also accepts Ethernet LAN connections on
+port 8090, including its console at `http://192.168.10.120:8090/_/`. Participant devices continue
 to use `Infrareveal`, with internet and observation on `10.0.0.0/24`.
 
 ## Configuration
