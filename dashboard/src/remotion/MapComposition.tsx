@@ -29,6 +29,7 @@ export type MapCompositionProps = {
   mapStyleUrl: string | StyleSpecification
   unavailable: boolean
   loading: boolean
+  refreshing: boolean
   trafficIndex: MapTrafficIndex
   trafficLoading: boolean
   destinationIndex: DestinationVolumeIndex

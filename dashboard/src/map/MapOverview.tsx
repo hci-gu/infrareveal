@@ -1,3 +1,6 @@
+import { useLiveList } from './useLiveList'
+import { BackToLatest } from './BackToLatest'
+import type { ActivityOrder } from './activityOrder'
 import { memo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { formatBytes, formatCursor } from './format'
@@ -7,8 +10,8 @@ import { TrafficDirectionControl } from './TrafficDirectionControl'
 import type { WorkspaceProjection, WorkspaceState } from './mapWorkspace'
 import { directionLabel } from './mapWorkspace'
 
-export const MapOverview = memo(function MapOverview({ data, state, onChange, startMs, cursorMs, loading, error, selectedTrack, onTrack, activeOnly, onActiveOnly }: {
-  data: WorkspaceProjection; state: WorkspaceState; onChange: (value: WorkspaceState) => void; startMs: number; cursorMs: number; loading: boolean; error: boolean
+export const MapOverview = memo(function MapOverview({ data, state, onChange, startMs, cursorMs, capturedToMs, loading, error, refreshing, selectedTrack, onTrack, activeOnly, onActiveOnly }: {
+  data: WorkspaceProjection; state: WorkspaceState; onChange: (value: WorkspaceState) => void; startMs: number; cursorMs: number; capturedToMs: number; loading: boolean; error: boolean; refreshing: boolean
   selectedTrack: string | null; onTrack: (id: string | null) => void; activeOnly: boolean; onActiveOnly: (value: boolean) => void
 }) {
   const [tab, setTab] = useState<'locations' | 'tracks'>('locations')
@@ -18,10 +21,11 @@ export const MapOverview = memo(function MapOverview({ data, state, onChange, st
   const aside = useRef<HTMLElement>(null)
   const peak = Math.max(1, ...data.locations.map(location => location.bytes))
   const location = data.locations.find(location => location.id === state.locationId)
-  const quality = loading ? 'Loading totals…' : error ? 'Totals unavailable · retrying' : data.total.partial ? 'Captured wire bytes · partial' : 'Captured wire bytes'
+  const { items: orderedItems, scrollRef: listRef, paused: listPaused, back: resumeList, onScroll: scrollList, pause: pauseList } = useLiveList(data.locations, JSON.stringify([data.scene.sessionId, state.direction, state.locationId, state.order, tab]), cursorMs)
+  const quality = refreshing ? 'Updating · showing last loaded capture' : loading ? 'Loading totals…' : error ? 'Totals unavailable · retrying' : data.total.partial ? 'Captured wire bytes · partial' : 'Captured wire bytes'
   return <aside ref={aside} className="atlas-overview atlas-workspace-overview" aria-label="Traffic overview" style={dragWidth ? { '--overview-width': `${dragWidth}px` } as CSSProperties : undefined}>
     <div className="atlas-overview-heading"><h1>Traffic overview</h1><button type="button" className="atlas-icon-button" aria-label={state.expanded ? 'Back to map' : 'Expand traffic timeline'} onClick={() => onChange({ ...state, expanded: !state.expanded })}><MapIcon name={state.expanded ? 'back' : 'expand'} size={17} /></button></div>
-    <p className="atlas-scope">{formatCursor(startMs)}–{formatCursor(cursorMs)} UTC</p>
+    <p className="atlas-scope">{formatCursor(startMs)}–{formatCursor(Math.min(cursorMs, capturedToMs))} UTC</p>
     <TrafficDirectionControl value={state.direction} onChange={direction => onChange({ ...state, direction })} />
     {state.locationId && <button type="button" className="atlas-clear-location" onClick={() => onChange({ ...state, locationId: null })}>{location?.label ?? 'Location no longer retained'} ×</button>}
     <div className="atlas-metrics atlas-direction-metrics">
@@ -29,10 +33,12 @@ export const MapOverview = memo(function MapOverview({ data, state, onChange, st
       <div className={`atlas-up ${state.direction === 'received' ? 'is-inactive' : ''}`}><span className="atlas-metric-label">↑ Sent</span><strong data-direction-total="sent">{loading || error ? '—' : formatBytes(data.total.sent)}</strong></div>
     </div><p className="atlas-quality" role="status">{quality} · to playhead</p>
     <div className="atlas-overview-tabs" aria-label="Overview content"><button type="button" aria-pressed={tab === 'locations'} onClick={() => setTab('locations')}>Locations <small>{data.locations.length}</small></button><button type="button" aria-pressed={tab === 'tracks'} onClick={() => setTab('tracks')}>Tracks <small>{data.tracks.length}</small></button></div>
-    {tab === 'locations' ? <div className="atlas-location-list" aria-label="Remote locations"><div className="atlas-location-sort">By {directionLabel(state.direction).toLowerCase()}</div>{data.locations.map(location => <button type="button" key={location.id} className="atlas-location-row" aria-pressed={state.locationId === location.id} data-location-id={location.id} onClick={() => onChange({ ...state, locationId: state.locationId === location.id ? null : location.id })}>
+    <label className="atlas-list-order">Sort <select aria-label="Traffic list order" value={state.order ?? 'default'} onChange={event => onChange({ ...state, order: event.target.value === 'default' ? undefined : event.target.value as ActivityOrder })}><option value="default">Default</option><option value="latest">Latest activity</option><option value="volume">Traffic volume</option><option value="name">Name</option></select></label>
+    {tab === 'locations' && <BackToLatest paused={listPaused} onClick={resumeList} />}
+    {tab === 'locations' ? <div ref={listRef} onScroll={scrollList} onFocusCapture={pauseList} className="atlas-location-list" aria-label="Remote locations"><div className="atlas-location-sort">{state.order === 'latest' ? 'Latest activity first' : state.order === 'name' ? 'By name' : `By ${directionLabel(state.direction).toLowerCase()}`}</div>{orderedItems.map(location => <button type="button" key={location.id} className="atlas-location-row" aria-pressed={state.locationId === location.id} data-location-id={location.id} onClick={() => onChange({ ...state, locationId: state.locationId === location.id ? null : location.id })}>
       <span>{location.label}</span><strong>{loading || error ? '—' : formatBytes(location.bytes)}</strong><small>{location.detail}</small>
       <span className="atlas-location-bars" aria-hidden="true">{state.direction !== 'sent' && <i className="atlas-down-bar" style={{ width: `${location.received / peak * 100}%` }} />}{state.direction !== 'received' && <i className="atlas-up-bar" style={{ width: `${location.sent / peak * 100}%` }} />}</span>
-    </button>)}{!data.locations.length && <p className="atlas-list-empty">{loading ? 'Loading locations…' : 'No traffic observed at this time.'}</p>}</div> : <MapTrackList tracks={data.tracks} selectedId={selectedTrack} activeOnly={activeOnly} onActiveOnly={onActiveOnly} onSelect={onTrack} />}
+    </button>)}{!data.locations.length && <p className="atlas-list-empty">{loading ? 'Loading locations…' : error ? 'Locations unavailable · retrying' : refreshing ? 'Updating locations…' : 'No traffic observed at this time.'}</p>}</div> : <MapTrackList loading={loading} error={error} refreshing={refreshing} cursorMs={cursorMs} scope={JSON.stringify([data.scene.sessionId, state.direction, state.locationId, state.order])} order={state.order} tracks={data.tracks} selectedId={selectedTrack} activeOnly={activeOnly} onActiveOnly={onActiveOnly} onSelect={onTrack} />}
     <div className="atlas-overview-bottom"><span>{state.expanded ? 'Filters apply to every track' : 'Drag the edge to explore'}</span><button type="button" onClick={() => onChange({ ...state, expanded: !state.expanded })}>{state.expanded ? 'Map ↙' : 'Timeline ↗'}</button></div>
     {!state.expanded && <div className="atlas-pane-resize" role="separator" aria-label="Expand overview into timeline; press Enter" aria-orientation="vertical" tabIndex={0} aria-valuemin={260} aria-valuemax={1000} aria-valuenow={dragWidth ?? 290}
       onKeyDown={event => { if (event.key === 'Enter' || event.key === 'ArrowRight') { event.preventDefault(); onChange({ ...state, expanded: true }) } }}

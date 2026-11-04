@@ -1,3 +1,6 @@
+import { useLiveList } from './useLiveList'
+import { BackToLatest } from './BackToLatest'
+import type { ActivityOrder } from './activityOrder'
 import { useEffect, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { colorCSS } from './mapTracks'
@@ -7,21 +10,22 @@ import { MapIcon } from './MapIcon'
 import { directionLabel } from './mapWorkspace'
 import type { TrafficDirection } from './mapWorkspace'
 
-type Props = { direction: TrafficDirection; track: MapTrack; traffic: ReturnType<typeof trackTraffic>; locationLabel?: string; onClose: () => void; onFit: () => void }
-export function MapTrackInspector({ direction, track, traffic, locationLabel, onClose, onFit }: Props) {
+type Props = { cursorMs: number; order?: ActivityOrder; refreshing: boolean; direction: TrafficDirection; track: MapTrack; traffic: ReturnType<typeof trackTraffic>; locationLabel?: string; onClose: () => void; onFit: () => void }
+export function MapTrackInspector({ cursorMs, order, refreshing, direction, track, traffic, locationLabel, onClose, onFit }: Props) {
   const ref = useRef<HTMLElement>(null)
   const [query, setQuery] = useState('')
   useEffect(() => { ref.current?.focus({ preventScroll: true }) }, [])
   const search = query.trim().toLowerCase()
   const series = track.series.filter(value => [value.hostname, value.chunks[0].destination_ip, value.location].some(text => text.toLowerCase().includes(search)))
+  const { items: orderedItems, scrollRef: listRef, paused: listPaused, back: resumeList, onScroll: scrollList, pause: pauseList } = useLiveList(series, JSON.stringify([track.id, direction, order, search]), cursorMs)
   return <section ref={ref} tabIndex={-1} className="atlas-track-inspector" aria-label={`${track.label} details`} style={{ '--track-color': colorCSS(track.color) } as CSSProperties} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
     <header className="atlas-inspector-heading"><span>SELECTED SERVICE</span><button className="atlas-icon-button" aria-label="Close service details" onClick={onClose}><MapIcon name="close" /></button></header>
     {locationLabel && <button type="button" className="atlas-inspector-back" onClick={onClose}><MapIcon name="back" size={13} />Back to {locationLabel}</button>}
     <div className="atlas-track-title"><h2>{track.label}</h2><span>Client <b>{track.client}</b></span><p>Inferred service activity; it does not establish which page a person viewed.</p></div>
     <div className="atlas-track-summary"><div><strong>{formatBytes(track.bytes)}</strong><span>{directionLabel(direction)} · loaded window to playhead</span></div><div><strong>{traffic.available ? `${formatBytes(traffic.rate)}/s` : '—'}</strong><span>Captured payload rate{traffic.partial ? ' · partial capture' : ''}</span></div></div>
-    <div className="atlas-track-map-status"><span>{track.mappedCount} of {track.series.length} traffic series mapped</span><button disabled={!track.mappedCount} onClick={onFit}>Fit service</button></div>
-    <div className="atlas-inspector-scroll"><input className="atlas-search" type="search" aria-label="Find service destinations" placeholder="Find hostname, IP, or place…" value={query} onChange={event => setQuery(event.target.value)} />
-      {series.map(value => <SeriesDetails key={value.id} series={value} />)}
+    <div className="atlas-track-map-status"><span>{refreshing ? 'Updating · ' : ''}{track.mappedCount} of {track.series.length} traffic series mapped</span><button disabled={!track.mappedCount} onClick={onFit}>Fit service</button></div>
+    <BackToLatest paused={listPaused} onClick={resumeList} /><div ref={listRef} onScroll={scrollList} onFocusCapture={pauseList} className="atlas-inspector-scroll"><input className="atlas-search" type="search" aria-label="Find service destinations" placeholder="Find hostname, IP, or place…" value={query} onChange={event => setQuery(event.target.value)} />
+      {orderedItems.map(value => <SeriesDetails key={value.id} series={value} />)}
     </div>
   </section>
 }

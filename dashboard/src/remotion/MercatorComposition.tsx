@@ -41,7 +41,7 @@ const GRATICULE: MapPosition[][] = [
   ...Array.from({ length: 5 }, (_, index) => Array.from({ length: 37 }, (_, x) => [-180 + x * 10, -60 + index * 30] as MapPosition)),
 ]
 
-export function MercatorComposition({ cursorMs, preferences, theme, workspace, overview, onWorkspace, onSeekTime, endMs, scene, clock, width: compositionWidth, height: compositionHeight, playbackEpochMs, mapStyleUrl, unavailable, loading, trafficIndex, trafficLoading, destinationIndex, destinationLoading, destinationError }: MapCompositionProps) {
+export function MercatorComposition({ cursorMs, preferences, theme, workspace, overview, onWorkspace, onSeekTime, endMs, scene, clock, width: compositionWidth, height: compositionHeight, playbackEpochMs, mapStyleUrl, unavailable, loading, refreshing, trafficIndex, trafficLoading, destinationIndex, destinationLoading, destinationError }: MapCompositionProps) {
   const width = compositionWidth > 760 ? compositionWidth - 290 : compositionWidth
   const height = compositionWidth > 760 ? compositionHeight : Math.max(100, compositionHeight - 260)
   const projectedCursorMs = cursorMs
@@ -129,8 +129,10 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
   const backgroundCache = useMemo(() => new MercatorBackground(), [])
   const backgroundEffects = useMemo(() => quality.light ? [backgroundCache] : [], [backgroundCache, quality.light])
 
-  const basemap = useMemo(() => quality.light ? bundledBasemap(theme, preferences.labels,
-    new WebMercatorViewport({ ...viewState, width, height })) : [], [quality.light, theme, preferences.labels, viewState, width, height])
+  // Removing layers for the timeline finalizes them. Returning needs fresh
+  // layer instances, rather than reusing their disposed WebGL resources.
+  const basemap = useMemo(() => quality.light && !workspace.expanded ? bundledBasemap(theme, preferences.labels,
+    new WebMercatorViewport({ ...viewState, width, height })) : [], [quality.light, theme, preferences.labels, viewState, width, height, workspace.expanded])
 
   const layers = useMemo(() => {
     if (workspace.expanded) return []
@@ -329,7 +331,7 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
       </div>
 
 
-      {scene.endpoints.length === 0 && <div className="atlas-empty"><MapIcon name="globe" size={30} /><h2>{unavailable ? 'Session data unavailable' : loading ? 'Connecting to your session' : 'No mapped destinations yet'}</h2><p>{unavailable ? 'Check the gateway connection and try again.' : loading ? 'Loading the network view…' : 'Geolocated traffic will appear here as it is observed.'}</p></div>}
+      {scene.endpoints.length === 0 && !refreshing && <div className="atlas-empty"><MapIcon name="globe" size={30} /><h2>{unavailable ? 'Session data unavailable' : loading ? 'Connecting to your session' : 'No mapped destinations yet'}</h2><p>{unavailable ? 'Check the gateway connection and try again.' : loading ? 'Loading the network view…' : 'Geolocated traffic will appear here as it is observed.'}</p></div>}
       {mapError && !quality.light && <div className="atlas-map-error" role="status">Basemap tiles are unavailable. Traffic is still shown.</div>}
 
       <div className="atlas-map-tools" aria-label="Map controls">
@@ -341,10 +343,10 @@ export function MercatorComposition({ cursorMs, preferences, theme, workspace, o
       </div>
       <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded · to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent · from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p className="atlas-column-scale" data-volume-source={destinationLoading ? 'loading' : destinationError ? 'unavailable' : destinationPartial ? 'partial' : 'captured'}>Paired columns · fixed log scale · {directionLabel(direction)}{destinationLoading ? ' · Loading…' : destinationError ? ' · Capture unavailable' : destinationPartial ? ' · Partial capture' : ''}</p><p>Direct connections · Coarse IP locations{(trafficLoading || partialTraffic) ? trafficLoading ? ' · Loading rates' : ' · Partial rates' : ''}</p></div>
       </div>
-      <MapOverview data={overview} state={workspace} onChange={changeWorkspace} startMs={destinationIndex.fromMs ?? scene.startMs} cursorMs={projectedCursorMs} loading={destinationLoading} error={destinationError} selectedTrack={selection} onTrack={selectTrack} activeOnly={activeOnly} onActiveOnly={setActiveOnly} />
-      {workspace.expanded && <MapTimeline data={overview} state={workspace} onChange={changeWorkspace} index={destinationIndex} startMs={destinationIndex.fromMs ?? scene.startMs} endMs={endMs} cursorMs={cursorMs} onSeek={onSeekTime} onTrack={selectTrack} loading={destinationLoading} error={destinationError} />}
-      {!selected && selectedLocation && locationTraffic && <MapLocationInspector key={selectedLocation.id} location={selectedLocation} tracks={overview.tracks} direction={direction} traffic={locationTraffic} loading={destinationLoading} error={destinationError} trafficLoading={trafficLoading} onTrack={selectTrack} onClose={closeLocation} onFit={() => { fitNetwork(); if (workspace.expanded) onWorkspace({ ...workspace, expanded: false }) }} />}
-      {selected && selectedTraffic && <MapTrackInspector key={selected.id} direction={direction} track={selected} traffic={selectedTraffic} locationLabel={selectedLocation?.label} onClose={() => selectTrack(null)} onFit={() => { fitNetwork(selected.id); if (workspace.expanded) onWorkspace({ ...workspace, expanded: false }) }} />}
+      <MapOverview capturedToMs={destinationIndex.toMs ?? cursorMs} refreshing={refreshing} data={overview} state={workspace} onChange={changeWorkspace} startMs={destinationIndex.fromMs ?? scene.startMs} cursorMs={projectedCursorMs} loading={destinationLoading} error={destinationError} selectedTrack={selection} onTrack={selectTrack} activeOnly={activeOnly} onActiveOnly={setActiveOnly} />
+      {workspace.expanded && <MapTimeline refreshing={refreshing} data={overview} state={workspace} onChange={changeWorkspace} index={destinationIndex} startMs={destinationIndex.fromMs ?? scene.startMs} endMs={endMs} cursorMs={cursorMs} onSeek={onSeekTime} onTrack={selectTrack} loading={destinationLoading} error={destinationError} />}
+      {!selected && selectedLocation && locationTraffic && <MapLocationInspector cursorMs={cursorMs} order={workspace.order} refreshing={refreshing} key={selectedLocation.id} location={selectedLocation} tracks={overview.tracks} direction={direction} traffic={locationTraffic} loading={destinationLoading} error={destinationError} trafficLoading={trafficLoading} onTrack={selectTrack} onClose={closeLocation} onFit={() => { fitNetwork(); if (workspace.expanded) onWorkspace({ ...workspace, expanded: false }) }} />}
+      {selected && selectedTraffic && <MapTrackInspector cursorMs={cursorMs} order={workspace.order} refreshing={refreshing} key={selected.id} direction={direction} track={selected} traffic={selectedTraffic} locationLabel={selectedLocation?.label} onClose={() => selectTrack(null)} onFit={() => { fitNetwork(selected.id); if (workspace.expanded) onWorkspace({ ...workspace, expanded: false }) }} />}
     </div>
   )
 }

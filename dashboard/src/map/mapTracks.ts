@@ -2,7 +2,7 @@ import { seriesKey, serviceKey } from '@infrareveal/session-state'
 import type { MapWindow, TrafficChunk } from '@infrareveal/session-state'
 import type { MapTimelineScene } from './mapModel'
 import type { TrafficProfile } from './mapTraffic'
-import { seriesVolume } from './destinationVolumes'
+import { seriesLastActivity, seriesVolume } from './destinationVolumes'
 import type { DestinationVolumeIndex } from './destinationVolumes'
 export type TrackColor = [number, number, number]
 const PALETTE: TrackColor[] = [[104, 222, 193], [175, 148, 246], [247, 181, 100], [106, 184, 250], [239, 135, 160], [199, 216, 112], [104, 213, 230], [226, 164, 235], [239, 144, 101], [131, 201, 139], [162, 181, 226], [215, 198, 171]]
@@ -10,9 +10,9 @@ const PALETTE: TrackColor[] = [[104, 222, 193], [175, 148, 246], [247, 181, 100]
 
 export type MapSeries = {
   id: string; trackId: string; label: string; client: string; site: string; hostname: string
-  chunks: TrafficChunk[]; startMs: number; endMs: number; bytes: number; active: boolean; mapped: boolean; location: string; provider: string
+  chunks: TrafficChunk[]; startMs: number; endMs: number; lastActivityMs: number; bytes: number; active: boolean; mapped: boolean; location: string; provider: string
 }
-export type MapTrack = { id: string; label: string; client: string; site: string; color: TrackColor; series: MapSeries[]; bytes: number; activeCount: number; mappedCount: number }
+export type MapTrack = { id: string; label: string; client: string; site: string; color: TrackColor; series: MapSeries[]; lastActivityMs: number; bytes: number; activeCount: number; mappedCount: number }
 export type MapTrackCatalog = ReturnType<typeof buildMapTrackCatalog>
 /** Retain assigned colors across live revisions, independent of list sorting or selection. */
 export class TrackColors {
@@ -50,10 +50,10 @@ export function projectMapTracks(catalog: MapTrackCatalog, scene: MapTimelineSce
     const endMs = Math.max(startMs, ...visible.flatMap(chunk => chunk.samples.filter(sample => chunk.start_ms + sample[0] + chunk.bucket_ms <= cursorMs).map(sample => chunk.start_ms + sample[0] + chunk.bucket_ms)))
     const destination = catalog.destinations.get(first.destination_id)
     const trackId = serviceKey(first), label = first.service_label || first.destination_ip
-    const series: MapSeries = { id, trackId, label, client: first.client_ip || first.client_id, site: first.service_key, hostname: first.evidence.hostname || first.destination_ip, chunks: visible, startMs, endMs, bytes: 0, active: cursorMs <= endMs + 5000, mapped: mapped.has(id), location: destination ? [destination.city, destination.country].filter(Boolean).join(', ') : '', provider: destination?.provider || '' }
+    const series: MapSeries = { id, trackId, label, client: first.client_ip || first.client_id, site: first.service_key, hostname: first.evidence.hostname || first.destination_ip, chunks: visible, startMs, endMs, lastActivityMs: seriesLastActivity({ id }, volumes, cursorMs), bytes: 0, active: cursorMs <= endMs + 5000, mapped: mapped.has(id), location: destination ? [destination.city, destination.country].filter(Boolean).join(', ') : '', provider: destination?.provider || '' }
     const volume = seriesVolume(series, volumes, cursorMs); series.bytes = volume.received + volume.sent
-    const group = groups.get(trackId) ?? { id: trackId, label, client: series.client, site: series.site, color: catalog.colors.get(trackId), series: [], bytes: 0, activeCount: 0, mappedCount: 0 }
-    group.series.push(series); group.bytes += series.bytes; group.activeCount += Number(series.active); group.mappedCount += Number(series.mapped)
+    const group = groups.get(trackId) ?? { id: trackId, label, client: series.client, site: series.site, color: catalog.colors.get(trackId), series: [], lastActivityMs: 0, bytes: 0, activeCount: 0, mappedCount: 0 }
+    group.lastActivityMs = Math.max(group.lastActivityMs, series.lastActivityMs); group.series.push(series); group.bytes += series.bytes; group.activeCount += Number(series.active); group.mappedCount += Number(series.mapped)
     groups.set(trackId, group); bySeries.set(id, series)
   }
   return { tracks: [...groups.values()].sort((a,b) => b.bytes - a.bytes || a.id.localeCompare(b.id)), bySeries }

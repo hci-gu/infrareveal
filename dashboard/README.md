@@ -35,6 +35,20 @@ session's capture resolution (50 ms by default) for bursts. Cached windows suppo
 local playback. Pausing freezes absolute time while live capture continues;
 retention clamps only positions that have actually expired.
 
+Live refreshes keep the last successful window visible while the replacement
+loads, including after a transient failure. A small updating/error status marks
+stale data; failed requests retry automatically. Displayed capture bounds belong
+to the loaded snapshot. Retention removes expired samples immediately, and session
+changes, capture clears, history-size changes and unrelated seeks do not borrow
+the previous view. Initial loading and confirmed empty capture are distinct.
+
+Live sessions default to **Latest activity** across locations, tracks, service
+destinations and timeline lanes. Recency uses completed captured traffic bins up
+to the playhead, respecting direction and location filters. **Traffic volume**
+and **Name** remain available; recorded sessions retain their default ordering.
+Lists reorder at most once per second. Scrolling or focusing a row holds the
+current order; **Back to latest** resumes ordering and returns to the top.
+
 Every total comes from completed captured sample bins. No conntrack counters,
 lifetime estimates or invented gap traffic are added. Coarser history bins retain
 exact sums at their boundaries. Capture intervals distinguish observed silence,
@@ -42,8 +56,8 @@ partial capture and unavailable evidence. An unlocated endpoint still contribute
 to totals. Shared IPs retain separate service, protocol, port and network bindings.
 
 The expanded traffic timeline gives each series its own lane, including distinct
-endpoints and capture epochs within one service. Lanes keep their order as totals
-change. Clock-aligned buckets keep old bar heights stable while the live window
+endpoints and capture epochs within one service. In the recorded default order,
+lanes keep their order as totals change. Clock-aligned buckets keep old bar heights stable while the live window
 advances. All selected series share a scale that expands for new peaks and holds
 through quieter updates and scrolling; **Fit scale** fits it to the current data.
 Changing the time window or filters also refits the scale.
@@ -53,6 +67,9 @@ separated by quiet gaps, not proof of browsing attention. Details show original
 and retained starts, active time, captured totals, confidence and capture quality.
 Provisional blocks can change within the correction horizon. The service inspector
 shows destination locations, providers and bounded attribution evidence.
+Live Activity defaults to newest activity first, ordered by the backend before
+pagination, so a recently updated older block also appears on the first page.
+**Oldest first** remains available for chronological review.
 
 See [browser checks](test-support/README.md) for validation against the real API.
 Unit tests cover byte conservation, directional bursts, direct connections, geographic

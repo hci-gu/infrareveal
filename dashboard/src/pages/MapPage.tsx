@@ -40,6 +40,7 @@ const LIVE_EDGE_TOLERANCE_MS = 2_000
 export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: string; demo?: { status: DemoStatus; error: string } } = {}) {
   const { sessionID: routeSessionID = '' } = useParams()
   const sessionID = sessionIdOverride ?? routeSessionID
+  const { timeline, refresh } = useSession(sessionID)
   const kiosk = Boolean(demo)
   const { preferences, setPreferences, theme } = useMapPreferences()
   const renderQuality = mapRenderQuality(preferences.quality)
@@ -49,7 +50,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const [historySpan, setHistorySpan] = useState(300_000)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [view, setView] = useState<WorkspaceState & { sessionId: string }>({ sessionId: sessionID, direction: 'both', locationId: null, expanded: false })
-  const workspace = useMemo<WorkspaceState>(() => view.sessionId === sessionID ? view : { direction: view.direction, locationId: null, expanded: false }, [view, sessionID])
+  const workspace = useMemo<WorkspaceState>(() => ({ ...(view.sessionId === sessionID ? view : { direction: view.direction, locationId: null, expanded: false }), order: (view.sessionId === sessionID ? view.order : undefined) ?? (timeline.mode === 'live' ? 'latest' : undefined) }), [view, sessionID, timeline.mode])
   const updateWorkspace = useCallback((next: WorkspaceState) => setView({ ...next, sessionId: sessionID }), [sessionID])
   const pageRef = useRef<HTMLElement>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
@@ -61,7 +62,6 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const initializedSessionRef = useRef<string | null>(null)
   const programmaticSeekTargetRef = useRef<number | null>(null)
   const lastCursorPublishRef = useRef(0)
-  const { timeline, refresh } = useSession(sessionID)
   const { connectionState, error } = timeline
   const trackPalette = useMemo(() => ({ sessionID, colors: new TrackColors() }), [sessionID])
   const playbackEpochMs = timeline.epochMs
@@ -70,15 +70,15 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const windowTo = windowAnchor + 30_000
   const windowFrom = Math.max(timeline.manifest?.retained_from_ms ?? 0, windowTo - historySpan)
   const bucketMs = timeline.manifest?.policy.bucket_ms ?? 50
-  const history = useMapWindow(sessionID, windowFrom, windowTo, Math.ceil(1000/bucketMs)*bucketMs)
-  const activity = useMapWindow(sessionID, Math.max(windowFrom, windowAnchor - 30_000), windowAnchor + 60_000, bucketMs)
+  const history = useMapWindow(sessionID, windowFrom, windowTo, Math.ceil(1000/bucketMs)*bucketMs, '', true, `history:${historySpan}`)
+  const activity = useMapWindow(sessionID, Math.max(windowFrom, windowAnchor - 30_000), windowAnchor + 60_000, bucketMs, '', true, `activity:${historySpan}`)
   const scene = useMemo(() => buildMapTimelineScene(history.window, timeline.manifest, gatewayOrigin), [history.window, timeline.manifest])
   const contentEndMs = Math.max(scene.startMs + 1_000, scene.endMs, timeline.liveEdgeMs)
   const contentDurationInFrames = Math.max(FPS, frameForTime(playbackEpochMs, contentEndMs, FPS) + 1)
   const durationInFrames = timeline.mode === 'live' ? roundLiveDuration(contentDurationInFrames) : contentDurationInFrames
   const trackCatalog = useMemo(() => buildMapTrackCatalog(history.window, trackPalette.colors), [history.window, trackPalette])
   const trafficIndex = useMemo(() => indexMapTraffic(activity.window.series, activity.window.coverage), [activity.window])
-  const destinationIndex = useMemo(() => indexDestinationVolumes(history.window.series, windowFrom, history.window.coverage), [history.window, windowFrom])
+  const destinationIndex = useMemo(() => indexDestinationVolumes(history.window.series, history.window.from_ms, history.window.coverage, history.window.to_ms), [history.window])
   const projectionCursor = timeline.playback === 'paused' ? cursorMs : Math.floor(cursorMs / publishMs) * publishMs
   const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationIndex, projectionCursor, workspace), [trackCatalog, scene, destinationIndex, projectionCursor, workspace])
   const waveform = useMemo(() => createWireWaveformCache(), [])
@@ -158,14 +158,15 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     mapStyleUrl: styledMap,
     preferences, theme, workspace, overview, onWorkspace: updateWorkspace,
     endMs: contentEndMs, onSeekTime: seekTime,
-    unavailable: connectionState === 'error' || connectionState === 'offline',
-    loading: !scene.sessionId && connectionState !== 'error' && connectionState !== 'offline',
+    unavailable: !history.hasData && (Boolean(history.error) || connectionState === 'error' || connectionState === 'offline'),
+    loading: history.loading || (!scene.sessionId && connectionState !== 'error' && connectionState !== 'offline'),
+    refreshing: history.refreshing || (history.hasData && Boolean(history.error)),
     trafficIndex,
     trafficLoading: activity.loading,
     destinationIndex,
     destinationLoading: history.loading,
-    destinationError: Boolean(history.error),
-  }), [clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
+    destinationError: Boolean(history.error) && !history.hasData,
+  }), [clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, history.hasData, history.refreshing, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
   useEffect(() => { clock.configure({ durationInFrames, rate: timeline.rate }) }, [clock, durationInFrames, timeline.rate])
   useEffect(() => () => clock.dispose(), [clock])
 
@@ -317,7 +318,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       <div ref={mapContainerRef} className="atlas-map-container">
       <MapComposition {...inputProps} />
       </div>
-      {blocksOpen && <ActivityBlockBrowser sessionId={sessionID} fromMs={windowFrom} toMs={Math.min(windowTo, contentEndMs)} onSeek={seekTime} onClose={() => setBlocksOpen(false)} />}
+      {blocksOpen && <ActivityBlockBrowser live={timeline.mode === 'live'} cursorMs={cursorMs} sessionId={sessionID} fromMs={windowFrom} toMs={Math.min(windowTo, contentEndMs)} onSeek={seekTime} onClose={() => setBlocksOpen(false)} />}
       <MapSettings open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />
       <MapTransport scene={scene} bins={playbackBins} direction={workspace.direction} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}

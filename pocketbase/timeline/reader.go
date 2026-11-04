@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"sort"
 	"strconv"
 	"sync"
 	"time"
@@ -70,6 +71,7 @@ type Query struct {
 	limit                int
 	block                string
 	cursor               string
+	order                string
 }
 
 type pageCursor struct {
@@ -80,6 +82,7 @@ type pageCursor struct {
 	Resolution int64  `json:"s"`
 	Block      string `json:"b,omitempty"`
 	Snapshot   string `json:"x,omitempty"`
+	Order      string `json:"order,omitempty"`
 }
 
 func ParseQuery(values map[string][]string) (Query, error) {
@@ -95,6 +98,15 @@ func ParseBlockQuery(values map[string][]string) (Query, error) {
 func parseQuery(values map[string][]string, mapWindow bool) (Query, error) {
 	v := url.Values(values)
 	q := Query{resolution: 50, limit: defaultPageSize, block: v.Get("block"), cursor: v.Get("cursor")}
+	if !mapWindow {
+		switch v.Get("order") {
+		case "", "oldest":
+		case "latest":
+			q.order = "latest"
+		default:
+			return Query{}, fmt.Errorf("block order must be oldest or latest")
+		}
+	}
 	var err error
 	if q.from, err = strconv.ParseInt(v.Get("from"), 10, 64); err != nil || q.from < 0 {
 		return Query{}, fmt.Errorf("from must be Unix milliseconds")
@@ -132,7 +144,7 @@ func (q Query) offset(revision int64) (int, error) {
 		return 0, fmt.Errorf("%w: invalid cursor", ErrInvalidQuery)
 	}
 	var cursor pageCursor
-	if err = json.Unmarshal(payload, &cursor); err != nil || cursor.Offset < 0 || cursor.Offset > 1000000 || cursor.From != q.from || cursor.To != q.to || cursor.Resolution != q.resolution || cursor.Block != q.block {
+	if err = json.Unmarshal(payload, &cursor); err != nil || cursor.Offset < 0 || cursor.Offset > 1000000 || cursor.From != q.from || cursor.To != q.to || cursor.Resolution != q.resolution || cursor.Block != q.block || cursor.Order != q.order {
 		return 0, fmt.Errorf("%w: cursor does not match this request", ErrInvalidQuery)
 	}
 	if cursor.Revision != revision {
@@ -336,6 +348,15 @@ func (r *Reader) readBlocks(id string, q Query) (pageSnapshot, error) {
 		items, err := readBounded[data.ActivityBlock](app, "activity_blocks", "session={:session} && start_ms < {:to} && end_ms > {:from}", "start_ms,id", dbx.Params{"session": id, "from": snapshot.from, "to": q.to})
 		if err != nil {
 			return err
+		}
+		if q.order == "latest" {
+			sort.Slice(items, func(i, j int) bool {
+				left, right := min(items[i].EndMS, q.to), min(items[j].EndMS, q.to)
+				if left != right {
+					return left > right
+				}
+				return items[i].ID < items[j].ID
+			})
 		}
 		snapshot.blocks.Items = items
 		payload, err := json.Marshal(snapshot.blocks)

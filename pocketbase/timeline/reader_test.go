@@ -245,6 +245,42 @@ func TestBlockSnapshotRejectsMoreThanFourThousandSummaries(t *testing.T) {
 	}
 }
 
+func TestLatestBlockPagesStartWithRecentActivityAndPinOrder(t *testing.T) {
+	app := testsupport.App(t)
+	session := saveFact(t, app, "sessions", data.Session{ID: data.NewID(), StartedMS: 1000, EndedMS: 100000, Revision: 1})
+	// The oldest-starting block has the most recent activity.
+	for i, end := range []int64{90000, 5000, 7000} {
+		saveFact(t, app, "activity_blocks", data.ActivityBlock{ID: data.NewID(), Session: session.Id, StartMS: 1000 + int64(i)*1000, EndMS: end})
+	}
+	q, err := ParseBlockQuery(map[string][]string{"from": {"1000"}, "to": {"100000"}, "limit": {"1"}, "order": {"latest"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader := New(app)
+	var ends []int64
+	for {
+		page, err := reader.Blocks(session.Id, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ends = append(ends, page.Items[0].EndMS)
+		if page.NextCursor == "" {
+			break
+		}
+		q.cursor = page.NextCursor
+		changed, err := ParseBlockQuery(map[string][]string{"from": {"1000"}, "to": {"100000"}, "cursor": {q.cursor}, "order": {"oldest"}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := reader.Blocks(session.Id, changed); !errors.Is(err, ErrInvalidQuery) {
+			t.Fatalf("cursor accepted a different order: %v", err)
+		}
+	}
+	if !reflect.DeepEqual(ends, []int64{90000, 7000, 5000}) {
+		t.Fatalf("latest activity was buried: %v", ends)
+	}
+}
+
 // Dense fixture: one minute, fifty destination bindings, all 50 ms bins active.
 // Includes both HTTP-page projections so changes to the snapshot path are visible.
 func BenchmarkMapWindow(b *testing.B) {

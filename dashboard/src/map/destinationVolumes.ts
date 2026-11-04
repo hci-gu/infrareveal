@@ -6,8 +6,8 @@ import { hasMapCoordinates } from './mapCoordinates'
 import { countryFootprint } from './countryFootprints'
 import type { CountryFootprint } from './countryFootprints'
 type Interval = { start: number; end: number; received: number; sent: number; partial: boolean }
-type VolumeSeries = { intervals: Interval[]; received: number[]; sent: number[]; partial: number[] }
-export type DestinationVolumeIndex = Map<string, VolumeSeries> & { fromMs?: number; coverage?: CaptureInterval[] }
+type VolumeSeries = { intervals: Interval[]; received: number[]; sent: number[]; partial: number[]; lastReceived: number[]; lastSent: number[] }
+export type DestinationVolumeIndex = Map<string, VolumeSeries> & { fromMs?: number; toMs?: number; coverage?: CaptureInterval[] }
 export type ByteTotals = { received: number; sent: number; partial: boolean }
 export type DestinationVolume = ByteTotals & {
   id: string; position: MapPosition; location: string; bytes: number; height: number
@@ -20,10 +20,10 @@ export type DestinationColumn = ByteTotals & {
 
 
 /** Wire totals and waveforms share the same captured bins as the map response. */
-export function indexDestinationVolumes(chunks: readonly TrafficChunk[], fromMs = 0, coverage: CaptureInterval[] = []): DestinationVolumeIndex {
+export function indexDestinationVolumes(chunks: readonly TrafficChunk[], fromMs = 0, coverage: CaptureInterval[] = [], toMs?: number): DestinationVolumeIndex {
   const index: DestinationVolumeIndex = new Map()
   for (const chunk of chunks) {
-    const key = seriesKey(chunk), value = index.get(key) ?? { intervals: [], received: [0], sent: [0], partial: [0] }
+    const key = seriesKey(chunk), value = index.get(key) ?? { intervals: [], received: [0], sent: [0], partial: [0], lastReceived: [0], lastSent: [0] }
     for (const sample of chunk.samples) {
       const start = chunk.start_ms + sample[0], end = start + chunk.bucket_ms
       if (start < fromMs) continue
@@ -33,9 +33,9 @@ export function indexDestinationVolumes(chunks: readonly TrafficChunk[], fromMs 
   }
   for (const value of index.values()) {
     value.intervals.sort((a,b) => a.end-b.end)
-    for (const interval of value.intervals) { value.received.push(value.received[value.received.length - 1] + interval.received); value.sent.push(value.sent[value.sent.length - 1] + interval.sent); value.partial.push(value.partial[value.partial.length - 1] + Number(interval.partial)) }
+    for (const interval of value.intervals) { value.received.push(value.received[value.received.length - 1] + interval.received); value.sent.push(value.sent[value.sent.length - 1] + interval.sent); value.partial.push(value.partial[value.partial.length - 1] + Number(interval.partial)); value.lastReceived.push(interval.received > 0 ? interval.end : value.lastReceived[value.lastReceived.length - 1]); value.lastSent.push(interval.sent > 0 ? interval.end : value.lastSent[value.lastSent.length - 1]) }
   }
-  index.fromMs = fromMs; index.coverage = coverage
+  index.fromMs = fromMs; index.toMs = toMs; index.coverage = coverage
   return index
 }
 export function seriesVolume(series: MapSeries, index: DestinationVolumeIndex, cursorMs: number): ByteTotals {
@@ -44,6 +44,14 @@ export function seriesVolume(series: MapSeries, index: DestinationVolumeIndex, c
   let low = 0, high = value.intervals.length
   while (low < high) { const middle = (low+high) >>> 1; if (value.intervals[middle].end <= cursorMs) low = middle+1; else high = middle }
   return { received: value.received[low], sent: value.sent[low], partial: captureQuality(index.coverage ?? [], Math.max(index.fromMs ?? 0, series.startMs), Math.min(cursorMs, series.endMs)) !== 'complete' }
+}
+/** Last completed traffic bin, never a future sample or attribution timestamp. */
+export function seriesLastActivity(series: Pick<MapSeries, 'id'>, index: DestinationVolumeIndex, cursorMs: number, direction: 'both' | 'received' | 'sent' = 'both') {
+  const value = index.get(series.id)
+  if (!value) return 0
+  let low = 0, high = value.intervals.length
+  while (low < high) { const middle = (low + high) >>> 1; if (value.intervals[middle].end <= cursorMs) low = middle + 1; else high = middle }
+  return direction === 'received' ? value.lastReceived[low] : direction === 'sent' ? value.lastSent[low] : Math.max(value.lastReceived[low], value.lastSent[low])
 }
 /** Each series contributes once, even when destinations share a location. */
 export function projectDestinationVolumes(scene: MapTimelineScene, series: Map<string, MapSeries>, index: DestinationVolumeIndex, cursorMs: number, visibleIPs?: Set<string>): DestinationVolume[] {

@@ -14,6 +14,36 @@ function project(data=window,time=start+100) {
   return { scene,catalog,index,view:projectWorkspace(catalog,scene,index,time,{direction:'both',locationId:null,expanded:false}) }
 }
 describe('captured series map projection',()=>{
+  it('puts a small recent transfer ahead of old volume across locations, tracks, destinations and lanes',()=>{
+    const berlin={...window.destinations[0],id:'recent-city',city:'Berlin',lat:52.52,lon:13.4}
+    const fresh={...window.series[0],id:'recent',service_key:'recent.test',service_label:'recent.test',destination_id:berlin.id,start_ms:start+1000,samples:[[0,1,2,1,2,1,1]] as typeof window.series[0]['samples']}
+    const data={...window,destinations:[...window.destinations,berlin],series:[...window.series,fresh]}
+    const {scene,catalog,index}=project(data,start+2000)
+    const view=projectWorkspace(catalog,scene,index,start+2000,{direction:'both',locationId:null,expanded:true,order:'latest'})
+    expect(view.tracks[0].label).toBe('recent.test')
+    expect(view.rows[0].label).toBe('recent.test')
+    expect(view.locations[0].label).toBe('Berlin')
+    expect(view.tracks[0].lastActivityMs).toBe(start+1050)
+    expect(projectWorkspace(catalog,scene,index,start+2000,{direction:'both',locationId:null,expanded:true,order:'volume'}).tracks[0].label).not.toBe('recent.test')
+    const before=projectWorkspace(catalog,scene,index,start+1049,{direction:'both',locationId:null,expanded:true,order:'latest'})
+    expect(before.tracks[0].label).not.toBe('recent.test')
+    const parallel={...fresh,id:'recent-endpoint',service_key:window.series[0].service_key,service_label:window.series[0].service_label}
+    const same=project({...data,series:[...window.series,parallel]},start+2000)
+    const scoped=projectWorkspace(same.catalog,same.scene,same.index,start+2000,{direction:'both',locationId:null,expanded:false,order:'latest'})
+    expect(scoped.tracks[0].series[0].chunks[0].id).toBe('recent-endpoint')
+  })
+  it('uses the selected direction and location for recent activity, not future or unrelated samples',()=>{
+    const late={...window.series[0],id:'sent-only',start_ms:start+1000,samples:[[0,10,0,5,0,1,0],[2000,0,20,0,10,0,1]] as typeof window.series[0]['samples']}
+    const {scene,catalog,index}=project({...window,series:[...window.series,late]},start+2000)
+    const sent=projectWorkspace(catalog,scene,index,start+2000,{direction:'sent',locationId:null,expanded:false,order:'latest'})
+    const received=projectWorkspace(catalog,scene,index,start+2000,{direction:'received',locationId:null,expanded:false,order:'latest'})
+    expect(sent.tracks.find(track=>track.label==='svt.se')!.lastActivityMs).toBe(start+1050)
+    expect(received.tracks.find(track=>track.label==='svt.se')!.lastActivityMs).toBe(start+100)
+    const berlin={...window.destinations[0],id:'other-city',city:'Berlin',lat:52.52,lon:13.4}
+    const other=project({...window,destinations:[...window.destinations,berlin],series:[...window.series,{...late,destination_id:berlin.id}]},start+2000)
+    const scoped=projectWorkspace(other.catalog,other.scene,other.index,start+2000,{direction:'sent',locationId:'18.0686,59.3293',expanded:false,order:'latest'})
+    expect(scoped.tracks.find(track=>track.label==='svt.se')!.lastActivityMs).toBe(start+100)
+  })
   it('preserves all wire bytes once, separates shared-IP services, and includes unknown locations',()=>{
     const {view, index}=project()
     expect(view.total).toMatchObject({received:2000,sent:360,partial:false})

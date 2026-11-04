@@ -6,8 +6,8 @@ export const getSessions = (signal?: AbortSignal) => requestJSON<Session[] | { i
 export const getSessionManifest = (id: string, signal?: AbortSignal) => requestJSON<SessionManifest>(`${sessionPath(id)}/manifest`, signal)
 export const getDemoStatus = (signal?: AbortSignal) => requestJSON<DemoStatus>('/api/infrareveal/demo', signal)
 export const getBlock = (id: string, block: string, signal?: AbortSignal) => requestJSON<ActivityBlock>(`${sessionPath(id)}/blocks/${encodeURIComponent(block)}`, signal)
-export function getBlocks(id: string, from: number, to: number, cursor = '', signal?: AbortSignal) {
-  return requestJSON<BlockPage>(`${sessionPath(id)}/blocks?${new URLSearchParams({ from: String(from), to: String(to), cursor })}`, signal)
+export function getBlocks(id: string, from: number, to: number, cursor = '', signal?: AbortSignal, order: 'oldest' | 'latest' = 'oldest') {
+  return requestJSON<BlockPage>(`${sessionPath(id)}/blocks?${new URLSearchParams({ from: String(from), to: String(to), cursor, order })}`, signal)
 }
 export function getDiagnostics(id: string, kind: DiagnosticKind, from: number, to: number, token: string, signal?: AbortSignal) {
   return fetch(`${baseUrl}${sessionPath(id)}/diagnostics/${kind}?${new URLSearchParams({ from: String(from), to: String(to) })}`, { headers: { Authorization: token }, signal: requestSignal(signal) }).then(async response => {

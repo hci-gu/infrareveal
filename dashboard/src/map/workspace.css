@@ -208,3 +208,14 @@
 .atlas-block { display: grid; gap: 5px; width: 100%; text-align: left; padding: 12px; border-bottom: 1px solid var(--atlas-border, #334155); }
 .atlas-block[aria-pressed="true"] { background: #2b5d6344; }
 .atlas-block-detail { padding: 12px; overflow-wrap: anywhere; }
+.atlas-list-order{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:10px;color:var(--atlas-muted);padding:6px 0;flex-shrink:0}
+.atlas-list-order select{min-width:0;max-width:180px;border:1px solid var(--atlas-border);border-radius:5px;padding:5px 7px;color:var(--atlas-text);background:var(--atlas-panel);font:inherit}
+.atlas-back-latest{align-self:stretch;flex-shrink:0;margin:4px 0;padding:6px 10px;border:1px solid var(--atlas-border);border-radius:5px;background:var(--atlas-panel);color:var(--atlas-down);font:inherit;font-size:10px;text-align:center;cursor:pointer}
+.atlas-track-inspector>.atlas-list-order,.atlas-track-inspector>.atlas-back-latest{margin-left:17px;margin-right:17px}
+@media(max-width:760px){
+ .atlas-workspace-overview .atlas-direction{grid-column:1;grid-row:3}
+ .atlas-workspace-overview .atlas-direction button{font-size:8px;padding:6px 3px}
+ .atlas-workspace-overview>.atlas-list-order{grid-column:2;grid-row:3;padding:0;font-size:9px}
+ .atlas-workspace-overview>.atlas-list-order select{padding:2px 4px;max-width:140px}
+ .atlas-workspace-overview>.atlas-back-latest{grid-column:1;font-size:9px;padding:4px;margin:0}
+}

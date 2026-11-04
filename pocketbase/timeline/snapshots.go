@@ -103,7 +103,7 @@ func (r *Reader) continueSnapshot(id string, q Query, kind string) (pageSnapshot
 	if found == nil {
 		return pageSnapshot{}, 0, ErrRevisionChanged
 	}
-	if q.from != found.query.From || q.to != found.query.To || q.resolution != found.query.Resolution || q.block != found.query.Block {
+	if q.from != found.query.From || q.to != found.query.To || q.resolution != found.query.Resolution || q.block != found.query.Block || q.order != found.query.Order {
 		return pageSnapshot{}, 0, fmt.Errorf("%w: cursor does not match this request", ErrInvalidQuery)
 	}
 	revision := found.window.Revision
@@ -127,7 +127,7 @@ func (r *Reader) continueSnapshot(id string, q Query, kind string) (pageSnapshot
 }
 
 func queryCursor(q Query) pageCursor {
-	return pageCursor{From: q.from, To: q.to, Resolution: q.resolution, Block: q.block}
+	return pageCursor{From: q.from, To: q.to, Resolution: q.resolution, Block: q.block, Order: q.order}
 }
 
 func snapshotCursor(snapshot pageSnapshot, revision int64, offset int) string {

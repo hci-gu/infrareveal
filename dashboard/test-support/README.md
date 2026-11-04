@@ -29,3 +29,12 @@ the seeded DNS record should appear. Keep tokens out of screenshots, logs and gi
 checks deliberately use the backend schema and query implementation rather than
 mocking collection responses. Physical capture, NFQUEUE controls and sustained
 device performance require the separate Pi validation procedures in `docs/validation`.
+
+Live refresh regression tests mount the real shared hooks with delayed responses
+in `src/map/runtimeContinuity.test.tsx`. They cover window rollovers, extended
+outages, automatic recovery, retention, capture clears, late responses and revision
+coalescing. `aggregateProjection.test.ts` checks newest-first ordering, direction,
+location and playhead boundaries; `useLiveList.test.tsx` checks the update cadence,
+scroll/focus stability and returning to the latest order. Run `corepack pnpm test`
+from the repository root. The server's ordering and cursor checks run with
+`go test ./timeline ./gateway` from `pocketbase`.
