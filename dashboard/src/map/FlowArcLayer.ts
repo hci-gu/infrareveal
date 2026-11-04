@@ -28,7 +28,7 @@ type VolumeProps<T> = {
   getProgress: Accessor<T, number[]>
 }
 
-/** Shared temporal sampling for direct, country, and joined traceroute streams. */
+/** Temporal sampling for city and country traffic streams. */
 export const trafficHistoryShader = `
 float historyValue(int i) {
   if (i < 4) return instanceRadii0[clamp(i, 0, 3)];
@@ -158,7 +158,7 @@ void main() {
 }
 `
 
-/** Direct arcs and joined itineraries share tube meshes, attributes and animation. */
+/** City and country connections share tube meshes, attributes and animation. */
 export abstract class TrafficLayer<T, ExtraProps extends object = object> extends ArcLayer<T, VolumeProps<T> & ExtraProps> {
   static layerName = 'TrafficLayer'
   static defaultProps = {

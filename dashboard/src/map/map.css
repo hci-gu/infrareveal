@@ -37,13 +37,6 @@
 .atlas-country-tracks { display: flex; height: 3px; width: 100%; overflow: hidden; border-radius: 2px; }
 .atlas-country-tracks i { height: 100%; }
 .atlas-country-swatch { display: inline-block; width: 13px; height: 10px; border: 1px solid #68dec180; background: repeating-linear-gradient(135deg, #68dec140 0 1px, transparent 1px 4px); flex-shrink: 0; }
-.atlas-country-details { padding: 0 12px 12px; max-height: 240px; overflow-y: auto; font-size: 10px; color: #a4bac4; line-height: 1.5; }
-.atlas-country-details p { margin: 9px 0; }
-.atlas-country-details button { display: flex; align-items: center; gap: 7px; width: 100%; border: 0; border-top: 1px solid #344a55; background: transparent; color: #e3eeef; padding: 8px 0; text-align: left; font-size: 10px; }
-.atlas-country-details button span { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
-.atlas-country-details button strong { font-weight: 450; white-space: nowrap; }
-.atlas-country-details button i { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
-.atlas-country-details button:hover { color: #68dec1; }
 .atlas-header { height: 76px; flex-shrink: 0; display: flex; align-items: center; gap: 27px; padding: 0 28px; background: #0e1b24; border-bottom: 1px solid var(--atlas-border); z-index: 3; }
 .atlas-brand { display: flex; align-items: center; gap: 11px; flex-shrink: 0; }
 .atlas-brand-mark { display: grid; place-items: center; width: 37px; height: 37px; border: 1px solid #365750; border-radius: 10px; color: var(--atlas-teal); background: #172e30; }
@@ -307,30 +300,6 @@
 .atlas-connection-body dl > div { display: flex; gap: 10px; justify-content: space-between; font-size: 9px; line-height: 1.65; padding: 5px 0; }
 .atlas-connection-body dt { color: #849eac; flex: 1; }
 .atlas-connection-body dd { color: #c6d6dd; margin: 0; text-align: right; max-width: 60%; overflow-wrap: anywhere; font-variant-numeric: tabular-nums; }
-.atlas-connection-body p, .atlas-route-details { font-size: 9px; line-height: 1.6; color: #a1b8c3; }
-.atlas-route-details { margin-top: 12px; border: 1px solid var(--atlas-border); border-radius: 7px; padding: 11px; }
-.atlas-route-details small { display: block; overflow-wrap: anywhere; }
-.atlas-route-details > details { margin: 12px 0; padding: 8px; border: 1px solid var(--atlas-border); border-radius: 5px; }
-.atlas-route-details > details > summary { cursor: pointer; overflow-wrap: anywhere; }
-.atlas-route-details .atlas-route-alternatives { list-style: decimal; padding-left: 24px; margin: 6px 0; }
-.atlas-route-alternatives li { padding: 2px 0; overflow-wrap: anywhere; }
-.atlas-route-details > summary { cursor: pointer; color: var(--track-color); list-style: none; }
-.atlas-route-details > summary::-webkit-details-marker { display: none; }
-.atlas-route-details > summary > span { display: flex; justify-content: space-between; gap: 8px; align-items: center; }
-.atlas-route-details > summary > span::before { content: '+'; font-size: 12px; }
-.atlas-route-details[open] > summary > span::before { content: '−'; }
-.atlas-route-details summary b { margin-left: auto; font-weight: 400; font-size: 8px; color: #b5cbd4; }
-.atlas-route-details .atlas-route-explanation { font-size: 8px; margin: 12px 0; }
-.atlas-route-details .atlas-route-hops { padding: 0; margin: 10px 0 14px; list-style: none; }
-.atlas-route-hops li { display: flex; align-items: flex-start; gap: 9px; padding: 8px 0; position: relative; }
-.atlas-route-hops li:not(:last-child)::before { content: ''; position: absolute; left: 10px; top: 28px; bottom: -6px; border-left: 1px dashed #3d535e; }
-.atlas-hop-ttl { display: grid; place-items: center; flex-shrink: 0; width: 21px; height: 21px; border: 1px solid #3d535e; border-radius: 50%; color: #8ba4b0; font-size: 8px; font-variant-numeric: tabular-nums; }
-.is-located .atlas-hop-ttl { color: var(--track-color); border-color: var(--track-color); }
-.atlas-hop-description { flex: 1; min-width: 0; }
-.atlas-hop-description strong { display: block; font-size: 9px; font-weight: 450; overflow-wrap: anywhere; color: #c9dce3; }
-.atlas-hop-description small { margin-top: 1px; }
-.is-unlocated .atlas-hop-description strong { color: #8ba4b0; }
-.atlas-hop-rtt { flex-shrink: 0; padding-top: 2px; font-size: 8px; font-variant-numeric: tabular-nums; color: #9bb5c1; }
 .atlas-legend { flex-wrap: wrap; row-gap: 8px; }
 .atlas-track-evidence section { padding: 10px 0; }
 .atlas-track-evidence h3 { color: #c7dbe2; font-size: 11px; font-weight: 500; margin: 8px 0; }
@@ -341,11 +310,11 @@
 .atlas-track-evidence summary small { display: block; margin-top: 4px; }
 .atlas-track-pagination { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 16px 0 0; font-size: 9px; color: #8fa7b4; }
 .atlas-track-pagination button { padding: 5px; border: 1px solid var(--atlas-border); border-radius: 4px; background: #203741; color: #c6d7dd; font-size: 9px; }
-.atlas-composition[data-selected-track] .atlas-map-tools { right: 382px; }
+.atlas-composition[data-inspector-open] .atlas-map-tools { right: 382px; }
 
 @media (max-width: 1100px) and (min-width: 761px) {
   .atlas-track-inspector { width: 300px; right: 20px; }
-  .atlas-composition[data-selected-track] .atlas-map-tools { right: 336px; }
+  .atlas-composition[data-inspector-open] .atlas-map-tools { right: 336px; }
 }
 @media (max-width: 760px) {
   .atlas-overview { top: auto; padding: 12px; bottom: 146px; }
@@ -360,7 +329,7 @@
   .atlas-track-list .atlas-list-empty { padding: 0; margin: 5px; font-size: 10px; }
   .atlas-map-tools { bottom: 301px; }
   .atlas-track-inspector { top: 73px; bottom: 56px; left: 16px; right: 16px; width: auto; }
-  .atlas-composition[data-selected-track] .atlas-overview, .atlas-composition[data-selected-track] .atlas-map-tools { display: none; }
+  .atlas-composition[data-inspector-open] .atlas-overview, .atlas-composition[data-inspector-open] .atlas-map-tools { display: none; }
   .atlas-track-title { padding-bottom: 10px; }
   .atlas-track-title h2 { font-size: 21px; }
   .atlas-track-summary { padding: 11px 20px; gap: 10px; }

@@ -6,6 +6,10 @@ and location or service lists. Teal means downloaded to participant devices; amb
 means sent from them. Arrows and text identify direction as well as colour.
 Selecting a location filters the map, totals and timeline together. Unknown
 locations remain in the list and totals without an invented map point.
+The location details panel shows directional totals, payload rate, destinations,
+clients and contributing services. Search the service list or open a service to
+inspect its traffic at that location. Closing service details returns to the
+location panel; closing location details clears the location filter.
 
 ## Traffic and playback
 
@@ -43,25 +47,26 @@ traffic inside a block contributes bytes but does not extend its span; traffic
 outside blocks remains in map totals. These are inferred periods of network
 activity and do not measure browser focus, pages viewed or a person's attention.
 
-## Geography and routes
+## Geography and connections
 
 **Display settings** offers Equal Earth, Mercator, appearance, location labels and
 rendering quality. Preferences are saved in this browser.
 
 - **Equal Earth** uses bundled Natural Earth geography, directional connections
   and paired linear volume bars. Its background works without a network connection.
-- **Mercator** offers a detailed MapLibre basemap, route controls and directional
+- **Mercator** offers a detailed MapLibre basemap, perspective controls and directional
   columns with a fixed logarithmic scale. Its online tiles and fonts need internet
   access; Raspberry Pi mode uses bundled geography.
 - **Automatic**, **Raspberry Pi** and **Full detail** control rendering cost.
   Automatic selects Pi detail on browsers reporting four or fewer logical CPUs.
 
 Country-only evidence uses country footprints. City markers represent approximate
-IP locations. Destinations without coordinates are still counted. Route evidence
-is selected at the playhead for the exact destination/protocol/port/network binding;
-expired or invalidated paths cannot reappear. Without intermediate evidence, the
-direct line is an endpoint approximation. Service details show the evidence and,
-for an active session, a control to request a bounded measurement.
+IP locations. Destinations without coordinates are still counted. Both projections
+show direct connections from the gateway to destination locations. Mercator combines
+all tracks between the same locations into one arc with separate sent and downloaded
+flows. Selecting any contributing track highlights that shared arc; its volume
+continues to include all contributors. Service details show location, provider and
+classification evidence.
 
 Mercator's travelling bursts illustrate the recent captured payload shape over
 four seconds. They do not alter measurement timestamps or totals. Reduced-motion
@@ -84,7 +89,7 @@ may require a shorter history interval. Activity lists use separate bounded page
 `MapPlaybackClock` owns playback without frame-driven React renders. The renderer
 reads clock uniforms and requests at most thirty animation paints per second.
 Hidden maps and expanded timelines do not animate. UI publication uses 250 ms in
-Full detail and one second on Pi; user actions are immediate. Geography and route
+Full detail and one second on Pi; user actions are immediate. Geography and connection
 geometry are cached independently of changing rates and totals. Pi mode uses one
 WebGL canvas at one device pixel per CSS pixel and simpler curves.
 

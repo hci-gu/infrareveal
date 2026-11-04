@@ -14,7 +14,7 @@ export function MapSettings({ open, preferences, onChange, onClose }: { open: bo
     <div className="atlas-settings-body">
       <label htmlFor="map-projection">Map projection</label>
       <select id="map-projection" value={preferences.projection} onChange={event => onChange({ ...preferences, projection: event.target.value as MapPreferences['projection'] })}><option value="equal-earth">Equal Earth</option><option value="mercator">Mercator</option></select>
-      <p>{preferences.projection === 'equal-earth' ? 'Preserves relative land area. A flat worldwide view using bundled geography.' : 'Detailed map with perspective and approximate traceroute paths. Full detail includes online basemap tiles.'}</p>
+      <p>{preferences.projection === 'equal-earth' ? 'Preserves relative land area. A flat worldwide view using bundled geography.' : 'Detailed map with perspective and direct destination connections. Full detail includes online basemap tiles.'}</p>
       <label htmlFor="map-quality">Rendering detail</label>
       <select id="map-quality" value={preferences.quality} onChange={event => onChange({ ...preferences, quality: event.target.value as MapPreferences['quality'] })}><option value="auto">Automatic</option><option value="raspberry-pi">Raspberry Pi</option><option value="full">Full detail</option></select>
       <p>{preferences.quality === 'raspberry-pi' ? 'Simpler 3D curves, a local country map and fewer effects for smoother interaction.' : 'Automatic adjusts detail for this device. Traffic measurements stay the same at every setting.'}</p>

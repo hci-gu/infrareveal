@@ -76,7 +76,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const contentEndMs = Math.max(scene.startMs + 1_000, scene.endMs, timeline.liveEdgeMs)
   const contentDurationInFrames = Math.max(FPS, frameForTime(playbackEpochMs, contentEndMs, FPS) + 1)
   const durationInFrames = timeline.mode === 'live' ? roundLiveDuration(contentDurationInFrames) : contentDurationInFrames
-  const trackCatalog = useMemo(() => buildMapTrackCatalog(history.window, timeline.manifest, trackPalette.colors), [history.window, timeline.manifest, trackPalette])
+  const trackCatalog = useMemo(() => buildMapTrackCatalog(history.window, trackPalette.colors), [history.window, trackPalette])
   const trafficIndex = useMemo(() => indexMapTraffic(activity.window.series, activity.window.coverage), [activity.window])
   const destinationIndex = useMemo(() => indexDestinationVolumes(history.window.series, windowFrom, history.window.coverage), [history.window, windowFrom])
   const projectionCursor = timeline.playback === 'paused' ? cursorMs : Math.floor(cursorMs / publishMs) * publishMs
@@ -152,7 +152,6 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const inputProps = useMemo<MapCompositionProps>(() => ({
     scene,
     onInspectorChange: setInspectorOpen,
-    trackCatalog,
     fps: FPS, clock, width: size.width, height: size.height,
     playbackEpochMs,
     cursorMs: projectionCursor,
@@ -166,7 +165,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     destinationIndex,
     destinationLoading: history.loading,
     destinationError: Boolean(history.error),
-  }), [clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trackCatalog, trafficIndex, destinationIndex, history.loading, history.error, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
+  }), [clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
   useEffect(() => { clock.configure({ durationInFrames, rate: timeline.rate }) }, [clock, durationInFrames, timeline.rate])
   useEffect(() => () => clock.dispose(), [clock])
 

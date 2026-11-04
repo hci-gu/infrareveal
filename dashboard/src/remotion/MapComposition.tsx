@@ -1,7 +1,6 @@
 import { lazy, memo, Suspense } from 'react'
 import type { StyleSpecification } from 'maplibre-gl'
 import type { MapTimelineScene } from '../map/mapModel'
-import type { MapTrackCatalog } from '../map/mapTracks'
 import type { MapTrafficIndex } from '../map/mapTraffic'
 import type { MapPreferences } from '../map/mapPreferences'
 import type { WorkspaceProjection, WorkspaceState } from '../map/mapWorkspace'
@@ -21,7 +20,6 @@ export type MapCompositionProps = {
   onSeekTime: (time: number) => void
   endMs: number
   scene: MapTimelineScene
-  trackCatalog: MapTrackCatalog
   cursorMs: number
   fps: number
   clock: MapPlaybackClock

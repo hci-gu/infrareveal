@@ -15,10 +15,18 @@ To use the running Pi backend from the same Ethernet LAN, set
 This connects to the Pi's PocketBase API directly; the frontend runs on your Mac.
 
 Both Equal Earth and Mercator show service/client tracks, directional traffic,
-unknown locations, country estimates and captured wire totals. Mercator keeps the
-route/direct toggle, perspective controls and animated directional payload bursts.
+unknown locations, country estimates and captured wire totals. Both views use direct
+connections from the gateway to destination locations. All tracks between the same
+locations share one arc, combining their traffic while keeping sent and downloaded
+directions distinct. In Mercator, selecting a track highlights its shared arcs
+without splitting them or removing the other contributors' traffic.
+Selecting a location opens a details panel with directional totals, payload rate
+and the contributing services. Service details stay scoped to that location;
+closing them returns to the location panel. Country estimates and unlocated
+traffic use the same panel, with geographic precision kept explicit.
+Mercator offers perspective controls and animated directional payload bursts.
 The illustrated travel speed is not measured packet latency. Country estimates
-remain footprints rather than precise endpoint pins; unknown hops remain gaps.
+remain footprints rather than precise endpoint pins.
 
 The manifest supplies immutable session start, retention floor, capture health,
 policy and revision. One session revision stream invalidates bounded map windows.
@@ -44,15 +52,9 @@ Changing the time window or filters also refits the scale.
 separated by quiet gaps, not proof of browsing attention. Details show original
 and retained starts, active time, captured totals, confidence and capture quality.
 Provisional blocks can change within the correction horizon. The service inspector
-shows bounded attribution evidence and destination measurements, without
-reconstructing individual connections.
-
-Route publications appear only after their `available_ms` time. Selection uses the
-exact session/IP/protocol/port/network epoch binding; expiration or network
-invalidation cannot resurrect an older path. The inspector can request a new
-measurement for a captured destination within the gateway's normal quota.
+shows destination locations, providers and bounded attribution evidence.
 
 See [browser checks](test-support/README.md) for validation against the real API.
-Unit tests cover byte conservation, directional bursts, route history, geographic
+Unit tests cover byte conservation, directional bursts, direct connections, geographic
 precision, playback clocks and renderer geometry. Run `corepack pnpm test`,
 `corepack pnpm lint` and `corepack pnpm build` from this directory.

@@ -2,7 +2,7 @@ import { captureQuality, seriesKey } from '@infrareveal/session-state'
 import type { CaptureInterval, TrafficChunk } from '@infrareveal/session-state'
 import type { MapPosition, MapTimelineScene } from './mapModel'
 import type { MapSeries } from './mapTracks'
-import { hasMapCoordinates } from './mapRoutes'
+import { hasMapCoordinates } from './mapCoordinates'
 import { countryFootprint } from './countryFootprints'
 import type { CountryFootprint } from './countryFootprints'
 type Interval = { start: number; end: number; received: number; sent: number; partial: boolean }
@@ -45,7 +45,7 @@ export function seriesVolume(series: MapSeries, index: DestinationVolumeIndex, c
   while (low < high) { const middle = (low+high) >>> 1; if (value.intervals[middle].end <= cursorMs) low = middle+1; else high = middle }
   return { received: value.received[low], sent: value.sent[low], partial: captureQuality(index.coverage ?? [], Math.max(index.fromMs ?? 0, series.startMs), Math.min(cursorMs, series.endMs)) !== 'complete' }
 }
-/** Each series contributes once, regardless of route splits or hop count. */
+/** Each series contributes once, even when destinations share a location. */
 export function projectDestinationVolumes(scene: MapTimelineScene, series: Map<string, MapSeries>, index: DestinationVolumeIndex, cursorMs: number, visibleIPs?: Set<string>): DestinationVolume[] {
   const groups = new Map<string, DestinationVolume>()
   const seenSeries = new Set<string>()

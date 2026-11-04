@@ -1,5 +1,5 @@
 import { seriesKey, serviceKey } from '@infrareveal/session-state'
-import type { MapWindow, SessionManifest, TrafficChunk } from '@infrareveal/session-state'
+import type { MapWindow, TrafficChunk } from '@infrareveal/session-state'
 import type { MapTimelineScene } from './mapModel'
 import type { TrafficProfile } from './mapTraffic'
 import { seriesVolume } from './destinationVolumes'
@@ -31,12 +31,12 @@ export class TrackColors {
 }
 
 
-export function buildMapTrackCatalog(window: MapWindow, manifest: SessionManifest | null, colors = new TrackColors()) {
+export function buildMapTrackCatalog(window: MapWindow, colors = new TrackColors()) {
   const grouped = new Map<string, TrafficChunk[]>()
   for (const chunk of window.series) { const id = seriesKey(chunk); const group = grouped.get(id) ?? []; group.push(chunk); grouped.set(id, group) }
   for (const group of grouped.values()) group.sort((a, b) => a.start_ms - b.start_ms)
   const ids = new Set(window.series.map(serviceKey)); ids.forEach(id => colors.get(id)); colors.retain(ids)
-  return { grouped, colors, destinations: new Map(window.destinations.map(destination => [destination.id, destination])), window, manifest }
+  return { grouped, colors, destinations: new Map(window.destinations.map(destination => [destination.id, destination])) }
 }
 export function projectMapTracks(catalog: MapTrackCatalog, scene: MapTimelineScene, cursorMs: number, volumes: DestinationVolumeIndex) {
   const groups = new Map<string, MapTrack>(), bySeries = new Map<string, MapSeries>()
@@ -64,9 +64,12 @@ export function sceneForTracks(scene: MapTimelineScene, bySeries: Map<string, Ma
     return series.length ? [{ ...endpoint, series }] : []
   }) }
 }
-export function trackTraffic(track: MapTrack, scene: MapTimelineScene, profiles: Map<string, TrafficProfile>) {
-  const parts = scene.endpoints.filter(endpoint => endpoint.trackId === track.id).map(endpoint => profiles.get(endpoint.id)).filter((profile): profile is TrafficProfile => Boolean(profile))
-  return { rate: parts.reduce((sum, profile) => sum + profile.rates[0], 0), partial: track.mappedCount < track.series.length || parts.some(profile => profile.source === 'partial'), available: parts.some(profile => profile.source !== 'unavailable') }
+export function seriesTraffic(series: MapSeries[], profiles: Map<string, TrafficProfile>) {
+  const parts = series.map(series => profiles.get(series.id))
+  return { rate: parts.reduce((sum, profile) => sum + (profile?.rates[0] ?? 0), 0), partial: series.some(series => !series.mapped) || parts.some(profile => !profile || profile.source === 'partial'), available: parts.some(profile => profile && profile.source !== 'unavailable') }
+}
+export function trackTraffic(track: MapTrack, profiles: Map<string, TrafficProfile>) {
+  return seriesTraffic(track.series, profiles)
 }
 export function trackOpacity(trackId: string | undefined, selectedId: string | null) {
   return !selectedId || trackId === selectedId ? 1 : 0.09

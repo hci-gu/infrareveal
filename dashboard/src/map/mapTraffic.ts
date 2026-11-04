@@ -84,8 +84,8 @@ export function projectTrafficProfiles(scene: MapTimelineScene, index: MapTraffi
   return profiles
 }
 
-export function volumeArcs<T extends { endpointIds: string[] }>(routes: T[], profiles: Map<string, TrafficProfile>): (T & { radii: number[]; peakBytesPerSecond: number })[] {
-  return routes.map((arc) => {
+export function volumeArcs<T extends { endpointIds: string[] }>(connections: T[], profiles: Map<string, TrafficProfile>): (T & { radii: number[]; peakBytesPerSecond: number })[] {
+  return connections.map((arc) => {
     const rates = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0)
     const packets = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0)
     for (const endpointId of arc.endpointIds) {
@@ -100,7 +100,7 @@ export function volumeArcs<T extends { endpointIds: string[] }>(routes: T[], pro
   }).filter((arc) => arc.radii.some((radius) => radius > 0))
 }
 
-/** One fixed scale across routes: ~1 px for small exchanges, ~10 px at 1 MB/s. */
+/** One fixed scale across connections: ~1 px for small exchanges, ~10 px at 1 MB/s. */
 export function trafficRadius(bytesPerSecond: number, packetsPerSecond = 0): number {
   if (!Number.isFinite(bytesPerSecond) || bytesPerSecond < 0 || !Number.isFinite(packetsPerSecond) || packetsPerSecond < 0) return 0
   if (bytesPerSecond === 0) return packetsPerSecond > 0 ? 0.65 : 0
@@ -119,9 +119,9 @@ function trafficInBin(samples: RateSample[] | undefined, coverage: CaptureInterv
   return { bytesPerSecond: (sent+received)*factor, packetsPerSecond: (packetsSent+packetsReceived)*factor, inRate: received*factor, outRate: sent*factor, inPackets: packetsReceived*factor, outPackets: packetsSent*factor, source: quality === 'complete' ? 'sampled' as const : quality === 'unavailable' ? 'unavailable' as const : 'partial' as const }
 }
 /** Two independent volume lanes; incoming follows the same approximate geometry. */
-export function directionalVolumeArcs<T extends { endpointIds: string[] }>(routes: T[], profiles: Map<string, TrafficProfile>) {
+export function directionalVolumeArcs<T extends { endpointIds: string[] }>(connections: T[], profiles: Map<string, TrafficProfile>) {
   return [1, -1].flatMap(direction => {
     const directional = new Map([...profiles].map(([key, value]) => [key, {...value, rates: direction === 1 ? (value.outRates ?? value.rates) : (value.inRates ?? value.rates.map(() => 0)), packets: direction === 1 ? (value.outPackets ?? value.packets) : (value.inPackets ?? value.packets.map(() => 0))}]))
-    return volumeArcs(routes, directional).map(arc => ({...arc, direction}))
+    return volumeArcs(connections, directional).map(arc => ({...arc, direction}))
   })
 }

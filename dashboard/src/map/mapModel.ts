@@ -1,7 +1,6 @@
-import { routeForSeriesAt, seriesKey, serviceKey, trafficTotals } from '@infrareveal/session-state'
-import type { MapWindow, SessionManifest, RouteEvidence } from '@infrareveal/session-state'
-import { hasMapCoordinates, mapRoutePath, routeProgress } from './mapRoutes'
-import type { RouteNode } from './mapRoutes'
+import { seriesKey, serviceKey, trafficTotals } from '@infrareveal/session-state'
+import type { MapWindow, SessionManifest } from '@infrareveal/session-state'
+import { hasMapCoordinates } from './mapCoordinates'
 import { countryFootprint } from './countryFootprints'
 import type { CountryFootprint } from './countryFootprints'
 export type MapPosition = [longitude: number, latitude: number]
@@ -24,18 +23,6 @@ export type MapSeriesInterval = {
   packetsOut?: number
 }
 
-export type MapRoutePath = {
-  evidence: RouteEvidence
-  id: string
-  completedAtMs: number
-  positions: MapPosition[]
-  nodes: RouteNode[]
-  gaps: boolean[]
-  complete: boolean
-}
-
-export type MapHopPoint = RouteNode & { id: string; trackId?: string; routeId: string }
-
 export type MapEndpoint = {
   id: string
   trackId?: string
@@ -49,8 +36,6 @@ export type MapEndpoint = {
   firstSeenMs: number
   lastSeenMs: number
   series: MapSeriesInterval[]
-  routes: MapRoutePath[]
-  invalidations: RouteEvidence[]
 }
 
 export type MapTimelineScene = {
@@ -86,24 +71,19 @@ export type MapArc = {
   activeSeriesCount: number
   bytes: number
   tilt: number
-  routeId?: string
-  gap?: boolean
-  progressStart?: number
-  progressEnd?: number
   country?: CountryFootprint | null
 }
 
 export type MapFrame = {
   points: MapPoint[]
   arcs: MapArc[]
-  hops: MapHopPoint[]
   seenSeriesCount: number
   activeSeriesCount: number
   byteCount: number
 }
 
 const ACTIVE_TRAIL_MS = 5_000
-const MAX_ARC_SEGMENTS = 4_000
+const MAX_CONNECTIONS = 4_000
 
 
 /** Group captured aggregates by their exact endpoint/version/service binding. */
@@ -115,18 +95,15 @@ export function buildMapTimelineScene(window: MapWindow, manifest: SessionManife
   for (const [id, chunks] of grouped) {
     chunks.sort((a,b) => a.start_ms - b.start_ms)
     const chunk = chunks[0], destination = destinations.get(chunk.destination_id)
-    const paths = window.routes.filter(route => route.kind === 'path' && route.session === chunk.session && route.destination_ip === chunk.destination_ip && route.protocol === chunk.protocol && route.destination_port === chunk.destination_port && route.network_epoch === chunk.network_epoch)
     const position: MapPosition = [destination?.lon ?? NaN, destination?.lat ?? NaN]
     const country = countryFootprint({ city: destination?.city || '', country: destination?.country || '', position })
-    if (!hasMapCoordinates(position[1], position[0]) && !country?.polygons.length && !paths.some(path => path.hops.some(hop => hasMapCoordinates(hop.lat,hop.lon)))) continue
+    if (!hasMapCoordinates(position[1], position[0]) && !country?.polygons.length) continue
     const firstSeenMs = Math.min(...chunks.map(value => value.start_ms + (value.samples[0]?.[0] ?? 0)))
     const lastSeenMs = Math.max(...chunks.map(value => value.start_ms + (value.samples[value.samples.length - 1]?.[0] ?? 0) + value.bucket_ms))
     const totals = trafficTotals(chunks, window.from_ms, window.to_ms)
-    const routes = destination ? paths.map(route => mapRoutePath(route, origin, destination)) : []
     endpoints.push({ id, trackId: serviceKey(chunk), ip: chunk.destination_ip, label: chunk.service_label || destination?.ptr || chunk.destination_ip, provider: destination?.provider || '', city: destination?.city || '', country: destination?.country || '', position,
-      availableFromMs: Math.max(firstSeenMs, Math.min(destination?.observed_ms ?? Infinity, ...routes.map(route => route.completedAtMs))), firstSeenMs, lastSeenMs,
-      series: [{ id, startMs: firstSeenMs, endMs: lastSeenMs, bytes: totals.sent + totals.received, packets: totals.packetsSent + totals.packetsReceived }], routes,
-      invalidations: window.routes.filter(route => route.kind === 'network_invalidated' && route.network_epoch === chunk.network_epoch && route.session === chunk.session) })
+      availableFromMs: Math.max(firstSeenMs, destination?.observed_ms ?? Infinity), firstSeenMs, lastSeenMs,
+      series: [{ id, startMs: firstSeenMs, endMs: lastSeenMs, bytes: totals.sent + totals.received, packets: totals.packetsSent + totals.packetsReceived }] })
   }
   endpoints.sort((a,b) => a.firstSeenMs-b.firstSeenMs || a.id.localeCompare(b.id))
   return { sessionId: manifest?.id ?? null, sessionName: manifest?.name || 'InfraReveal session', startMs: manifest?.retained_from_ms ?? window.from_ms, endMs: manifest?.active ? manifest.server_ms : manifest?.ended_ms || window.to_ms, origin, endpoints, totalSeriesCount: grouped.size }
@@ -136,10 +113,10 @@ export function projectMapFrame(
   scene: MapTimelineScene,
   cursorMs: number,
   activeTrailMs = ACTIVE_TRAIL_MS,
-  maximumArcSegments = MAX_ARC_SEGMENTS,
+  maximumConnections = MAX_CONNECTIONS,
 ): MapFrame {
   const points: MapPoint[] = []
-  const connectedEndpoints: Array<{ endpoint: MapEndpoint; point: MapPoint; route: MapRoutePath | null }> = []
+  const connectedEndpoints: Array<{ endpoint: MapEndpoint; point: MapPoint }> = []
   let seenSeriesCount = 0
   let activeSeriesCount = 0
   let byteCount = 0
@@ -158,8 +135,6 @@ export function projectMapFrame(
     }
     if (endpointSeenFlows === 0) continue
 
-    const route = latestAvailableRoute(endpoint, cursorMs)
-    const location = route?.evidence?.destination_location
     const country = countryFootprint(endpoint)
     const point: MapPoint = {
       id: endpoint.id,
@@ -168,7 +143,7 @@ export function projectMapFrame(
       label: endpoint.label,
       provider: endpoint.provider,
       location: [endpoint.city, endpoint.country].filter(Boolean).join(', '),
-      position: country?.position ?? (location ? [location.lon, location.lat] : endpoint.position),
+      position: country?.position ?? endpoint.position,
       country,
       seriesCount: endpointSeenFlows,
       activeSeriesCount: endpointActiveFlows,
@@ -183,7 +158,6 @@ export function projectMapFrame(
     connectedEndpoints.push({
       endpoint,
       point,
-      route,
     })
   }
 
@@ -194,53 +168,25 @@ export function projectMapFrame(
   )
 
   const arcs: MapArc[] = []
-  const hops = new Map<string, MapHopPoint>()
-  for (const { endpoint, point, route } of connectedEndpoints) {
-    let positions = route?.positions ?? (hasMapCoordinates(point.position[1], point.position[0]) ? [originPosition(scene.origin), point.position] : [])
-    if (point.country) {
-      // Retain located route evidence, but never route into a country centroid as a city.
-      positions = route
-        ? [...positions.slice(0, route.nodes[route.nodes.length - 1]?.kind === 'destination' ? -1 : undefined), point.country.position]
-        : [originPosition(scene.origin), point.country.position]
-    }
-    // Keep complete paths when the display budget is exhausted.
-    if (arcs.length + positions.length - 1 > maximumArcSegments) continue
-    const progress = routeProgress(positions)
-    for (let index = 1; index < positions.length && arcs.length < maximumArcSegments; index += 1) {
-      arcs.push({
-        id: `${endpoint.id}:${index}`,
-        trackId: endpoint.trackId,
-        endpointId: endpoint.id,
-        sourcePosition: positions[index - 1],
-        targetPosition: positions[index],
-        activeSeriesCount: point.activeSeriesCount,
-        bytes: point.bytes,
-        tilt: deterministicTilt(endpoint.ip),
-        routeId: route?.id,
-        gap: route?.gaps[index - 1] ?? true,
-        progressStart: progress[index - 1],
-        progressEnd: progress[index],
-        country: index === positions.length - 1 ? point.country : null,
-      })
-      const hop = route?.nodes[index]
-      if (hop?.kind === 'hop') {
-        const id = `${endpoint.trackId ?? ''}/${route!.id}/${hop.ttl}/${hop.address}`
-        hops.set(id, { ...hop, id, trackId: endpoint.trackId, routeId: route!.id })
-      }
-    }
-    if (arcs.length >= maximumArcSegments) break
+  for (const { endpoint, point } of connectedEndpoints) {
+    if (arcs.length >= maximumConnections) break
+    if (!hasMapCoordinates(point.position[1], point.position[0])) continue
+    arcs.push({
+      id: endpoint.id,
+      trackId: endpoint.trackId,
+      endpointId: endpoint.id,
+      sourcePosition: originPosition(scene.origin),
+      targetPosition: point.position,
+      activeSeriesCount: point.activeSeriesCount,
+      bytes: point.bytes,
+      tilt: deterministicTilt(endpoint.ip),
+      country: point.country,
+    })
   }
 
-  return { points, arcs, hops: [...hops.values()], seenSeriesCount, activeSeriesCount, byteCount }
+  return { points, arcs, seenSeriesCount, activeSeriesCount, byteCount }
 }
 
-
-function latestAvailableRoute(endpoint: MapEndpoint, cursorMs: number) {
-  const binding = endpoint.routes[0]?.evidence
-  if (!binding) return null
-  const latest = routeForSeriesAt(binding, [...endpoint.routes.map(path => path.evidence), ...endpoint.invalidations], cursorMs)
-  return latest ? endpoint.routes.find(path => path.id === latest.id) ?? null : null
-}
 function originPosition(origin: GatewayOrigin): MapPosition {
   return [origin.longitude, origin.latitude]
 }

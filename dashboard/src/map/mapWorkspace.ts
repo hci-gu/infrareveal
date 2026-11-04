@@ -1,7 +1,7 @@
 import type { MapEndpoint, MapPosition, MapTimelineScene } from './mapModel'
 import { countryFootprint } from './countryFootprints'
 import type { CountryFootprint } from './countryFootprints'
-import { hasMapCoordinates } from './mapRoutes'
+import { hasMapCoordinates } from './mapCoordinates'
 import { seriesVolume } from './destinationVolumes'
 import type { ByteTotals, DestinationVolumeIndex } from './destinationVolumes'
 import { projectMapTracks, sceneForTracks } from './mapTracks'

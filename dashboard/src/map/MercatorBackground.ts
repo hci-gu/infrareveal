@@ -7,7 +7,7 @@ import { ClipSpace } from '@luma.gl/engine'
 // animated streams retain their ordinary depth, picking and draw order.
 const backgroundIds = new Set([
   'base-geography', 'country-footprints', 'country-outlines', 'country-connections',
-  'atlas-grid', 'connection-strips', 'unknown-route-spans', 'traceroute-strips',
+  'atlas-grid', 'connection-strips',
 ])
 
 export class MercatorBackground implements Effect {

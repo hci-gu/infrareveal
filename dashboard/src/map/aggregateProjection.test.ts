@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import fixture from '../../../testdata/aggregate-window-v2.json'
 import type { MapWindow, SessionManifest } from '@infrareveal/session-state'
 import { buildMapTimelineScene, projectMapFrame } from './mapModel'
-import { buildMapTrackCatalog } from './mapTracks'
+import { buildMapTrackCatalog, seriesTraffic, trackTraffic } from './mapTracks'
 import { indexDestinationVolumes, projectDestinationVolumes } from './destinationVolumes'
 import { projectWorkspace } from './mapWorkspace'
 import { directionalVolumeArcs, indexMapTraffic, projectTrafficProfiles } from './mapTraffic'
@@ -10,7 +10,7 @@ import { wireWaveform } from './wireWaveform'
 const window=fixture.window as MapWindow, manifest=fixture.manifest as SessionManifest, start=manifest.started_ms
 const origin={latitude:57.7,longitude:11.9,label:'Gateway'}
 function project(data=window,time=start+100) {
-  const scene=buildMapTimelineScene(data,manifest,origin), catalog=buildMapTrackCatalog(data,manifest), index=indexDestinationVolumes(data.series,data.from_ms,data.coverage)
+  const scene=buildMapTimelineScene(data,manifest,origin), catalog=buildMapTrackCatalog(data), index=indexDestinationVolumes(data.series,data.from_ms,data.coverage)
   return { scene,catalog,index,view:projectWorkspace(catalog,scene,index,time,{direction:'both',locationId:null,expanded:false}) }
 }
 describe('captured series map projection',()=>{
@@ -23,6 +23,29 @@ describe('captured series map projection',()=>{
     expect(volumes).toHaveLength(1)
     expect(volumes[0]).toMatchObject({received:2000,sent:300,seriesCount:2})
     expect(volumes[0].tracks).toHaveLength(2)
+  })
+  it('scopes location services and rates without including the same service at another location',()=>{
+    const berlin={...window.destinations[0],id:'berlin',city:'Berlin',lat:52.52,lon:13.4}
+    const other={...window.series[0],id:'other-location',destination_id:berlin.id}
+    const {scene,catalog,index}=project({...window,destinations:[...window.destinations,berlin],series:[...window.series,other]},start+500)
+    const locationId='18.0686,59.3293'
+    const view=projectWorkspace(catalog,scene,index,start+500,{direction:'both',locationId,expanded:false})
+    const profiles=projectTrafficProfiles(view.scene,indexMapTraffic(window.series,window.coverage),start+500)
+    expect(view.tracks.map(track=>track.label).sort()).toEqual(['news.example','svt.se'])
+    expect(view.tracks.reduce((sum,track)=>sum+track.bytes,0)).toBe(2300)
+    expect(seriesTraffic(view.tracks.flatMap(track=>track.series),profiles)).toMatchObject({rate:3480,available:true,partial:false})
+    expect(trackTraffic(view.tracks.find(track=>track.label==='svt.se')!,profiles).rate).toBe(1740)
+    const sent=projectWorkspace(catalog,scene,index,start+500,{direction:'sent',locationId,expanded:false})
+    expect(sent.tracks.reduce((sum,track)=>sum+track.bytes,0)).toBe(300)
+    expect(sent.locations.find(location=>location.id===locationId)?.bytes).toBe(300)
+  })
+  it('retains unlocated totals and services without inventing a payload rate',()=>{
+    const {scene,catalog,index}=project()
+    const view=projectWorkspace(catalog,scene,index,start+100,{direction:'both',locationId:'unlocated',expanded:false})
+    expect(view.total).toMatchObject({received:0,sent:60})
+    expect(view.tracks).toHaveLength(1)
+    expect(view.locations.find(location=>location.id==='unlocated')?.position).toBeUndefined()
+    expect(seriesTraffic(view.tracks.flatMap(track=>track.series),new Map())).toEqual({rate:0,available:false,partial:true})
   })
   it('does not treat a quiet gap between chunks as active traffic',()=>{
     const {view}=project(window,start+20000)
@@ -71,12 +94,37 @@ describe('captured series map projection',()=>{
     expect(after.locations.some(location=>location.label==='Berlin')).toBe(true)
     expect(after.locations.some(location=>location.label==='Stockholm')).toBe(true)
   })
-  it('keeps route geometry as-known and falls back after expiration',()=>{
-    const {view}=project(window,start+2000)
-    const frame=projectMapFrame(view.scene,start+2000)
-    expect(frame.arcs.some(arc=>arc.routeId==='path-1')).toBe(true)
-    expect(frame.arcs.filter(arc=>arc.routeId==='path-1').some(arc=>arc.gap)).toBe(true)
-    expect(projectMapFrame(view.scene,start+65000).arcs.every(arc=>!arc.routeId)).toBe(true)
-    expect(frame.points.every(point=>point.position[0]!==0&&point.position[1]!==0)).toBe(true)
+  it('uses direct destination connections regardless of route availability, expiry or invalidation',()=>{
+    const route = window.routes[0]
+    const withRoutes = {...window,routes:[{...route,destination_location:{lat:40.7,lon:-74}},
+      {...route,id:'invalidated',kind:'network_invalidated' as const,available_ms:start+3000}]}
+    for (const time of [start+100,start+2000,start+4000,start+65000]) {
+      const {view,scene}=project(withRoutes,time)
+      const withoutRoutes=project({...withRoutes,routes:[]},time)
+      expect(scene).toEqual(withoutRoutes.scene)
+      expect(view).toEqual(withoutRoutes.view)
+      const frame=projectMapFrame(view.scene,time)
+      expect(frame).toEqual(projectMapFrame(withoutRoutes.view.scene,time))
+      expect(frame.arcs).toHaveLength(frame.points.length)
+      for (const arc of frame.arcs) {
+        expect(arc.sourcePosition).toEqual([origin.longitude,origin.latitude])
+        expect(arc.targetPosition).toEqual(frame.points.find(point=>point.id===arc.endpointId)!.position)
+      }
+    }
+  })
+  it('waits for destination geography even when a route was published earlier',()=>{
+    const data={...window,destinations:window.destinations.map(destination=>({...destination,observed_ms:start+5000}))}
+    const before=project(data,start+2000).view
+    expect(projectMapFrame(before.scene,start+2000).points).toEqual([])
+    const after=project(data,start+6000).view
+    expect(projectMapFrame(after.scene,start+6000).points).toHaveLength(2)
+  })
+  it('keeps unlocated destinations out of the map even when route hops are located',()=>{
+    const data={...window,destinations:window.destinations.map(destination=>({...destination,city:'',country:'',lat:null,lon:null}))}
+    const {scene,view}=project(data,start+2000)
+    expect(scene.endpoints).toEqual([])
+    expect(projectMapFrame(view.scene,start+2000)).toMatchObject({points:[],arcs:[]})
+    expect(view.total).toEqual(project(window,start+2000).view.total)
+    expect(view.locations.map(location=>location.id)).toEqual(['unlocated'])
   })
 })

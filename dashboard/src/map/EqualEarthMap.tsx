@@ -49,7 +49,8 @@ export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, location
     setCamera({ zoom, x: (500 - (left + right) / 2) * zoom, y: (280 - (top + bottom) / 2) * zoom })
   } }), [])
   const [gx, gy] = equalEarth([origin.longitude, origin.latitude])
-  const mapped = useMemo(() => locations.filter(location => location.position), [locations])
+  // Draw country footprints first so they cannot cover city markers or their hit targets.
+  const mapped = useMemo(() => locations.filter(location => location.position).sort((a, b) => Number(Boolean(b.country)) - Number(Boolean(a.country))), [locations])
   const peak = Math.max(1, ...mapped.map(location => Math.max(location.received, location.sent)))
   const featured = locations.find(location => location.id === selected) ?? locations.find(location => location.bytes > 0)
   const select = (location: LocationTraffic) => { if (!drag.current?.moved) onSelect(selected === location.id ? null : location.id) }
@@ -83,7 +84,7 @@ export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, location
           const path = country ? countryPath(country) : undefined
           const cy = Math.min(gy, y) - Math.max(18, Math.abs(gx - x) * .22)
           const dimmed = Boolean(selected && selected !== location.id)
-          return <g key={location.id} className={dimmed ? 'is-dimmed' : ''} data-map-location={location.id} tabIndex={0} role="button" aria-pressed={selected === location.id} aria-label={`${location.label}, ${formatBytes(location.bytes)}, filter location`} onClick={() => select(location)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(selected === location.id ? null : location.id) } }}>
+          return <g key={location.id} className={dimmed ? 'is-dimmed' : ''} data-map-location={location.id} tabIndex={0} role="button" aria-pressed={selected === location.id} aria-label={`${location.label}, ${formatBytes(location.bytes)}, inspect location`} onClick={() => select(location)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(selected === location.id ? null : location.id) } }}>
             <title>{`${location.label}\n↓ ${formatBytes(location.received)} downloaded\n↑ ${formatBytes(location.sent)} sent\n${location.detail}`}</title>
             {country && path && <path d={path} fillRule="evenodd" className="atlas-earth-footprint" />}
             {showTraffic && (['received', 'sent'] as const).filter(key => direction === 'both' || direction === key).map(key => {
@@ -101,7 +102,7 @@ export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, location
         {labels && <text x={gx + 16} y={gy - 12} className="atlas-earth-location">{origin.label} · your devices</text>}
       </g>
     </svg>
-    {featured && <div className="atlas-map-location-card" data-location-card={featured.id}><small>{selected ? 'Selected location' : 'Largest exchange'}</small><h3>{featured.label}</h3><div>{direction !== 'sent' && <span className="atlas-down">↓ {formatBytes(featured.received)}<small>Downloaded</small></span>}{direction !== 'received' && <span className="atlas-up">↑ {formatBytes(featured.sent)}<small>Sent</small></span>}</div><p>{featured.partial ? 'Partial capture · ' : ''}{featured.detail}</p></div>}
+    {featured && !selected && <div className="atlas-map-location-card" data-location-card={featured.id}><small>Largest exchange</small><h3>{featured.label}</h3><div>{direction !== 'sent' && <span className="atlas-down">↓ {formatBytes(featured.received)}<small>Downloaded</small></span>}{direction !== 'received' && <span className="atlas-up">↑ {formatBytes(featured.sent)}<small>Sent</small></span>}</div><p>{featured.partial ? 'Partial capture · ' : ''}{featured.detail}</p></div>}
     <div className="atlas-map-tools" aria-label="Equal Earth map controls"><button type="button" className="atlas-icon-button" onClick={() => zoom(1.3)} aria-label="Zoom in"><MapIcon name="plus" /></button><button type="button" className="atlas-icon-button" onClick={() => zoom(1 / 1.3)} aria-label="Zoom out"><MapIcon name="minus" /></button><button type="button" className="atlas-icon-button" onClick={fit} aria-label="Fit world"><MapIcon name="expand" /></button><button type="button" className="atlas-icon-button" aria-label="Center on gateway" onClick={() => setCamera({ zoom: 2, x: (500 - gx) * 2, y: (280 - gy) * 2 })}><MapIcon name="target" /></button></div>
     <a className="atlas-earth-credit" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a>
   </div>
