@@ -7,6 +7,7 @@ The backend never needs HTTPS contents or client trust certificates.
 ## Domain terms
 
 - Gateway: the machine running Wi-Fi, DHCP/DNS, NAT, capture, PocketBase and the dashboards.
+- Display device: a temporary, self-selected role on the shared Wi-Fi. A browser renews a lease-bound exclusion from observation and traffic gating; it never disables internet forwarding. Opening the ordinary dashboard does not confer this role.
 - Session: one observation period. A closed recording has a fixed end; an active ephemeral session retains a rolling window. Closed sessions are not reopened.
 - Client scope: a session-scoped device/lease identity. An IP address alone is not a person or a permanent device identifier.
 - Traffic chunk: five seconds of captured counters for one client, supported service and exact destination binding. Sparse 50 ms samples contain directional wire bytes, payload-byte counts and packet counts; payload content is never retained.

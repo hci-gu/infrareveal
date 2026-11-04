@@ -12,7 +12,8 @@ Start with the [project README](../README.md) for setup and deployment, [CONTEXT
 
 - [PocketBase architecture](implementation-guides/pocketbase-architecture.md): lifecycle ownership, observation derivation, maintenance and transport contracts.
 
-- [Pi deployment](implementation-guides/pi-deployment.md): single-radio proxy operation, optional admin Wi-Fi/UI, ARMv7/ARM64 builds, fresh data and updates.
+- [Shared Wi-Fi and display mode](implementation-guides/shared-wifi-display.md): default portable appliance, dynamic display devices, upgrade and acceptance checks.
+- [Pi deployment](implementation-guides/pi-deployment.md): host setup, proxy-only and optional admin modes, ARMv7/ARM64 builds and updates.
 
 - [Flow activity bursts](implementation-guides/flow-activity-bursts.md): capture, aggregation, persistence, quality and visualization contracts.
 - [Proxy Lab](implementation-guides/proxy-lab.md): runtime components, control APIs, first run and emergency recovery.

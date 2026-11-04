@@ -16,6 +16,7 @@ COPY pocketbase/timeline ./timeline
 COPY pocketbase/routing ./routing
 COPY pocketbase/cmd/route-diagnose ./cmd/route-diagnose
 COPY pocketbase/debugtrace ./debugtrace
+COPY pocketbase/displaymode ./displaymode
 COPY pocketbase/labgate ./labgate
 COPY pocketbase/netmeta ./netmeta
 

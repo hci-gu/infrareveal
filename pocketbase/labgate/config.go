@@ -22,6 +22,7 @@ const (
 var ErrInvalidConfig = errors.New("invalid lab gate configuration")
 
 type Config struct {
+	ExcludedClient     func(ip string) bool
 	Enabled            bool
 	QueueNumber        uint16
 	StrictQueueNumber  uint16
@@ -98,6 +99,7 @@ func (config Config) Validate() error {
 func (config Config) withDefaults() Config {
 	defaults := defaultConfig()
 	defaults.Enabled = config.Enabled
+	defaults.ExcludedClient = config.ExcludedClient
 	defaults.FailOpen = config.FailOpen
 	if config.QueueNumber != 0 {
 		defaults.QueueNumber = config.QueueNumber

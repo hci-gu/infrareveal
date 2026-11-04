@@ -1,8 +1,12 @@
 # Deploy the Raspberry Pi gateway
 
-The default two-radio configuration runs the UI, PocketBase, two access points,
-DHCP/DNS and NAT. The existing Pi uses the single-radio proxy-only configuration
-described below. Ethernet
+The default is now **one shared Wi-Fi** for participants and displays. Follow
+[Shared Wi-Fi and display mode](shared-wifi-display.md) for the portable setup
+and migration from the older proxy-only release. It needs no USB Wi-Fi adapter.
+
+The two-radio topology below remains optional: explicitly set
+`ADMIN_WIFI_ENABLED=true` and `DASHBOARD_ON_AP=false` to retain separate admin
+access. The proxy-only section is also retained for headless deployments. Ethernet
 obtains an uplink address from the host OS. No upstream port forwarding or fixed
 Ethernet address is needed.
 
@@ -21,7 +25,7 @@ Both wireless networks have internet through Ethernet. Forwarding between them
 is blocked. Only participant traffic is captured; separate DNS services and a
 backend client-subnet filter exclude admin DNS too. PocketBase listens on
 `0.0.0.0:8090`; the firewall allows direct access through `INTERNET_IFACE`
-for anyone on the Ethernet LAN. The web servers bind the admin address, and
+for anyone on the Ethernet LAN. The web servers listen on host ports, and
 ingress firewall rules still reject dashboard ports from Ethernet and all web
 management ports from participant Wi-Fi. SSH
 remains available over Ethernet and is allowed from admin Wi-Fi.
@@ -324,10 +328,10 @@ Keep `.env`, the selected new `DATA_DIR`, and `geoip` between updates. `restart:
 services again after reboot. The gateway waits for its enabled radios, then
 validates configuration and starts the network. With `ADMIN_WIFI_ENABLED=false`,
 the admin radio is completely excluded from startup and runtime checks. In the
-default two-radio mode, a USB adapter plugged in after startup is also supported.
+optional two-radio mode, a USB adapter plugged in after startup is also supported.
 While a required radio is missing, the proxy is unhealthy. Dashboard containers
-start independently and wait for the gateway API before binding the admin
-address, so firewall isolation is installed before they begin serving requests.
+start independently and wait for the gateway API before opening their ports,
+so the configured firewall policy is installed before they begin serving requests.
 Rebuild all three images when upgrading to this recovery behavior.
 
 Every two seconds, a watchdog checks enabled radios, their interface identities,
@@ -382,11 +386,14 @@ python3 scripts/test-gateway-preflight.py
 (cd pocketbase && go test ./observer)
 docker build -t infrareveal-gateway:network-test .
 docker run --rm --privileged --entrypoint bash \
+  -e ADMIN_WIFI_ENABLED=true -e DASHBOARD_ON_AP=false \
   -v "$PWD/scripts/test-gateway-network.sh:/test.sh:ro" \
   infrareveal-gateway:network-test /test.sh
 ```
 
-The network test uses veth clients in disposable network namespaces. Never add
+This invocation checks the optional separate-admin topology. See the
+[shared Wi-Fi guide](shared-wifi-display.md#verification) for the shared and
+proxy-only variants. The network test uses veth clients in disposable network namespaces. Never add
 `--network host` to it. It verifies direct LAN backend access, participant
 management isolation, cross-subnet blocking,
 both uplink NAT paths, repeatable rules, separate DNS services and the local admin

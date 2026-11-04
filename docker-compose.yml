@@ -18,7 +18,8 @@ services:
     logging: *bounded-logs
     environment:
       - AP_IFACE=${AP_IFACE:-wlan0}
-      - ADMIN_WIFI_ENABLED=${ADMIN_WIFI_ENABLED:-true}
+      - ADMIN_WIFI_ENABLED=${ADMIN_WIFI_ENABLED:-false}
+      - DASHBOARD_ON_AP=${DASHBOARD_ON_AP:-true}
       - ADMIN_IFACE=${ADMIN_IFACE:-wlan1}
       - ADMIN_WIFI_MAC=${ADMIN_WIFI_MAC:-}
       - INTERNET_IFACE=${INTERNET_IFACE:-eth0}
@@ -89,12 +90,10 @@ services:
     network_mode: host
     restart: always
     logging: *bounded-logs
-    environment:
-      ADMIN_IP: ${ADMIN_PREFIX:-10.77.0}.1
     depends_on:
       proxy:
         # The dashboard entrypoint waits for gateway networking without making
-        # compose up fail when the admin USB adapter is absent at startup.
+        # compose up fail while gateway networking is starting.
         condition: service_started
   debug-dashboard:
     image: infrareveal-debug-dashboard:local
@@ -105,8 +104,6 @@ services:
     network_mode: host
     restart: always
     logging: *bounded-logs
-    environment:
-      ADMIN_IP: ${ADMIN_PREFIX:-10.77.0}.1
     depends_on:
       proxy:
         condition: service_started

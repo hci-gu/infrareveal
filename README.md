@@ -3,7 +3,7 @@
 This guide shows how to run InfraReveal on a Raspberry Pi as a Wi‑Fi access point that records gateway metadata, stores observations in PocketBase, and serves a dashboard. It does not decrypt HTTPS traffic or require client trust certificates.
 
 What you get
-- Participant Wi-Fi on wlan0 (SSID: Infrareveal)
+- Shared participant/display Wi-Fi on wlan0 (SSID: Infrareveal); no USB radio required
 - Optional WPA2-protected admin Wi-Fi on a second radio, wlan1 (SSID: Infrareveal-admin)
 - DHCP on 10.0.0.0/24 (dnsmasq), gateway at 10.0.0.1
 - NAT to the internet via eth0 by default
@@ -12,14 +12,16 @@ What you get
 - Header-only, directional traffic activity at 50 ms resolution (no payload or URL storage)
 - Confidence-labeled service attribution from recent DNS answers where available
 - Destination context and route approximations for observed destination IPs
-- Dashboard and PocketBase API/console at http://10.77.0.1/ on the admin network
-- Optional debug dashboard at http://10.77.0.1:8081/
+- Dashboard and same-origin API at http://infrareveal.home.arpa/ (http://10.0.0.1/)
+- Dynamic display mode: designate any visiting laptop and exclude its activity
+- Optional debug dashboard at http://10.0.0.1:8081/
 
 ## Development guides
 
 See the [documentation index](docs/README.md) for architecture decisions, current guides and repeatable validation procedures.
 
 - [PocketBase architecture](docs/implementation-guides/pocketbase-architecture.md): module boundaries, lifecycle, maintenance and product data contracts.
+- [Shared Wi-Fi and display mode](docs/implementation-guides/shared-wifi-display.md): portable setup, temporary device roles, migration and acceptance checks.
 - [Captured traffic and activity blocks](docs/implementation-guides/flow-activity-bursts.md): aggregate samples, classification, capture quality and temporal service activity.
 - [Flow activity validation](docs/validation/flow-activity-raspberry-pi.md): repeatable privacy, load, growth, and browser-comparison checks for the target Pi.
 - [Proxy Lab implementation and operations](docs/implementation-guides/proxy-lab.md): passive replay/live tracing plus the opt-in flow, strict-packet, and DNS gates.
@@ -81,9 +83,11 @@ for the existing Pi at `pi@192.168.10.120`. It covers pulling changes, installin
 Compose on its 32-bit OS, building images,
 preparing host networking and starting the new build against fresh application data.
 
-The proxy-only gateway requires one AP-capable Wi-Fi radio and an Ethernet
-uplink. The existing Pi uses its built-in radio, with admin Wi-Fi and dashboard
-containers disabled. The optional admin network requires a second radio.
+The default gateway requires one AP-capable Wi-Fi radio and an Ethernet
+uplink. It runs the gateway and dashboard together; participants and displays
+join the same Wi-Fi. The older proxy-only deployment disabled the dashboard;
+replace that override with `compose.shared-wifi.yml` when upgrading it.
+The optional admin network requires a second radio.
 Images support ARMv7 and ARM64; the Docker target platform selects
 the Go binary architecture automatically. The host OS obtains Ethernet settings
 through DHCP. Upstream authentication and subnet conflicts still need handling.
@@ -97,12 +101,13 @@ to use `Infrareveal`, with internet and observation on `10.0.0.0/24`.
 
 ## Configuration
 
-Copy `.env.example` to `.env` as described in the deployment guide. Runtime scripts generate hostapd and the two dnsmasq
+Copy `.env.example` to `.env` as described in the deployment guide. Runtime scripts generate hostapd and the enabled dnsmasq
 configurations from these settings; there are no hand-edited root-level AP configs.
 
 Configuration knobs (via env in `docker-compose.yml`):
 - AP_IFACE: participant Wi-Fi interface (default wlan0)
-- ADMIN_WIFI_ENABLED: require/start the admin radio (default true); use false and `compose.proxy-only.yml` for a built-in-radio-only proxy managed over Ethernet SSH
+- ADMIN_WIFI_ENABLED: require/start the optional admin radio (default false)
+- DASHBOARD_ON_AP: serve the main/debug dashboards on participant Wi-Fi (default true); `compose.proxy-only.yml` disables this and both dashboard containers
 - ADMIN_IFACE: admin Wi-Fi interface (default wlan1, ignored when admin Wi-Fi is disabled)
 - ADMIN_WIFI_MAC: optional expected adapter MAC address
 - ADMIN_SSID: admin Wi-Fi name (default Infrareveal-admin)
@@ -175,15 +180,18 @@ remains in Git; an older version can use a fresh database matching its schema.
 
 ## Using it
 
-1) Join `Infrareveal-admin` on the operator device using `password123`.
-2) Open http://10.77.0.1/ (dashboard) or http://10.77.0.1/_/ (PocketBase console).
+1) Connect the Pi to power and the venue's Ethernet. Join `Infrareveal` on the display laptop.
+2) Open http://infrareveal.home.arpa/ (fallback http://10.0.0.1/) and choose **Use this device as display**.
 3) Join `Infrareveal` on the device being observed. It receives a `10.0.0.50–150`
    address and internet via the Pi. Generate traffic to view it in the dashboard.
 
-Admin traffic has internet forwarding but is excluded from capture and DNS
-observations. The two subnets cannot forward to each other. Management web ports
-are inaccessible from participant Wi-Fi and Ethernet. The UI/API work locally
-without an uplink; the basemap still downloads internet-hosted tiles and fonts.
+The designated display keeps internet access while its new activity is excluded
+from observation and optional traffic gating. The role renews while the dashboard
+is open, survives refresh and brief outages, and expires after three minutes
+without renewal. **Stop display mode** releases it immediately. No fixed IP,
+pre-registered MAC or separate admin network is required. Opening the ordinary
+dashboard alone does not exclude a participant. The UI/API work locally without
+an uplink; internet-hosted map tiles and fonts still require internet access.
 
 The gateway forwards web traffic normally through NAT. Classic DNS traffic from clients is redirected to local dnsmasq so transaction-linked answers, including CNAME chains, can help classify captured traffic. Core storage contains aggregate directional counters for remote traffic initiated by connected clients. Gateway-generated probes and local infrastructure traffic such as DNS sockets, DHCP, NTP, PCP, mDNS and traceroute are excluded. The dashboard keeps destination IPs visible and labels inferred services with confidence.
 
@@ -196,7 +204,8 @@ Destination context is enriched independently from reverse DNS, known provider n
 ## Always-on lab demo
 
 For an unattended screen, enable `DEMO_MODE=true`, set
-`DEMO_RETENTION_MINUTES=30`, and open **http://10.77.0.1/demo** on the admin PC.
+`DEMO_RETENTION_MINUTES=30`, designate the screen at **http://infrareveal.home.arpa/**,
+then open **/demo** in the same tab if the kiosk layout is desired.
 The dedicated session resumes after restarts; the screen follows live traffic and
 reconnects automatically. Retained traffic and activity blocks use the session's
 pinned service-classification policy; optional diagnostics support investigations.
@@ -220,10 +229,10 @@ for storage and upgrade details.
 
 Set SSIDs, country/channels, interface names, and non-overlapping private network
 prefixes in `.env`. Run `sudo docker compose up -d --no-build --force-recreate`
-after changing runtime settings. Changing the admin prefix changes the dashboard
-address too. Reconnect clients after changing prefixes so DHCP leases renew.
+after changing runtime settings. Changing the AP prefix changes the shared dashboard
+IP; the local hostname stays the same. Reconnect clients after changing prefixes so DHCP leases renew.
 The admin Wi-Fi password is always `password123`; no secret file is required.
-Both radios are dedicated APs in this deployment.
+Each enabled radio is a dedicated AP.
 
 ## Troubleshooting
 
@@ -241,7 +250,7 @@ Both radios are dedicated APs in this deployment.
 	- Check NAT rules and IP forwarding in `proxy` logs
 
 - Dashboard loads but shows no data
-	- Verify PocketBase is reachable through http://10.77.0.1/api/health on admin Wi-Fi
+	- Verify PocketBase is reachable through http://infrareveal.home.arpa/api/health on shared Wi-Fi
 	- Confirm a client has generated DNS or network traffic after joining the AP
 	- Check that `/var/log/dnsmasq.log` and `/proc/net/nf_conntrack` are visible inside the container
 	- Review `docker compose logs dashboard proxy` and confirm the proxy is healthy
@@ -259,9 +268,9 @@ Both radios are dedicated APs in this deployment.
 
 ## Ports and data
 
-- Dashboard/API: http://10.77.0.1/ on admin Wi-Fi
-- PocketBase console: http://10.77.0.1/_/
-- Optional debug dashboard: http://10.77.0.1:8081/
+- Dashboard/API: http://infrareveal.home.arpa/ or http://10.0.0.1/ on shared Wi-Fi
+- PocketBase console: http://10.0.0.1/_/
+- Optional debug dashboard: http://10.0.0.1:8081/
 - Persistent data: `./data` on the host is mounted to `/root/pb/pb_data` in the proxy container
 - GeoIP assets: `./geoip` is mounted read-only at `/root/geoip`
 

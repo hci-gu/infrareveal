@@ -4,6 +4,7 @@ services:
   proxy:
     environment:
       ADMIN_WIFI_ENABLED: "false"
+      DASHBOARD_ON_AP: "false"
   dashboard:
     profiles: [admin-ui]
   debug-dashboard:

@@ -2,7 +2,12 @@
 # Sourced by entrypoint.sh. Keep policy scoped to InfraReveal-owned chains.
 network_defaults() {
   AP_IFACE="${AP_IFACE:-wlan0}"
-  ADMIN_WIFI_ENABLED="${ADMIN_WIFI_ENABLED:-true}"
+  ADMIN_WIFI_ENABLED="${ADMIN_WIFI_ENABLED:-false}"
+  DASHBOARD_ON_AP="${DASHBOARD_ON_AP:-true}"
+  case "$DASHBOARD_ON_AP" in
+    true|false) ;;
+    *) echo 'DASHBOARD_ON_AP must be true or false' >&2; return 1 ;;
+  esac
   case "$ADMIN_WIFI_ENABLED" in
     true|false) ;;
     *) echo 'ADMIN_WIFI_ENABLED must be true or false' >&2; return 1 ;;
@@ -17,7 +22,7 @@ network_defaults() {
   AP_CHANNEL="${AP_CHANNEL:-1}"
   ADMIN_CHANNEL="${ADMIN_CHANNEL:-6}"
   CONFIG_DIR="${CONFIG_DIR:-/run/infrareveal}"
-  export AP_IFACE ADMIN_IFACE ADMIN_WIFI_ENABLED INTERNET_IFACE AP_PREFIX ADMIN_PREFIX
+  export AP_IFACE ADMIN_IFACE ADMIN_WIFI_ENABLED DASHBOARD_ON_AP INTERNET_IFACE AP_PREFIX ADMIN_PREFIX
   export SSID ADMIN_SSID WIFI_COUNTRY AP_CHANNEL ADMIN_CHANNEL
   # One source of truth: admin addresses can never enter the observation scope.
   export CLIENT_CIDRS="$AP_PREFIX.0/24" GATEWAY_IP="$AP_PREFIX.1"
@@ -80,6 +85,8 @@ dhcp-leasefile=$CONFIG_DIR/participants.leases
 log-facility=/var/log/dnsmasq.log
 log-queries=extra
 log-dhcp
+host-record=infrareveal.home.arpa,$AP_PREFIX.1
+local=/home.arpa/
 CONFIG
   if [ "$ADMIN_WIFI_ENABLED" = true ]; then
     cat > "$CONFIG_DIR/admin.dnsmasq" <<CONFIG
@@ -122,6 +129,9 @@ configure_firewall() {
   iptables -w -A IR_INPUT -i lo -j RETURN
   # Local dashboards connect directly to PocketBase through the Ethernet LAN.
   iptables -w -A IR_INPUT -i "$INTERNET_IFACE" -p tcp --dport 8090 -j ACCEPT
+  if [ "$DASHBOARD_ON_AP" = true ]; then
+    iptables -w -A IR_INPUT -i "$AP_IFACE" -s "$AP_PREFIX.0/24" -d "$AP_PREFIX.1" -p tcp -m multiport --dports 80,8081 -j ACCEPT
+  fi
   if [ "$ADMIN_WIFI_ENABLED" = true ]; then
     iptables -w -A IR_INPUT -i "$ADMIN_IFACE" -s "$ADMIN_PREFIX.0/24" -p tcp -m multiport --dports 22,80,8081 -j ACCEPT
   fi

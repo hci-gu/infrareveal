@@ -10,6 +10,7 @@ import (
 	"log"
 	"myapp/data"
 	"myapp/debugtrace"
+	"myapp/displaymode"
 	"myapp/labgate"
 	"myapp/observer"
 	"myapp/routing"
@@ -37,6 +38,7 @@ type Runtime struct {
 	geo               *geoip2.Reader
 	routes            *routing.Coordinator
 	observation       *observer.Runtime
+	displays          *displaymode.Registry
 	cancelMaintenance context.CancelFunc
 	maintenanceDone   chan struct{}
 	maintenance       struct {
@@ -46,9 +48,12 @@ type Runtime struct {
 }
 
 func New(app *pocketbase.PocketBase, config Config) *Runtime {
+	displays := displaymode.New(config.Observation.LeasePath)
+	config.Observation.Scope.Excluded = displays.Excluded
+	config.Gate.ExcludedClient = func(ip string) bool { return displays.Excluded(ip, "") }
 	config.Observation.Diagnostics = config.Diagnostics
 	config.Routes.Diagnostics = config.Diagnostics
-	return &Runtime{app: app, config: config}
+	return &Runtime{app: app, config: config, displays: displays}
 }
 
 func (g *Runtime) Register() {

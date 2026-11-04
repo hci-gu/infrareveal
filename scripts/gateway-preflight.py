@@ -10,7 +10,7 @@ from pathlib import Path
 
 
 def validate(env, routes):
-    enabled = env.get('ADMIN_WIFI_ENABLED', 'true')
+    enabled = env.get('ADMIN_WIFI_ENABLED', 'false')
     if enabled not in ('true', 'false'):
         raise ValueError('ADMIN_WIFI_ENABLED must be true or false')
     roles = ['AP', 'ADMIN'] if enabled == 'true' else ['AP']
@@ -45,7 +45,7 @@ def main():
     env = os.environ
     routes = json.loads(subprocess.check_output(['ip', '-j', '-4', 'route', 'show', 'table', 'main']))
     validate(env, routes)
-    radio_keys = ['AP_IFACE', 'ADMIN_IFACE'] if env.get('ADMIN_WIFI_ENABLED', 'true') == 'true' else ['AP_IFACE']
+    radio_keys = ['AP_IFACE', 'ADMIN_IFACE'] if env.get('ADMIN_WIFI_ENABLED', 'false') == 'true' else ['AP_IFACE']
     for key in radio_keys + ['INTERNET_IFACE']:
         if not Path('/sys/class/net', env[key]).exists():
             raise ValueError(f"Missing {key}={env[key]}; check the USB adapter and interface names")

@@ -1,0 +1,22 @@
+.display-mode-layout { --display-bar-height: 44px; padding-top: var(--display-bar-height); }
+.display-mode-layout .atlas-page { height: calc(100dvh - var(--display-bar-height)); }
+.display-mode-bar { position: fixed; inset: 0 0 auto; z-index: 100; min-height: 44px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 20px; background: #12382f; color: #ecfdf5; font: 500 12px/1.5 system-ui, sans-serif; }
+.display-mode-bar button { flex-shrink: 0; border: 1px solid #8cb7a8; border-radius: 6px; padding: 3px 10px; background: transparent; color: inherit; cursor: pointer; }
+.display-mode-card { margin-bottom: 28px; padding: 28px; border: 1px solid #cbd5e1; border-radius: 16px; background: white; color: #0f172a; box-shadow: 0 3px 12px #0f172a06; }
+.display-mode-card h2, .display-mode-card h1 { margin: 0 0 10px; font-size: 24px; line-height: 1.25; font-weight: 750; letter-spacing: -.025em; }
+.display-mode-card p { max-width: 650px; margin: 10px 0; font-size: 15px; line-height: 1.6; color: #475569; }
+.display-mode-card .display-mode-eyebrow { margin-top: 0; font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .12em; color: #16634f; }
+.display-mode-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0 14px; }
+.display-mode-actions button { border: 0; border-radius: 8px; padding: 11px 18px; background: #12382f; color: white; font-size: 14px; font-weight: 650; cursor: pointer; }
+.display-mode-actions .display-mode-secondary { background: #f1f5f9; color: #334155; }
+.display-mode-actions button:disabled { opacity: .65; cursor: wait; }
+.display-mode-card small { display: block; max-width: 660px; font-size: 12px; line-height: 1.6; color: #64748b; }
+.display-mode-card .display-mode-error { color: #9a3412; }
+.display-mode-wait { min-height: 100dvh; display: grid; place-content: center; padding: 24px; background: #f1f5f9; }
+.display-mode-wait .display-mode-card { max-width: 720px; margin: 0; }
+.display-mode-card button:focus-visible, .display-mode-bar button:focus-visible { outline: 3px solid #38bdf8; outline-offset: 3px; }
+@media (max-width: 640px) {
+  .display-mode-layout { --display-bar-height: 72px; }
+  .display-mode-bar { height: 72px; padding: 8px 12px; font-size: 11px; }
+  .display-mode-card { padding: 20px; }
+}

@@ -59,9 +59,13 @@ func ParsePacketActivityFrame(frame []byte, wireLength int, observedAt time.Time
 	if err != nil || !scope.Includes(packet.Protocol, tuple.ClientIP.String(), tuple.RemoteIP.String(), int(tuple.RemotePort)) {
 		return PacketActivityEvent{}, false
 	}
+	mac := packetClientMAC(frame, direction)
+	if scope.ExcludesClient(tuple.ClientIP.String(), mac) {
+		return PacketActivityEvent{}, false
+	}
 	return PacketActivityEvent{
 		Tuple:        tuple,
-		ClientMAC:    packetClientMAC(frame, direction),
+		ClientMAC:    mac,
 		ObservedAt:   observedAt,
 		FlowKey:      tuple.Key(),
 		Direction:    direction,

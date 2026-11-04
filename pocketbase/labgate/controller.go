@@ -30,6 +30,7 @@ const (
 	commandApproveAll
 	commandAcceptNext
 	commandShutdown
+	commandRefreshExclusions
 )
 
 type controllerCommand struct {
@@ -200,6 +201,14 @@ func (controller *Controller) Arm(ctx context.Context, request ArmRequest) (Stat
 	return result.status, result.err
 }
 
+func (controller *Controller) RefreshExclusions(ctx context.Context) error {
+	return controller.request(ctx, controllerCommand{kind: commandRefreshExclusions}).err
+}
+
+func (controller *Controller) excluded(ip netip.Addr) bool {
+	return controller.config.ExcludedClient != nil && controller.config.ExcludedClient(ip.Unmap().String())
+}
+
 func (controller *Controller) Pause(ctx context.Context) (Status, error) {
 	result := controller.request(ctx, controllerCommand{kind: commandPause})
 	return result.status, result.err
@@ -326,6 +335,8 @@ func (controller *Controller) run() {
 
 func (controller *Controller) handleCommand(state *controllerState, command controllerCommand) (controllerResponse, bool) {
 	switch command.kind {
+	case commandRefreshExclusions:
+		return controllerResponse{err: controller.refreshExclusions(state)}, false
 	case commandStatus:
 		return controllerResponse{status: controller.status(state)}, false
 	case commandPending:
@@ -465,6 +476,9 @@ func (controller *Controller) arm(state *controllerState, request ArmRequest) er
 		if !client.IsValid() || !client.Is4() {
 			return ErrInvalidArmRequest
 		}
+		if controller.excluded(client) {
+			return errors.Join(ErrInvalidArmRequest, errors.New("display devices cannot be gated"))
+		}
 		clients[client] = struct{}{}
 	}
 	state.state = StateArming
@@ -531,6 +545,12 @@ func (controller *Controller) disarm(state *controllerState) error {
 
 func (controller *Controller) handlePacket(state *controllerState, packet QueuedPacket) {
 	if controller.queue == nil {
+		return
+	}
+	if controller.excluded(packet.Tuple.ClientIP) {
+		if err := controller.queue.SetVerdict(packet.ID, VerdictAccept); err != nil {
+			controller.degrade(state, err)
+		}
 		return
 	}
 	if packet.ID == 0 || !packet.Tuple.Valid() || (state.mode != ModeStrict && packet.Direction != netmeta.ClientToRemote) {
@@ -687,6 +707,10 @@ func (controller *Controller) applyTerminal(state *controllerState, decision *De
 	// watchdog/drain pass. Do not apply a second terminal transition to them.
 	if _, pending := state.pendingByDecisionID[decision.ID]; !pending {
 		return *decision
+	}
+	client, _ := netip.ParseAddr(decision.ClientIP)
+	if controller.excluded(client) {
+		terminalState, verdict, source, actor, reason = DecisionDrained, VerdictAccept, SourceSystem, "display", "device entered display mode"
 	}
 	_, verdictErr := controller.applyPacketVerdicts(state, decision, verdict)
 	// Flow admission caches a verdict for the lifetime of the admitted flow.

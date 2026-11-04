@@ -1,0 +1,10 @@
+# Use instead of compose.proxy-only.yml for the portable, one-radio appliance.
+services:
+  proxy:
+    environment:
+      ADMIN_WIFI_ENABLED: "false"
+      DASHBOARD_ON_AP: "true"
+  dashboard:
+    profiles: !reset []
+  debug-dashboard:
+    profiles: !override [debug]

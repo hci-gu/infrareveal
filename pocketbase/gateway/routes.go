@@ -12,6 +12,7 @@ import (
 
 func (g *Runtime) registerRoutes(r *router.Router[*core.RequestEvent]) {
 	r.BindFunc(g.guardMutation)
+	g.registerDisplayRoutes(r)
 	registerSessionTimelineRoutes(r, g.app)
 	g.registerSessionControls(r)
 	g.registerDemoRoutes(r)

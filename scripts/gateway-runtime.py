@@ -14,7 +14,7 @@ def command(*args):
 
 
 def radios():
-    enabled = os.environ.get('ADMIN_WIFI_ENABLED', 'true')
+    enabled = os.environ.get('ADMIN_WIFI_ENABLED', 'false')
     if enabled not in ('true', 'false'):
         raise ValueError('ADMIN_WIFI_ENABLED must be true or false')
     result = {

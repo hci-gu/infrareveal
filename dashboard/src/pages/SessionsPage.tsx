@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import { useSessions } from '@infrareveal/session-state'
 import type { Session } from '@infrareveal/session-state'
+import { DisplayModeCard } from '../display/DisplayMode'
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
   dateStyle: 'medium',
@@ -36,6 +37,8 @@ export function SessionsPage() {
             </div>
           ) : null}
         </header>
+
+        <DisplayModeCard />
 
         {status === 'loading' ? <SessionsLoading /> : null}
         {status === 'offline' ? (

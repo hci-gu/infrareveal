@@ -417,6 +417,11 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 					}
 				}
 				id := byIP[ip]
+				// Recheck after the queue: display mode may have started since
+				// the packet was read. No new attribution, trace or route work.
+				if r.config.Scope.ExcludesClient(p.Tuple.ClientIP.String(), p.ClientMAC) {
+					continue
+				}
 				if id == "" {
 					if len(byIP) >= 2048 {
 						byIP = map[string]string{}
@@ -444,7 +449,13 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 				a.client(ip, mac)
 			}
 			if e.samples != nil {
-				a.conntrack(e.samples, at)
+				filtered := e.samples[:0]
+				for _, sample := range e.samples {
+					if !r.config.Scope.ExcludesClient(sample.ClientIP, "") {
+						filtered = append(filtered, sample)
+					}
+				}
+				a.conntrack(filtered, at)
 			}
 		case now := <-ticker.C:
 			if err := switchSession(r.sessionID(), now.UnixMilli()); err != nil {

@@ -120,7 +120,7 @@ func parseConntrackLine(line string, scope ObservationScope) (FlowSample, bool) 
 	if protocol != "icmp" && destinationPort == 0 {
 		return FlowSample{}, false
 	}
-	if !scope.Includes(protocol, clientIP, destinationIP, destinationPort) {
+	if !scope.Includes(protocol, clientIP, destinationIP, destinationPort) || scope.ExcludesClient(clientIP, "") {
 		return FlowSample{}, false
 	}
 

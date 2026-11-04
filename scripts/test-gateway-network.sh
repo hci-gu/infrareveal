@@ -68,7 +68,14 @@ else
   if iptables-save | grep -E 'wlan1|10\.77\.0\.'; then exit 1; fi
   if ip6tables-save | grep wlan1; then exit 1; fi
 fi
-for attempt in 'participant 10.0.0.1' 'participant 10.77.0.1' 'upstream 10.77.0.1'; do
+if [ "$DASHBOARD_ON_AP" = true ]; then
+  ip netns exec participant curl -fsS --max-time 3 http://10.0.0.1/ >/dev/null
+else
+  if ip netns exec participant curl -fsS --max-time 2 http://10.0.0.1/ >/dev/null 2>&1; then
+    echo 'Participant dashboard should be disabled' >&2; exit 1
+  fi
+fi
+for attempt in 'participant 10.77.0.1' 'upstream 10.77.0.1' 'upstream 198.18.0.1'; do
   read -r ns address <<< "$attempt"
   if ip netns exec "$ns" curl -fsS --max-time 2 "http://$address/" >/dev/null 2>&1; then
     echo "Management isolation failed: $attempt" >&2
@@ -135,5 +142,18 @@ response, _ = s.recvfrom(4096)
 assert response[:2] == b'\x12\x34' and response[3] & 15 == 0, response
 PY
 fi
+# The same local name is available to every participant/display without a WAN.
+ip netns exec participant python3 - <<'PY'
+import socket
+query = bytes.fromhex('123401000001000000000000')
+for label in 'infrareveal.home.arpa'.split('.'):
+    query += bytes([len(label)]) + label.encode()
+query += b'\x00\x00\x01\x00\x01'
+s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+s.settimeout(3)
+s.sendto(query, ('10.0.0.1', 53))
+response, _ = s.recvfrom(4096)
+assert response[-4:] == socket.inet_aton('10.0.0.1'), response
+PY
 kill "$dns_participant"
-echo "PASS: LAN backend access, management isolation, NAT, repeatable rules and DNS; ADMIN_WIFI_ENABLED=$ADMIN_WIFI_ENABLED"
+echo "PASS: LAN backend access, dashboard access policy, NAT, repeatable rules and local DNS; ADMIN_WIFI_ENABLED=$ADMIN_WIFI_ENABLED DASHBOARD_ON_AP=$DASHBOARD_ON_AP"

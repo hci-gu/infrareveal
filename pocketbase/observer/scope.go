@@ -9,10 +9,16 @@ import (
 // ObservationScope defines the boundary between connected-client internet
 // traffic and gateway/local infrastructure noise.
 type ObservationScope struct {
+	// Excluded is a live device policy shared with display mode and the lab gate.
+	Excluded     func(ip, mac string) bool
 	ClientPrefix string
 	GatewayIP    string
 	prefixes     []netip.Prefix
 	gateways     map[string]bool
+}
+
+func (scope ObservationScope) ExcludesClient(ip, mac string) bool {
+	return scope.Excluded != nil && scope.Excluded(ip, mac)
 }
 
 func NewObservationScope(clientPrefix, gatewayIP string) ObservationScope {

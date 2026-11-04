@@ -10,7 +10,7 @@ spec.loader.exec_module(preflight)
 
 class PreflightTests(unittest.TestCase):
     def setUp(self):
-        self.env = dict(AP_IFACE='wlan0', ADMIN_IFACE='wlan1', INTERNET_IFACE='eth0',
+        self.env = dict(AP_IFACE='wlan0', ADMIN_IFACE='wlan1', INTERNET_IFACE='eth0', ADMIN_WIFI_ENABLED='true',
                         AP_PREFIX='10.0.0', ADMIN_PREFIX='10.77.0', SSID='Infrareveal',
                         ADMIN_SSID='Infrareveal-admin', WIFI_COUNTRY='SE', AP_CHANNEL='1', ADMIN_CHANNEL='6')
 

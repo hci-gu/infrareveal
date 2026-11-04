@@ -51,7 +51,7 @@ func (d *dnsCache) add(session string, e dnsLogEvent, at int64, scope Observatio
 		d.pruned = at
 	}
 	if e.isQuery {
-		if !scope.ContainsClient(e.clientIP) {
+		if !scope.ContainsClient(e.clientIP) || scope.ExcludesClient(e.clientIP, "") {
 			return nil
 		}
 		q := &DNSRecord{ID: data.NewID(), Session: session, ClientIP: e.clientIP, QueryName: normalizeDNSName(e.queryName), QueryType: e.queryType, ObservedMS: at, Source: "dnsmasq", serial: e.serial, Answers: []string{}, Aliases: []string{}}
@@ -60,7 +60,7 @@ func (d *dnsCache) add(session string, e dnsLogEvent, at int64, scope Observatio
 	}
 	updated := []DNSRecord{}
 	for _, q := range d.entries {
-		if q.Session != session || at-q.ObservedMS > 45000 {
+		if q.Session != session || at-q.ObservedMS > 45000 || scope.ExcludesClient(q.ClientIP, "") {
 			continue
 		}
 		if e.serial != "" {
