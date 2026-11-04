@@ -70,7 +70,17 @@ The API, DHCP/DNS, capture and internet forwarding all remain part of the proxy.
 
 ## Existing Pi: current deployment and history
 
-**22 October LAN API update:** the Pi runs the proxy from
+**4 November shared Wi-Fi update (current):** commit `564e93e` runs from
+`/home/pi/Documents/infrareveal-releases/564e93e-shared-wifi-20261104`.
+The gateway and main dashboard start automatically; the debug dashboard and
+admin radio remain disabled. Join `Infrareveal`, open
+`http://infrareveal.home.arpa` (or `http://10.0.0.1`), and choose **Use this device
+as display** on the visiting display computer. Ethernet remains the uplink.
+Existing data, GeoIP assets and session settings were preserved. A full reboot
+passed gateway health, local DNS, dashboard, realtime and capture checks. See the
+[deployment and rollback report](../validation/shared-wifi-raspberry-pi.md).
+
+**22 October LAN API update:** the Pi ran the proxy from
 `/home/pi/Documents/infrareveal-releases/2f6480c-lan-api-20261022`, with PocketBase
 listening on `0.0.0.0:8090` and a firewall exception for the Ethernet interface.
 The local dashboard connects directly to `http://192.168.10.120:8090`.
