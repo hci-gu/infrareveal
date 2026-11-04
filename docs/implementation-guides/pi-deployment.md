@@ -70,7 +70,14 @@ The API, DHCP/DNS, capture and internet forwarding all remain part of the proxy.
 
 ## Existing Pi: current deployment and history
 
-**4 November shared Wi-Fi update (current):** commit `564e93e` runs from
+**4 November live dashboard update (current):** application commit `f824be6`
+runs from `/home/pi/Documents/infrareveal-releases/f824be6-live-dashboard-20261104`.
+Live refreshes retain loaded data, and live lists default to latest activity.
+The shared Wi-Fi setup, existing session and data mounts are preserved. Gateway
+health, asset identity, realtime updates, capture and a live browser refresh
+check passed. See the [deployment and rollback report](../validation/live-dashboard-raspberry-pi.md).
+
+**4 November shared Wi-Fi update:** commit `564e93e` ran from
 `/home/pi/Documents/infrareveal-releases/564e93e-shared-wifi-20261104`.
 The gateway and main dashboard start automatically; the debug dashboard and
 admin radio remain disabled. Join `Infrareveal`, open
