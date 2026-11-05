@@ -1,6 +1,6 @@
 import type { CSSProperties } from 'react'
 import { MapIcon } from './MapIcon'
-import { formatElapsed } from './format'
+import { formatCursor } from './format'
 import { waveformCeiling } from './wireWaveform'
 import type { WireBin } from './wireWaveform'
 import type { TrafficDirection } from './mapWorkspace'
@@ -22,10 +22,9 @@ type Props = {
   onStep: (frames: number) => void
   onRate: (rate: number) => void
   onLive: () => void
-  onFullscreen: () => void
 }
 
-export function MapTransport({ scene, bins, direction, endMs, frame, fps, playing, rate, live, following, onToggle, onSeek, onStep, onRate, onLive, onFullscreen }: Props) {
+export function MapTransport({ scene, bins, direction, endMs, frame, fps, playing, rate, live, following, onToggle, onSeek, onStep, onRate, onLive }: Props) {
   const peak = waveformCeiling([bins], direction)
   const duration = Math.max(1, (endMs - scene.startMs) / 1000)
   const maxFrame = Math.max(1, Math.floor(duration * fps))
@@ -43,11 +42,11 @@ export function MapTransport({ scene, bins, direction, endMs, frame, fps, playin
         <div className="atlas-timeline-track" style={{ '--progress': `${progress}%` } as CSSProperties}>
           <div className="atlas-timeline-bars atlas-directional-bars" aria-hidden="true">{bins.map((bin, index) => <i key={index} className={bin.complete ? "" : "is-partial"}>{bin.observed && <>{direction !== "sent" && <b className="received" style={{ height: `${bin.received / peak * 50}%` }} />}{direction !== "received" && <b className="sent" style={{ height: `${bin.sent / peak * 50}%` }} />}</>}</i>)}</div>
           <div className="atlas-timeline-playhead" aria-hidden="true"><span /></div>
-          <input type="range" aria-label="Session timeline" aria-valuetext={`${formatElapsed(frame / fps)} of ${formatElapsed(duration)}`} min={0} max={maxFrame} step={1} value={Math.min(frame, maxFrame)} onChange={(event) => onSeek(Number(event.target.value))} />
+          <input type="range" aria-label="Session timeline" aria-valuetext={`${formatCursor(scene.startMs + frame / fps * 1000)} of ${formatCursor(endMs)}`} min={0} max={maxFrame} step={1} value={Math.min(frame, maxFrame)} onChange={(event) => onSeek(Number(event.target.value))} />
         </div>
-        <div className="atlas-timeline-labels"><span>00:00</span><span>{formatElapsed(duration / 4)}</span><span>{formatElapsed(duration / 2)}</span><span>{formatElapsed(duration * 3 / 4)}</span><span>{live ? 'LIVE EDGE' : formatElapsed(duration)}</span></div>
+        <div className="atlas-timeline-labels">{[0, 1, 2, 3].map(tick => <span key={tick}>{formatCursor(scene.startMs + duration * 1000 * tick / 4)}</span>)}<span>{live ? 'LIVE EDGE' : formatCursor(endMs)}</span></div>
       </div>
-      <div className="atlas-transport-meta"><div className="atlas-time-readout"><strong>{formatElapsed(frame / fps)}</strong><span>/ {formatElapsed(duration)}</span></div><div className="atlas-transport-actions"><label className="atlas-speed"><span className="atlas-sr-only">Playback speed</span><select value={rate} onChange={(event) => onRate(Number(event.target.value))}>{[0.5, 1, 2, 4].map((speed) => <option key={speed} value={speed}>{speed}×</option>)}</select></label>{live ? <button type="button" className={`atlas-live-button ${following ? 'is-following' : ''}`} onClick={onLive}><i className="atlas-dot" />{following ? 'Live' : 'Go live'}</button> : <span className="atlas-recorded-label">RECORDED</span>}<button type="button" className="atlas-icon-button" onClick={onFullscreen} aria-label="Toggle fullscreen" title="Fullscreen"><MapIcon name="expand" size={16} /></button></div></div>
+      <div className="atlas-transport-actions"><label className="atlas-speed"><span className="atlas-sr-only">Playback speed</span><select value={rate} onChange={(event) => onRate(Number(event.target.value))}>{[0.5, 1, 2, 4].map((speed) => <option key={speed} value={speed}>{speed}×</option>)}</select></label>{live ? <button type="button" className={`atlas-live-button ${following ? 'is-following' : ''}`} onClick={onLive}><i className="atlas-dot" />{following ? 'Live' : 'Go live'}</button> : <span className="atlas-recorded-label">RECORDED</span>}</div>
     </div>
   </footer>
 }

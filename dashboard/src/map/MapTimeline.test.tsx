@@ -27,16 +27,15 @@ const projected = (cursorMs: number, captured: typeof index, state: WorkspaceSta
 const container = document.createElement('div')
 document.body.append(container)
 let root = createRoot(container)
-const onFollowLive = vi.fn()
-let current = { cursorMs: end, index, state: { direction: 'both', locationId: null, expanded: true, order: 'latest' } as WorkspaceState }
+let current = { cursorMs: end, index, navigationRevision: 0, state: { direction: 'both', locationId: null, expanded: true, order: 'latest' } as WorkspaceState }
 const render = async (next: Partial<typeof current> = {}) => {
   current = { ...current, ...next }
-  await act(() => root.render(<MapTimeline data={projected(current.cursorMs, current.index, current.state)} startMs={start} endMs={end + 330_000} {...current} onChange={() => {}} onSeek={() => {}} onTrack={() => {}} loading={false} error={false} refreshing={false} live following onFollowLive={onFollowLive} />))
+  await act(() => root.render(<MapTimeline data={projected(current.cursorMs, current.index, current.state)} startMs={start} endMs={end + 330_000} {...current} onSeek={() => {}} onTrack={() => {}} loading={false} error={false} refreshing={false} live />))
 }
 const button = (label: string) => [...container.querySelectorAll('button')].find(node => node.textContent?.startsWith(label))!
 const laneNames = () => [...container.querySelectorAll('.atlas-detail-track strong')].map(node => node.textContent)
 HTMLElement.prototype.scrollTo = vi.fn(function(this: HTMLElement) { this.scrollTop = 0 })
-afterEach(async () => { await act(() => root.unmount()); root = createRoot(container); current = { cursorMs: end, index, state: { direction: 'both', locationId: null, expanded: true, order: 'latest' } }; vi.clearAllMocks() })
+afterEach(async () => { await act(() => root.unmount()); root = createRoot(container); current = { cursorMs: end, index, navigationRevision: 0, state: { direction: 'both', locationId: null, expanded: true, order: 'latest' } }; vi.clearAllMocks() })
 
 it('defaults to five minutes with recent endpoints first and quieter history still visible', async () => {
   await render()
@@ -50,9 +49,9 @@ it('defaults to five minutes with recent endpoints first and quieter history sti
   expect(container.querySelector('.atlas-detail-lane .atlas-flow-sent')).toBeNull()
 })
 
-it('holds the window while browsing a long list and returns directly to active traffic', async () => {
+it('holds the window while browsing and resumes from shared playback navigation', async () => {
   await render()
-  await render({ state: { ...current.state, activity: 'all' } })
+  await render({ state: { ...current.state, windowMs: 1_800_000 } })
   expect(container.querySelector('.atlas-detail-timeline')?.getAttribute('data-visible-lanes')).toBe('135')
   expect(laneNames().length).toBeLessThanOrEqual(32)
   const scroll = container.querySelector<HTMLDivElement>('.atlas-detail-scroll')!
@@ -62,21 +61,20 @@ it('holds the window while browsing a long list and returns directly to active t
   await render({ cursorMs: end + 15_000 })
   expect(container.querySelector('.atlas-detail-timeline')?.getAttribute('data-window-to')).toBe(heldTo)
   expect(laneNames()).toEqual(names)
-  expect(container.textContent).toContain('Window held')
-  await act(() => button('Follow live').click())
-  expect(onFollowLive).toHaveBeenCalledOnce()
+  expect(container.querySelector('.atlas-detail-timeline')?.hasAttribute('data-held')).toBe(true)
+  await render({ navigationRevision: current.navigationRevision + 1 })
   expect(container.querySelector('.atlas-detail-timeline')?.getAttribute('data-visible-lanes')).toBe('135')
-  expect(current.state.activity).toBe('all')
+  expect(current.state.windowMs).toBe(1_800_000)
   expect(scroll.scrollTop).toBe(0)
-  expect(container.textContent).toContain('Following live')
+  expect(container.querySelector('.atlas-detail-timeline')?.hasAttribute('data-held')).toBe(false)
 })
 
-it('uses global activity filters to reveal quiet lanes without a local selector', async () => {
+it('uses shared history to reveal older traffic without a local selector', async () => {
   await render({ cursorMs: end + 300_000 })
   expect(laneNames()).toEqual([])
   expect(container.textContent).toContain('No traffic in this window')
   expect(button('Show all')).toBeUndefined()
-  await render({ state: { ...current.state, activity: 'all' } })
+  await render({ state: { ...current.state, windowMs: 1_800_000 } })
   expect(laneNames().length).toBeGreaterThan(0)
 })
 
@@ -87,7 +85,7 @@ it('holds a keyboard-focused lane and resets browsing on a location change', asy
   expect(container.querySelector('.atlas-detail-timeline')?.getAttribute('data-window-to')).toBe(String(end))
   await render({ state: { ...current.state, locationId: '18.0686,59.3293' } })
   expect(container.querySelector('.atlas-detail-timeline')?.getAttribute('data-window-to')).toBe(String(end + 10_000))
-  expect(container.textContent).not.toContain('Window held')
+  expect(container.querySelector('.atlas-detail-timeline')?.hasAttribute('data-held')).toBe(false)
 })
 
 
@@ -120,7 +118,7 @@ it('keeps the chosen history window when returning to live following', async () 
   await render({ state: { ...current.state, windowMs: 30_000, query: 'service' } })
   expect(laneNames()).toEqual(['Service 134', 'Service 133'])
   await act(() => container.querySelector<HTMLButtonElement>('.atlas-detail-track')!.focus())
-  await act(() => button('Follow live').click())
+  await render({ navigationRevision: current.navigationRevision + 1 })
   expect(Number(chart().dataset.windowTo) - Number(chart().dataset.windowFrom)).toBe(30_000)
   expect(current.state.query).toBe('service')
 })
@@ -132,7 +130,7 @@ it('moves the live viewport between data publications, pauses exactly, and holds
   clock.configure({ durationInFrames: 30_000, rate: 1 })
   clock.seekTo(18_000)
   const animation = { clock, playbackEpochMs: start }
-  await act(() => root.render(<MapTimeline {...animation} data={projected(end, index, current.state)} startMs={start} endMs={end} cursorMs={end} index={index} state={current.state} onChange={() => {}} onSeek={() => {}} onTrack={() => {}} loading={false} error={false} refreshing={false} live following onFollowLive={onFollowLive} />))
+  await act(() => root.render(<MapTimeline {...animation} data={projected(end, index, current.state)} startMs={start} endMs={end} cursorMs={end} index={index} state={current.state} onSeek={() => {}} onTrack={() => {}} loading={false} error={false} refreshing={false} live />))
   const chart = container.querySelector<HTMLElement>('.atlas-detail-timeline')!
   const position = () => chart.style.getPropertyValue('--timeline-offset')
   const initial = position()

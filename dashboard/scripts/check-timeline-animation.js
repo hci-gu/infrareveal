@@ -16,7 +16,7 @@ async (page) => {
         const svg = chart.querySelector('.atlas-detail-lane svg');
         if (!chart.isConnected || !svg) {
           observer.disconnect();
-          reject(new Error(`${stage}: timeline lanes disappeared: ${JSON.stringify({ connected: chart.isConnected, ...chart.dataset, status: chart.querySelector('.atlas-wave-quality')?.textContent, empty: chart.querySelector('.atlas-timeline-empty')?.textContent })}`));
+          reject(new Error(`${stage}: timeline lanes disappeared: ${JSON.stringify({ connected: chart.isConnected, ...chart.dataset, busy: chart.getAttribute('aria-busy'), empty: chart.querySelector('.atlas-timeline-empty')?.textContent })}`));
           return;
         }
         const from = Number(chart.dataset.gridFrom), to = Number(chart.dataset.gridTo);
@@ -38,12 +38,12 @@ async (page) => {
   }, { duration, stage });
   const setWindow = async value => {
     await page.getByRole('button', { name: 'Filters', exact: true }).click();
-    await page.getByRole('combobox', { name: 'History window', exact: true }).selectOption(value);
+    await page.getByRole('combobox', { name: 'History', exact: true }).selectOption(value);
     await page.getByRole('button', { name: 'Close filters', exact: true }).click();
-    await page.waitForFunction(() => document.querySelector('.atlas-flow-envelope') && !/Updating|Loading/.test(document.querySelector('.atlas-wave-quality')?.textContent ?? ''));
+    await page.waitForFunction(() => document.querySelector('.atlas-flow-envelope') && document.querySelector('.atlas-detail-timeline')?.getAttribute('aria-busy') === 'false');
   };
   await setWindow('300000');
-  await page.getByRole('button', { name: /^Follow live/ }).click();
+  await page.getByRole('button', { name: /^(Go live|Live)$/ }).click();
   const fiveMinutes = await measure(8000, 'five minutes');
   assert(fiveMinutes.motionFraction > .9, 'Five-minute viewport freezes between data publications');
   await setWindow('30000');
@@ -56,11 +56,11 @@ async (page) => {
   await page.getByRole('button', { name: 'Pause playback' }).click();
   const paused = await measure(1200, 'paused');
   assert(paused.updates === 0, 'Paused viewport moved');
-  await page.getByRole('button', { name: /^Follow live/ }).click();
+  await page.getByRole('button', { name: /^(Go live|Live)$/ }).click();
   await page.locator('.atlas-detail-track').first().focus();
   const held = await measure(1200, 'held');
   assert(held.updates === 0, 'Inspection did not hold the viewport');
-  await page.getByRole('button', { name: /^Follow live/ }).click();
+  await page.getByRole('button', { name: /^(Go live|Live)$/ }).click();
   await setWindow('300000');
   return { fiveMinutes, thirtySeconds, slowReplay, paused, held };
 }

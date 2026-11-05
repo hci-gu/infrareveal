@@ -1,6 +1,5 @@
 import { useLiveList } from './useLiveList'
 import { BackToLatest } from './BackToLatest'
-import type { ActivityOrder } from './activityOrder'
 import { memo, useRef, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { formatBytes, formatMinute } from './format'
@@ -28,7 +27,6 @@ export const MapOverview = memo(function MapOverview({ data, state, onChange, st
       <div className={`atlas-up ${state.direction === 'received' ? 'is-inactive' : ''}`}><span className="atlas-metric-label">↑ Sent</span><strong data-direction-total="sent">{loading || error ? '—' : formatBytes(data.total.sent)}</strong></div>
     </div>
     <div className="atlas-segmented atlas-overview-tabs" role="group" aria-label="Overview content"><button type="button" aria-pressed={tab === 'locations'} onClick={() => setTab('locations')}>Locations <small>{data.locations.length}</small></button><button type="button" aria-pressed={tab === 'tracks'} onClick={() => setTab('tracks')}>Tracks <small>{data.tracks.length}</small></button></div>
-    <div className="atlas-list-order"><select aria-label="Traffic list order" value={state.order ?? 'default'} onChange={event => onChange({ ...state, order: event.target.value === 'default' ? undefined : event.target.value as ActivityOrder })}><option value="default">Default</option><option value="latest">Latest activity</option><option value="volume">Traffic volume</option><option value="name">Name</option></select></div>
     {tab === 'locations' && <BackToLatest paused={listPaused} onClick={resumeList} />}
     {tab === 'locations' ? <div ref={listRef} onScroll={scrollList} onFocusCapture={focusList} onClick={pauseList} className="atlas-location-list" aria-label="Remote locations">{orderedItems.map(location => <button type="button" key={location.id} className="atlas-location-row" aria-pressed={selectedLocation === location.id} data-location-id={location.id} onClick={() => onLocation(selectedLocation === location.id ? null : location.id)}>
       <span>{location.label}</span><strong>{loading || error ? '—' : formatBytes(location.bytes)}</strong><small>{location.detail}</small>

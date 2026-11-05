@@ -12,10 +12,10 @@ import { timelineRange, useTimelineViewport } from './useTimelineViewport'
 import { TimelineFlows } from './TimelineFlows'
 
 const ROW_HEIGHT = 72
-export function MapTimeline({ data, state, onChange, index, detailIndex, startMs, endMs, cursorMs, onSeek, onTrack, loading, error, refreshing, live, following, onFollowLive, clock, playbackEpochMs = startMs }: {
-  data: WorkspaceProjection; state: WorkspaceState; onChange: (state: WorkspaceState) => void; index: DestinationVolumeIndex; detailIndex?: DestinationVolumeIndex
+export function MapTimeline({ data, state, index, detailIndex, startMs, endMs, cursorMs, onSeek, onTrack, loading, error, refreshing, live, navigationRevision = 0, clock, playbackEpochMs = startMs }: {
+  data: WorkspaceProjection; state: WorkspaceState; index: DestinationVolumeIndex; detailIndex?: DestinationVolumeIndex
   startMs: number; endMs: number; cursorMs: number; onSeek: (time: number) => void; onTrack: (id: string) => void; loading: boolean; error: boolean; refreshing: boolean
-  live: boolean; following: boolean; onFollowLive: () => void
+  live: boolean; navigationRevision?: number
   clock?: MapPlaybackClock; playbackEpochMs?: number
 }) {
   const [scrollTop, setScrollTop] = useState(0)
@@ -24,7 +24,9 @@ export function MapTimeline({ data, state, onChange, index, detailIndex, startMs
   const [scale, setScale] = useState({ scope: '', ceiling: 0 })
   const scrollElement = useRef<HTMLDivElement>(null)
   const gradientId = useId()
-  const scope = JSON.stringify([data.scene.sessionId, filterScope(state), state.order])
+  // Explicit navigation in the shared player releases browsing holds. Live
+  // clock corrections and incoming data leave the inspected window alone.
+  const scope = JSON.stringify([data.scene.sessionId, filterScope(state), state.order, navigationRevision])
   const [previousScope, setPreviousScope] = useState(scope)
   if (previousScope !== scope) { setPreviousScope(scope); setScrollTop(0); setAnchor(null) }
   useEffect(() => { scrollElement.current?.scrollTo({ top: 0, left: 0 }) }, [scope])
@@ -36,7 +38,7 @@ export function MapTimeline({ data, state, onChange, index, detailIndex, startMs
   const grid = timelineWaveformGrid(range, windowMs)
   const { ref: viewportRef, currentRange } = useTimelineViewport({ clock, epochMs: playbackEpochMs, cursorMs, startMs, endMs, windowMs, anchor, live, grid })
   const lanes = timelineLanes(data.rows, capture, range, cursorMs, state.direction)
-  const { items: orderedItems, scrollRef: listRef, paused: listPaused, back: resumeList, onScroll: scrollList, pause: pauseList } = useLiveList(lanes, scope, Math.min(range.to, cursorMs), state.order === 'latest' ? row => row.windowLastActivityMs : undefined)
+  const { items: orderedItems, scrollRef: listRef, paused: listPaused, onScroll: scrollList, pause: pauseList } = useLiveList(lanes, scope, Math.min(range.to, cursorMs), state.order === 'latest' ? row => row.windowLastActivityMs : undefined)
   const first = Math.min(Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 3), Math.max(0, orderedItems.length - 1))
   const rows = orderedItems.slice(first, first + 32)
   const waveform = useMemo(() => createWireWaveformCache(), [])
@@ -50,16 +52,8 @@ export function MapTimeline({ data, state, onChange, index, detailIndex, startMs
   if (scale.scope !== scaleScope || scale.ceiling !== ceiling) setScale({ scope: scaleScope, ceiling })
   const held = anchor !== null || listPaused
   const hold = () => { setAnchor(currentRange().to); pauseList() }
-  const follow = () => { setAnchor(null); setScrollTop(0); resumeList(); if (live) onFollowLive() }
 
-  return <section ref={viewportRef} className="atlas-detail-timeline" aria-label="Traffic timeline" style={{ '--timeline-row-height': `${ROW_HEIGHT}px` } as CSSProperties} data-scale-ceiling={ceiling} data-bin-ms={grid.binMs} data-grid-from={grid.from} data-grid-to={grid.to} data-window-from={range.from} data-window-to={range.to} data-visible-lanes={orderedItems.length}>
-    <header><div><span className="atlas-eyebrow">TRAFFIC IN MOTION</span><h2>Traffic timeline</h2><p>{state.locationId ? data.locations.find(l => l.id === state.locationId)?.label ?? 'Location no longer retained' : 'All locations'} · one lane per endpoint</p></div><button type="button" autoFocus onClick={() => onChange({ ...state, expanded: false })}>↙ Back to map</button></header>
-    <div className="atlas-timeline-toolbar">
-      <span className={`atlas-timeline-follow-state${!held && following ? ' is-live' : ''}`}><i />{held ? 'Window held' : live && following ? 'Following live' : 'Following playhead'}</span>
-      <button type="button" className="atlas-timeline-follow" onClick={follow}>{live ? 'Follow live' : 'Follow playhead'} ↗</button>
-    </div>
-    <div className="atlas-timeline-options"><span className="atlas-down">↓ Downloaded · above</span><span className="atlas-up">↑ Sent · below</span><button type="button" onClick={() => setScale({ scope: scaleScope, ceiling: waveformCeiling([...waveforms.values()], state.direction) })} title="Refit flow thickness to the current window">Fit scale</button></div>
-    <div className="atlas-wave-quality" role="status">{refreshing ? 'Updating · showing last loaded capture' : loading ? 'Loading capture…' : error ? 'Capture unavailable · retrying' : `${grid.binMs / 1000}s averages · shared square-root scale to ${formatBytes(ceiling)}/s. Dashed flows = partial; hatching = no capture.`}</div>
+  return <section ref={viewportRef} className="atlas-detail-timeline" aria-label="Traffic timeline" style={{ '--timeline-row-height': `${ROW_HEIGHT}px` } as CSSProperties} data-held={held || undefined} aria-busy={loading || refreshing} data-scale-ceiling={ceiling} data-bin-ms={grid.binMs} data-grid-from={grid.from} data-grid-to={grid.to} data-window-from={range.from} data-window-to={range.to} data-visible-lanes={orderedItems.length}>
     <svg className="atlas-flow-definitions" aria-hidden="true"><defs><pattern id={`${gradientId}-gap`} width="7" height="7" patternUnits="userSpaceOnUse"><path d="M0,7 L7,0" className="atlas-capture-gap" /></pattern>{(['received', 'sent'] as const).map(direction => <linearGradient key={direction} id={`${gradientId}-${direction}`} x1="0" y1={direction === 'received' ? "1" : "0"} x2="0" y2={direction === 'received' ? "0" : "1"} className={`atlas-flow-${direction}`}><stop offset="0" stopColor="currentColor" stopOpacity=".9" /><stop offset="1" stopColor="currentColor" stopOpacity=".3" /></linearGradient>)}</defs></svg>
     <div className="atlas-detail-ruler"><span>Service</span><div>{Array.from({ length: 5 }, (_, i) => <span key={i}>{formatCursor(range.from + (range.to - range.from) * i / 4)}</span>)}</div></div>
     <div ref={element => { listRef(element); scrollElement.current = element }} className="atlas-detail-scroll" onFocusCapture={hold} onScroll={event => { scrollList(event); setScrollTop(event.currentTarget.scrollTop); if (event.currentTarget.scrollTop > 8) hold() }}>

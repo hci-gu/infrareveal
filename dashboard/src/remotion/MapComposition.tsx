@@ -19,8 +19,7 @@ export type MapCompositionProps = {
   onWorkspace: (value: WorkspaceState) => void
   onSeekTime: (time: number) => void
   live: boolean
-  following: boolean
-  onFollowLive: () => void
+  navigationRevision: number
   timelineDetailIndex?: DestinationVolumeIndex
   endMs: number
   scene: MapTimelineScene

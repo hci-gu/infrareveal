@@ -30,6 +30,7 @@ import { useMapPreferences } from '../map/mapPreferences'
 import { DEFAULT_TRAFFIC_FILTERS, projectWorkspace, trafficFilterCount } from '../map/mapWorkspace'
 import { TrafficFilters } from '../map/TrafficFilters'
 import type { WorkspaceState } from '../map/mapWorkspace'
+import type { ActivityOrder } from '../map/activityOrder'
 import { createWireWaveformCache } from '../map/wireWaveform'
 import { themedAtlasStyle } from '../map/atlasStyle'
 import '../map/map.css'
@@ -37,6 +38,7 @@ import '../map/workspace.css'
 
 const LIVE_DURATION_HEADROOM_SECONDS = 30
 const LIVE_EDGE_TOLERANCE_MS = 2_000
+const TRAFFIC_ORDER_LABELS: Record<ActivityOrder | 'default', string> = { default: 'Default', latest: 'Latest activity', volume: 'Traffic volume', name: 'Name' }
 
 
 export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: string; demo?: { status: DemoStatus; error: string } } = {}) {
@@ -59,7 +61,9 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const mapContainerRef = useRef<HTMLDivElement>(null)
   const [size, setSize] = useState(() => ({ width: Math.max(320, window.innerWidth), height: Math.max(240, window.innerHeight - 208) }))
   const [currentFrame, setCurrentFrame] = useState(0)
+  const [navigationRevision, setNavigationRevision] = useState(0)
   const [fullscreenError, setFullscreenError] = useState('')
+  const [fullscreen, setFullscreen] = useState(false)
   const [clock] = useState(() => new MapPlaybackClock(FPS))
   const playerRef = useRef(clock)
   const initializedSessionRef = useRef<string | null>(null)
@@ -148,14 +152,15 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     })
   }, [contentDurationInFrames, playbackEpochMs, timeline.liveEdgeMs, timeline.mode])
 
-  const seek = useCallback((frame: number) => {
+  const seek = useCallback((frame: number, resumeTimeline = false) => {
+    if (resumeTimeline) setNavigationRevision(value => value + 1)
     const target = Math.max(frameForTime(playbackEpochMs, scene.startMs, FPS), Math.min(contentDurationInFrames - 1, frame))
     programmaticSeekTargetRef.current = null
     playerRef.current?.seekTo(target)
     setCurrentFrame(target)
   }, [contentDurationInFrames, playbackEpochMs, scene.startMs])
 
-  const seekTime = useCallback((time: number) => seek(frameForTime(playbackEpochMs, time, FPS)), [playbackEpochMs, seek])
+  const seekTime = useCallback((time: number, resumeTimeline = false) => seek(frameForTime(playbackEpochMs, time, FPS), resumeTimeline), [playbackEpochMs, seek])
 
   const inputProps = useMemo<MapCompositionProps>(() => ({
     scene,
@@ -166,7 +171,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     mapStyleUrl: styledMap,
     preferences, theme, workspace, overview, onWorkspace: updateWorkspace,
     endMs: contentEndMs, onSeekTime: seekTime,
-    live: timeline.mode === 'live', following: timeline.playback === 'following', onFollowLive: followLiveEdge, timelineDetailIndex,
+    live: timeline.mode === 'live', navigationRevision, timelineDetailIndex,
     unavailable: !history.hasData && (Boolean(history.error) || connectionState === 'error' || connectionState === 'offline'),
     loading: history.loading || (!scene.sessionId && connectionState !== 'error' && connectionState !== 'offline'),
     refreshing: history.refreshing || (history.hasData && Boolean(history.error)),
@@ -175,7 +180,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     destinationIndex,
     destinationLoading: history.loading,
     destinationError: Boolean(history.error) && !history.hasData,
-  }), [timeline.mode, timeline.playback, followLiveEdge, timelineDetailIndex, clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, history.hasData, history.refreshing, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
+  }), [timeline.mode, navigationRevision, timelineDetailIndex, clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, history.hasData, history.refreshing, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
   useEffect(() => { clock.configure({ durationInFrames, rate: timeline.rate }) }, [clock, durationInFrames, timeline.rate])
   useEffect(() => () => clock.dispose(), [clock])
 
@@ -184,6 +189,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     if (!player) return
     if (player.isPlaying()) player.pause()
     else {
+      setNavigationRevision(value => value + 1)
       if (player.getCurrentFrame() >= contentDurationInFrames - 1) player.seekTo(frameForTime(playbackEpochMs, scene.startMs, FPS))
       player.play()
     }
@@ -195,20 +201,27 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       const target = event.target as HTMLElement | null
       if (event.altKey || event.ctrlKey || event.metaKey || target?.closest('input, select, button, a, textarea, [contenteditable="true"]')) return
       if (event.code === 'Space') { event.preventDefault(); togglePlayback() }
-      if (event.code === 'ArrowLeft') { event.preventDefault(); seek((playerRef.current?.getCurrentFrame() ?? 0) - FPS * 10) }
-      if (event.code === 'ArrowRight') { event.preventDefault(); seek((playerRef.current?.getCurrentFrame() ?? 0) + FPS * 10) }
+      if (event.code === 'ArrowLeft') { event.preventDefault(); seek((playerRef.current?.getCurrentFrame() ?? 0) - FPS * 10, true) }
+      if (event.code === 'ArrowRight') { event.preventDefault(); seek((playerRef.current?.getCurrentFrame() ?? 0) + FPS * 10, true) }
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [seek, togglePlayback, settingsOpen])
 
   async function toggleFullscreen() {
+    setFullscreenError('')
     try {
       if (document.fullscreenElement) await document.exitFullscreen()
       else if (pageRef.current?.requestFullscreen) await pageRef.current.requestFullscreen()
       else setFullscreenError('Fullscreen is not available in this browser.')
     } catch { setFullscreenError('Fullscreen is not available in this browser.') }
   }
+
+  useEffect(() => {
+    const syncFullscreen = () => setFullscreen(document.fullscreenElement === pageRef.current)
+    document.addEventListener('fullscreenchange', syncFullscreen)
+    return () => document.removeEventListener('fullscreenchange', syncFullscreen)
+  }, [])
 
   useEffect(() => {
     const player = playerRef.current
@@ -317,11 +330,23 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       <header className="atlas-header">
         <Link to="/" className="atlas-brand" aria-label="InfraReveal — all sessions"><span className="atlas-brand-mark"><MapIcon name="globe" size={23} /></span><span>infra<span>reveal</span><small>NETWORK OBSERVABILITY</small></span></Link>
         <div className="atlas-header-divider" />
+        {workspace.expanded && <button type="button" className="atlas-icon-button atlas-mobile-map-return" aria-label="Back to map" title="Back to map" onClick={() => updateWorkspace({ ...workspace, expanded: false })}><MapIcon name="back" size={17} /></button>}
         <nav className="atlas-breadcrumb" aria-label="Breadcrumb"><Link to="/" aria-label="All sessions"><MapIcon name="back" size={15} /><span>Sessions</span></Link><span className="atlas-breadcrumb-slash">/</span><span className="atlas-session-name" title={scene.sessionName}>{scene.sessionName}</span></nav>
-        <div className="atlas-header-right"><button type="button" className="atlas-icon-button" aria-label="Browse activity blocks" onClick={() => { setBlocksOpen(value => !value); setFiltersOpen(false) }}><MapIcon name="activity" size={17} /><span className="atlas-header-action-label">Activity</span></button><button id="traffic-filters-toggle" type="button" className="atlas-filter-toggle" aria-label="Filters" aria-controls="traffic-filters" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen(value => !value); setBlocksOpen(false) }}><MapIcon name="filter" size={16} /><span>Filters</span>{trafficFilterCount(workspace) > 0 && <small>{trafficFilterCount(workspace)}</small>}</button><button type="button" className="atlas-icon-button" aria-label="Open display settings" title="Display settings" onClick={() => { setSettingsOpen(true); setFiltersOpen(false) }}><MapIcon name="settings" /></button><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(cursorMs)}</strong><span>UTC</span></div></div>
+        <div className="atlas-header-right">
+          <button type="button" className="atlas-icon-button" aria-label="Browse activity blocks" onClick={() => { setBlocksOpen(value => !value); setFiltersOpen(false) }}><MapIcon name="activity" size={17} /><span className="atlas-header-action-label">Activity</span></button>
+          <label className="atlas-traffic-order" title="Sort lists and timeline">
+            <MapIcon name="sort" size={16} /><span aria-hidden="true">{TRAFFIC_ORDER_LABELS[workspace.order ?? 'default']}</span>
+            <select aria-label="Sort traffic" value={workspace.order ?? 'default'} onChange={event => updateWorkspace({ ...workspace, order: event.target.value === 'default' ? undefined : event.target.value as ActivityOrder })}>
+              {Object.entries(TRAFFIC_ORDER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+            </select>
+          </label>
+          <button id="traffic-filters-toggle" type="button" className="atlas-filter-toggle" aria-label="Filters" aria-controls="traffic-filters" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen(value => !value); setBlocksOpen(false) }}><MapIcon name="filter" size={16} /><span>Filters</span>{trafficFilterCount(workspace) > 0 && <small>{trafficFilterCount(workspace)}</small>}</button>
+          <button type="button" className="atlas-icon-button" aria-label="Open display settings" title="Display settings" onClick={() => { setSettingsOpen(true); setFiltersOpen(false) }}><MapIcon name="settings" /></button>
+          <div className="atlas-clock"><strong>{formatCursor(cursorMs)}</strong></div>
+        </div>
       </header>
       {!!timeline.manifest?.simulation_expires_ms && <SimulationBanner key={sessionID} session={sessionID} expiresMS={timeline.manifest.simulation_expires_ms} serverMS={timeline.manifest.server_ms} />}
-      {(error || history.error || activity.error || fullscreenError) && <div className="atlas-connection-notice" role="status"><span>{error || history.error || activity.error || fullscreenError}</span>{error || history.error || activity.error ? <button type="button" onClick={() => { void refresh(); history.refresh(); activity.refresh() }}>Retry connection</button> : <button type="button" onClick={() => setFullscreenError('')}>Dismiss</button>}</div>}
+      {(error || history.error || activity.error) && <div className="atlas-connection-notice" role="status"><span>{error || history.error || activity.error}</span><button type="button" onClick={() => { void refresh(); history.refresh(); activity.refresh() }}>Retry connection</button></div>}
       {timeline.manifest?.capture.error && <div className="atlas-connection-notice" role="status">Capture {timeline.manifest.capture.quality}: {timeline.manifest.capture.error}</div>}
       {demoWarning && <div className="atlas-connection-notice" role="status">{demoWarning}</div>}
       <div className="atlas-map-container" data-filters-open={filtersOpen || undefined}>
@@ -329,17 +354,17 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
         <TrafficFilters open={filtersOpen} state={workspace} data={overview} onChange={updateWorkspace} onClose={closeFilters} />
       </div>
       {blocksOpen && <ActivityBlockBrowser live={timeline.mode === 'live'} cursorMs={cursorMs} sessionId={sessionID} fromMs={windowFrom} toMs={Math.min(windowTo, contentEndMs)} data={overview} state={workspace} onSeek={seekTime} onClose={() => setBlocksOpen(false)} />}
-      <MapSettings open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />
+      <MapSettings open={settingsOpen} preferences={preferences} fullscreen={fullscreen} fullscreenError={fullscreenError} onChange={setPreferences} onToggleFullscreen={() => void toggleFullscreen()} onClose={() => setSettingsOpen(false)} />
       <MapTransport scene={scene} bins={playbackBins} direction={workspace.direction} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}
         live={timeline.mode === 'live'} following={timeline.playback === 'following'}
-        onToggle={togglePlayback} onSeek={frame => seekTime(timeForFrame(scene.startMs, frame, FPS))}
-        onStep={frames => seek((playerRef.current?.getCurrentFrame() ?? currentFrame) + frames)} onRate={(rate) => setTimelinePlayback({
+        onToggle={togglePlayback} onSeek={frame => seekTime(timeForFrame(scene.startMs, frame, FPS), true)}
+        onStep={frames => seek((playerRef.current?.getCurrentFrame() ?? currentFrame) + frames, true)} onRate={(rate) => setTimelinePlayback({
           rate,
           // A faster/slower clock is playback; live following must run at real time.
           ...(rate !== 1 && timeline.playback === 'following' ? { playback: 'playing' } : {}),
         })}
-        onLive={() => followLiveEdge(true)} onFullscreen={() => void toggleFullscreen()} />
+        onLive={() => { setNavigationRevision(value => value + 1); followLiveEdge(true) }} />
     </main>
   )
 }

@@ -26,8 +26,8 @@ export function mountTimelineMotion(container: HTMLElement) {
     const data = projectWorkspace(buildMapTrackCatalog(source), scene, index, cursorMs, state)
     root.render(<div className="atlas-page" data-theme="dark" style={{ position: 'fixed', inset: 0, '--atlas-overview-width': '0px' } as CSSProperties}>
       <MapTimeline data={data} index={index} startMs={start} endMs={end + 60_000} cursorMs={cursorMs}
-        state={state} onChange={() => {}} onSeek={() => {}} onTrack={() => {}}
-        loading={false} error={false} refreshing={false} live following onFollowLive={() => {}} />
+        state={state} onSeek={() => {}} onTrack={() => {}}
+        loading={false} error={false} refreshing={false} live />
     </div>)
   }
   render(end)

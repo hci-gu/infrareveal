@@ -10,13 +10,12 @@ import { projectMapTracks, sceneForTracks } from './mapTracks'
 import type { MapSeries, MapTrack, MapTrackCatalog } from './mapTracks'
 
 export type TrafficDirection = 'both' | 'received' | 'sent'
-export type TrafficActivity = 'recent' | 'active' | 'all'
-export const DEFAULT_TRAFFIC_FILTERS = { query: '', activity: 'recent' as TrafficActivity, windowMs: 300_000, locationId: null }
-export type WorkspaceState = { direction: TrafficDirection; locationId: string | null; expanded: boolean; order?: ActivityOrder; query?: string; activity?: TrafficActivity; windowMs?: number }
-export const filterScope = (state: WorkspaceState) => JSON.stringify([state.direction, state.locationId, state.query ?? '', state.activity ?? 'recent', state.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs])
+export const DEFAULT_TRAFFIC_FILTERS = { query: '', activeOnly: false, windowMs: 300_000, locationId: null }
+export type WorkspaceState = { direction: TrafficDirection; locationId: string | null; expanded: boolean; order?: ActivityOrder; query?: string; activeOnly?: boolean; windowMs?: number }
+export const filterScope = (state: WorkspaceState) => JSON.stringify([state.direction, state.locationId, state.query ?? '', state.activeOnly ?? false, state.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs])
 export function trafficFilterCount(state: WorkspaceState) {
   return Number(Boolean(state.query?.trim())) + Number(Boolean(state.locationId))
-    + Number((state.activity ?? DEFAULT_TRAFFIC_FILTERS.activity) !== DEFAULT_TRAFFIC_FILTERS.activity)
+    + Number(Boolean(state.activeOnly))
     + Number((state.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs) !== DEFAULT_TRAFFIC_FILTERS.windowMs)
 }
 
@@ -53,9 +52,8 @@ export function projectWorkspace(catalog: MapTrackCatalog, scene: MapTimelineSce
     const volume = seriesVolume(series, index, cursor, Math.max(index.fromMs ?? 0, cursor - (state.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs)))
     const lastActivityMs = seriesLastActivity(series, index, cursor, state.direction)
     const active = lastActivityMs > 0 && cursor - lastActivityMs < ACTIVITY_HOLD_MS
-    const activity = state.activity ?? DEFAULT_TRAFFIC_FILTERS.activity
-    if (activity !== 'all' && (directionalBytes(volume, state.direction) <= 0 || lastActivityMs <= cursor - (state.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs))) continue
-    if (activity === 'active' && !active) continue
+    if (directionalBytes(volume, state.direction) <= 0 || lastActivityMs <= cursor - (state.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs)) continue
+    if (state.activeOnly && !active) continue
     if (terms.length) {
       const text = [series.label, series.site, series.hostname, series.client, series.provider, series.location, location.label,
       ...series.chunks.flatMap(chunk => [chunk.client_id, chunk.destination_ip, String(chunk.destination_port), chunk.protocol])].join(' ').toLowerCase()
