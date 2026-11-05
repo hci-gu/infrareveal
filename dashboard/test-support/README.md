@@ -11,6 +11,8 @@ port 5193 and debug dashboard on 5194. Open a browser with Playwright CLI and ru
 ```sh
 playwright-cli open http://127.0.0.1:5193 --headed
 playwright-cli run-code --filename dashboard/test-support/browser-product-api.js
+playwright-cli run-code --filename dashboard/test-support/browser-traffic-timeline.js
+playwright-cli run-code --filename dashboard/test-support/browser-timeline-motion.js
 ```
 
 The script reads actual manifest, map, block and revision endpoints. It checks
@@ -38,3 +40,17 @@ location and playhead boundaries; `useLiveList.test.tsx` checks the update caden
 scroll/focus stability and returning to the latest order. Run `corepack pnpm test`
 from the repository root. The server's ordering and cursor checks run with
 `go test ./timeline ./gateway` from `pocketbase`.
+
+The traffic timeline browser check covers recorded flow rendering, window defaults,
+keyboard seeking, holding/resuming, both projections, light/dark themes, mobile
+layout, removal of rendering-detail controls and returning from paused live time.
+It runs with the system motion preference set to reduce, verifies the production
+traffic shaders on the GPU, and saves screenshots to `output/playwright/`. `MapTimeline.test.tsx` adds a
+135-endpoint regression for activity filtering, virtualization and browsing
+stability. Flow geometry tests verify shared scaling and gaps without invented
+traffic across silence or missing capture.
+
+The motion check mounts the production timeline with 135 synthetic endpoints in
+the browser. It verifies the five-minute default, retained quiet history, actual
+CSS transitions when activity promotes a lane, entry fading, animations with either system motion preference, and
+stability while focused. Its fixture never writes to the backend.

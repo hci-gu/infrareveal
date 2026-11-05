@@ -32,7 +32,7 @@ raw diagnostic collections.
 ## Laboratory
 
 `/proxy-lab/:sessionID` preserves the gateway graph, trace selection, node
-inspection, replay, frame steps, direction, reduced motion, pan and zoom. Recorded
+inspection, replay, frame steps, direction, animated traffic, pan and zoom. Recorded
 core events are captured aggregate bursts and route publications. Intermediate
 node motion illustrates forwarding topology; it is not a measured packet path.
 The optional live diagnostic stream is kept separate from persisted product facts.

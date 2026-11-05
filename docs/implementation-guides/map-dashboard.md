@@ -20,11 +20,23 @@ headers. A counter enters the total only when its entire source bucket has elaps
 Connection lifetime counters and conntrack estimates do not contribute.
 
 Expand the left pane to open the full-screen traffic timeline. Escape or **Back to
-map** returns to the map; filters and the playhead survive the transition. Rows group
-by service, client and remote location. Select a row to inspect destination and
-classification evidence, or click its chart to seek. Downloaded wire rate appears
-above the baseline and sent wire rate below it. Missing or partial capture is
-shown separately from measured quiet time.
+map** returns to the map; filters and the playhead survive the transition. Each lane is
+an exact endpoint series. The default rolling five-minute view shows only lanes
+with completed directional traffic in the window, newest first.
+Lanes animate into their new positions when activity changes. Traffic in the
+last thirty seconds stays emphasized; older flows fade gently but remain readable
+throughout the window. Transitions always animate.
+**All lanes** also reveals endpoints with no traffic in the window. Scrolling or
+focusing a lane holds the window and order. **Follow live** returns to recent active traffic and resumes
+playback while keeping the selected history window. Recordings offer
+**Follow playhead** instead.
+
+Select a row to inspect destination evidence, or click its chart to seek. Teal
+download and amber upload flows use smooth envelopes with a shared square-root
+rate scale. Clock-aligned averages keep old samples stable; the scale holds until
+a new peak or **Fit scale**. Fine activity samples supply recent windows, with
+coarse history as fallback. Missing capture is hatched, partial flows are dashed,
+and measured silence has no flow.
 
 Pause, seek and playback speed operate locally on the same session clock. Rolling
 retention advances the earliest available position without rebasing the clock.
@@ -49,16 +61,13 @@ activity and do not measure browser focus, pages viewed or a person's attention.
 
 ## Geography and connections
 
-**Display settings** offers Equal Earth, Mercator, appearance, location labels and
-rendering quality. Preferences are saved in this browser.
+**Display settings** offers Equal Earth, Mercator, appearance and location labels. Preferences are saved in this browser.
 
 - **Equal Earth** uses bundled Natural Earth geography, directional connections
   and paired linear volume bars. Its background works without a network connection.
 - **Mercator** offers a detailed MapLibre basemap, perspective controls and directional
   columns with a fixed logarithmic scale. Its online tiles and fonts need internet
-  access; Raspberry Pi mode uses bundled geography.
-- **Automatic**, **Raspberry Pi** and **Full detail** control rendering cost.
-  Automatic selects Pi detail on browsers reporting four or fewer logical CPUs.
+  access. Both projections always use their full renderer.
 
 Country-only evidence uses country footprints. City markers represent approximate
 IP locations. Destinations without coordinates are still counted. Both projections
@@ -69,8 +78,8 @@ continues to include all contributors. Service details show location, provider a
 classification evidence.
 
 Mercator's travelling bursts illustrate the recent captured payload shape over
-four seconds. They do not alter measurement timestamps or totals. Reduced-motion
-mode shows current volume without travelling history.
+four seconds. They do not alter measurement timestamps or totals. Traffic and
+camera transitions always animate, independently of system motion preferences.
 
 ## Data and rendering cost
 
@@ -88,10 +97,11 @@ may require a shorter history interval. Activity lists use separate bounded page
 
 `MapPlaybackClock` owns playback without frame-driven React renders. The renderer
 reads clock uniforms and requests at most thirty animation paints per second.
-Hidden maps and expanded timelines do not animate. UI publication uses 250 ms in
-Full detail and one second on Pi; user actions are immediate. Geography and connection
-geometry are cached independently of changing rates and totals. Pi mode uses one
-WebGL canvas at one device pixel per CSS pixel and simpler curves.
+Hidden maps and expanded timelines do not run map animation. UI publication uses
+250 ms; user actions are immediate. Geography and connection geometry are cached
+independently of changing rates and totals. Mercator uses device-resolution graphics
+and smooth curves without device-specific detail settings. Timeline rows remain
+virtualized, while activity selection and the shared scale include every lane.
 
 The debug dashboard uses the same activity contract. Raw flow, DNS and gate panels
 appear only for recorded diagnostic profiles and require a PocketBase superuser

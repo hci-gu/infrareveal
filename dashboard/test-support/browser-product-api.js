@@ -31,7 +31,7 @@ async (page) => {
     await page.getByRole('button', { name: 'Browse activity blocks' }).click()
     await page.locator('.atlas-block').first().waitFor()
     const mapBlocks = await page.locator('.atlas-block').count()
-    await page.locator('.atlas-block').first().click()
+    await page.locator('.atlas-block').filter({ hasText: 'svt.se' }).first().click()
     await page.getByText('Originally started', { exact: false }).waitFor()
     await page.locator('.atlas-block-detail').getByText(/dns_answer/).waitFor()
     await page.getByRole('button', { name: 'Close activity blocks' }).click()

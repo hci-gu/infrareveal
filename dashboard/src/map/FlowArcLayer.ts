@@ -10,17 +10,15 @@ export const trafficUniforms = {
   name: 'traffic',
   vs: `layout(std140) uniform trafficUniforms {
     float phase;
-    float motion;
     float clock;
   } traffic;`,
-  uniformTypes: { phase: 'f32', motion: 'f32', clock: 'f32' },
-} as const satisfies ShaderModule<{ phase: number; motion: number; clock: number }>
+  uniformTypes: { phase: 'f32', clock: 'f32' },
+} as const satisfies ShaderModule<{ phase: number; clock: number }>
 
 type VolumeProps<T> = {
   animation?: TrafficAnimation | null
   time: number
   phase: number
-  motion: number
   getRadii0: Accessor<T, number[]>
   getRadii1: Accessor<T, number[]>
   getRadii2: Accessor<T, number[]>
@@ -39,7 +37,7 @@ float transportedRadius(float progress) {
   // New measurements enter at the sending end; older samples continue in flight.
   // The extra bucket interpolates completed observations without rollover jumps.
   float distance = instanceDirection > 0.0 ? progress : 1.0 - progress;
-  float age = 1.0 + distance * traffic.motion * ${TRAFFIC_TRAVEL_SECONDS * 1000 / TRAFFIC_BUCKET_MS}.0 - traffic.phase;
+  float age = 1.0 + distance * ${TRAFFIC_TRAVEL_SECONDS * 1000 / TRAFFIC_BUCKET_MS}.0 - traffic.phase;
   float index = clamp(age, 0.0, 10.999);
   int bucket = int(floor(index));
   return mix(historyValue(bucket), historyValue(bucket + 1), smoothstep(0.0, 1.0, fract(index)));
@@ -92,7 +90,7 @@ float radiusAt(float t) {
   // Accent motion stays on the timeline clock, independent of sample updates.
   float pathProgress = mix(instanceProgress.x, instanceProgress.y, t);
   float amount = transportedRadius(pathProgress);
-  float phase = pathProgress * instanceDirection * 2.0 - traffic.clock * traffic.motion * 0.5;
+  float phase = pathProgress * instanceDirection * 2.0 - traffic.clock * 0.5;
   float wave = pow(0.5 + 0.5 * cos(phase * 2.0 * PI), 2.0);
   float envelope = 0.12 + 0.88 * wave;
   float ends = smoothstep(0.0, 0.018, t) * (1.0 - smoothstep(0.982, 1.0, t));
@@ -115,12 +113,8 @@ void main() {
   vec3 up = normalize(cross(side, tangent));
   vec3 radial = cos(positions.y) * side + sin(positions.y) * up;
   float radius = radiusAt(t);
-#ifdef LOW_DETAIL
-  vNormal = radial;
-#else
   float slope = (radiusAt(min(1.0, t + dt)) - radiusAt(max(0.0, t - dt))) / max(0.00001, length(after - before) * project.scale);
   vNormal = normalize(radial - tangent * slope);
-#endif
   vRadius = radius;
   vec3 position = center + side * project_pixel_size(instanceDirection * (radius + 1.0)) + radial * project_pixel_size(radius);
   vEye = project.cameraPosition - position;
@@ -146,13 +140,9 @@ void main() {
   vec3 normal = normalize(vNormal);
   vec3 light = normalize(vec3(-0.35, -0.65, 0.9));
   float diffuse = max(0.0, dot(normal, light));
-#ifdef LOW_DETAIL
-  vec3 color = vColor.rgb * (0.55 + diffuse * 0.45);
-#else
   vec3 eye = normalize(vEye);
   float shine = pow(max(0.0, dot(normalize(light + eye), normal)), 36.0);
   vec3 color = vColor.rgb * (0.3 + diffuse * 0.7) + mix(vColor.rgb, vec3(1.0), 0.7) * shine * 0.65;
-#endif
   fragColor = vec4(color, vColor.a * smoothstep(0.18, 0.65, vRadius));
   DECKGL_FILTER_COLOR(fragColor, geometry);
 }
@@ -162,7 +152,7 @@ void main() {
 export abstract class TrafficLayer<T, ExtraProps extends object = object> extends ArcLayer<T, VolumeProps<T> & ExtraProps> {
   static layerName = 'TrafficLayer'
   static defaultProps = {
-    ...ArcLayer.defaultProps, numSegments: 160, time: 0, phase: 0, motion: 1, animation: { type: 'object', value: null, compare: false },
+    ...ArcLayer.defaultProps, numSegments: 160, time: 0, phase: 0, animation: { type: 'object', value: null, compare: false },
     getRadii0: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii1: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii2: { type: 'accessor', value: [0, 0, 0, 0] },
@@ -183,7 +173,7 @@ export abstract class TrafficLayer<T, ExtraProps extends object = object> extend
 
   getShaders() {
     const shaders = super.getShaders()
-    return { ...shaders, defines: { ...shaders.defines, ...(this.props.numSegments <= 48 ? { LOW_DETAIL: 1 } : {}) }, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
+    return { ...shaders, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
   }
 
   updateState(params: UpdateParameters<this>) {
@@ -197,7 +187,7 @@ export abstract class TrafficLayer<T, ExtraProps extends object = object> extend
 
   protected meshResolution() {
     const segments = Math.max(2, Math.round(this.props.numSegments))
-    return { segments, sides: segments <= 48 ? 4 : 12 }
+    return { segments, sides: 12 }
   }
 
   protected _getModel(): Model {
@@ -228,7 +218,7 @@ export abstract class TrafficLayer<T, ExtraProps extends object = object> extend
     const model = this.state.model
     if (!model) return
     const { time, phase } = this.getAnimationTime()
-    model.shaderInputs.setProps({ arc: { numSegments: this.props.numSegments }, traffic: { clock: trafficShaderClock(time), phase, motion: this.props.motion } })
+    model.shaderInputs.setProps({ arc: { numSegments: this.props.numSegments }, traffic: { clock: trafficShaderClock(time), phase } })
     model.draw(this.context.renderPass)
   }
 }

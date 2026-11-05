@@ -18,7 +18,7 @@ export function useLiveList<T extends { id: string }>(items: T[], scope: string,
   const nextIds = ordered.map(item => item.id)
   if (reset || (!paused && order.tick !== tick) || nextIds.length !== order.ids.length || nextIds.some((id, i) => order.ids[i] !== id)) setOrder({ scope, tick, ids: nextIds })
   const back = () => {
-    setPaused(false); setOrder({ scope, tick, ids: items.map(item => item.id) })
+    setPaused(false); setOrder({ scope, tick: -Infinity, ids: [] })
     scrollRef.current?.scrollTo({ top: 0, left: 0 })
   }
   return { items: ordered, paused, scrollRef: attachScroll, pause: () => setPaused(true), back,

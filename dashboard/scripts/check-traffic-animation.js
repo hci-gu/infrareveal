@@ -2,7 +2,9 @@
 // await (await import('/scripts/check-traffic-animation.js')).checkTrafficAnimation()
 // in the browser console (or via Playwright page.evaluate).
 import { FlowArcLayer } from '../src/map/FlowArcLayer.ts'
-import { FlowPathLayer } from '../src/map/FlowPathLayer.ts'
+import { CountryFlowArcLayer } from '../src/map/CountryLayers.ts'
+import { seriesKey } from '@infrareveal/session-state'
+import fixture from '../../testdata/aggregate-window-v2.json'
 import { indexMapTraffic, projectTrafficProfiles, directionalVolumeArcs, trafficShaderClock, TRAFFIC_TRAVEL_SECONDS } from '../src/map/mapTraffic.ts'
 
 export function checkTrafficAnimation(additionalLayers = []) {
@@ -10,24 +12,16 @@ export function checkTrafficAnimation(additionalLayers = []) {
   if (!gl) throw new Error('WebGL2 is required')
   const failures = []
   const results = []
-  const start = Date.parse('2026-09-10T12:00:00Z')
-  const scene = {
-    endpoints: [{ id: 'a', availableFromMs: start, flows: [{ id: 'flow', startMs: start, endMs: start + 10_000 }] }],
+  const start = fixture.window.from_ms
+  const chunk = { ...fixture.window.series[0], start_ms: start, bucket_ms: 500, chunk_ms: 5000,
+    samples: [[1000, 500_000, 500_000, 500_000, 500_000, 10, 10]],
   }
-  const index = indexMapTraffic([{
-    flow: 'flow', chunk_start: new Date(start).toISOString(), updated_at_source: new Date(start + 10_000).toISOString(),
-    capture_complete: true, dropped_events: 0,
-    samples: { version: 1, bucket_ms: 500, chunk_ms: 10_000, samples: [[1000, 500_000, 250_000, 10, 5], [1500, 1000, 500, 2, 1]] },
-  }])
-  const lanesAt = ms => directionalVolumeArcs([{ endpointIds: ['a'] }], projectTrafficProfiles(scene, index, start + ms))
-  const burstIndex = indexMapTraffic([{
-    flow: 'flow', chunk_start: new Date(start).toISOString(), updated_at_source: new Date(start + 10_000).toISOString(),
-    capture_complete: true, dropped_events: 0,
-    samples: { version: 1, bucket_ms: 500, chunk_ms: 10_000, samples: [[1000, 500_000, 500_000, 10, 10]] },
-  }])
+  const coverage = [{ ...fixture.window.coverage[0], start_ms: start, end_ms: start + 10_000 }]
+  const scene = { endpoints: [{ id: 'a', availableFromMs: start, series: [{ id: seriesKey(chunk), startMs: start, endMs: start + 10_000 }] }] }
+  const burstIndex = indexMapTraffic([chunk], coverage)
   const burstLanes = ms => directionalVolumeArcs([{ endpointIds: ['a'] }], projectTrafficProfiles(scene, burstIndex, start + ms))
   const transit = []
-  for (const Layer of [FlowArcLayer, FlowPathLayer, ...additionalLayers]) {
+  for (const Layer of [FlowArcLayer, CountryFlowArcLayer, ...additionalLayers]) {
     // Compile the production radius function, including its history lookup, without
     // the unrelated map projection. Transform feedback reads the actual GPU result.
     const layer = new Layer({ id: 'check' })
@@ -53,7 +47,7 @@ uniform vec4 instanceRadii2;
 uniform vec2 instanceProgress;
 uniform float instanceDirection;
 uniform float probeProgress;
-struct Traffic { float phase; float motion; float clock; };
+struct Traffic { float phase; float clock; };
 uniform Traffic traffic;
 out float result;
 ${functions}
@@ -69,7 +63,7 @@ void main() { result = radiusAt(probeProgress); gl_Position = vec4(0.0); }
     gl.bufferData(gl.TRANSFORM_FEEDBACK_BUFFER, 4, gl.DYNAMIC_READ)
     gl.bindBufferBase(gl.TRANSFORM_FEEDBACK_BUFFER, 0, buffer)
     gl.enable(gl.RASTERIZER_DISCARD)
-    function radius(lane, phase, clock = 0, motion = 0, progress = .5) {
+    function radius(lane, phase, clock = 0, progress = .5) {
       const radii = lane?.radii ?? Array(12).fill(0)
       for (let i = 0; i < 3; i++) gl.uniform4fv(gl.getUniformLocation(program, `instanceRadii${i}`), radii.slice(i * 4, i * 4 + 4))
       gl.uniform2f(gl.getUniformLocation(program, 'instanceProgress'), 0, 1)
@@ -77,7 +71,6 @@ void main() { result = radiusAt(probeProgress); gl_Position = vec4(0.0); }
       gl.uniform1f(gl.getUniformLocation(program, 'probeProgress'), progress)
       gl.uniform1f(gl.getUniformLocation(program, 'traffic.phase'), phase)
       gl.uniform1f(gl.getUniformLocation(program, 'traffic.clock'), trafficShaderClock(clock))
-      gl.uniform1f(gl.getUniformLocation(program, 'traffic.motion'), motion)
       gl.beginTransformFeedback(gl.POINTS)
       gl.drawArrays(gl.POINTS, 0, 1)
       gl.endTransformFeedback()
@@ -86,28 +79,17 @@ void main() { result = radiusAt(probeProgress); gl_Position = vec4(0.0); }
       return result[0]
     }
     for (const direction of [1, -1]) {
-      const laneAt = ms => lanesAt(ms).find(lane => lane.direction === direction)
-      for (const boundary of [1500, 2000, 2500, 3000]) {
-        const before = radius(laneAt(boundary - 500), 1 - 1e-5)
-        const after = radius(laneAt(boundary), 0)
-        const jump = Math.abs(after - before)
-        results.push({ layer: Layer.layerName, direction, boundary, jump })
-        if (jump > 0.001) failures.push(`${Layer.layerName} direction ${direction} jumps ${jump.toFixed(4)}px at ${boundary}ms`)
-      }
-      // Seeking is independent of prior renders; changing volume cannot restart motion.
-      const lane = laneAt(2000)
-      const first = radius(lane, 0.4, 2.2, 1)
-      radius(laneAt(2500), 0.8, 2.9, 1)
-      if (radius(lane, 0.4, 2.2, 1) !== first) failures.push('Seeking changed the radius')
-      const midpoint = radius(laneAt(1500), 0.5)
-      if (!(midpoint > 0 && midpoint < radius(laneAt(1500), 1))) failures.push(`${Layer.layerName} burst onset does not interpolate`)
-      if (radius(laneAt(3000), 1) !== 0) failures.push('Silence must settle to zero')
+      // Seeking depends only on capture history and the absolute clock.
+      const lane = burstLanes(4000).find(lane => lane.direction === direction)
+      const first = radius(lane, 0.4, 4.2)
+      radius(burstLanes(4500).find(lane => lane.direction === direction), 0.8, 4.9)
+      if (radius(lane, 0.4, 4.2) !== first) failures.push('Seeking changed the radius')
       // A long-running lab must retain smooth float32 phase and wrap seamlessly.
       const steady = { direction, radii: Array(12).fill(8) }
       const week = 7 * 24 * 3600
-      const late = radius(steady, .5, week * 12 + .1, 1)
-      if (Math.abs(late - radius(steady, .5, .1, 1)) > .001) failures.push(`${Layer.layerName} loses phase precision after weeks of uptime`)
-      const wrapJump = Math.abs(radius(steady, .5, 1024 - .0001, 1) - radius(steady, .5, 1024 + .0001, 1))
+      const late = radius(steady, .5, week * 12 + .1)
+      if (Math.abs(late - radius(steady, .5, .1)) > .001) failures.push(`${Layer.layerName} loses phase precision after weeks of uptime`)
+      const wrapJump = Math.abs(radius(steady, .5, 1024 - .0001) - radius(steady, .5, 1024 + .0001))
       if (wrapJump > .001) failures.push(`${Layer.layerName} resets at the GPU clock wrap`)
       // A brief measured burst must finish travelling after the source is silent.
       for (const distance of [.2, .4, .6, .8]) {
@@ -116,23 +98,23 @@ void main() { result = radiusAt(probeProgress); gl_Position = vec4(0.0); }
         const phase = (seconds * 1000 - anchor) / 500
         const lane = burstLanes(anchor).find(lane => lane.direction === direction)
         const progress = direction === 1 ? distance : 1 - distance
-        const value = radius(lane, phase, seconds, 1, progress)
+        const value = radius(lane, phase, seconds, progress)
         transit.push({ layer: Layer.layerName, direction, distance, radius: value })
         if (value < .18) failures.push(`${Layer.layerName} direction ${direction} erases a travelling burst at ${distance * 100}% of its path`)
         const behind = direction === 1 ? Math.max(.02, progress - .3) : Math.min(.98, progress + .3)
         const ahead = direction === 1 ? Math.min(.98, progress + .3) : Math.max(.02, progress - .3)
-        if (distance >= .4 && radius(lane, phase, seconds, 1, behind) > .001) failures.push(`${Layer.layerName} leaves the burst behind instead of transporting it`)
-        if (distance <= .6 && radius(lane, phase, seconds, 1, ahead) > .001) failures.push(`${Layer.layerName} shows a burst before it arrives`)
+        if (distance >= .4 && radius(lane, phase, seconds, behind) > .001) failures.push(`${Layer.layerName} leaves the burst behind instead of transporting it`)
+        if (distance <= .6 && radius(lane, phase, seconds, ahead) > .001) failures.push(`${Layer.layerName} shows a burst before it arrives`)
       }
       for (const progress of [.2, .5, .8]) for (let boundary = 1500; boundary <= 6500; boundary += 500) {
-        const before = radius(burstLanes(boundary - 500).find(lane => lane.direction === direction), 1 - 1e-5, boundary / 1000 - .000005, 1, progress)
-        const after = radius(burstLanes(boundary).find(lane => lane.direction === direction), 0, boundary / 1000, 1, progress)
+        const before = radius(burstLanes(boundary - 500).find(lane => lane.direction === direction), 1 - 1e-5, boundary / 1000 - .000005, progress)
+        const after = radius(burstLanes(boundary).find(lane => lane.direction === direction), 0, boundary / 1000, progress)
         const jump = Math.abs(after - before)
         results.push({ layer: Layer.layerName, direction, boundary, progress, jump })
         if (jump > .001) failures.push(`${Layer.layerName} travelling history resets at ${boundary}ms`)
       }
       const quiet = burstLanes(7000).find(lane => lane.direction === direction)
-      for (const progress of [.2, .5, .8]) if (radius(quiet, 0, 7, 1, progress) !== 0) failures.push(`${Layer.layerName} retains a burst after it finishes`)
+      for (const progress of [.2, .5, .8]) if (radius(quiet, 0, 7, progress) !== 0) failures.push(`${Layer.layerName} retains a burst after it finishes`)
     }
     gl.disable(gl.RASTERIZER_DISCARD)
     gl.deleteBuffer(buffer)

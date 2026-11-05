@@ -239,7 +239,6 @@
   .atlas-metric-label { font-size: 7px; }
   .atlas-legend { gap: 10px; font-size: 7px; }
 }
-@media (prefers-reduced-motion: reduce) { .atlas-page button { transition: none; } }
 
 .atlas-count { display: inline-block; margin-left: 5px; padding: 2px 5px; border-radius: 4px; background: #2b414b; color: #b9cbd2; font-size: 9px; font-variant-numeric: tabular-nums; }
 .atlas-tracks { flex: 1; min-height: 0; }

@@ -112,7 +112,7 @@ Execute the work in the following order, keeping each item reviewable and record
    | Timeline reader | Combine repeated collection query/error/cursor advancement in `timeline/reader.go` through a small private page loader with explicit named query specifications | 60–100 |
    | Lab control HTTP | Share authorization/body/error/response mechanics in `labgate/routes.go`; register simple commands through method values instead of switch dispatch | 35–60 |
 
-   Map checks must preserve both projections, lazy Mercator loading, quality meshes, direction, dateline clipping, joined-hop continuity, missing spans, reduced motion and current render/update cadence. A helper that merely moves handlers into another file earns no savings.
+   Map checks must preserve both projections, lazy Mercator loading, quality meshes, direction, dateline clipping, joined-hop continuity, missing spans and current render/update cadence. A helper that merely moves handlers into another file earns no savings.
 
    Timeline specifications must retain independent cursors, collection exhaustion, flow/chunk/window overlap, DNS lookback, related-record scoping, route anchors, overview omissions, limits and all response fields. Keep the typed response and route-reader ownership; avoid a general collection registry.
 

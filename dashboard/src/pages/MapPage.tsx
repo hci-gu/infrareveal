@@ -25,7 +25,7 @@ import { buildMapTrackCatalog, TrackColors } from '../map/mapTracks'
 import { indexDestinationVolumes } from '../map/destinationVolumes'
 import { ActivityBlockBrowser } from '../map/ActivityBlockBrowser'
 import { MapSettings } from '../map/MapSettings'
-import { mapRenderQuality, useMapPreferences } from '../map/mapPreferences'
+import { useMapPreferences } from '../map/mapPreferences'
 import { projectWorkspace } from '../map/mapWorkspace'
 import type { WorkspaceState } from '../map/mapWorkspace'
 import { createWireWaveformCache } from '../map/wireWaveform'
@@ -43,8 +43,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const { timeline, refresh } = useSession(sessionID)
   const kiosk = Boolean(demo)
   const { preferences, setPreferences, theme } = useMapPreferences()
-  const renderQuality = mapRenderQuality(preferences.quality)
-  const publishMs = renderQuality.dataIntervalMs
+  const publishMs = 250
   const [, setInspectorOpen] = useState(false)
   const [blocksOpen, setBlocksOpen] = useState(false)
   const [historySpan, setHistorySpan] = useState(300_000)
@@ -79,6 +78,9 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const trackCatalog = useMemo(() => buildMapTrackCatalog(history.window, trackPalette.colors), [history.window, trackPalette])
   const trafficIndex = useMemo(() => indexMapTraffic(activity.window.series, activity.window.coverage), [activity.window])
   const destinationIndex = useMemo(() => indexDestinationVolumes(history.window.series, history.window.from_ms, history.window.coverage, history.window.to_ms), [history.window])
+  const timelineDetailIndex = useMemo(() => workspace.expanded && activity.hasData
+    ? indexDestinationVolumes(activity.window.series, activity.window.from_ms, activity.window.coverage, activity.window.to_ms) : undefined,
+  [workspace.expanded, activity.hasData, activity.window])
   const projectionCursor = timeline.playback === 'paused' ? cursorMs : Math.floor(cursorMs / publishMs) * publishMs
   const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationIndex, projectionCursor, workspace), [trackCatalog, scene, destinationIndex, projectionCursor, workspace])
   const waveform = useMemo(() => createWireWaveformCache(), [])
@@ -158,6 +160,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     mapStyleUrl: styledMap,
     preferences, theme, workspace, overview, onWorkspace: updateWorkspace,
     endMs: contentEndMs, onSeekTime: seekTime,
+    live: timeline.mode === 'live', following: timeline.playback === 'following', onFollowLive: followLiveEdge, timelineDetailIndex,
     unavailable: !history.hasData && (Boolean(history.error) || connectionState === 'error' || connectionState === 'offline'),
     loading: history.loading || (!scene.sessionId && connectionState !== 'error' && connectionState !== 'offline'),
     refreshing: history.refreshing || (history.hasData && Boolean(history.error)),
@@ -166,7 +169,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     destinationIndex,
     destinationLoading: history.loading,
     destinationError: Boolean(history.error) && !history.hasData,
-  }), [clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, history.hasData, history.refreshing, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
+  }), [timeline.mode, timeline.playback, followLiveEdge, timelineDetailIndex, clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, history.hasData, history.refreshing, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
   useEffect(() => { clock.configure({ durationInFrames, rate: timeline.rate }) }, [clock, durationInFrames, timeline.rate])
   useEffect(() => () => clock.dispose(), [clock])
 
@@ -298,7 +301,6 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       ref={pageRef}
       className={`atlas-page${kiosk ? " atlas-demo" : ""}${workspace.expanded ? " atlas-timeline-open" : ""}`}
       data-theme={theme}
-      data-render-quality={renderQuality.light ? 'raspberry-pi' : 'full'}
       data-projection={preferences.projection}
       data-direction={workspace.direction}
       data-session-id={scene.sessionId ?? ''}

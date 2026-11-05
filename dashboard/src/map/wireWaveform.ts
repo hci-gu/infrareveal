@@ -27,11 +27,11 @@ export function createWireWaveformCache() {
     if (cached && cached.coverage === index.coverage && captured.every((value, i) => value === cached.series[i])) return cached.bins
     const bins = wireWaveform(ordered, index, range, count)
     entries.set(key, { series: captured, coverage: index.coverage, bins })
-    if (entries.size > 64) entries.delete(entries.keys().next().value!)
+    if (entries.size > 1024) entries.delete(entries.keys().next().value!)
     return bins
   }
 }
-/** Rate bars divide only observed sample volume; missing intervals stay visible gaps. */
+/** Rates divide only observed sample volume; missing intervals stay visible gaps. */
 export function wireWaveform(series: readonly MapSeries[], index: DestinationVolumeIndex, range: WireRange, count = 96): WireBin[] {
   const duration = range.to - range.from
   if (count <= 0 || duration <= 0) return []
@@ -61,10 +61,45 @@ export function waveformCeiling(series: WireBin[][], direction: TrafficDirection
   const step = 10 ** (Math.floor(Math.log10(peak)) - 1)
   return Math.ceil(peak * 1.25 / step) * step
 }
-/** Each bar is an interval average. Missing capture stays a gap, partial stays marked. */
-export function wireBars(bins: WireBin[], direction: 'received' | 'sent', ceiling: number) {
-  return bins.flatMap((bin, i) => !bin.observed || bin[direction] <= 0 ? [] : [{
-    x: i / bins.length * 1000, width: 1000 / bins.length,
-    height: Math.min(30, bin[direction] / ceiling * 30), partial: !bin.complete,
-  }])
+/** Smooth envelopes stay inside measured runs. Never bridge silence, missing
+ * capture, or a change in certainty. Square-root radius keeps small exchanges
+ * legible with the same scale across every lane and both directions. */
+export function wireFlows(bins: WireBin[], direction: 'received' | 'sent', ceiling: number) {
+  const flows: { path: string; center: string; partial: boolean }[] = []
+  const baseline = direction === 'received' ? 17 : 47
+  const width = 1000 / bins.length
+  for (let first = 0; first < bins.length;) {
+    if (!bins[first].observed || bins[first][direction] <= 0) { first++; continue }
+    let end = first + 1
+    while (end < bins.length && bins[end].observed && bins[end][direction] > 0 && bins[end].complete === bins[first].complete) end++
+    const points = [
+      { x: first * width, radius: 0 },
+      ...bins.slice(first, end).map((bin, i) => ({ x: (first + i + .5) * width, radius: 13 * Math.sqrt(Math.min(1, bin[direction] / Math.max(1, ceiling))) })),
+      { x: end * width, radius: 0 },
+    ]
+    const curve = (values: typeof points, sign: number) => values.slice(1).map((point, i) => {
+      const previous = values[i], middle = (previous.x + point.x) / 2
+      return `C${middle},${baseline + sign * previous.radius} ${middle},${baseline + sign * point.radius} ${point.x},${baseline + sign * point.radius}`
+    }).join(' ')
+    flows.push({
+      path: `M${points[0].x},${baseline} ${curve(points, -1)} ${curve([...points].reverse(), 1)} Z`,
+      center: `M${points[0].x},${baseline} H${points[points.length - 1].x}`,
+      partial: !bins[first].complete,
+    })
+    first = end
+  }
+  return flows
+}
+
+/** Distinguish missing observation from a captured, quiet baseline. */
+export function wireGaps(bins: WireBin[]) {
+  const gaps: { x: number; width: number }[] = []
+  for (let first = 0; first < bins.length;) {
+    if (bins[first].observed) { first++; continue }
+    let end = first + 1
+    while (end < bins.length && !bins[end].observed) end++
+    gaps.push({ x: first / bins.length * 1000, width: (end - first) / bins.length * 1000 })
+    first = end
+  }
+  return gaps
 }

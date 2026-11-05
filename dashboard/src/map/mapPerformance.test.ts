@@ -6,7 +6,7 @@ import { createWireWaveformCache } from './wireWaveform'
 import fixture from '../../../testdata/aggregate-window-v2.json'
 import { seriesKey, type TrafficChunk } from '@infrareveal/session-state'
 import { indexDestinationVolumes } from './destinationVolumes'
-import { mapRenderQuality, parseMapPreferences } from './mapPreferences'
+import { parseMapPreferences } from './mapPreferences'
 
 const connection: MapArc = { id: 'a', endpointId: 'e', trackId: 't', sourcePosition: [12, 57], targetPosition: [-74, 41], bytes: 100, activeSeriesCount: 1, tilt: 0 }
 describe('map work independent of the animation clock', () => {
@@ -44,11 +44,9 @@ describe('map work independent of the animation clock', () => {
     expect(sameTrafficArcGeometry([{ ...arc, trackIds: ['another-track'] }], [arc])).toBe(false)
   })
 
-  it('chooses lighter rendering on a four-core device while preserving an explicit preference', () => {
-    expect(parseMapPreferences(null).quality).toBe('auto')
-    expect(mapRenderQuality('auto', 4)).toMatchObject({ light: true, segments: 32, pixelRatio: 1, dataIntervalMs: 1000 })
-    expect(mapRenderQuality('full', 4).segments).toBe(160)
-    expect(mapRenderQuality('raspberry-pi', 16).segments).toBe(32)
-    expect(mapRenderQuality('auto', 16).segments).toBe(160)
+  it('ignores legacy rendering detail while preserving display preferences', () => {
+    expect(parseMapPreferences(null)).toEqual({ projection: 'equal-earth', theme: 'dark', labels: true })
+    expect(parseMapPreferences(JSON.stringify({ projection: 'mercator', theme: 'light', labels: false, quality: 'raspberry-pi' })))
+      .toEqual({ projection: 'mercator', theme: 'light', labels: false })
   })
 })

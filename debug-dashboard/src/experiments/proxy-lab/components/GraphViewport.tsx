@@ -16,8 +16,8 @@ for (const path of GRAPH_PATHS) for (let i = 1; i < path.nodes.length; i++) {
 }
 for (const [from, to] of observationEdges) edges.set(`${from}:${to}`, { from, to, observation: true })
 
-export function GraphViewport({ events, cursorMs, selectedEventId, path, selectedNode, branches, transform, onTransform, onSelect, reduceMotion }: {
-  events: PipelineEvent[]; cursorMs: number; selectedEventId: string | null; path: PathDefinition | null; selectedNode: GraphNodeId | null; branches: boolean; transform: GraphTransform; onTransform: (value: GraphTransform) => void; onSelect: (id: GraphNodeId) => void; reduceMotion: boolean
+export function GraphViewport({ events, cursorMs, selectedEventId, path, selectedNode, branches, transform, onTransform, onSelect }: {
+  events: PipelineEvent[]; cursorMs: number; selectedEventId: string | null; path: PathDefinition | null; selectedNode: GraphNodeId | null; branches: boolean; transform: GraphTransform; onTransform: (value: GraphTransform) => void; onSelect: (id: GraphNodeId) => void
 }) {
   const { ref: containerRef, width, height } = useElementSize<HTMLDivElement>()
   const drag = useRef<{ x: number; y: number; transform: GraphTransform } | null>(null)
@@ -45,7 +45,7 @@ export function GraphViewport({ events, cursorMs, selectedEventId, path, selecte
           const endX=x2-dx/length*padding,endY=y2-dy/length*padding
           return <line key={key} x1={x1} y1={y1} x2={endX} y2={endY} className={`lab-edge ${edge.observation ? 'observation' : ''} ${selected ? 'selected' : ''}`} markerEnd="url(#lab-arrow)" />
         })}
-        {!reduceMotion && scene.tokens.slice(0, 100).map(token => {
+        {scene.tokens.slice(0, 100).map(token => {
           if (!token.path.nodes.every(visibleNode)) return null
           const { x, y } = positionSceneToken(token, cursorMs)
           return <circle key={token.id} cx={x} cy={y} r={4.5*token.scale} fill={token.color} />

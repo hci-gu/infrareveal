@@ -23,7 +23,7 @@ must show the seeded DNS record. Availability is distinct from gate audit qualit
 The UI must say not recorded when diagnostics were absent, and must never show a
 previous window's diagnostics as the currently selected window.
 
-Check desktop and narrow layouts, keyboard seeking, named controls, reduced motion,
+Check desktop and narrow layouts, keyboard seeking, named controls, animated traffic,
 map pan/zoom and Lab node navigation. Store screenshots and logs only beneath
 `output/playwright/`. Record browser, viewport, API profile and build mode with
 results. The smoke check is not a sustained performance benchmark.

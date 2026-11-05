@@ -55,12 +55,27 @@ exact sums at their boundaries. Capture intervals distinguish observed silence,
 partial capture and unavailable evidence. An unlocated endpoint still contributes
 to totals. Shared IPs retain separate service, protocol, port and network bindings.
 
-The expanded traffic timeline gives each series its own lane, including distinct
-endpoints and capture epochs within one service. In the recorded default order,
-lanes keep their order as totals change. Clock-aligned buckets keep old bar heights stable while the live window
-advances. All selected series share a scale that expands for new peaks and holds
-through quieter updates and scrolling; **Fit scale** fits it to the current data.
-Changing the time window or filters also refits the scale.
+The expanded traffic timeline opens on a rolling **five-minute** window. **Recent
+activity** shows only endpoints with completed directional traffic in that window,
+newest first. Lanes glide up and down as activity changes; traffic from the last
+30 seconds is emphasized, and quieter flows gradually soften while their full
+history stays visible. Endpoints with no traffic in the window remain hidden.
+**All lanes** reveals quiet endpoints in the selected overview order.
+Scrolling or focusing a lane holds both the window and row order. **Follow live**
+returns to recent activity and resumes live playback without changing the selected
+history window; recordings offer **Follow playhead**. Earlier/later controls browse the loaded history.
+
+Each endpoint has smooth teal download and amber upload flows. The timeline uses
+fine capture samples when the loaded activity window covers the view, otherwise
+history samples. Clock-aligned averages and a shared square-root thickness scale
+preserve small exchanges alongside large bursts. The scale expands for new peaks
+and holds through quieter updates; **Fit scale** refits the current window.
+Dashed flows mark partial capture, hatched regions mark unavailable capture, and
+observed silence stays flat. Totals remain completed wire bytes to the playhead.
+
+Display settings contain projection, appearance and location labels. The map
+always uses the full renderer, with device-resolution graphics and 250 ms data
+updates. Animations always run independently of system motion preferences.
 
 **Activity** opens a paged block browser. Blocks are inferred service activity
 separated by quiet gaps, not proof of browsing attention. Details show original
