@@ -38,12 +38,15 @@ export function indexDestinationVolumes(chunks: readonly TrafficChunk[], fromMs 
   index.fromMs = fromMs; index.toMs = toMs; index.coverage = coverage
   return index
 }
-export function seriesVolume(series: MapSeries, index: DestinationVolumeIndex, cursorMs: number): ByteTotals {
+export function seriesVolume(series: MapSeries, index: DestinationVolumeIndex, cursorMs: number, fromMs = index.fromMs ?? 0): ByteTotals {
   const value = index.get(series.id)
   if (!value) return { received: 0, sent: 0, partial: true }
   let low = 0, high = value.intervals.length
   while (low < high) { const middle = (low+high) >>> 1; if (value.intervals[middle].end <= cursorMs) low = middle+1; else high = middle }
-  return { received: value.received[low], sent: value.sent[low], partial: captureQuality(index.coverage ?? [], Math.max(index.fromMs ?? 0, series.startMs), Math.min(cursorMs, series.endMs)) !== 'complete' }
+  const end = low
+  low = 0; high = end
+  while (low < high) { const middle = (low+high) >>> 1; if (value.intervals[middle].start < fromMs) low = middle+1; else high = middle }
+  return { received: value.received[end] - value.received[low], sent: value.sent[end] - value.sent[low], partial: captureQuality(index.coverage ?? [], Math.max(index.fromMs ?? 0, fromMs, series.startMs), Math.min(cursorMs, series.endMs)) !== 'complete' }
 }
 /** Last completed traffic bin, never a future sample or attribution timestamp. */
 export function seriesLastActivity(series: Pick<MapSeries, 'id'>, index: DestinationVolumeIndex, cursorMs: number, direction: 'both' | 'received' | 'sent' = 'both') {
@@ -54,20 +57,20 @@ export function seriesLastActivity(series: Pick<MapSeries, 'id'>, index: Destina
   return direction === 'received' ? value.lastReceived[low] : direction === 'sent' ? value.lastSent[low] : Math.max(value.lastReceived[low], value.lastSent[low])
 }
 /** Each series contributes once, even when destinations share a location. */
-export function projectDestinationVolumes(scene: MapTimelineScene, series: Map<string, MapSeries>, index: DestinationVolumeIndex, cursorMs: number, visibleIPs?: Set<string>): DestinationVolume[] {
+export function projectDestinationVolumes(scene: MapTimelineScene, series: Map<string, MapSeries>, index: DestinationVolumeIndex, cursorMs: number, volumes?: ReadonlyMap<string, ByteTotals>): DestinationVolume[] {
   const groups = new Map<string, DestinationVolume>()
   const seenSeries = new Set<string>()
   for (const endpoint of scene.endpoints) {
     const country = countryFootprint(endpoint)
     const position = country?.position ?? endpoint.position
     if (!hasMapCoordinates(position[1], position[0])) continue
-    if (endpoint.availableFromMs > cursorMs || (visibleIPs && !visibleIPs.has(endpoint.ip))) continue
+    if (endpoint.availableFromMs > cursorMs) continue
     const id = country ? `country:${country.code}` : endpoint.position.join(',')
     for (const item of endpoint.series) {
       const source = series.get(item.id)
       if (!source || seenSeries.has(item.id) || source.startMs > cursorMs) continue
       seenSeries.add(item.id)
-      const volume = seriesVolume(source, index, cursorMs)
+      const volume = volumes?.get(source.id) ?? seriesVolume(source, index, cursorMs)
       const bytes = volume.received + volume.sent
       if (bytes <= 0) continue
       const group = groups.get(id) ?? {

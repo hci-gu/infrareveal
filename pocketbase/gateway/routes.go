@@ -16,6 +16,7 @@ func (g *Runtime) registerRoutes(r *router.Router[*core.RequestEvent]) {
 	registerSessionTimelineRoutes(r, g.app)
 	g.registerSessionControls(r)
 	g.registerDemoRoutes(r)
+	g.registerSimulationRoutes(r)
 	registerTraceRoutes(r, g.app, g.traceHub)
 	labgate.RegisterControlRoutes(r, g.app, g.gate, labgate.ControlRouteConfig{Token: g.controlToken, AllowedOrigins: g.config.Gate.AllowedOrigins, ClientSubnet: g.config.ClientSubnet})
 	r.POST("/api/infrareveal/clear-observations", func(e *core.RequestEvent) error {
@@ -33,6 +34,17 @@ func (g *Runtime) registerRoutes(r *router.Router[*core.RequestEvent]) {
 		}
 		if err := e.BindBody(&request); err != nil {
 			return e.BadRequestError("Invalid request", err)
+		}
+		chunk, err := g.app.FindRecordById("traffic_chunks", request.ChunkID)
+		if err != nil {
+			return e.BadRequestError("Unknown traffic chunk", err)
+		}
+		session, err := g.app.FindRecordById("sessions", chunk.GetString("session"))
+		if err != nil {
+			return e.BadRequestError("Unknown session", err)
+		}
+		if session.GetInt64("simulation_expires_ms") > 0 {
+			return e.BadRequestError("Simulated destinations cannot be probed", nil)
 		}
 		if err := g.routes.Measure(e.Request.Context(), request.ChunkID); err != nil {
 			return e.BadRequestError(err.Error(), nil)

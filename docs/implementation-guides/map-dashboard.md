@@ -1,39 +1,58 @@
 # Map dashboard
 
 Open `/map/:sessionID` for a recording or live session, or `/demo` for the unattended
-lab display. The left pane contains **Both / Downloaded / Sent**, directional totals,
-and location or service lists. Teal means downloaded to participant devices; amber
+lab display. The left pane shows the time range as `HH:mm - HH:mm`, directional
+totals, and a full-width **Locations / Tracks** selector above the sortable lists.
+Teal means downloaded to participant devices; amber
 means sent from them. Arrows and text identify direction as well as colour.
-Selecting a location filters the map, totals and timeline together. Unknown
-locations remain in the list and totals without an invented map point.
+The top-right **Filters** button opens one drawer for search, activity, history
+and location. These filters apply to the map, both sidebar lists, timeline lanes
+and totals before rendering. Search matches service, hostname, client, IP, protocol
+and location; separate words must all match. **Recent traffic** shows observed
+bytes in the selected history, **Active now** uses completed traffic within fifteen
+seconds of the playhead, and **All observed** also includes quiet endpoints in the
+loaded history. The default is recent traffic over five minutes. Filters survive
+projection changes, map/timeline transitions and returning to live playback.
+
+Selecting a location or service opens details without changing these filters.
+Use **Location** in the drawer to narrow the whole dashboard. Unknown locations
+remain in the list and totals without an invented map point.
 The location details panel shows directional totals, payload rate, destinations,
-clients and contributing services. Search the service list or open a service to
-inspect its traffic at that location. Closing service details returns to the
-location panel; closing location details clears the location filter.
+clients and contributing services. Open a service to inspect its traffic at that location. Closing service details returns to the
+location panel; closing location details leaves global filters unchanged.
 
 ## Traffic and playback
 
 The map groups captured traffic by client, service and destination binding. The
-history selector loads one, five or thirty minutes around the playhead. Totals
-cover that loaded interval up to the cursor; they are captured wire bytes, including
+shared history selector loads thirty seconds, one, five or thirty minutes around
+the playhead. Totals
+cover the selected history up to the cursor; they are captured wire bytes, including
 headers. A counter enters the total only when its entire source bucket has elapsed.
 Connection lifetime counters and conntrack estimates do not contribute.
 
 Expand the left pane to open the full-screen traffic timeline. Escape or **Back to
 map** returns to the map; filters and the playhead survive the transition. Each lane is
 an exact endpoint series. The default rolling five-minute view shows only lanes
-with completed directional traffic in the window, newest first.
-Lanes animate into their new positions when activity changes. Traffic in the
-last thirty seconds stays emphasized; older flows fade gently but remain readable
-throughout the window. Transitions always animate.
-**All lanes** also reveals endpoints with no traffic in the window. Scrolling or
-focusing a lane holds the window and order. **Follow live** returns to recent active traffic and resumes
-playback while keeping the selected history window. Recordings offer
+with completed directional traffic in the window, with recently active lanes first.
+Ongoing lanes keep their relative order through gaps shorter than fifteen seconds.
+New or returning lanes join the active group in latest-activity order, behind
+ongoing lanes. Only fifteen seconds of silence demotes a lane, so sustained
+activity rises naturally as quieter lanes move down. The sidebar's **Latest
+activity** sort uses the same rule. Lane transitions always animate; quiet flows
+fade gently but remain readable throughout the five-minute window.
+The timeline has no separate activity or history filter: its lanes are the same
+filtered endpoints used everywhere else. Scrolling or focusing a lane holds the
+window and order. **Follow live** resumes playback at the live edge while keeping
+all selected filters. Recordings offer
 **Follow playhead** instead.
 
 Select a row to inspect destination evidence, or click its chart to seek. Teal
-download and amber upload flows use smooth envelopes with a shared square-root
-rate scale. Clock-aligned averages keep old samples stable; the scale holds until
+download and amber upload flows share one baseline, with download bulges above
+and upload bulges below it. Compact rows show the service, location/client and
+totals; the endpoint address remains in the hover tooltip and inspector. The
+flows use a shared square-root rate scale. Clock-aligned averages keep old samples
+stable; resolution follows the selected window rather than changing as a new
+session grows. The scale holds until
 a new peak or **Fit scale**. Fine activity samples supply recent windows, with
 coarse history as fallback. Missing capture is hatched, partial flows are dashed,
 and measured silence has no flow.
@@ -46,7 +65,8 @@ the map resumes live playback.
 
 ## Activity blocks
 
-The **Activity** button opens paged service activity in the loaded history interval.
+The **Activity** button opens paged activity for services matching the shared
+filters in the selected history interval, without a separate search control.
 Seek or change the history length to browse another interval. A block shows client,
 service, observed span, active time, directional bytes, classification
 confidence and capture quality. Selecting it seeks to its beginning and loads its
@@ -89,6 +109,9 @@ window are assembled before replacing the displayed data; an incomplete page set
 is never published. The browser cache is bounded to twelve windows and an
 estimated 12 MiB. Reconnection refetches the manifest and affected windows.
 
+Map history requests overlap by an extra thirty seconds where the API limit
+allows, so the shortest live history stays visible across request boundaries.
+Buffered samples outside the selected history do not contribute to totals.
 Map history requests use one-second resolution; a smaller window around the
 playhead retains the source resolution for activity shapes. The backend preserves
 fine bins at partial edges. Requests move in thirty-second steps and are bounded
@@ -102,6 +125,12 @@ Hidden maps and expanded timelines do not run map animation. UI publication uses
 independently of changing rates and totals. Mercator uses device-resolution graphics
 and smooth curves without device-specific detail settings. Timeline rows remain
 virtualized, while activity selection and the shared scale include every lane.
+
+The expanded timeline paints its viewport and playhead on every display frame
+using that same clock, independently of React publications and incoming capture.
+Buffered SVG geometry is cached per lane and transformed as time advances; unchanged
+measurements retain their geometry across data refreshes. Pause, seek, playback
+speed and held history all use this clock without adding another animation timer.
 
 The debug dashboard uses the same activity contract. Raw flow, DNS and gate panels
 appear only for recorded diagnostic profiles and require a PocketBase superuser

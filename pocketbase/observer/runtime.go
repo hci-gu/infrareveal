@@ -23,18 +23,20 @@ import (
 // and independent optional diagnostics. Cancellation drains accepted packets
 // before the final commit; a caller timeout never closes a worker's resources.
 type Runtime struct {
-	app       *pocketbase.PocketBase
-	geo       *geoip2.Reader
-	config    Config
-	sessionID func() string
-	trace     debugtrace.Sink
-	onTraffic func(CommittedTraffic)
-	mu        sync.Mutex
-	cancel    context.CancelFunc
-	done      chan struct{}
-	stopErr   error
-	closed    bool
-	lossAt    atomic.Int64
+	app         *pocketbase.PocketBase
+	geo         *geoip2.Reader
+	config      Config
+	sessionID   func() string
+	trace       debugtrace.Sink
+	onTraffic   func(CommittedTraffic)
+	mu          sync.Mutex
+	cancel      context.CancelFunc
+	done        chan struct{}
+	stopErr     error
+	closed      bool
+	lossAt      atomic.Int64
+	source      func(context.Context, func(sourceEvent, bool))
+	destination func(string, time.Time) data.Destination
 }
 
 func New(app *pocketbase.PocketBase, geo *geoip2.Reader, config Config, sessionID func() string, trace debugtrace.Sink, onTraffic func(CommittedTraffic)) *Runtime {
@@ -84,9 +86,6 @@ func (r *Runtime) Start() {
 	r.cancel = cancel
 	r.done = make(chan struct{})
 	r.stopErr = nil
-	if _, err := ensureConntrackAccounting(r.config.AccountingPath); err != nil {
-		log.Printf("optional conntrack accounting: %v", err)
-	}
 	events := make(chan sourceEvent, r.config.Packet.EventQueueSize)
 	var lost atomic.Int64
 	r.lossAt.Store(0)
@@ -105,6 +104,21 @@ func (r *Runtime) Start() {
 				r.lossAt.Store(e.at.UnixMilli())
 			}
 		}
+	}
+	if r.source != nil {
+		launch(func() { r.source(ctx, send) })
+	} else {
+		r.captureSources(ctx, launch, send, events, &lost)
+	}
+	go func() { sources.Wait(); close(events) }()
+	done := r.done
+	go func() { err := r.consume(events, &lost); r.mu.Lock(); r.stopErr = err; r.mu.Unlock(); close(done) }()
+}
+
+// Hardware sources and the simulator share the same queue and consumer.
+func (r *Runtime) captureSources(ctx context.Context, launch func(func()), send func(sourceEvent, bool), events chan<- sourceEvent, lost *atomic.Int64) {
+	if _, err := ensureConntrackAccounting(r.config.AccountingPath); err != nil {
+		log.Printf("optional conntrack accounting: %v", err)
 	}
 	launch(func() {
 		if !r.config.Packet.Enabled {
@@ -166,9 +180,6 @@ func (r *Runtime) Start() {
 			}
 		}
 	})
-	go func() { sources.Wait(); close(events) }()
-	done := r.done
-	go func() { err := r.consume(events, &lost); r.mu.Lock(); r.stopErr = err; r.mu.Unlock(); close(done) }()
 }
 
 func readLeases(path string) map[string]string {
@@ -432,6 +443,9 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 						destinations = keep
 					}
 					d := destinationSnapshot(r.geo, ip, e.at)
+					if r.destination != nil {
+						d = r.destination(ip, e.at)
+					}
 					id = d.ID
 					destinations[id] = d
 					byIP[ip] = id

@@ -191,6 +191,9 @@ func (routes *controlRoutes) arm(event *core.RequestEvent, requestID string, bod
 	if err != nil || !session.GetBool("active") {
 		return routes.respondError(event, http.StatusConflict, requestID, "session is not active")
 	}
+	if session.GetInt64("simulation_expires_ms") > 0 {
+		return routes.respondError(event, http.StatusConflict, requestID, "simulated sessions cannot control real traffic")
+	}
 	clients := make([]netip.Addr, 0, len(body.ClientIPs))
 	for _, text := range body.ClientIPs {
 		client, parseErr := netip.ParseAddr(strings.TrimSpace(text))

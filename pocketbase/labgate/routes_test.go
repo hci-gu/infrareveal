@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/pocketbase/pocketbase/apis"
+	"github.com/pocketbase/pocketbase/core"
 )
 
 func TestControlRoutesAuthenticationOriginAndValidation(t *testing.T) {
@@ -106,6 +107,19 @@ func TestControlRoutesRejectInactiveSessionAndOutsideClient(t *testing.T) {
 	}
 }
 
+func TestControlRoutesRejectSimulatedSession(t *testing.T) {
+	fixture := newRouteFixture(t)
+	session := testsupport.Save(t, fixture.app, "sessions", map[string]any{"active": true, "simulation_expires_ms": time.Now().Add(time.Minute).UnixMilli()})
+	body := `{"sessionId":"` + session.Id + `","mode":"flow","clientIps":["10.0.0.2"]}`
+	if response := fixture.jsonRequest(http.MethodPost, "/api/infrareveal/lab-gate/arm", fixture.token, body); response.Code != http.StatusConflict {
+		t.Fatalf("simulated gate arm: %d %s", response.Code, response.Body.String())
+	}
+	status, err := fixture.controller.Status(context.Background())
+	if err != nil || status.Armed {
+		t.Fatalf("simulation armed real gate: %+v %v", status, err)
+	}
+}
+
 func TestControlRoutesStrictArmAndAcceptNext(t *testing.T) {
 	fixture := newRouteFixture(t)
 	bad := `{"sessionId":"` + fixture.sessionID + `","mode":"strict","clientIps":["10.0.0.2"],"strict":{"protocol":"tcp","clientIp":"10.0.0.2","clientPort":0,"remoteIp":"1.1.1.1","remotePort":443}}`
@@ -129,6 +143,7 @@ func TestControlRoutesStrictArmAndAcceptNext(t *testing.T) {
 }
 
 type routeFixture struct {
+	app              core.App
 	t                *testing.T
 	mux              http.Handler
 	controller       *Controller
@@ -166,7 +181,7 @@ func newRouteFixture(t *testing.T) *routeFixture {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return &routeFixture{t: t, mux: mux, controller: controller, queue: queue, token: token, sessionID: session.Id}
+	return &routeFixture{app: app, t: t, mux: mux, controller: controller, queue: queue, token: token, sessionID: session.Id}
 }
 
 func (fixture *routeFixture) jsonRequest(method, path, token, body string) *httptest.ResponseRecorder {

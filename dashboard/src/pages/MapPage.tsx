@@ -1,5 +1,6 @@
 import type { DemoStatus } from '@infrareveal/session-state'
 import { demoHealthMessage } from './demoHealth'
+import { SimulationBanner } from './SimulationBanner'
 import { MapPlaybackClock } from '../map/mapPlaybackClock'
 import type { PlaybackListener } from '../map/mapPlaybackClock'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -26,7 +27,8 @@ import { indexDestinationVolumes } from '../map/destinationVolumes'
 import { ActivityBlockBrowser } from '../map/ActivityBlockBrowser'
 import { MapSettings } from '../map/MapSettings'
 import { useMapPreferences } from '../map/mapPreferences'
-import { projectWorkspace } from '../map/mapWorkspace'
+import { DEFAULT_TRAFFIC_FILTERS, projectWorkspace, trafficFilterCount } from '../map/mapWorkspace'
+import { TrafficFilters } from '../map/TrafficFilters'
 import type { WorkspaceState } from '../map/mapWorkspace'
 import { createWireWaveformCache } from '../map/wireWaveform'
 import { themedAtlasStyle } from '../map/atlasStyle'
@@ -46,10 +48,12 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const publishMs = 250
   const [, setInspectorOpen] = useState(false)
   const [blocksOpen, setBlocksOpen] = useState(false)
-  const [historySpan, setHistorySpan] = useState(300_000)
+  const [filtersOpen, setFiltersOpen] = useState(false)
+  const closeFilters = useCallback(() => setFiltersOpen(false), [])
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [view, setView] = useState<WorkspaceState & { sessionId: string }>({ sessionId: sessionID, direction: 'both', locationId: null, expanded: false })
-  const workspace = useMemo<WorkspaceState>(() => ({ ...(view.sessionId === sessionID ? view : { direction: view.direction, locationId: null, expanded: false }), order: (view.sessionId === sessionID ? view.order : undefined) ?? (timeline.mode === 'live' ? 'latest' : undefined) }), [view, sessionID, timeline.mode])
+  const [view, setView] = useState<WorkspaceState & { sessionId: string }>({ ...DEFAULT_TRAFFIC_FILTERS, sessionId: sessionID, direction: 'both', expanded: false })
+  const workspace = useMemo<WorkspaceState>(() => ({ ...(view.sessionId === sessionID ? view : { ...DEFAULT_TRAFFIC_FILTERS, direction: view.direction, expanded: false }), order: (view.sessionId === sessionID ? view.order : undefined) ?? (timeline.mode === 'live' ? 'latest' : undefined) }), [view, sessionID, timeline.mode])
+  const historySpan = workspace.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs
   const updateWorkspace = useCallback((next: WorkspaceState) => setView({ ...next, sessionId: sessionID }), [sessionID])
   const pageRef = useRef<HTMLElement>(null)
   const mapContainerRef = useRef<HTMLDivElement>(null)
@@ -67,7 +71,9 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const cursorMs = timeForFrame(playbackEpochMs, currentFrame, FPS)
   const windowAnchor = Math.floor((timeline.manifest ? Math.max(cursorMs, timeline.manifest.retained_from_ms) : 0) / 30_000) * 30_000
   const windowTo = windowAnchor + 30_000
-  const windowFrom = Math.max(timeline.manifest?.retained_from_ms ?? 0, windowTo - historySpan)
+  // Overlap requests so a rolling 30-second view retains its previous capture
+  // while the next window loads. Stay within the API's 30-minute request limit.
+  const windowFrom = Math.max(timeline.manifest?.retained_from_ms ?? 0, windowTo - Math.min(1_800_000, historySpan + 30_000))
   const bucketMs = timeline.manifest?.policy.bucket_ms ?? 50
   const history = useMapWindow(sessionID, windowFrom, windowTo, Math.ceil(1000/bucketMs)*bucketMs, '', true, `history:${historySpan}`)
   const activity = useMapWindow(sessionID, Math.max(windowFrom, windowAnchor - 30_000), windowAnchor + 60_000, bucketMs, '', true, `activity:${historySpan}`)
@@ -312,15 +318,17 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
         <Link to="/" className="atlas-brand" aria-label="InfraReveal — all sessions"><span className="atlas-brand-mark"><MapIcon name="globe" size={23} /></span><span>infra<span>reveal</span><small>NETWORK OBSERVABILITY</small></span></Link>
         <div className="atlas-header-divider" />
         <nav className="atlas-breadcrumb" aria-label="Breadcrumb"><Link to="/" aria-label="All sessions"><MapIcon name="back" size={15} /><span>Sessions</span></Link><span className="atlas-breadcrumb-slash">/</span><span className="atlas-session-name" title={scene.sessionName}>{scene.sessionName}</span></nav>
-        <div className="atlas-header-right"><select aria-label="Loaded map history" value={historySpan} onChange={event => setHistorySpan(Number(event.target.value))}><option value={60_000}>1 min</option><option value={300_000}>5 min</option><option value={1800_000}>30 min</option></select><button type="button" className="atlas-icon-button" aria-label="Browse activity blocks" onClick={() => setBlocksOpen(value => !value)}>Activity</button><button type="button" className="atlas-icon-button" aria-label="Open display settings" title="Display settings" onClick={() => setSettingsOpen(true)}><MapIcon name="settings" /></button><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(cursorMs)}</strong><span>UTC</span></div></div>
+        <div className="atlas-header-right"><button type="button" className="atlas-icon-button" aria-label="Browse activity blocks" onClick={() => { setBlocksOpen(value => !value); setFiltersOpen(false) }}><MapIcon name="activity" size={17} /><span className="atlas-header-action-label">Activity</span></button><button id="traffic-filters-toggle" type="button" className="atlas-filter-toggle" aria-label="Filters" aria-controls="traffic-filters" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen(value => !value); setBlocksOpen(false) }}><MapIcon name="filter" size={16} /><span>Filters</span>{trafficFilterCount(workspace) > 0 && <small>{trafficFilterCount(workspace)}</small>}</button><button type="button" className="atlas-icon-button" aria-label="Open display settings" title="Display settings" onClick={() => { setSettingsOpen(true); setFiltersOpen(false) }}><MapIcon name="settings" /></button><span className={`atlas-status ${connectionState === 'error' || connectionState === 'offline' ? 'is-warning' : ''}`}><i className="atlas-dot" />{connectionState === 'error' || connectionState === 'offline' ? 'Connection lost' : !scene.sessionId ? 'Connecting' : timeline.mode === 'live' ? timeline.playback !== 'following' ? 'Behind live' : connectionState === 'live' ? 'Live session' : connectionState : 'Recorded session'}</span><div className="atlas-clock"><strong>{formatCursor(cursorMs)}</strong><span>UTC</span></div></div>
       </header>
+      {!!timeline.manifest?.simulation_expires_ms && <SimulationBanner key={sessionID} session={sessionID} expiresMS={timeline.manifest.simulation_expires_ms} serverMS={timeline.manifest.server_ms} />}
       {(error || history.error || activity.error || fullscreenError) && <div className="atlas-connection-notice" role="status"><span>{error || history.error || activity.error || fullscreenError}</span>{error || history.error || activity.error ? <button type="button" onClick={() => { void refresh(); history.refresh(); activity.refresh() }}>Retry connection</button> : <button type="button" onClick={() => setFullscreenError('')}>Dismiss</button>}</div>}
       {timeline.manifest?.capture.error && <div className="atlas-connection-notice" role="status">Capture {timeline.manifest.capture.quality}: {timeline.manifest.capture.error}</div>}
       {demoWarning && <div className="atlas-connection-notice" role="status">{demoWarning}</div>}
-      <div ref={mapContainerRef} className="atlas-map-container">
-      <MapComposition {...inputProps} />
+      <div className="atlas-map-container" data-filters-open={filtersOpen || undefined}>
+        <div ref={mapContainerRef} className="atlas-filter-workspace"><MapComposition {...inputProps} /></div>
+        <TrafficFilters open={filtersOpen} state={workspace} data={overview} onChange={updateWorkspace} onClose={closeFilters} />
       </div>
-      {blocksOpen && <ActivityBlockBrowser live={timeline.mode === 'live'} cursorMs={cursorMs} sessionId={sessionID} fromMs={windowFrom} toMs={Math.min(windowTo, contentEndMs)} onSeek={seekTime} onClose={() => setBlocksOpen(false)} />}
+      {blocksOpen && <ActivityBlockBrowser live={timeline.mode === 'live'} cursorMs={cursorMs} sessionId={sessionID} fromMs={windowFrom} toMs={Math.min(windowTo, contentEndMs)} data={overview} state={workspace} onSeek={seekTime} onClose={() => setBlocksOpen(false)} />}
       <MapSettings open={settingsOpen} preferences={preferences} onChange={setPreferences} onClose={() => setSettingsOpen(false)} />
       <MapTransport scene={scene} bins={playbackBins} direction={workspace.direction} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}

@@ -39,3 +39,33 @@ it('paces reordering, holds rows while scrolling or focusing, and returns to the
     expect(order()).toEqual(['newest','new','old'])
   } finally { await act(() => root.unmount()); container.remove() }
 })
+
+it('holds activity ordering during inspection and rebuilds it after resume, rewind or scope changes', async () => {
+  const container = document.createElement('div'); document.body.append(container)
+  const root = createRoot(container)
+  function Probe({ time, a, b, scope }: { time: number; a: number; b: number; scope: string }) {
+    const list = useLiveList([{ id: 'a', at: a }, { id: 'b', at: b }], scope, time, item => item.at)
+    return <><button onClick={list.back}>Resume</button><div onFocusCapture={list.pause}>{list.items.map(item => <button key={item.id} data-item={item.id}>{item.id}:{item.at}</button>)}</div></>
+  }
+  const render = (time: number, a: number, b: number, scope = 'session') => act(() => root.render(<Probe time={time} a={a} b={b} scope={scope} />))
+  const order = () => [...container.querySelectorAll<HTMLButtonElement>('[data-item]')].map(node => node.dataset.item)
+  try {
+    await render(10000, 10000, 9000)
+    await render(11000, 10000, 11000)
+    expect(order()).toEqual(['a', 'b'])
+    expect(container.textContent).toContain('b:11000')
+    const selected = container.querySelector<HTMLButtonElement>('[data-item=a]')!
+    await act(() => selected.focus())
+    await render(26000, 10000, 26000)
+    expect(order()).toEqual(['a', 'b'])
+    expect(document.activeElement).toBe(selected)
+    await act(() => container.querySelector<HTMLButtonElement>('button')!.click())
+    expect(order()).toEqual(['b', 'a'])
+    await render(9000, 9000, 8000)
+    expect(order()).toEqual(['a', 'b'])
+    await render(10000, 9000, 10000)
+    expect(order()).toEqual(['a', 'b'])
+    await render(10000, 9000, 10000, 'other-direction')
+    expect(order()).toEqual(['b', 'a'])
+  } finally { await act(() => root.unmount()); container.remove() }
+})

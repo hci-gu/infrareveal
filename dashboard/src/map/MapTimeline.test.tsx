@@ -2,43 +2,45 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, expect, it, vi } from 'vitest'
-import { seriesKey, type TrafficChunk, type CaptureInterval } from '@infrareveal/session-state'
+import { type TrafficChunk, type CaptureInterval } from '@infrareveal/session-state'
 import fixture from '../../../testdata/aggregate-window-v2.json'
 import { indexDestinationVolumes } from './destinationVolumes'
-import type { MapSeries } from './mapTracks'
-import type { WorkspaceProjection, WorkspaceState } from './mapWorkspace'
+import { buildMapTrackCatalog } from './mapTracks'
+import { buildMapTimelineScene } from './mapModel'
+import { projectWorkspace } from './mapWorkspace'
+import type { MapWindow, SessionManifest } from '@infrareveal/session-state'
+import type { WorkspaceState } from './mapWorkspace'
 import { MapTimeline } from './MapTimeline'
+import { MapPlaybackClock } from './mapPlaybackClock'
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
 const start = fixture.window.from_ms
 const end = start + 600_000
-const chunks = Array.from({ length: 135 }, (_, i) => ({ ...fixture.window.series[0], client_id: `client-${i}`, start_ms: start,
+const chunks = Array.from({ length: 135 }, (_, i) => ({ ...fixture.window.series[0], client_id: `client-${i}`, service_key: `service-${i}`, service_label: `Service ${i}`, start_ms: start,
   bucket_ms: 50, samples: [[i === 134 ? 598_000 : i === 133 ? 595_000 : i === 132 ? 420_000 : 1000, i === 134 ? 1000 : 0, i === 134 ? 0 : 2000, 0, 0, 1, 1]],
 })) as TrafficChunk[]
 const index = indexDestinationVolumes(chunks, start, [{ ...fixture.window.coverage[0], start_ms: start, end_ms: end + 330_000 }] as CaptureInterval[], end + 330_000)
-const rows = chunks.map((chunk, i) => ({ id: seriesKey(chunk), trackId: `track-${i}`, label: `Service ${i}`, client: `client-${i}`,
-  endpoint: `${i}.example:443`, location: 'Test location', locationId: 'test', received: 2000, sent: 1000, bytes: 3000, partial: false, lastActivityMs: start + 1000,
-  series: [{ id: seriesKey(chunk), startMs: start, endMs: end + 330_000, chunks: [chunk] } as MapSeries],
-}))
-const data = { rows, scene: { sessionId: 'large-session' }, locations: [] } as unknown as WorkspaceProjection
+const source = { ...fixture.window, from_ms: start, to_ms: end + 330_000, series: chunks } as MapWindow
+const scene = buildMapTimelineScene(source, fixture.manifest as SessionManifest, { latitude: 57.7, longitude: 11.9, label: 'Gateway' })
+const catalog = buildMapTrackCatalog(source)
+const projected = (cursorMs: number, captured: typeof index, state: WorkspaceState) => projectWorkspace(catalog, scene, captured, cursorMs, state)
 const container = document.createElement('div')
 document.body.append(container)
 let root = createRoot(container)
 const onFollowLive = vi.fn()
-let current = { cursorMs: end, index, state: { direction: 'both', locationId: null, expanded: true } as WorkspaceState }
+let current = { cursorMs: end, index, state: { direction: 'both', locationId: null, expanded: true, order: 'latest' } as WorkspaceState }
 const render = async (next: Partial<typeof current> = {}) => {
   current = { ...current, ...next }
-  await act(() => root.render(<MapTimeline data={data} startMs={start} endMs={end + 330_000} {...current} onChange={() => {}} onSeek={() => {}} onTrack={() => {}} loading={false} error={false} refreshing={false} live following onFollowLive={onFollowLive} />))
+  await act(() => root.render(<MapTimeline data={projected(current.cursorMs, current.index, current.state)} startMs={start} endMs={end + 330_000} {...current} onChange={() => {}} onSeek={() => {}} onTrack={() => {}} loading={false} error={false} refreshing={false} live following onFollowLive={onFollowLive} />))
 }
 const button = (label: string) => [...container.querySelectorAll('button')].find(node => node.textContent?.startsWith(label))!
 const laneNames = () => [...container.querySelectorAll('.atlas-detail-track strong')].map(node => node.textContent)
 HTMLElement.prototype.scrollTo = vi.fn(function(this: HTMLElement) { this.scrollTop = 0 })
-afterEach(async () => { await act(() => root.unmount()); root = createRoot(container); current = { cursorMs: end, index, state: { direction: 'both', locationId: null, expanded: true } }; vi.clearAllMocks() })
+afterEach(async () => { await act(() => root.unmount()); root = createRoot(container); current = { cursorMs: end, index, state: { direction: 'both', locationId: null, expanded: true, order: 'latest' } }; vi.clearAllMocks() })
 
 it('defaults to five minutes with recent endpoints first and quieter history still visible', async () => {
   await render()
   expect(laneNames()).toEqual(['Service 134', 'Service 133', 'Service 132'])
-  expect(container.textContent).toContain('2 active in last 30s')
   expect(container.querySelectorAll('.atlas-detail-row.is-active')).toHaveLength(2)
   expect(container.querySelectorAll<HTMLElement>('.atlas-detail-row')[2].style.getPropertyValue('--lane-opacity')).toBe('0.5')
   expect(container.querySelectorAll('.atlas-flow-envelope').length).toBeGreaterThan(0)
@@ -50,7 +52,7 @@ it('defaults to five minutes with recent endpoints first and quieter history sti
 
 it('holds the window while browsing a long list and returns directly to active traffic', async () => {
   await render()
-  await act(() => button('All lanes').click())
+  await render({ state: { ...current.state, activity: 'all' } })
   expect(container.querySelector('.atlas-detail-timeline')?.getAttribute('data-visible-lanes')).toBe('135')
   expect(laneNames().length).toBeLessThanOrEqual(32)
   const scroll = container.querySelector<HTMLDivElement>('.atlas-detail-scroll')!
@@ -63,16 +65,18 @@ it('holds the window while browsing a long list and returns directly to active t
   expect(container.textContent).toContain('Window held')
   await act(() => button('Follow live').click())
   expect(onFollowLive).toHaveBeenCalledOnce()
-  expect(laneNames()).toEqual(['Service 134', 'Service 133', 'Service 132'])
+  expect(container.querySelector('.atlas-detail-timeline')?.getAttribute('data-visible-lanes')).toBe('135')
+  expect(current.state.activity).toBe('all')
   expect(scroll.scrollTop).toBe(0)
   expect(container.textContent).toContain('Following live')
 })
 
-it('expires quiet lanes, explains the empty state and lets the reader reveal them', async () => {
+it('uses global activity filters to reveal quiet lanes without a local selector', async () => {
   await render({ cursorMs: end + 300_000 })
   expect(laneNames()).toEqual([])
   expect(container.textContent).toContain('No traffic in this window')
-  await act(() => button('Show all').click())
+  expect(button('Show all')).toBeUndefined()
+  await render({ state: { ...current.state, activity: 'all' } })
   expect(laneNames().length).toBeGreaterThan(0)
 })
 
@@ -81,33 +85,90 @@ it('holds a keyboard-focused lane and resets browsing on a location change', asy
   await act(() => container.querySelector<HTMLButtonElement>('.atlas-detail-track')!.focus())
   await render({ cursorMs: end + 10_000 })
   expect(container.querySelector('.atlas-detail-timeline')?.getAttribute('data-window-to')).toBe(String(end))
-  await render({ state: { ...current.state, locationId: 'test' } })
+  await render({ state: { ...current.state, locationId: '18.0686,59.3293' } })
   expect(container.querySelector('.atlas-detail-timeline')?.getAttribute('data-window-to')).toBe(String(end + 10_000))
   expect(container.textContent).not.toContain('Window held')
 })
 
 
-it('promotes a previously quiet lane in place when new capture arrives', async () => {
+it('holds ongoing lanes and animates returning traffic upward as others become quiet', async () => {
   await render()
   const quietLane = container.querySelectorAll<HTMLElement>('.atlas-detail-row')[2]
   const previousFirst = container.querySelector<HTMLElement>('.atlas-detail-row')!
-  expect(quietLane.style.getPropertyValue('--lane-y')).toBe('208px')
+  expect(quietLane.style.getPropertyValue('--lane-y')).toBe('144px')
   const renewed = { ...chunks[132], samples: [...chunks[132].samples, [600_500, 0, 5000, 0, 0, 0, 1]] } as TrafficChunk
-  await render({ cursorMs: end + 1000, index: indexDestinationVolumes([...chunks.slice(0, 132), renewed, ...chunks.slice(133)], start, index.coverage, index.toMs) })
+  const updated = indexDestinationVolumes([...chunks.slice(0, 132), renewed, ...chunks.slice(133)], start, index.coverage, index.toMs)
+  await render({ cursorMs: end + 1000, index: updated })
+  expect(laneNames()).toEqual(['Service 134', 'Service 133', 'Service 132'])
+  expect(quietLane.style.getPropertyValue('--lane-y')).toBe('144px')
+  expect(quietLane.style.getPropertyValue('--lane-opacity')).toBe('1')
+  await render({ cursorMs: end + 11_000 })
+  expect(laneNames()).toEqual(['Service 134', 'Service 132', 'Service 133'])
+  expect(quietLane.style.getPropertyValue('--lane-y')).toBe('72px')
+  await render({ cursorMs: end + 14_000 })
   expect(laneNames()).toEqual(['Service 132', 'Service 134', 'Service 133'])
   expect(container.querySelector('.atlas-detail-row')).toBe(quietLane)
   expect(quietLane.style.getPropertyValue('--lane-y')).toBe('0px')
   expect(quietLane.style.getPropertyValue('--lane-opacity')).toBe('1')
-  expect(previousFirst.style.getPropertyValue('--lane-y')).toBe('104px')
+  expect(previousFirst.style.getPropertyValue('--lane-y')).toBe('72px')
 })
 
 it('keeps the chosen history window when returning to live following', async () => {
   await render()
-  const windowSelect = container.querySelector<HTMLSelectElement>('[aria-label="Timeline window"]')!
-  expect(windowSelect.value).toBe('300000')
-  await act(() => { windowSelect.value = '30000'; windowSelect.dispatchEvent(new Event('change', { bubbles: true })) })
+  const chart = () => container.querySelector<HTMLElement>('.atlas-detail-timeline')!
+  expect(Number(chart().dataset.windowTo) - Number(chart().dataset.windowFrom)).toBe(300_000)
+  await render({ state: { ...current.state, windowMs: 30_000, query: 'service' } })
   expect(laneNames()).toEqual(['Service 134', 'Service 133'])
   await act(() => container.querySelector<HTMLButtonElement>('.atlas-detail-track')!.focus())
   await act(() => button('Follow live').click())
-  expect(windowSelect.value).toBe('30000')
+  expect(Number(chart().dataset.windowTo) - Number(chart().dataset.windowFrom)).toBe(30_000)
+  expect(current.state.query).toBe('service')
+})
+
+it('moves the live viewport between data publications, pauses exactly, and holds history', async () => {
+  let now = 0
+  let paint: FrameRequestCallback | undefined
+  const clock = new MapPlaybackClock(30, { now: () => now, request: callback => { paint = callback; return 1 }, cancel: () => { paint = undefined } })
+  clock.configure({ durationInFrames: 30_000, rate: 1 })
+  clock.seekTo(18_000)
+  const animation = { clock, playbackEpochMs: start }
+  await act(() => root.render(<MapTimeline {...animation} data={projected(end, index, current.state)} startMs={start} endMs={end} cursorMs={end} index={index} state={current.state} onChange={() => {}} onSeek={() => {}} onTrack={() => {}} loading={false} error={false} refreshing={false} live following onFollowLive={onFollowLive} />))
+  const chart = container.querySelector<HTMLElement>('.atlas-detail-timeline')!
+  const position = () => chart.style.getPropertyValue('--timeline-offset')
+  const initial = position()
+  const paths = [...container.querySelectorAll('.atlas-flow-envelope')].map(path => path.getAttribute('d'))
+  const advance = async (ms: number) => act(() => { now += ms; const callback = paint; paint = undefined; callback?.(now) })
+  await act(() => clock.play())
+  await advance(16)
+  expect(position()).not.toBe(initial)
+  const first = position()
+  await advance(16)
+  expect(position()).not.toBe(first)
+  expect([...container.querySelectorAll('.atlas-flow-envelope')].map(path => path.getAttribute('d'))).toEqual(paths)
+  await act(() => clock.pause())
+  const paused = position()
+  await advance(1000)
+  expect(position()).toBe(paused)
+  await act(() => clock.seekTo(17_000))
+  expect(position()).not.toBe(paused)
+  await act(() => container.querySelector<HTMLButtonElement>('.atlas-detail-track')!.focus())
+  const held = position()
+  await act(() => clock.play())
+  await advance(1000)
+  expect(position()).toBe(held)
+  await act(() => root.unmount())
+  root = createRoot(container)
+  const afterUnmount = chart.getAttribute('style')
+  await advance(1000)
+  expect(chart.getAttribute('style')).toBe(afterUnmount)
+  clock.dispose()
+})
+
+it('keeps the same sample resolution as a short live session grows', async () => {
+  await render({ cursorMs: start + 47_900 })
+  const resolution = container.querySelector('.atlas-detail-timeline')!.getAttribute('data-bin-ms')
+  await render({ cursorMs: start + 48_100 })
+  expect(container.querySelector('.atlas-detail-timeline')!.getAttribute('data-bin-ms')).toBe(resolution)
+  await render({ cursorMs: start + 120_100 })
+  expect(container.querySelector('.atlas-detail-timeline')!.getAttribute('data-bin-ms')).toBe(resolution)
 })

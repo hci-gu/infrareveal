@@ -15,6 +15,9 @@ type ObservationScope struct {
 	GatewayIP    string
 	prefixes     []netip.Prefix
 	gateways     map[string]bool
+	// Only the in-process simulator admits documentation addresses. Live
+	// capture retains its ordinary public-destination filter.
+	syntheticDestinations netip.Prefix
 }
 
 func (scope ObservationScope) ExcludesClient(ip, mac string) bool {
@@ -51,7 +54,10 @@ func (scope ObservationScope) Includes(protocol, clientIP, destinationIP string,
 	}
 
 	if !isPublicDestination(destinationIP) {
-		return false
+		address, _ := netip.ParseAddr(destinationIP)
+		if !scope.syntheticDestinations.Contains(address) {
+			return false
+		}
 	}
 	return !isInfrastructureFlow(protocol, destinationPort)
 }

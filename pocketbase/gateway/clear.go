@@ -39,6 +39,9 @@ func (g *Runtime) Clear(ctx context.Context) (clearObservationsResult, error) {
 			return result, err
 		}
 	}
+	if err := g.stopSimulation(ctx); err != nil {
+		return result, err
+	}
 	resume, err := g.pauseObservation(ctx)
 	if err != nil {
 		return result, err

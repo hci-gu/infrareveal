@@ -44,7 +44,7 @@ func (g *Runtime) ensureDemoSession() error {
 		} else if err != nil {
 			return err
 		}
-		others, err := tx.FindRecordsByFilter("sessions", "active=true && demo=false", "", 0, 0)
+		others, err := tx.FindRecordsByFilter("sessions", "active=true && demo=false && simulation_expires_ms=0", "", 0, 0)
 		if err != nil {
 			return err
 		}

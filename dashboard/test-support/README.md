@@ -12,6 +12,7 @@ port 5193 and debug dashboard on 5194. Open a browser with Playwright CLI and ru
 playwright-cli open http://127.0.0.1:5193 --headed
 playwright-cli run-code --filename dashboard/test-support/browser-product-api.js
 playwright-cli run-code --filename dashboard/test-support/browser-traffic-timeline.js
+playwright-cli run-code --filename dashboard/test-support/browser-shared-filters.js
 playwright-cli run-code --filename dashboard/test-support/browser-timeline-motion.js
 ```
 
@@ -54,3 +55,18 @@ The motion check mounts the production timeline with 135 synthetic endpoints in
 the browser. It verifies the five-minute default, retained quiet history, actual
 CSS transitions when activity promotes a lane, entry fading, animations with either system motion preference, and
 stability while focused. Its fixture never writes to the backend.
+
+For continuous scrolling under live load, start a three-minute simulation in the
+isolated backend, open its map, and run
+`playwright-cli run-code --filename dashboard/scripts/check-timeline-animation.js`.
+The check measures the position of a fixed timestamp across display frames and
+buffer changes. It requires motion between data publications at both five-minute
+and thirty-second windows and half-speed playback, then verifies pause and held
+history remain stationary. It reports frame timing and long tasks for comparison;
+run it in each projection. The simulation removes its own data after three minutes.
+
+The shared-filter check covers search, activity, location and history across both
+map projections, sidebar lists, timeline lanes and totals. It also verifies that
+opening/closing location details leaves filters unchanged, reset and keyboard
+closing work, and the drawer fits mobile screens. `aggregateProjection.test.ts`
+covers exact endpoint membership and the fifteen-second activity boundary.

@@ -13,7 +13,7 @@ export function DisplayPage() {
 
 function ActiveDisplay() {
   const { sessions, status, error } = useSessions()
-  const session = sessions.find(item => item.active) ?? sessions[0]
+  const session = sessions.find(item => item.active && !item.simulation_expires_ms) ?? sessions.find(item => !item.simulation_expires_ms)
   if (!session) return <main className="display-mode-wait"><section className="display-mode-card">
     <h1>{status === 'offline' ? 'Reconnecting to the gateway' : 'Waiting for a session'}</h1>
     <p role="status">{error || 'This screen will open the map when a session is available.'}</p>

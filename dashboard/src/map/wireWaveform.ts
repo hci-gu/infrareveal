@@ -5,6 +5,7 @@ import type { TrafficDirection } from './mapWorkspace'
 
 export type WireBin = { received: number; sent: number; complete: boolean; observed: boolean }
 export type WireRange = { from: number; to: number }
+export const WIRE_FLOW_HEIGHT = 48
 
 /** Anchor buckets to the clock so live panning cannot redistribute past traffic. */
 export function waveformGrid(range: WireRange, count = 96) {
@@ -16,16 +17,33 @@ export function waveformGrid(range: WireRange, count = 96) {
   return { from, to, binMs, count: Math.round((to - from) / binMs) }
 }
 
+/** Selected history owns resolution, so a growing session cannot suddenly
+ * re-bin every past burst. Prepare extra clock-aligned space for smooth panning
+ * without rebuilding the geometry at each playhead publication. */
+export function timelineWaveformGrid(range: WireRange, windowMs: number) {
+  const { binMs } = waveformGrid({ from: 0, to: windowMs || 1_800_000 }, 480)
+  const buffer = Math.max(1000, binMs * 8)
+  const from = Math.floor(range.from / buffer) * buffer
+  const to = Math.max(from + buffer, Math.ceil(range.to / buffer) * buffer) + buffer
+  return { from, to, binMs, count: Math.round((to - from) / binMs) }
+}
+
 /** A playhead or total change cannot invalidate immutable captured intervals. */
 export function createWireWaveformCache() {
   const entries = new Map<string, { series: unknown[]; coverage: unknown; bins: WireBin[] }>()
   return (series: readonly MapSeries[], index: DestinationVolumeIndex, range: WireRange, count = 96) => {
     const ordered = [...series].sort((a, b) => a.id.localeCompare(b.id))
-    const key = JSON.stringify([range.from, range.to, count, index.fromMs ?? 0, ordered.map(c => [c.id, c.startMs, c.endMs])])
+    const key = JSON.stringify([range.from, range.to, count, index.fromMs ?? 0, ordered.map(c => c.id)])
     const captured = ordered.map(c => index.get(c.id))
     const cached = entries.get(key)
     if (cached && cached.coverage === index.coverage && captured.every((value, i) => value === cached.series[i])) return cached.bins
-    const bins = wireWaveform(ordered, index, range, count)
+    let bins = wireWaveform(ordered, index, range, count)
+    // Live queries replace the index even when a lane's measured shape is
+    // unchanged. Preserve its identity so cursor updates don't rebuild SVGs.
+    if (cached && bins.length === cached.bins.length && bins.every((bin, i) => {
+      const previous = cached.bins[i]
+      return bin.received === previous.received && bin.sent === previous.sent && bin.complete === previous.complete && bin.observed === previous.observed
+    })) bins = cached.bins
     entries.set(key, { series: captured, coverage: index.coverage, bins })
     if (entries.size > 1024) entries.delete(entries.keys().next().value!)
     return bins
@@ -63,10 +81,12 @@ export function waveformCeiling(series: WireBin[][], direction: TrafficDirection
 }
 /** Smooth envelopes stay inside measured runs. Never bridge silence, missing
  * capture, or a change in certainty. Square-root radius keeps small exchanges
- * legible with the same scale across every lane and both directions. */
+ * legible with the same scale across every lane and both directions. Download
+ * bulges sit above a shared baseline; upload bulges sit below it. */
 export function wireFlows(bins: WireBin[], direction: 'received' | 'sent', ceiling: number) {
-  const flows: { path: string; center: string; partial: boolean }[] = []
-  const baseline = direction === 'received' ? 17 : 47
+  const flows: { path: string; partial: boolean }[] = []
+  const baseline = WIRE_FLOW_HEIGHT / 2
+  const side = direction === 'received' ? -1 : 1
   const width = 1000 / bins.length
   for (let first = 0; first < bins.length;) {
     if (!bins[first].observed || bins[first][direction] <= 0) { first++; continue }
@@ -74,16 +94,15 @@ export function wireFlows(bins: WireBin[], direction: 'received' | 'sent', ceili
     while (end < bins.length && bins[end].observed && bins[end][direction] > 0 && bins[end].complete === bins[first].complete) end++
     const points = [
       { x: first * width, radius: 0 },
-      ...bins.slice(first, end).map((bin, i) => ({ x: (first + i + .5) * width, radius: 13 * Math.sqrt(Math.min(1, bin[direction] / Math.max(1, ceiling))) })),
+      ...bins.slice(first, end).map((bin, i) => ({ x: (first + i + .5) * width, radius: (baseline - 4) * Math.sqrt(Math.min(1, bin[direction] / Math.max(1, ceiling))) })),
       { x: end * width, radius: 0 },
     ]
-    const curve = (values: typeof points, sign: number) => values.slice(1).map((point, i) => {
-      const previous = values[i], middle = (previous.x + point.x) / 2
-      return `C${middle},${baseline + sign * previous.radius} ${middle},${baseline + sign * point.radius} ${point.x},${baseline + sign * point.radius}`
+    const curve = points.slice(1).map((point, i) => {
+      const previous = points[i], middle = (previous.x + point.x) / 2
+      return `C${middle},${baseline + side * previous.radius} ${middle},${baseline + side * point.radius} ${point.x},${baseline + side * point.radius}`
     }).join(' ')
     flows.push({
-      path: `M${points[0].x},${baseline} ${curve(points, -1)} ${curve([...points].reverse(), 1)} Z`,
-      center: `M${points[0].x},${baseline} H${points[points.length - 1].x}`,
+      path: `M${points[0].x},${baseline} ${curve} Z`,
       partial: !bins[first].complete,
     })
     first = end

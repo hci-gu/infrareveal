@@ -6,6 +6,10 @@ export function formatCursor(cursorMs: number) {
   return Number.isFinite(cursorMs) && cursorMs > 0 ? clockFormatter.format(cursorMs) : '--:--:--'
 }
 
+export function formatMinute(cursorMs: number) {
+  return formatCursor(cursorMs).slice(0, 5)
+}
+
 export function formatBytes(bytes: number) {
   if (bytes < 1_000) return `${Math.round(bytes)} B`
   if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(1)} kB`

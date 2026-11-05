@@ -1,7 +1,7 @@
 import { useLiveList } from './useLiveList'
 import { BackToLatest } from './BackToLatest'
 import type { ActivityOrder } from './activityOrder'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { CSSProperties } from 'react'
 import { MapIcon } from './MapIcon'
 import { colorCSS } from './mapTracks'
@@ -25,11 +25,8 @@ type Props = { cursorMs: number; order?: ActivityOrder; refreshing: boolean;
 
 export function MapLocationInspector({ cursorMs, order, refreshing, location, tracks, direction, traffic, loading, error, trafficLoading, onTrack, onClose, onFit }: Props) {
   const ref = useRef<HTMLElement>(null)
-  const [query, setQuery] = useState('')
   useEffect(() => { ref.current?.focus({ preventScroll: true }) }, [])
-  const search = query.trim().toLowerCase()
-  const visible = tracks.filter(track => [track.label, track.client, ...track.series.flatMap(series => [series.hostname, series.chunks[0].destination_ip])].some(value => value.toLowerCase().includes(search)))
-  const { items: orderedItems, scrollRef: listRef, paused: listPaused, back: resumeList, onScroll: scrollList, pause: pauseList } = useLiveList(visible, JSON.stringify([location.id, direction, order, search]), cursorMs)
+  const { items: orderedItems, scrollRef: listRef, paused: listPaused, back: resumeList, onScroll: scrollList, onFocus: focusList, pause: pauseList } = useLiveList(tracks, JSON.stringify([location.id, direction, order]), cursorMs)
   const destinations = new Set(location.series.map(series => series.chunks[0].destination_ip)).size
   const clients = new Set(location.series.map(series => series.chunks[0].client_id)).size
   const bytes = (value: number) => loading || error ? '—' : formatBytes(value)
@@ -49,14 +46,13 @@ export function MapLocationInspector({ cursorMs, order, refreshing, location, tr
     </div>
     <div className="atlas-track-map-status"><span role="status">{refreshing ? 'Updating · showing last loaded capture' : loading ? 'Loading totals…' : error ? 'Capture unavailable' : location.partial ? 'Captured wire bytes · partial capture' : 'Captured wire bytes'}</span><button type="button" disabled={!location.position} onClick={onFit}>Fit location</button></div>
     {location.country && <p className="atlas-location-note">Only destinations without a city estimate. The footprint does not show where within the country traffic goes.</p>}
-    <BackToLatest paused={listPaused} onClick={resumeList} /><div ref={listRef} onScroll={scrollList} onFocusCapture={pauseList} className="atlas-inspector-scroll">
+    <BackToLatest paused={listPaused} onClick={resumeList} /><div ref={listRef} onScroll={scrollList} onFocusCapture={focusList} onClick={pauseList} className="atlas-inspector-scroll">
       <div className="atlas-section-heading"><h3>Services at this location <span className="atlas-count">{tracks.length}</span></h3></div>
-      <input className="atlas-search" type="search" aria-label="Find location services" placeholder="Find service, client, or IP…" value={query} onChange={event => setQuery(event.target.value)} />
       <div className="atlas-location-services">{orderedItems.map(track => <button type="button" key={track.id} className="atlas-destination atlas-track" data-location-track-id={track.id} style={{ '--track-color': colorCSS(track.color) } as CSSProperties} aria-label={`Inspect ${track.label} · ${track.client}`} onClick={() => onTrack(track.id)}>
         <span className="atlas-track-dot" /><span className="atlas-destination-content"><span className="atlas-destination-name">{track.label}</span><span className="atlas-destination-location">{track.client} · {track.series.length} series</span><span className="atlas-volume-track" aria-hidden="true"><span style={{ width: `${track.bytes / peak * 100}%` }} /></span></span>
         <span className="atlas-destination-volume">{bytes(track.bytes)}<MapIcon name="arrow" size={13} /></span>
       </button>)}</div>
-      {!visible.length && <p className="atlas-list-empty">{search ? 'No matching services.' : loading ? 'Loading services…' : 'No traffic in this direction at the playhead.'}</p>}
+      {!tracks.length && <p className="atlas-list-empty">{loading ? 'Loading services…' : 'No traffic in this direction at the playhead.'}</p>}
     </div>
   </section>
 }

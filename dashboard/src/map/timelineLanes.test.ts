@@ -25,7 +25,9 @@ it('fades quiet history without dropping it or fading a held window further', ()
   const row = { id: seriesKey(chunk), series: [{ id: seriesKey(chunk) }] } as TimelineTrafficRow
   const project = (to: number, cursor = to) => timelineLanes([row], index, { from: 0, to }, cursor, 'both')[0]
   expect(project(5000)).toMatchObject({ recentlyActive: true, activityOpacity: 1, windowBytes: 300 })
-  expect(project(61_050)).toMatchObject({ recentlyActive: false, activityOpacity: .875, windowBytes: 300 })
+  expect(project(16_049)).toMatchObject({ recentlyActive: true, activityOpacity: 1 })
+  expect(project(16_050)).toMatchObject({ recentlyActive: false, activityOpacity: 1, windowBytes: 300 })
+  expect(project(61_050)).toMatchObject({ recentlyActive: false, activityOpacity: .8125, windowBytes: 300 })
   expect(project(250_000)).toMatchObject({ recentlyActive: false, activityOpacity: .5, windowBytes: 300 })
   expect(project(5000, 250_000)).toMatchObject({ recentlyActive: true, activityOpacity: 1 })
 })

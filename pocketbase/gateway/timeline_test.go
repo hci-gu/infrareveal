@@ -32,6 +32,7 @@ func gatewayHTTP(t *testing.T) (*pocketbase.PocketBase, *Runtime, http.Handler) 
 	registerSessionTimelineRoutes(router, app)
 	g.registerSessionControls(router)
 	g.registerDemoRoutes(router)
+	g.registerSimulationRoutes(router)
 	handler, err := router.BuildMux()
 	if err != nil {
 		t.Fatal(err)

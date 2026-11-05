@@ -31,7 +31,7 @@ func NewCollection(name string, fields ...core.Field) *core.Collection {
 
 func InstallCore(app core.App) error {
 	sessions := NewCollection("sessions", text("name", 200), flag("active"), flag("ephemeral"), flag("demo"), number("started_ms"), number("ended_ms"), number("retention_minutes"), number("retained_from_ms"), number("revision"), jsonField("policy", 32768), jsonField("capture", 4096), jsonField("diagnostics", 1024), flag("gate_audit_complete"), number("gate_audit_drops"))
-	sessions.AddIndex("one_active_session", true, "active", "active = 1")
+	SimulationFields(sessions)
 	sessions.Fields.Add(text("network_context", 256), text("network_epoch", 128), number("block_watermark_ms"))
 	chunks := NewCollection("traffic_chunks", text("session", 15), text("capture_epoch", 64), text("client_id", 128), text("client_ip", 64), text("service_key", 300), text("service_label", 300), text("destination_id", 15), text("destination_ip", 64), text("protocol", 16), number("destination_port"), text("network_epoch", 128), number("start_ms"), number("bucket_ms"), number("chunk_ms"), number("generation"), flag("sealed"), jsonField("evidence", 4096), jsonField("samples", 65536))
 	chunks.AddIndex("traffic_session_time", false, "session,start_ms,id", "")
@@ -59,6 +59,15 @@ func InstallCore(app core.App) error {
 		}
 		return nil
 	})
+}
+
+// Synthetic sessions have a durable cleanup marker and never take ownership of
+// the gateway capture. Keep one live capture and at most one simulation.
+func SimulationFields(sessions *core.Collection) {
+	sessions.Fields.Add(number("simulation_expires_ms"))
+	sessions.RemoveIndex("one_active_session")
+	sessions.AddIndex("one_active_session", true, "active", "active = 1 AND simulation_expires_ms = 0")
+	sessions.AddIndex("one_simulation", true, "active", "simulation_expires_ms > 0")
 }
 
 func installOptional(app core.App, c *core.Collection) error {

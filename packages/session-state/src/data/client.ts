@@ -1,10 +1,20 @@
 import { baseUrl, requestJSON, requestSignal } from './pocketbaseHttp'
-import type { ActivityBlock, BlockPage, DemoStatus, DiagnosticKind, DiagnosticPage, MapWindow, Session, SessionManifest } from './types'
+import type { ActivityBlock, BlockPage, DemoStatus, DiagnosticKind, DiagnosticPage, MapWindow, Session, SessionManifest, SimulationStatus } from './types'
 export { baseUrl }
 const sessionPath = (id: string) => `/api/infrareveal/sessions/${encodeURIComponent(id)}`
 export const getSessions = (signal?: AbortSignal) => requestJSON<Session[] | { items: Session[] }>('/api/infrareveal/sessions', signal).then(value => Array.isArray(value) ? value : value.items)
 export const getSessionManifest = (id: string, signal?: AbortSignal) => requestJSON<SessionManifest>(`${sessionPath(id)}/manifest`, signal)
 export const getDemoStatus = (signal?: AbortSignal) => requestJSON<DemoStatus>('/api/infrareveal/demo', signal)
+export const getSimulationStatus = (signal?: AbortSignal) => requestJSON<SimulationStatus>('/api/infrareveal/simulation', signal)
+export async function startSimulation(): Promise<SimulationStatus> {
+  const response = await fetch(`${baseUrl}/api/infrareveal/simulation`, { method: 'POST', signal: requestSignal() })
+  if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || 'Could not start demo')
+  return response.json()
+}
+export async function stopSimulation(session: string) {
+  const response = await fetch(`${baseUrl}/api/infrareveal/simulation?${new URLSearchParams({ session_id: session })}`, { method: 'DELETE', signal: requestSignal() })
+  if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || 'Could not stop demo')
+}
 export const getBlock = (id: string, block: string, signal?: AbortSignal) => requestJSON<ActivityBlock>(`${sessionPath(id)}/blocks/${encodeURIComponent(block)}`, signal)
 export function getBlocks(id: string, from: number, to: number, cursor = '', signal?: AbortSignal, order: 'oldest' | 'latest' = 'oldest') {
   return requestJSON<BlockPage>(`${sessionPath(id)}/blocks?${new URLSearchParams({ from: String(from), to: String(to), cursor, order })}`, signal)

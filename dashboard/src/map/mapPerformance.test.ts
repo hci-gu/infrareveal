@@ -21,7 +21,7 @@ describe('map work independent of the animation clock', () => {
     expect(changedTrack.connections[0].id).toBe(first.connections[0].id)
   })
 
-  it('reuses a waveform across playhead totals and refreshes capture and connection coverage', () => {
+  it('reuses a waveform across playhead projections and refreshes changed capture', () => {
     const waveform = createWireWaveformCache()
     const chunk = fixture.window.series[0] as TrafficChunk
     const id = seriesKey(chunk)
@@ -30,7 +30,7 @@ describe('map work independent of the animation clock', () => {
     const range = { from: chunk.start_ms, to: chunk.start_ms+100 }
     const first = waveform([connection], index, range)
     expect(waveform([{ ...connection, bytes: 100 }], Object.assign(new Map(index), { fromMs: index.fromMs, coverage: index.coverage }), range)).toBe(first)
-    expect(waveform([{ ...connection, endMs: 5000 }], index, range)).not.toBe(first)
+    expect(waveform([{ ...connection, endMs: connection.endMs + 1000 }], index, range)).toBe(first)
     const revised = new Map(index)
     revised.set(id, { ...index.get(id)!, intervals: [] })
     expect(waveform([connection], revised, range)).not.toBe(first)

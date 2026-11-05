@@ -38,6 +38,7 @@ type Runtime struct {
 	geo               *geoip2.Reader
 	routes            *routing.Coordinator
 	observation       *observer.Runtime
+	simulation        *simulationRun
 	displays          *displaymode.Registry
 	cancelMaintenance context.CancelFunc
 	maintenanceDone   chan struct{}
@@ -114,6 +115,9 @@ func (g *Runtime) Start() (err error) {
 		}
 	}
 	if err = recoverInterruptedAudit(g.app); err != nil {
+		return err
+	}
+	if err = g.cleanupSimulations(); err != nil {
 		return err
 	}
 	g.config.Trace.LogEffective()
@@ -193,6 +197,9 @@ func (g *Runtime) closeResources(ctx context.Context) error {
 	if g.gate != nil {
 		gateErr = g.gate.Close(ctx)
 		errs = append(errs, gateErr)
+	}
+	if err := g.stopSimulation(ctx); err != nil {
+		return errors.Join(gateErr, err)
 	}
 	if g.observation != nil {
 		errs = append(errs, g.observation.Close(ctx))

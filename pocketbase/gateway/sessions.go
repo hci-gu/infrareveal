@@ -47,6 +47,9 @@ func (g *Runtime) registerSessionHooks() {
 		})
 	})
 	installed := func(e *core.RecordEvent) error {
+		if e.Record.GetInt64("simulation_expires_ms") > 0 {
+			return e.Next()
+		}
 		wasActive := g.CurrentSessionID() == e.Record.Id || e.Record.Original().GetBool("active")
 		if e.Record.GetBool("active") {
 			id := e.Record.Id
@@ -96,7 +99,7 @@ func (g *Runtime) prepareSession(record, original *core.Record) error {
 	if original != nil && original.GetInt64("ended_ms") > 0 && record.GetBool("active") {
 		return fmt.Errorf("closed sessions cannot be reopened")
 	}
-	if g.config.Demo && record.GetBool("active") && !record.GetBool("demo") {
+	if g.config.Demo && record.GetBool("active") && !record.GetBool("demo") && record.GetInt64("simulation_expires_ms") == 0 {
 		return fmt.Errorf("disable DEMO_MODE before starting another session")
 	}
 	revision := int64(1)
@@ -117,7 +120,7 @@ func (g *Runtime) prepareSession(record, original *core.Record) error {
 		record.Set("policy", policy)
 		record.Set("diagnostics", data.Diagnostics{Flows: g.config.Diagnostics, DNS: g.config.Diagnostics, Gate: g.config.Diagnostics || g.config.Gate.Enabled})
 	} else {
-		for _, field := range []string{"started_ms", "ended_ms", "retained_from_ms", "block_watermark_ms", "policy", "diagnostics", "capture", "network_context", "network_epoch"} {
+		for _, field := range []string{"simulation_expires_ms", "started_ms", "ended_ms", "retained_from_ms", "block_watermark_ms", "policy", "diagnostics", "capture", "network_context", "network_epoch"} {
 			record.Set(field, original.Get(field))
 		}
 		revision = original.GetInt64("revision") + 1
@@ -169,7 +172,7 @@ func (g *Runtime) ensureDefaultActiveSession() error {
 	if g.config.Demo {
 		return g.ensureDemoSession()
 	}
-	record, err := g.app.FindFirstRecordByFilter("sessions", "active=true")
+	record, err := g.app.FindFirstRecordByFilter("sessions", "active=true && simulation_expires_ms=0")
 	if errors.Is(err, sql.ErrNoRows) {
 		collection, findErr := g.app.FindCollectionByNameOrId("sessions")
 		if findErr != nil {
@@ -237,7 +240,7 @@ func (g *Runtime) registerSessionControls(r *router.Router[*core.RequestEvent]) 
 		}
 		var record *core.Record
 		err := g.app.RunInTransaction(func(tx core.App) error {
-			previous, err := tx.FindAllRecords("sessions", dbx.HashExp{"active": true})
+			previous, err := tx.FindAllRecords("sessions", dbx.HashExp{"active": true, "simulation_expires_ms": 0})
 			if err != nil {
 				return err
 			}

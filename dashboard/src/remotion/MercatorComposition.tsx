@@ -50,14 +50,12 @@ export function MercatorComposition({ live, following, onFollowLive, timelineDet
     longitude: scene.origin.longitude - (width > 760 ? 42 : 0), latitude: Math.max(-55, Math.min(55, scene.origin.latitude - 16)),
     zoom: width > 760 ? 1.55 : 1.4, minZoom: -1, maxZoom: 16, pitch: 35, bearing: 0,
   }))
-  const [activeOnly, setActiveOnly] = useState(false)
   const [showTraffic, setShowTraffic] = useState(true)
   const [mapError, setMapError] = useState(false)
-  const { track: selected, location: selectedLocation, open: inspectorOpen, selectTrack, selectLocation, changeWorkspace, closeLocation } = useMapInspector(overview, workspace, onWorkspace)
+  const { track: selected, location: selectedLocation, tracks: inspectedTracks, open: inspectorOpen, selectTrack, selectLocation, changeWorkspace, closeLocation } = useMapInspector(overview, workspace, onWorkspace)
   const selection = selected?.id ?? null
-  const visiblePoints = useMemo(() => activeOnly ? mapFrame.points.filter((point) => point.activeSeriesCount > 0) : mapFrame.points, [activeOnly, mapFrame.points])
-  const visibleIPs = useMemo(() => activeOnly ? new Set(visiblePoints.map(point => point.ip)) : undefined, [activeOnly, visiblePoints])
-  const destinations = useMemo(() => destinationLoading ? [] : projectDestinationVolumes(trackScene, trackFrame.bySeries, destinationIndex, projectedCursorMs, visibleIPs), [destinationLoading, trackScene, trackFrame.bySeries, destinationIndex, projectedCursorMs, visibleIPs])
+  const visiblePoints = mapFrame.points
+  const destinations = useMemo(() => destinationLoading ? [] : projectDestinationVolumes(trackScene, trackFrame.bySeries, destinationIndex, projectedCursorMs, overview.volumeBySeries), [destinationLoading, trackScene, trackFrame.bySeries, destinationIndex, projectedCursorMs, overview.volumeBySeries])
   const countryDestinations = useMemo(() => destinations.filter(destination => destination.country), [destinations])
   const countryVolumes = useMemo(() => new Map(countryDestinations.map(destination => [destination.country!.code, destination])), [countryDestinations])
   const cityPoints = useMemo(() => visiblePoints.filter(point => !point.country), [visiblePoints])
@@ -86,7 +84,7 @@ export function MercatorComposition({ live, following, onFollowLive, timelineDet
     })
   }, [destinations, viewState, width, height, selection, inspectorOpen])
   const destinationPartial = destinations.some(destination => destination.partial)
-  const visibleArcs = useMemo(() => activeOnly ? mapFrame.arcs.filter(arc => arc.activeSeriesCount > 0) : mapFrame.arcs, [activeOnly, mapFrame.arcs])
+  const visibleArcs = mapFrame.arcs
   const geometry = useMemo(() => createMapGeometryCache(), [])
   const { connections, countryConnections } = useMemo(() => geometry(visibleArcs), [geometry, visibleArcs])
   const trafficAnchorMs = Math.floor(cursorMs / TRAFFIC_BUCKET_MS) * TRAFFIC_BUCKET_MS
@@ -101,12 +99,12 @@ export function MercatorComposition({ live, following, onFollowLive, timelineDet
   const partialTraffic = Array.from(trafficProfiles.values()).some((profile) => profile.source === 'partial')
   const inspectorProfiles = useMemo(() => direction === 'both' ? trafficProfiles : new Map([...trafficProfiles].map(([id, profile]) => [id, { ...profile, rates: (direction === 'sent' ? profile.outRates : profile.inRates) ?? profile.rates.map(() => 0) }])), [trafficProfiles, direction])
   const selectedTraffic = selected ? trackTraffic(selected, inspectorProfiles) : null
-  const locationTraffic = selectedLocation ? seriesTraffic(overview.tracks.flatMap(track => track.series), inspectorProfiles) : null
+  const locationTraffic = selectedLocation ? seriesTraffic(selectedLocation.series, inspectorProfiles) : null
   const origin = useMemo(() => [{ position: [scene.origin.longitude, scene.origin.latitude] as MapPosition, label: scene.origin.label }], [scene.origin])
 
   useEffect(() => {
     if (!workspace.expanded) return
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && !document.querySelector('dialog[open]') && !event.defaultPrevented) { onWorkspace({ ...workspace, expanded: false }); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[aria-label="Expand traffic timeline"]')?.focus()) } }
+    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape' && !document.querySelector('dialog[open], .atlas-filter-drawer[data-open]') && !event.defaultPrevented) { onWorkspace({ ...workspace, expanded: false }); requestAnimationFrame(() => document.querySelector<HTMLButtonElement>('[aria-label="Expand traffic timeline"]')?.focus()) } }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [workspace, onWorkspace])
@@ -281,18 +279,18 @@ export function MercatorComposition({ live, following, onFollowLive, timelineDet
           return tooltipForPoint(info, direction)
         }}
         onClick={({ object, layer }) => {
-          if (layer?.id === 'country-footprints' && object) { const id = countryVolumes.get(object.countryCode)?.id ?? null; selectLocation(workspace.locationId === id ? null : id); return }
+          if (layer?.id === 'country-footprints' && object) { const id = countryVolumes.get(object.countryCode)?.id ?? null; selectLocation(selectedLocation?.id === id ? null : id); return }
           if (!object) return
           if (['destinations', 'destination-columns', 'muted-destination-columns'].includes(layer?.id ?? '')) {
             const locationId = 'destination' in object ? (object as DestinationColumn).destination.id : (object as MapPoint).position.join(',')
-            selectLocation(workspace.locationId === locationId ? null : locationId)
+            selectLocation(selectedLocation?.id === locationId ? null : locationId)
           } }}
         getCursor={({ isDragging, isHovering }) => isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'}
       >
         <Basemap mapStyle={mapStyleUrl} minZoom={-1} attributionControl={{ compact: true }}
           onError={() => setMapError(true)} onIdle={() => setMapError(false)} />
       </AnimatedMercator>
-      {preferences.labels && <CountryLabels direction={direction} destinations={countryDestinations} viewState={viewState} width={width} height={height} selection={selection} selectedLocationId={workspace.locationId} inspectorOpen={inspectorOpen} onCountry={selectLocation} />}
+      {preferences.labels && <CountryLabels direction={direction} destinations={countryDestinations} viewState={viewState} width={width} height={height} selection={selection} selectedLocationId={selectedLocation?.id ?? null} inspectorOpen={inspectorOpen} onCountry={selectLocation} />}
       <div className="atlas-vignette" />
 
       <div className="atlas-map-heading"><MapIcon name="globe" size={15} /><span>NETWORK ATLAS</span><i /><span className="atlas-map-heading-detail">Mercator · {directionLabel(direction)}</span></div>
@@ -305,7 +303,7 @@ export function MercatorComposition({ live, following, onFollowLive, timelineDet
       </div>
 
 
-      {scene.endpoints.length === 0 && !refreshing && <div className="atlas-empty"><MapIcon name="globe" size={30} /><h2>{unavailable ? 'Session data unavailable' : loading ? 'Connecting to your session' : 'No mapped destinations yet'}</h2><p>{unavailable ? 'Check the gateway connection and try again.' : loading ? 'Loading the network view…' : 'Geolocated traffic will appear here as it is observed.'}</p></div>}
+      {overview.scene.endpoints.length === 0 && !refreshing && <div className="atlas-empty"><MapIcon name="globe" size={30} /><h2>{unavailable ? 'Session data unavailable' : loading ? 'Connecting to your session' : overview.rows.length ? 'No mapped destinations yet' : 'No matching destinations'}</h2><p>{unavailable ? 'Check the gateway connection and try again.' : loading ? 'Loading the network view…' : overview.rows.length ? 'Geolocated traffic will appear here as it is observed.' : 'Adjust Filters or move the playhead to see traffic.'}</p></div>}
       {mapError && <div className="atlas-map-error" role="status">Basemap tiles are unavailable. Traffic is still shown.</div>}
 
       <div className="atlas-map-tools" aria-label="Map controls">
@@ -317,9 +315,9 @@ export function MercatorComposition({ live, following, onFollowLive, timelineDet
       </div>
       <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded · to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent · from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p className="atlas-column-scale" data-volume-source={destinationLoading ? 'loading' : destinationError ? 'unavailable' : destinationPartial ? 'partial' : 'captured'}>Paired columns · fixed log scale · {directionLabel(direction)}{destinationLoading ? ' · Loading…' : destinationError ? ' · Capture unavailable' : destinationPartial ? ' · Partial capture' : ''}</p><p>Direct connections · Coarse IP locations{(trafficLoading || partialTraffic) ? trafficLoading ? ' · Loading rates' : ' · Partial rates' : ''}</p></div>
       </div>
-      <MapOverview capturedToMs={destinationIndex.toMs ?? cursorMs} refreshing={refreshing} data={overview} state={workspace} onChange={changeWorkspace} startMs={destinationIndex.fromMs ?? scene.startMs} cursorMs={projectedCursorMs} loading={destinationLoading} error={destinationError} selectedTrack={selection} onTrack={selectTrack} activeOnly={activeOnly} onActiveOnly={setActiveOnly} />
-      {workspace.expanded && <MapTimeline live={live} following={following} onFollowLive={onFollowLive} detailIndex={timelineDetailIndex} refreshing={refreshing} data={overview} state={workspace} onChange={changeWorkspace} index={destinationIndex} startMs={destinationIndex.fromMs ?? scene.startMs} endMs={endMs} cursorMs={cursorMs} onSeek={onSeekTime} onTrack={selectTrack} loading={destinationLoading} error={destinationError} />}
-      {!selected && selectedLocation && locationTraffic && <MapLocationInspector cursorMs={cursorMs} order={workspace.order} refreshing={refreshing} key={selectedLocation.id} location={selectedLocation} tracks={overview.tracks} direction={direction} traffic={locationTraffic} loading={destinationLoading} error={destinationError} trafficLoading={trafficLoading} onTrack={selectTrack} onClose={closeLocation} onFit={() => { fitNetwork(); if (workspace.expanded) onWorkspace({ ...workspace, expanded: false }) }} />}
+      <MapOverview capturedToMs={destinationIndex.toMs ?? cursorMs} refreshing={refreshing} data={overview} state={workspace} onChange={changeWorkspace} startMs={destinationIndex.fromMs ?? scene.startMs} cursorMs={projectedCursorMs} loading={destinationLoading} error={destinationError} selectedTrack={selection} onTrack={selectTrack} selectedLocation={selectedLocation?.id ?? null} onLocation={selectLocation} />
+      {workspace.expanded && <MapTimeline clock={clock} playbackEpochMs={playbackEpochMs} live={live} following={following} onFollowLive={onFollowLive} detailIndex={timelineDetailIndex} refreshing={refreshing} data={overview} state={workspace} onChange={changeWorkspace} index={destinationIndex} startMs={destinationIndex.fromMs ?? scene.startMs} endMs={endMs} cursorMs={cursorMs} onSeek={onSeekTime} onTrack={selectTrack} loading={destinationLoading} error={destinationError} />}
+      {!selected && selectedLocation && locationTraffic && <MapLocationInspector cursorMs={cursorMs} order={workspace.order} refreshing={refreshing} key={selectedLocation.id} location={selectedLocation} tracks={inspectedTracks} direction={direction} traffic={locationTraffic} loading={destinationLoading} error={destinationError} trafficLoading={trafficLoading} onTrack={selectTrack} onClose={closeLocation} onFit={() => { fitNetwork(); if (workspace.expanded) onWorkspace({ ...workspace, expanded: false }) }} />}
       {selected && selectedTraffic && <MapTrackInspector cursorMs={cursorMs} order={workspace.order} refreshing={refreshing} key={selected.id} direction={direction} track={selected} traffic={selectedTraffic} locationLabel={selectedLocation?.label} onClose={() => selectTrack(null)} onFit={() => { fitNetwork(selected.id); if (workspace.expanded) onWorkspace({ ...workspace, expanded: false }) }} />}
     </div>
   )

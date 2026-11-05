@@ -22,23 +22,24 @@ type CaptureHealth struct {
 }
 
 type Session struct {
-	GateAuditComplete bool          `json:"gate_audit_complete"`
-	GateAuditDrops    uint64        `json:"gate_audit_drops"`
-	ID                string        `json:"id"`
-	Name              string        `json:"name"`
-	Active            bool          `json:"active"`
-	Ephemeral         bool          `json:"ephemeral"`
-	Demo              bool          `json:"demo"`
-	StartedMS         int64         `json:"started_ms"`
-	EndedMS           int64         `json:"ended_ms"`
-	RetentionMinutes  int           `json:"retention_minutes"`
-	RetainedFromMS    int64         `json:"retained_from_ms"`
-	Revision          int64         `json:"revision"`
-	NetworkContext    string        `json:"network_context"`
-	NetworkEpoch      string        `json:"network_epoch"`
-	Policy            Policy        `json:"policy"`
-	Capture           CaptureHealth `json:"capture"`
-	Diagnostics       Diagnostics   `json:"diagnostics"`
+	GateAuditComplete   bool          `json:"gate_audit_complete"`
+	GateAuditDrops      uint64        `json:"gate_audit_drops"`
+	ID                  string        `json:"id"`
+	Name                string        `json:"name"`
+	Active              bool          `json:"active"`
+	Ephemeral           bool          `json:"ephemeral"`
+	Demo                bool          `json:"demo"`
+	SimulationExpiresMS int64         `json:"simulation_expires_ms"`
+	StartedMS           int64         `json:"started_ms"`
+	EndedMS             int64         `json:"ended_ms"`
+	RetentionMinutes    int           `json:"retention_minutes"`
+	RetainedFromMS      int64         `json:"retained_from_ms"`
+	Revision            int64         `json:"revision"`
+	NetworkContext      string        `json:"network_context"`
+	NetworkEpoch        string        `json:"network_epoch"`
+	Policy              Policy        `json:"policy"`
+	Capture             CaptureHealth `json:"capture"`
+	Diagnostics         Diagnostics   `json:"diagnostics"`
 }
 
 type Diagnostics struct {

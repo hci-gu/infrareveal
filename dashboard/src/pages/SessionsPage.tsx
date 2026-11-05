@@ -1,5 +1,6 @@
-import { Link } from 'react-router-dom'
-import { useSessions } from '@infrareveal/session-state'
+import { useState } from 'react'
+import { Link, useLocation, useNavigate } from 'react-router-dom'
+import { startSimulation, useSessions } from '@infrareveal/session-state'
 import type { Session } from '@infrareveal/session-state'
 import { DisplayModeCard } from '../display/DisplayMode'
 
@@ -10,6 +11,21 @@ const dateFormatter = new Intl.DateTimeFormat('en-GB', {
 
 export function SessionsPage() {
   const { sessions, status, error, refresh: loadSessions } = useSessions()
+  const navigate = useNavigate()
+  const location = useLocation()
+  const [startingDemo, setStartingDemo] = useState(false)
+  const [demoError, setDemoError] = useState('')
+  const runDemo = async () => {
+    setStartingDemo(true)
+    setDemoError('')
+    try {
+      const demo = await startSimulation()
+      if (!demo.session_id) throw new Error('Demo did not return a session')
+      navigate(`/map/${encodeURIComponent(demo.session_id)}`)
+    } catch (error) {
+      setDemoError(error instanceof Error ? error.message : 'Could not start demo')
+    } finally { setStartingDemo(false) }
+  }
 
   const activeCount = sessions.filter((session) => session.active).length
 
@@ -39,6 +55,18 @@ export function SessionsPage() {
         </header>
 
         <DisplayModeCard />
+
+        <section className="mb-6 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-blue-200 bg-blue-50 p-5" aria-label="Traffic simulation">
+          <div>
+            <h2 className="font-bold">Try a live traffic demo</h2>
+            <p className="mt-1 text-sm text-slate-600">Eight simulated clients, 144 traffic lanes. Runs for 3 minutes, then deletes its data.</p>
+            {location.state?.simulationFinished && <p className="mt-2 text-sm font-semibold text-emerald-800" role="status">Demo finished. Its session and traffic data have been removed.</p>}
+            {demoError && <p className="mt-2 text-sm text-red-800" role="alert">{demoError}</p>}
+          </div>
+          <button type="button" disabled={startingDemo} onClick={() => void runDemo()} className="rounded-lg bg-blue-700 px-4 py-2 text-sm font-bold text-white hover:bg-blue-800 disabled:opacity-60">
+            {startingDemo ? 'Starting demo…' : sessions.some(session => session.simulation_expires_ms) ? 'Open running demo' : 'Run 3-minute demo'}
+          </button>
+        </section>
 
         {status === 'loading' ? <SessionsLoading /> : null}
         {status === 'offline' ? (

@@ -201,6 +201,37 @@ The backend classifies traffic by registered domain when client-scoped DNS evide
 
 Destination context is enriched independently from reverse DNS, known provider networks, and the bundled GeoIP database. Slow traceroute work runs separately so it cannot delay identity labels. Routes are traceroute approximations from the gateway to the observed destination IP and port; they are not exact proof of the client application path.
 
+## Three-minute simulated traffic demo
+
+Click **Run 3-minute demo** on the dashboard's Sessions page, or call:
+
+```bash
+curl -X POST http://localhost:8090/api/infrareveal/simulation
+```
+
+The response includes `session_id`, `map_path` (open this on the dashboard),
+`expires_ms`, and `lanes: 144`. Repeated POSTs return the existing run without
+extending its deadline. `GET` on the same endpoint reports status; `DELETE`
+stops the demo early and waits for cleanup. The map also has **Stop and clean up**.
+Optionally pass `?session_id=...` on DELETE to avoid stopping a different run.
+
+The fixed workload streams synthetic Ethernet frames and DNS observations in
+real time: eight clients, 144 lanes, browsing bursts, media segments, video calls,
+uploads, downloads, idle periods, and fictional locations across 14 cities.
+It exercises the production packet parser, bounded event queue, DNS attribution,
+traffic aggregation, database writes, activity blocks, revision stream and map APIs.
+It does not send network traffic, run route probes, or benchmark kernel capture.
+Synthetic geography is explicitly labeled and uses documentation-only IP addresses.
+
+Each run has its own live session alongside real capture. After three minutes,
+the backend stops generation, drains writers and deletes the session, chunks,
+coverage, blocks, diagnostics and unreferenced synthetic destinations. The dashboard
+returns to Sessions when cleanup is confirmed. Clear and graceful shutdown also
+clean up; startup removes any run left by a crash. Existing recordings are preserved.
+This works on native macOS/Linux development servers without capture privileges,
+GeoIP files or `DEMO_MODE`. Use the same workload for repeatable dashboard comparisons;
+timer scheduling and machine load can affect the exact packet count.
+
 ## Always-on lab demo
 
 For an unattended screen, enable `DEMO_MODE=true`, set

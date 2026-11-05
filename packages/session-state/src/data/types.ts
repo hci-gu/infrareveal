@@ -1,7 +1,8 @@
 /** Product facts use epoch milliseconds. Samples describe half-open capture bins. */
 export type Policy = { version: string; bucket_ms: number; chunk_ms: number; correction_ms: number; quiet_gap_ms: number; aliases: Record<string, string> }
 export type CaptureHealth = { epoch?: string; generation?: number; running: boolean; confirmed_ms: number; quality: string; error: string; dropped: number }
-export type Session = { gate_audit_complete?: boolean; gate_audit_drops?: number; id: string; name: string; active: boolean; ephemeral: boolean; demo: boolean; started_ms: number; ended_ms: number; retention_minutes: number; revision: number; policy: Policy; capture: CaptureHealth }
+export type Session = { simulation_expires_ms?: number; gate_audit_complete?: boolean; gate_audit_drops?: number; id: string; name: string; active: boolean; ephemeral: boolean; demo: boolean; started_ms: number; ended_ms: number; retention_minutes: number; revision: number; policy: Policy; capture: CaptureHealth }
+export type SimulationStatus = { active: boolean; session_id?: string; expires_ms?: number; map_path?: string; lanes?: number }
 export type Diagnostics = { flows: boolean; dns: boolean; gate: boolean }
 export type SessionManifest = Session & { server_ms: number; retained_from_ms: number; diagnostics: Diagnostics }
 export type Sample = [offset_ms: number, wire_sent: number, wire_received: number, payload_sent: number, payload_received: number, packets_sent: number, packets_received: number]

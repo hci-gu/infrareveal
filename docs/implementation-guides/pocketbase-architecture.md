@@ -78,6 +78,22 @@ resources. Public session transitions join observation before changing the activ
 recording. Session hooks publish identity after commit and preserve concurrent
 revision, capture and network updates.
 
+`POST /api/infrareveal/simulation` starts (or joins) one three-minute synthetic
+session. Its observer replaces hardware sources with paced Ethernet frames and
+DNS lines, plus explicitly synthetic geographic snapshots. The production parser,
+bounded queue, classifier, aggregation, persistence and projection remain shared.
+A private simulator scope admits only its reserved documentation destination range;
+live capture still filters those addresses. The simulation has no routing callback,
+and manual probe requests reject its chunks.
+
+`simulation_expires_ms` is both provenance and a durable cleanup marker. Separate
+unique indexes allow one simulation alongside the real active recording; synthetic
+session hooks never install the gateway's current session ID. Expiry, cancellation,
+clear and shutdown join its observer before session deletion; startup deletes
+orphaned simulation sessions. Failed cleanup retains ownership for retry, while the
+source deadline independently stops generation. Session deletion cascades through
+the normal cleanup hooks, including diagnostics and unreferenced destinations.
+
 Clear disarms the gate, flushes audit, joins observation and route work, then
 removes product observations in one transaction. Probe charges survive. Capture
 restarts with fresh correlation state and a new epoch. Shutdown drains accepted
