@@ -1,14 +1,6 @@
 // Playwright CLI check against the seeded development API, without session mutations.
-async (page) => {
-  const base = 'http://127.0.0.1:5193'
-  const response = await page.request.get('http://127.0.0.1:8091/api/infrareveal/sessions')
-  const { items } = await response.json()
-  const recorded = items.find(session => !session.active && session.name.startsWith('Example'))
-  const live = items.find(session => session.active)
-  const assert = (condition, message) => { if (!condition) throw new Error(message) }
-  const errors = []
-  const onError = error => errors.push(error.message)
-  page.on('pageerror', onError)
+export default async (page, harness) => {
+  const { map: base, recorded, live, assert, errors } = harness
   try {
     await page.emulateMedia({ reducedMotion: 'reduce' })
     await page.setViewportSize({ width: 1440, height: 1000 })
@@ -78,8 +70,8 @@ async (page) => {
     await page.getByRole('button', { name: 'Dark', exact: true }).click()
     await page.locator('#map-projection').selectOption('mercator')
     await page.getByRole('button', { name: 'Close display settings' }).click()
-    await page.locator('.atlas-composition[data-map-pitch]').waitFor()
-    const shader = await page.evaluate(async () => (await import('/scripts/check-traffic-animation.js')).checkTrafficAnimation())
+    await page.locator('.atlas-map-surface[data-map-pitch]').waitFor()
+    const shader = await page.evaluate(async () => (await import('/test-support/check-traffic-animation.js')).checkTrafficAnimation())
     assert(shader.passed, shader.failures.join('; '))
     await page.getByRole('button', { name: 'Expand traffic timeline' }).click()
     await page.locator('.atlas-flow-envelope').first().waitFor()
@@ -93,5 +85,5 @@ async (page) => {
     assert(await page.getByRole('button', { name: 'Pause playback' }).count() === 1, 'Follow live must resume playback')
     assert(errors.length === 0, `Browser errors: ${errors.join('; ')}`)
     return { passed: true, pageErrors: errors, shaderChecks: shader.checks, checks: 'recorded traffic shapes, five-minute default, keyboard seeking, hold/resume, both projections, light/dark, mobile, removed detail settings, paused live → follow live' }
-  } finally { page.off('pageerror', onError); await page.emulateMedia({ reducedMotion: 'no-preference' }) }
+  } finally { await page.emulateMedia({ reducedMotion: 'no-preference' }) }
 }

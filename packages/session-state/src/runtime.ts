@@ -81,7 +81,7 @@ function cacheWindow(snapshot: Snapshot<MapWindow>) {
     total -= entry.bytes; windowCache.delete(id)
   }
 }
-export const emptyMapWindow = (id = '', from = 0, to = 0, resolution = 50): MapWindow => ({ session_id: id, revision: 0, from_ms: from, to_ms: to, resolution_ms: resolution, complete: false, series: [], coverage: [], blocks: [], destinations: [], routes: [] })
+const emptyMapWindow = (id = '', from = 0, to = 0, resolution = 50): MapWindow => ({ session_id: id, revision: 0, from_ms: from, to_ms: to, resolution_ms: resolution, complete: false, series: [], coverage: [], blocks: [], destinations: [], routes: [] })
 
 /** Expired samples must not reappear while the replacement window is in flight. */
 function retainedWindow(window: MapWindow, floor: number): MapWindow {

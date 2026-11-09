@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-export type WindowRequest = { key: string; scope: string; from: number; to: number }
+type WindowRequest = { key: string; scope: string; from: number; to: number }
 export type Snapshot<T> = WindowRequest & { data: T }
 
 /** Only overlapping, forward live windows can borrow the previous snapshot. */
-export function continuesWindow(previous: WindowRequest, next: WindowRequest) {
+function continuesWindow(previous: WindowRequest, next: WindowRequest) {
   return previous.scope === next.scope && next.from >= previous.from && next.from < previous.to
     && next.to >= previous.to
 }

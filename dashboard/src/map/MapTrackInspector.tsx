@@ -7,19 +7,17 @@ import { colorCSS } from './mapTracks'
 import type { MapSeries, MapTrack, trackTraffic } from './mapTracks'
 import { formatBytes, formatCursor } from './format'
 import { MapIcon } from './MapIcon'
-import { directionLabel } from './mapWorkspace'
-import type { TrafficDirection } from './mapWorkspace'
 
-type Props = { cursorMs: number; order?: ActivityOrder; refreshing: boolean; direction: TrafficDirection; track: MapTrack; traffic: ReturnType<typeof trackTraffic>; locationLabel?: string; onClose: () => void; onFit: () => void }
-export function MapTrackInspector({ cursorMs, order, refreshing, direction, track, traffic, locationLabel, onClose, onFit }: Props) {
+type Props = { cursorMs: number; order?: ActivityOrder; refreshing: boolean; track: MapTrack; traffic: ReturnType<typeof trackTraffic>; locationLabel?: string; onClose: () => void; onFit: () => void }
+export function MapTrackInspector({ cursorMs, order, refreshing, track, traffic, locationLabel, onClose, onFit }: Props) {
   const ref = useRef<HTMLElement>(null)
   useEffect(() => { ref.current?.focus({ preventScroll: true }) }, [])
-  const { items: orderedItems, scrollRef: listRef, paused: listPaused, back: resumeList, onScroll: scrollList, onFocus: focusList, pause: pauseList } = useLiveList(track.series, JSON.stringify([track.id, direction, order]), cursorMs)
+  const { items: orderedItems, scrollRef: listRef, paused: listPaused, back: resumeList, onScroll: scrollList, onFocus: focusList, pause: pauseList } = useLiveList(track.series, JSON.stringify([track.id, order]), cursorMs)
   return <section ref={ref} tabIndex={-1} className="atlas-track-inspector" aria-label={`${track.label} details`} style={{ '--track-color': colorCSS(track.color) } as CSSProperties} onKeyDown={event => { if (event.key === 'Escape') { event.stopPropagation(); onClose() } }}>
     <header className="atlas-inspector-heading"><span>SELECTED SERVICE</span><button className="atlas-icon-button" aria-label="Close service details" onClick={onClose}><MapIcon name="close" /></button></header>
     {locationLabel && <button type="button" className="atlas-inspector-back" onClick={onClose}><MapIcon name="back" size={13} />Back to {locationLabel}</button>}
     <div className="atlas-track-title"><h2>{track.label}</h2><span>Client <b>{track.client}</b></span><p>Inferred service activity; it does not establish which page a person viewed.</p></div>
-    <div className="atlas-track-summary"><div><strong>{formatBytes(track.bytes)}</strong><span>{directionLabel(direction)} · loaded window to playhead</span></div><div><strong>{traffic.available ? `${formatBytes(traffic.rate)}/s` : '—'}</strong><span>Captured payload rate{traffic.partial ? ' · partial capture' : ''}</span></div></div>
+    <div className="atlas-track-summary"><div><strong>{formatBytes(track.bytes)}</strong><span>Downloaded + sent · loaded window to playhead</span></div><div><strong>{traffic.available ? `${formatBytes(traffic.rate)}/s` : '—'}</strong><span>Captured payload rate{traffic.partial ? ' · partial capture' : ''}</span></div></div>
     <div className="atlas-track-map-status"><span>{refreshing ? 'Updating · ' : ''}{track.mappedCount} of {track.series.length} traffic series mapped</span><button disabled={!track.mappedCount} onClick={onFit}>Fit service</button></div>
     <BackToLatest paused={listPaused} onClick={resumeList} /><div ref={listRef} onScroll={scrollList} onFocusCapture={focusList} onClick={pauseList} className="atlas-inspector-scroll">
       {orderedItems.map(value => <SeriesDetails key={value.id} series={value} />)}

@@ -1,12 +1,9 @@
 import { WebMercatorViewport } from '@deck.gl/core'
 import type { MapViewState } from '@deck.gl/core'
 import type { DestinationVolume } from './destinationVolumes'
-import { directionalBytes, directionLabel } from './mapWorkspace'
-import type { TrafficDirection } from './mapWorkspace'
 import { formatBytes } from './format'
 
 type Props = {
-  direction: TrafficDirection
   destinations: DestinationVolume[]
   viewState: MapViewState
   width: number
@@ -17,7 +14,7 @@ type Props = {
   onCountry: (id: string | null) => void
 }
 
-export function CountryLabels({ direction, destinations, viewState, width, height, selection, selectedLocationId, inspectorOpen, onCountry }: Props) {
+export function CountryLabels({ destinations, viewState, width, height, selection, selectedLocationId, inspectorOpen, onCountry }: Props) {
   const viewport = new WebMercatorViewport({ ...viewState, width, height })
   const occupied: number[][] = []
   return <div className="atlas-country-labels" aria-label="Country-level traffic">
@@ -35,12 +32,12 @@ export function CountryLabels({ direction, destinations, viewState, width, heigh
       if (top < 75) return null
       occupied.push([left, top])
       const dimmed = Boolean(selection && !destination.tracks.some(track => track.trackId === selection))
-      return <div key={destination.id} className={`atlas-country-label${dimmed ? ' is-dimmed' : ''}`} style={{ left, top, width: labelWidth }} data-country-code={destination.country?.code} data-country-bytes={Math.round(directionalBytes(destination, direction))}>
+      return <div key={destination.id} className={`atlas-country-label${dimmed ? ' is-dimmed' : ''}`} style={{ left, top, width: labelWidth }} data-country-code={destination.country?.code} data-country-bytes={Math.round((destination.received + destination.sent))}>
         <button type="button" className="atlas-country-summary" aria-pressed={selected} onClick={() => onCountry(selected ? null : destination.id)}>
           <span className="atlas-country-name"><i className="atlas-country-swatch" />{destination.location}</span>
           <span className="atlas-country-precision">Country estimate · City unknown</span>
-          <span className="atlas-country-total">{formatBytes(directionalBytes(destination, direction))}<small>{directionLabel(direction)}</small></span>
-          <span className="atlas-country-tracks" aria-hidden="true">{direction !== 'sent' && <i style={{ width: `${destination.received / Math.max(1, directionalBytes(destination, direction)) * 100}%`, background: 'var(--atlas-down)' }} />}{direction !== 'received' && <i style={{ width: `${destination.sent / Math.max(1, directionalBytes(destination, direction)) * 100}%`, background: 'var(--atlas-up)' }} />}</span>
+          <span className="atlas-country-total">{formatBytes(destination.received + destination.sent)}<small>Downloaded + sent</small></span>
+          <span className="atlas-country-tracks" aria-hidden="true"><i style={{ width: `${destination.received / Math.max(1, destination.received + destination.sent) * 100}%`, background: 'var(--atlas-down)' }} /><i style={{ width: `${destination.sent / Math.max(1, destination.received + destination.sent) * 100}%`, background: 'var(--atlas-up)' }} /></span>
         </button>
       </div>
     })}

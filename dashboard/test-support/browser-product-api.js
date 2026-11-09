@@ -1,13 +1,8 @@
 // Playwright CLI run-code function. Uses the real seeded development backend.
-async (page) => {
-  const api = 'http://127.0.0.1:8091'
-  const map = 'http://127.0.0.1:5193'
-  const debug = 'http://127.0.0.1:5194'
-  const assert = (value, message) => { if (!value) throw new Error(message) }
-  const errors = [], requests = []
-  const onError = error => errors.push(error.message)
+export default async (page, harness) => {
+  const { map, debug, recorded, live, assert, errors } = harness
+  const requests = []
   const onRequest = request => { if (request.url().includes('/api/')) requests.push(request.url()) }
-  page.on('pageerror', onError)
   page.on('request', onRequest)
   await page.addInitScript(() => {
     if ('__revisionStreams' in window) return
@@ -19,12 +14,6 @@ async (page) => {
     }
   })
   try {
-    const response = await page.request.get(`${api}/api/infrareveal/sessions`)
-    assert(response.ok(), 'Start the development backend before this check')
-    const { items } = await response.json()
-    const recorded = items.find(session => !session.active && session.name.startsWith('Example'))
-    const live = items.find(session => session.active)
-    assert(recorded && live, 'Seed an example recording and start one empty live session')
     await page.goto(`${map}/map/${recorded.id}`)
     await page.locator('.atlas-page[data-timeline-mode="recorded"]').waitFor()
     await page.getByRole('slider', { name: 'Session timeline', exact: true }).press('End')
@@ -71,7 +60,6 @@ async (page) => {
     assert(!errors.length, `Browser errors: ${errors.join('; ')}`)
     return { recorded: recorded.id, live: live.id, mapBlocks, debugBlocks, productRequests: requests.length, pageErrors: errors, checks: 'recorded map, both projections, block evidence, paused live, unavailable capture, activity, absent diagnostics, Lab and subscription cleanup' }
   } finally {
-    page.off('pageerror', onError)
     page.off('request', onRequest)
   }
 }

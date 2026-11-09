@@ -2,12 +2,12 @@
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { sessionTimelineStore, useActivityBlocks, useMapWindow } from '@infrareveal/session-state'
-import type { BlockPage, MapWindow, SessionManifest } from '@infrareveal/session-state'
-import * as client from '../../../packages/session-state/src/data/client'
+import { sessionTimelineStore, useActivityBlocks, useMapWindow } from './index'
+import type { BlockPage, MapWindow, SessionManifest } from './index'
+import * as client from './data/client'
 import fixture from '../../../testdata/aggregate-window-v2.json'
 
-vi.mock('../../../packages/session-state/src/data/client', async importOriginal => ({
+vi.mock('./data/client', async importOriginal => ({
   ...await importOriginal<typeof client>(), getMapWindow: vi.fn(), getBlocks: vi.fn(),
 }))
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })

@@ -21,13 +21,13 @@ const chunks = Array.from({ length: 135 }, (_, i) => ({ ...fixture.window.series
 })) as TrafficChunk[]
 const index = indexDestinationVolumes(chunks, start, [{ ...fixture.window.coverage[0], start_ms: start, end_ms: end + 330_000 }] as CaptureInterval[], end + 330_000)
 const source = { ...fixture.window, from_ms: start, to_ms: end + 330_000, series: chunks } as MapWindow
-const scene = buildMapTimelineScene(source, fixture.manifest as SessionManifest, { latitude: 57.7, longitude: 11.9, label: 'Gateway' })
+const scene = buildMapTimelineScene(buildMapTrackCatalog(source), fixture.manifest as SessionManifest, { latitude: 57.7, longitude: 11.9, label: 'Gateway' })
 const catalog = buildMapTrackCatalog(source)
 const projected = (cursorMs: number, captured: typeof index, state: WorkspaceState) => projectWorkspace(catalog, scene, captured, cursorMs, state)
 const container = document.createElement('div')
 document.body.append(container)
 let root = createRoot(container)
-let current = { cursorMs: end, index, navigationRevision: 0, state: { direction: 'both', locationId: null, expanded: true, order: 'latest' } as WorkspaceState }
+let current = { cursorMs: end, index, navigationRevision: 0, state: { locationId: null, expanded: true, order: 'latest' } as WorkspaceState }
 const render = async (next: Partial<typeof current> = {}) => {
   current = { ...current, ...next }
   await act(() => root.render(<MapTimeline data={projected(current.cursorMs, current.index, current.state)} startMs={start} endMs={end + 330_000} {...current} onSeek={() => {}} onTrack={() => {}} loading={false} error={false} refreshing={false} live />))
@@ -35,7 +35,7 @@ const render = async (next: Partial<typeof current> = {}) => {
 const button = (label: string) => [...container.querySelectorAll('button')].find(node => node.textContent?.startsWith(label))!
 const laneNames = () => [...container.querySelectorAll('.atlas-detail-track strong')].map(node => node.textContent)
 HTMLElement.prototype.scrollTo = vi.fn(function(this: HTMLElement) { this.scrollTop = 0 })
-afterEach(async () => { await act(() => root.unmount()); root = createRoot(container); current = { cursorMs: end, index, navigationRevision: 0, state: { direction: 'both', locationId: null, expanded: true, order: 'latest' } }; vi.clearAllMocks() })
+afterEach(async () => { await act(() => root.unmount()); root = createRoot(container); current = { cursorMs: end, index, navigationRevision: 0, state: { locationId: null, expanded: true, order: 'latest' } }; vi.clearAllMocks() })
 
 it('defaults to five minutes with recent endpoints first and quieter history still visible', async () => {
   await render()
@@ -44,9 +44,8 @@ it('defaults to five minutes with recent endpoints first and quieter history sti
   expect(container.querySelectorAll<HTMLElement>('.atlas-detail-row')[2].style.getPropertyValue('--lane-opacity')).toBe('0.5')
   expect(container.querySelectorAll('.atlas-flow-envelope').length).toBeGreaterThan(0)
   expect(container.querySelector('.atlas-detail-timeline')?.getAttribute('data-window-from')).toBe(String(end - 300_000))
-  await render({ state: { ...current.state, direction: 'received' } })
-  expect(laneNames()).toEqual(['Service 133', 'Service 132'])
-  expect(container.querySelector('.atlas-detail-lane .atlas-flow-sent')).toBeNull()
+  expect(container.querySelector('.atlas-flow-sent .atlas-flow-envelope')).not.toBeNull()
+  expect(container.querySelector('.atlas-flow-received .atlas-flow-envelope')).not.toBeNull()
 })
 
 it('holds the window while browsing and resumes from shared playback navigation', async () => {

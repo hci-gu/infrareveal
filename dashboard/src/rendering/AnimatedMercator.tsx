@@ -7,27 +7,19 @@ import type { MapPlaybackClock } from '../map/mapPlaybackClock'
 export const AnimatedMercator = memo(function AnimatedMercator({ clock, active, ...props }: DeckGLProps & { clock: MapPlaybackClock; active: boolean }) {
   const deck = useRef<DeckGLRef>(null)
   useEffect(() => {
-    let lastPaint = -Infinity
     const redraw = () => {
-      // Fixed wall-clock slots avoid dropping every other paint when a slow
-      // frame lands just before a sliding 33 ms deadline. Replay rate stays free.
-      const slot = Math.floor(performance.now() * 30 / 1000)
-      if (active && !document.hidden && slot !== lastPaint) {
-        lastPaint = slot
-        deck.current?.deck?.redraw('traffic clock')
-      }
+      if (active && !document.hidden) deck.current?.deck?.redraw('traffic clock')
     }
-    const seek = () => { lastPaint = -Infinity; redraw() }
     clock.addEventListener('animationframe', redraw)
-    clock.addEventListener('seeked', seek)
-    clock.addEventListener('pause', seek)
-    clock.addEventListener('ended', seek)
+    clock.addEventListener('seeked', redraw)
+    clock.addEventListener('pause', redraw)
+    clock.addEventListener('ended', redraw)
     document.addEventListener('visibilitychange', redraw)
     return () => {
       clock.removeEventListener('animationframe', redraw)
-      clock.removeEventListener('seeked', seek)
-      clock.removeEventListener('pause', seek)
-      clock.removeEventListener('ended', seek)
+      clock.removeEventListener('seeked', redraw)
+      clock.removeEventListener('pause', redraw)
+      clock.removeEventListener('ended', redraw)
       document.removeEventListener('visibilitychange', redraw)
     }
   }, [active, clock])

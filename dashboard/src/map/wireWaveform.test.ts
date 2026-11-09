@@ -24,20 +24,20 @@ describe('steady timeline waveforms', () => {
     expect(changed.reduce((sum, bin) => sum + bin.received, 0)).toBeGreaterThan(original.reduce((sum, bin) => sum + bin.received, 0))
   })
   it('holds the observed scale when a burst expires or becomes quieter', () => {
-    const ceiling = waveformCeiling(bins(10_000), 'both')
-    expect(waveformCeiling(bins(100), 'both', ceiling)).toBe(ceiling)
-    expect(waveformCeiling(bins(0), 'both', ceiling)).toBe(ceiling)
-    expect(waveformCeiling(bins(100), 'both')).toBeLessThan(ceiling)
+    const ceiling = waveformCeiling(bins(10_000))
+    expect(waveformCeiling(bins(100), ceiling)).toBe(ceiling)
+    expect(waveformCeiling(bins(0), ceiling)).toBe(ceiling)
+    expect(waveformCeiling(bins(100))).toBeLessThan(ceiling)
   })
 
   it('adds headroom so small live changes do not resize every flow', () => {
-    const ceiling = waveformCeiling(bins(1000), 'both')
+    const ceiling = waveformCeiling(bins(1000))
     expect(ceiling).toBeGreaterThan(1000)
-    expect(waveformCeiling(bins(1050), 'both', ceiling)).toBe(ceiling)
-    const grown = waveformCeiling(bins(ceiling + 1), 'both', ceiling)
+    expect(waveformCeiling(bins(1050), ceiling)).toBe(ceiling)
+    const grown = waveformCeiling(bins(ceiling + 1), ceiling)
     expect(grown).toBeGreaterThan(ceiling + 1)
     expect(grown).toBeLessThanOrEqual(ceiling * 1.5)
-    expect(waveformCeiling(bins(1, 100_000), 'both', grown)).toBeGreaterThanOrEqual(100_000)
+    expect(waveformCeiling(bins(1, 100_000), grown)).toBeGreaterThanOrEqual(100_000)
   })
 
   it('keeps past rates unchanged when the live window advances between bucket boundaries', () => {

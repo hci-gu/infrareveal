@@ -26,10 +26,6 @@ class PocketBaseRequestError extends Error {
   }
 }
 
-export function isNotFound(error: unknown): error is PocketBaseRequestError {
-  return error instanceof PocketBaseRequestError && error.status === 404
-}
-
 // Bound failed requests as well as successful data; a hung connection must not
 // prevent live reconciliation indefinitely. Owners still cancel on teardown.
 export function requestSignal(signal?: AbortSignal) {

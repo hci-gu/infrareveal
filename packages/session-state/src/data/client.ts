@@ -1,8 +1,8 @@
 import { baseUrl, requestJSON, requestSignal } from './pocketbaseHttp'
-import type { ActivityBlock, BlockPage, DemoStatus, DiagnosticKind, DiagnosticPage, MapWindow, Session, SessionManifest, SimulationStatus } from './types'
+import type { BlockPage, DemoStatus, DiagnosticKind, DiagnosticPage, MapWindow, Session, SessionManifest, SimulationStatus } from './types'
 export { baseUrl }
 const sessionPath = (id: string) => `/api/infrareveal/sessions/${encodeURIComponent(id)}`
-export const getSessions = (signal?: AbortSignal) => requestJSON<Session[] | { items: Session[] }>('/api/infrareveal/sessions', signal).then(value => Array.isArray(value) ? value : value.items)
+export const getSessions = (signal?: AbortSignal) => requestJSON<{ items: Session[] }>('/api/infrareveal/sessions', signal).then(value => value.items)
 export const getSessionManifest = (id: string, signal?: AbortSignal) => requestJSON<SessionManifest>(`${sessionPath(id)}/manifest`, signal)
 export const getDemoStatus = (signal?: AbortSignal) => requestJSON<DemoStatus>('/api/infrareveal/demo', signal)
 export const getSimulationStatus = (signal?: AbortSignal) => requestJSON<SimulationStatus>('/api/infrareveal/simulation', signal)
@@ -15,7 +15,6 @@ export async function stopSimulation(session: string) {
   const response = await fetch(`${baseUrl}/api/infrareveal/simulation?${new URLSearchParams({ session_id: session })}`, { method: 'DELETE', signal: requestSignal() })
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || 'Could not stop demo')
 }
-export const getBlock = (id: string, block: string, signal?: AbortSignal) => requestJSON<ActivityBlock>(`${sessionPath(id)}/blocks/${encodeURIComponent(block)}`, signal)
 export function getBlocks(id: string, from: number, to: number, cursor = '', signal?: AbortSignal, order: 'oldest' | 'latest' = 'oldest') {
   return requestJSON<BlockPage>(`${sessionPath(id)}/blocks?${new URLSearchParams({ from: String(from), to: String(to), cursor, order })}`, signal)
 }
@@ -24,11 +23,6 @@ export function getDiagnostics(id: string, kind: DiagnosticKind, from: number, t
     if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || `Diagnostics unavailable (${response.status})`)
     return response.json() as Promise<DiagnosticPage>
   })
-}
-export async function measureRoute(chunkID: string) {
-  const response = await fetch(`${baseUrl}/api/infrareveal/routes/measure`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ chunk_id: chunkID }), signal: requestSignal() })
-  if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || 'Route measurement unavailable')
-  return response.json()
 }
 /** Assemble a revision-consistent window. Never publish an incomplete page set. */
 export async function getMapWindow(id: string, from: number, to: number, resolution = 50, signal?: AbortSignal, block = ''): Promise<MapWindow> {

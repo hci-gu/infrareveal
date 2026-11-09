@@ -10,8 +10,8 @@ import { wireWaveform } from './wireWaveform'
 const window=fixture.window as MapWindow, manifest=fixture.manifest as SessionManifest, start=manifest.started_ms
 const origin={latitude:57.7,longitude:11.9,label:'Gateway'}
 function project(data=window,time=start+100) {
-  const scene=buildMapTimelineScene(data,manifest,origin), catalog=buildMapTrackCatalog(data), index=indexDestinationVolumes(data.series,data.from_ms,data.coverage)
-  return { scene,catalog,index,view:projectWorkspace(catalog,scene,index,time,{direction:'both',locationId:null,expanded:false}) }
+  const catalog=buildMapTrackCatalog(data), scene=buildMapTimelineScene(catalog,manifest,origin), index=indexDestinationVolumes(data.series,data.from_ms,data.coverage)
+  return { scene,catalog,index,view:projectWorkspace(catalog,scene,index,time,{locationId:null,expanded:false}) }
 }
 describe('captured series map projection',()=>{
   it('puts a small recent transfer ahead of old volume across locations, tracks, destinations and lanes',()=>{
@@ -19,29 +19,27 @@ describe('captured series map projection',()=>{
     const fresh={...window.series[0],id:'recent',service_key:'recent.test',service_label:'recent.test',destination_id:berlin.id,start_ms:start+1000,samples:[[0,1,2,1,2,1,1]] as typeof window.series[0]['samples']}
     const data={...window,destinations:[...window.destinations,berlin],series:[...window.series,fresh]}
     const {scene,catalog,index}=project(data,start+2000)
-    const view=projectWorkspace(catalog,scene,index,start+2000,{direction:'both',locationId:null,expanded:true,order:'latest'})
+    const view=projectWorkspace(catalog,scene,index,start+2000,{locationId:null,expanded:true,order:'latest'})
     expect(view.tracks[0].label).toBe('recent.test')
     expect(view.rows[0].label).toBe('recent.test')
     expect(view.locations[0].label).toBe('Berlin')
     expect(view.tracks[0].lastActivityMs).toBe(start+1050)
-    expect(projectWorkspace(catalog,scene,index,start+2000,{direction:'both',locationId:null,expanded:true,order:'volume'}).tracks[0].label).not.toBe('recent.test')
-    const before=projectWorkspace(catalog,scene,index,start+1049,{direction:'both',locationId:null,expanded:true,order:'latest'})
+    expect(projectWorkspace(catalog,scene,index,start+2000,{locationId:null,expanded:true,order:'volume'}).tracks[0].label).not.toBe('recent.test')
+    const before=projectWorkspace(catalog,scene,index,start+1049,{locationId:null,expanded:true,order:'latest'})
     expect(before.tracks[0].label).not.toBe('recent.test')
     const parallel={...fresh,id:'recent-endpoint',service_key:window.series[0].service_key,service_label:window.series[0].service_label}
     const same=project({...data,series:[...window.series,parallel]},start+2000)
-    const scoped=projectWorkspace(same.catalog,same.scene,same.index,start+2000,{direction:'both',locationId:null,expanded:false,order:'latest'})
+    const scoped=projectWorkspace(same.catalog,same.scene,same.index,start+2000,{locationId:null,expanded:false,order:'latest'})
     expect(scoped.tracks[0].series[0].chunks[0].id).toBe('recent-endpoint')
   })
-  it('uses the selected direction and location for recent activity, not future or unrelated samples',()=>{
+  it('uses captured traffic and location for recent activity, excluding future or unrelated samples',()=>{
     const late={...window.series[0],id:'sent-only',start_ms:start+1000,samples:[[0,10,0,5,0,1,0],[2000,0,20,0,10,0,1]] as typeof window.series[0]['samples']}
     const {scene,catalog,index}=project({...window,series:[...window.series,late]},start+2000)
-    const sent=projectWorkspace(catalog,scene,index,start+2000,{direction:'sent',locationId:null,expanded:false,order:'latest'})
-    const received=projectWorkspace(catalog,scene,index,start+2000,{direction:'received',locationId:null,expanded:false,order:'latest'})
+    const sent=projectWorkspace(catalog,scene,index,start+2000,{locationId:null,expanded:false,order:'latest'})
     expect(sent.tracks.find(track=>track.label==='svt.se')!.lastActivityMs).toBe(start+1050)
-    expect(received.tracks.find(track=>track.label==='svt.se')!.lastActivityMs).toBe(start+100)
     const berlin={...window.destinations[0],id:'other-city',city:'Berlin',lat:52.52,lon:13.4}
     const other=project({...window,destinations:[...window.destinations,berlin],series:[...window.series,{...late,destination_id:berlin.id}]},start+2000)
-    const scoped=projectWorkspace(other.catalog,other.scene,other.index,start+2000,{direction:'sent',locationId:'18.0686,59.3293',expanded:false,order:'latest'})
+    const scoped=projectWorkspace(other.catalog,other.scene,other.index,start+2000,{locationId:'18.0686,59.3293',expanded:false,order:'latest'})
     expect(scoped.tracks.find(track=>track.label==='svt.se')!.lastActivityMs).toBe(start+100)
   })
   it('preserves all wire bytes once, separates shared-IP services, and includes unknown locations',()=>{
@@ -59,19 +57,17 @@ describe('captured series map projection',()=>{
     const other={...window.series[0],id:'other-location',destination_id:berlin.id}
     const {scene,catalog,index}=project({...window,destinations:[...window.destinations,berlin],series:[...window.series,other]},start+500)
     const locationId='18.0686,59.3293'
-    const view=projectWorkspace(catalog,scene,index,start+500,{direction:'both',locationId,expanded:false})
+    const view=projectWorkspace(catalog,scene,index,start+500,{locationId,expanded:false})
     const profiles=projectTrafficProfiles(view.scene,indexMapTraffic(window.series,window.coverage),start+500)
     expect(view.tracks.map(track=>track.label).sort()).toEqual(['news.example','svt.se'])
     expect(view.tracks.reduce((sum,track)=>sum+track.bytes,0)).toBe(2300)
     expect(seriesTraffic(view.tracks.flatMap(track=>track.series),profiles)).toMatchObject({rate:3480,available:true,partial:false})
     expect(trackTraffic(view.tracks.find(track=>track.label==='svt.se')!,profiles).rate).toBe(1740)
-    const sent=projectWorkspace(catalog,scene,index,start+500,{direction:'sent',locationId,expanded:false})
-    expect(sent.tracks.reduce((sum,track)=>sum+track.bytes,0)).toBe(300)
-    expect(sent.locations.find(location=>location.id===locationId)?.bytes).toBe(300)
+
   })
   it('retains unlocated totals and services without inventing a payload rate',()=>{
     const {scene,catalog,index}=project()
-    const view=projectWorkspace(catalog,scene,index,start+100,{direction:'both',locationId:'unlocated',expanded:false})
+    const view=projectWorkspace(catalog,scene,index,start+100,{locationId:'unlocated',expanded:false})
     expect(view.total).toMatchObject({received:0,sent:60})
     expect(view.tracks).toHaveLength(1)
     expect(view.locations.find(location=>location.id==='unlocated')?.position).toBeUndefined()
@@ -79,8 +75,7 @@ describe('captured series map projection',()=>{
   })
   it('does not treat a quiet gap between chunks as active traffic',()=>{
     const {view}=project(window,start+20000)
-    expect(view.tracks.every(track=>track.activeCount===0)).toBe(true)
-    expect(projectMapFrame(view.scene,start+20000).activeSeriesCount).toBe(0)
+    expect(projectMapFrame(view.scene,start+20000).points.every(point => point.activeSeriesCount === 0)).toBe(true)
   })
   it('gives distinct series their own timeline lanes even at the same service and location',()=>{
     const original=window.series[0]
@@ -160,7 +155,7 @@ describe('captured series map projection',()=>{
 })
 
 describe('shared dashboard filters', () => {
-  const state = { direction: 'both' as const, locationId: null, expanded: false }
+  const state = { locationId: null, expanded: false }
   it('searches exact endpoints before building every list, map and total', () => {
     const { scene, catalog, index } = project()
     const original = projectWorkspace(catalog, scene, index, start + 100, state)
@@ -181,7 +176,7 @@ describe('shared dashboard filters', () => {
     const last = Math.max(...initial.rows.map(row => row.lastActivityMs))
     const active = projectWorkspace(catalog, scene, index, last + 14_999, { ...state, activeOnly: true })
     expect(active.rows.length).toBeGreaterThan(0)
-    expect(active.tracks.every(track => track.activeCount === track.series.length)).toBe(true)
+    expect(active.tracks.flatMap(track => track.series).every(series => last + 14_999 - series.lastActivityMs < 15_000)).toBe(true)
     const quiet = projectWorkspace(catalog, scene, index, last + 15_000, { ...state, activeOnly: true })
     expect([quiet.rows, quiet.tracks, quiet.locations, quiet.scene.endpoints]).toEqual([[], [], [], []])
     expect(quiet.total).toMatchObject({ received: 0, sent: 0 })

@@ -1,9 +1,9 @@
-async (page) => {
+export default async (page, harness) => {
+  const { assert } = harness
   // Playwright CLI: run on a live /map/:sessionID with captured traffic.
   const timeline = page.locator('.atlas-detail-timeline');
   if (!await timeline.count()) await page.getByRole('button', { name: 'Expand traffic timeline', exact: true }).click();
   await page.locator('.atlas-flow-envelope').first().waitFor();
-  const assert = (condition, message) => { if (!condition) throw new Error(message); };
   const measure = (duration, stage) => page.evaluate(async ({ duration, stage }) => {
     const chart = document.querySelector('.atlas-detail-timeline');
     const time = Number(chart.dataset.windowTo) - 3000;

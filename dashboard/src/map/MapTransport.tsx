@@ -3,13 +3,11 @@ import { MapIcon } from './MapIcon'
 import { formatCursor } from './format'
 import { waveformCeiling } from './wireWaveform'
 import type { WireBin } from './wireWaveform'
-import type { TrafficDirection } from './mapWorkspace'
 import type { MapTimelineScene } from './mapModel'
 
 type Props = {
   scene: MapTimelineScene
   bins: WireBin[]
-  direction: TrafficDirection
   endMs: number
   frame: number
   fps: number
@@ -24,8 +22,8 @@ type Props = {
   onLive: () => void
 }
 
-export function MapTransport({ scene, bins, direction, endMs, frame, fps, playing, rate, live, following, onToggle, onSeek, onStep, onRate, onLive }: Props) {
-  const peak = waveformCeiling([bins], direction)
+export function MapTransport({ scene, bins, endMs, frame, fps, playing, rate, live, following, onToggle, onSeek, onStep, onRate, onLive }: Props) {
+  const peak = waveformCeiling([bins])
   const duration = Math.max(1, (endMs - scene.startMs) / 1000)
   const maxFrame = Math.max(1, Math.floor(duration * fps))
   const progress = Math.min(100, Math.max(0, frame / maxFrame * 100))
@@ -40,7 +38,7 @@ export function MapTransport({ scene, bins, direction, endMs, frame, fps, playin
       </div>
       <div className="atlas-timeline">
         <div className="atlas-timeline-track" style={{ '--progress': `${progress}%` } as CSSProperties}>
-          <div className="atlas-timeline-bars atlas-directional-bars" aria-hidden="true">{bins.map((bin, index) => <i key={index} className={bin.complete ? "" : "is-partial"}>{bin.observed && <>{direction !== "sent" && <b className="received" style={{ height: `${bin.received / peak * 50}%` }} />}{direction !== "received" && <b className="sent" style={{ height: `${bin.sent / peak * 50}%` }} />}</>}</i>)}</div>
+          <div className="atlas-timeline-bars atlas-directional-bars" aria-hidden="true">{bins.map((bin, index) => <i key={index} className={bin.complete ? "" : "is-partial"}>{bin.observed && <><b className="received" style={{ height: `${bin.received / peak * 50}%` }} /><b className="sent" style={{ height: `${bin.sent / peak * 50}%` }} /></>}</i>)}</div>
           <div className="atlas-timeline-playhead" aria-hidden="true"><span /></div>
           <input type="range" aria-label="Session timeline" aria-valuetext={`${formatCursor(scene.startMs + frame / fps * 1000)} of ${formatCursor(endMs)}`} min={0} max={maxFrame} step={1} value={Math.min(frame, maxFrame)} onChange={(event) => onSeek(Number(event.target.value))} />
         </div>

@@ -13,7 +13,6 @@ export function MapTrackList({ loading, error, refreshing, cursorMs, scope, orde
   const { items: orderedItems, scrollRef: listRef, paused: listPaused, back: resumeList, onScroll: scrollList, onFocus: focusList, pause: pauseList } = useLiveList(tracks, scope, cursorMs, order === 'latest' ? track => track.lastActivityMs : undefined)
   const peak = Math.max(1, ...tracks.map(track => track.bytes))
   return <section className="atlas-destinations atlas-tracks" aria-label="Traffic tracks">
-    <div className="atlas-section-heading"><h2>Traffic tracks <span className="atlas-count">{tracks.length}</span></h2><span>{order === 'latest' ? 'LATEST ACTIVITY' : order === 'name' ? 'BY NAME' : 'BY VOLUME'}</span></div>
     <BackToLatest paused={listPaused} onClick={resumeList} />
     <div ref={listRef} onScroll={scrollList} onFocusCapture={focusList} onClick={pauseList} className="atlas-destination-list atlas-track-list">
       {orderedItems.map(track => <button type="button" className={`atlas-destination atlas-track ${selectedId === track.id ? 'is-selected' : ''} ${selectedId && selectedId !== track.id ? 'is-dimmed' : ''}`} key={track.id} style={{ '--track-color': colorCSS(track.color) } as CSSProperties} aria-label={`${track.label} · ${track.client} · ${track.series.length} series`} aria-pressed={selectedId === track.id} data-track-id={track.id} onClick={() => onSelect(selectedId === track.id ? null : track.id)}>

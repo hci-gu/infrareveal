@@ -16,7 +16,7 @@ export function trafficShaderClock(seconds: number) {
 
 type RateSample = { start: number; end: number; sent: number; received: number; packetsSent: number; packetsReceived: number }
 export type MapTrafficIndex = Map<string, RateSample[]> & { coverage?: CaptureInterval[] }
-export type TrafficSource = 'sampled' | 'partial' | 'unavailable'
+type TrafficSource = 'sampled' | 'partial' | 'unavailable'
 export type TrafficProfile = {
   rates: number[]
   packets: number[]
@@ -26,7 +26,7 @@ export type TrafficProfile = {
   inPackets?: number[]
   outPackets?: number[]
 }
-export type TrafficArc = BundledMapArc & { radii: number[]; peakBytesPerSecond: number; direction?: number }
+export type TrafficArc = BundledMapArc & { radii: number[]; direction?: number }
 
 
 export function indexMapTraffic(chunks: readonly TrafficChunk[], coverage: CaptureInterval[] = []): MapTrafficIndex {
@@ -45,7 +45,7 @@ export function createTrafficProfileCache() {
   let previousIndex: MapTrafficIndex | undefined
   let profiles: Map<string, TrafficProfile> | undefined
   return (scene: MapTimelineScene, index: MapTrafficIndex, anchorMs: number) => {
-    const key = JSON.stringify([anchorMs, scene.endpoints.map(endpoint => [endpoint.id, endpoint.availableFromMs, endpoint.series])])
+    const key = JSON.stringify([anchorMs, scene.endpoints.map(endpoint => [endpoint.id, endpoint.availableFromMs, endpoint.series.map(series => [series.id, series.startMs, series.endMs])])])
     if (!profiles || index !== previousIndex || key !== previousKey) {
       profiles = projectTrafficProfiles(scene, index, anchorMs)
       previousIndex = index
@@ -84,7 +84,7 @@ export function projectTrafficProfiles(scene: MapTimelineScene, index: MapTraffi
   return profiles
 }
 
-export function volumeArcs<T extends { endpointIds: string[] }>(connections: T[], profiles: Map<string, TrafficProfile>): (T & { radii: number[]; peakBytesPerSecond: number })[] {
+function volumeArcs<T extends { endpointIds: string[] }>(connections: T[], profiles: Map<string, TrafficProfile>): (T & { radii: number[] })[] {
   return connections.map((arc) => {
     const rates = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0)
     const packets = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0)
@@ -96,7 +96,7 @@ export function volumeArcs<T extends { endpointIds: string[] }>(connections: T[]
         packets[i] += profile.packets[i]
       }
     }
-    return { ...arc, radii: rates.map((rate, i) => trafficRadius(rate, packets[i])), peakBytesPerSecond: Math.max(...rates) }
+    return { ...arc, radii: rates.map((rate, i) => trafficRadius(rate, packets[i])) }
   }).filter((arc) => arc.radii.some((radius) => radius > 0))
 }
 

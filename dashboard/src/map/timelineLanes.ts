@@ -1,18 +1,17 @@
-import { directionalBytes } from './mapWorkspace'
-import type { TimelineTrafficRow, TrafficDirection } from './mapWorkspace'
+import type { TimelineTrafficRow } from './mapWorkspace'
 import type { DestinationVolumeIndex } from './destinationVolumes'
 import type { WireRange } from './wireWaveform'
 import { ACTIVITY_HOLD_MS } from './activityOrder'
 
 /** Completed, directional samples inside the visible window own lane activity;
  * lifetime totals and a series' last-seen metadata cannot make a lane active. */
-export function timelineLanes(rows: TimelineTrafficRow[], index: DestinationVolumeIndex, range: WireRange, cursorMs: number, direction: TrafficDirection) {
+export function timelineLanes(rows: TimelineTrafficRow[], index: DestinationVolumeIndex, range: WireRange, cursorMs: number) {
   const to = Math.min(range.to, cursorMs)
   return rows.map(row => {
     let lastActivityMs = 0, bytes = 0
     for (const series of row.series) for (const interval of index.get(series.id)?.intervals ?? []) {
       if (interval.end <= range.from || interval.end > to) continue
-      const volume = directionalBytes(interval, direction)
+      const volume = (interval.received + interval.sent)
       if (volume <= 0) continue
       lastActivityMs = Math.max(lastActivityMs, interval.end)
       bytes += volume * (interval.end - Math.max(range.from, interval.start)) / (interval.end - interval.start)

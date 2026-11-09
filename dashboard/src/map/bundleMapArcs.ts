@@ -1,6 +1,6 @@
 import type { MapArc } from './mapModel'
 
-export type BundledMapArc = Omit<MapArc, 'trackId' | 'endpointId'> & { endpointIds: string[]; trackIds: string[]; height: number }
+export type BundledMapArc = Omit<MapArc, 'trackId' | 'endpointId'> & { endpointIds: string[]; trackIds: string[] }
 
 /** All traffic between the same locations shares one arc and its measured volume. */
 export function bundleMapArcs(arcs: MapArc[]): BundledMapArc[] {
@@ -9,14 +9,11 @@ export function bundleMapArcs(arcs: MapArc[]): BundledMapArc[] {
     const key = `${arc.sourcePosition.join(',')}/${arc.targetPosition.join(',')}/${arc.country?.code ?? ''}`
     const bundle = bundles.get(key)
     if (bundle) {
-      bundle.activeSeriesCount += arc.activeSeriesCount
-      bundle.bytes += arc.bytes
       if (!bundle.endpointIds.includes(arc.endpointId)) bundle.endpointIds.push(arc.endpointId)
       if (arc.trackId && !bundle.trackIds.includes(arc.trackId)) bundle.trackIds.push(arc.trackId)
     } else {
       bundles.set(key, {
         id: key, sourcePosition: arc.sourcePosition, targetPosition: arc.targetPosition, country: arc.country,
-        activeSeriesCount: arc.activeSeriesCount, bytes: arc.bytes, tilt: 0, height: 0.18,
         endpointIds: [arc.endpointId], trackIds: arc.trackId ? [arc.trackId] : [],
       })
     }

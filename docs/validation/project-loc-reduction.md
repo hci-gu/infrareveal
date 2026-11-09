@@ -1,5 +1,12 @@
 # Project LOC reduction result
 
+> Historical validation for the earlier code-reduction pass. References below to
+> Pi rendering modes, drag expansion and direction filters describe that version.
+> Current dashboard behavior and checks are documented in the
+> [map guide](../implementation-guides/map-dashboard.md) and
+> [browser checks](../../dashboard/test-support/README.md).
+
+
 Implemented on 8 October 2026 against `63c45218e8386226b69e77c6b00bec9bc7d020e6`, following the [approved plan](../proposals/project-loc-reduction.md). The candidate is the complete working tree, including new helpers, tests and the measurement script.
 
 ## Measured result

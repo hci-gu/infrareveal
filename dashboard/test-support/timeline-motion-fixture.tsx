@@ -9,7 +9,6 @@ import { buildMapTimelineScene } from '../src/map/mapModel'
 import { buildMapTrackCatalog } from '../src/map/mapTracks'
 import fixture from '../../testdata/aggregate-window-v2.json'
 import '../src/map/map.css'
-import '../src/map/workspace.css'
 
 export function mountTimelineMotion(container: HTMLElement) {
   const root = createRoot(container)
@@ -20,10 +19,11 @@ export function mountTimelineMotion(container: HTMLElement) {
   })) as TrafficChunk[]
   const render = (cursorMs: number) => {
     const source = { ...fixture.window, from_ms: start, to_ms: end + 60_000, series: chunks } as MapWindow
-    const scene = buildMapTimelineScene(source, fixture.manifest as SessionManifest, { latitude: 57.7, longitude: 11.9, label: 'Gateway' })
+    const catalog = buildMapTrackCatalog(source)
+    const scene = buildMapTimelineScene(catalog, fixture.manifest as SessionManifest, { latitude: 57.7, longitude: 11.9, label: 'Gateway' })
     const index = indexDestinationVolumes(chunks, start, coverage, end + 60_000)
-    const state = { direction: 'both' as const, locationId: null, expanded: true, order: 'latest' as const }
-    const data = projectWorkspace(buildMapTrackCatalog(source), scene, index, cursorMs, state)
+    const state = { locationId: null, expanded: true, order: 'latest' as const }
+    const data = projectWorkspace(catalog, scene, index, cursorMs, state)
     root.render(<div className="atlas-page" data-theme="dark" style={{ position: 'fixed', inset: 0, '--atlas-overview-width': '0px' } as CSSProperties}>
       <MapTimeline data={data} index={index} startMs={start} endMs={end + 60_000} cursorMs={cursorMs}
         state={state} onSeek={() => {}} onTrack={() => {}}

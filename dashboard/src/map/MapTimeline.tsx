@@ -37,7 +37,7 @@ export function MapTimeline({ data, state, index, detailIndex, startMs, endMs, c
   const capture = detailIndex && (detailIndex.fromMs ?? Infinity) <= range.from && (detailIndex.toMs ?? 0) >= range.to ? detailIndex : index
   const grid = timelineWaveformGrid(range, windowMs)
   const { ref: viewportRef, currentRange } = useTimelineViewport({ clock, epochMs: playbackEpochMs, cursorMs, startMs, endMs, windowMs, anchor, live, grid })
-  const lanes = timelineLanes(data.rows, capture, range, cursorMs, state.direction)
+  const lanes = timelineLanes(data.rows, capture, range, cursorMs)
   const { items: orderedItems, scrollRef: listRef, paused: listPaused, onScroll: scrollList, pause: pauseList } = useLiveList(lanes, scope, Math.min(range.to, cursorMs), state.order === 'latest' ? row => row.windowLastActivityMs : undefined)
   const first = Math.min(Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 3), Math.max(0, orderedItems.length - 1))
   const rows = orderedItems.slice(first, first + 32)
@@ -48,7 +48,7 @@ export function MapTimeline({ data, state, index, detailIndex, startMs, endMs, c
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [waveform, signature, capture, grid.from, grid.to, grid.count])
   const scaleScope = JSON.stringify([data.scene.sessionId, filterScope(state), grid.binMs])
-  const ceiling = waveformCeiling([...waveforms.values()], state.direction, scale.scope === scaleScope ? scale.ceiling : 0)
+  const ceiling = waveformCeiling([...waveforms.values()], scale.scope === scaleScope ? scale.ceiling : 0)
   if (scale.scope !== scaleScope || scale.ceiling !== ceiling) setScale({ scope: scaleScope, ceiling })
   const held = anchor !== null || listPaused
   const hold = () => { setAnchor(currentRange().to); pauseList() }
@@ -62,8 +62,8 @@ export function MapTimeline({ data, state, index, detailIndex, startMs, endMs, c
           const bins = waveforms.get(row.id) ?? []
           const hasCapture = bins.some(bin => bin.observed)
           return <div className={`atlas-detail-row${row.recentlyActive ? ' is-active' : ''}`} key={row.id} style={{ '--lane-y': `${(first + i) * ROW_HEIGHT}px`, '--lane-opacity': row.activityOpacity } as CSSProperties} data-timeline-location={row.locationId} data-timeline-series={row.id}>
-            <button type="button" className="atlas-detail-track" onClick={() => onTrack(row.trackId)} title={`${row.label} · ${row.endpoint} · ${row.client}`}><strong>{row.label}</strong><small>{row.location} · {row.client}</small><span>{state.direction !== 'sent' && <span className="atlas-down">↓ {loading || error ? '—' : formatBytes(row.received)}</span>}{state.direction !== 'received' && <span className="atlas-up">↑ {loading || error ? '—' : formatBytes(row.sent)}</span>}</span></button>
-            <div className="atlas-detail-lane"><TimelineFlows bins={bins} direction={state.direction} ceiling={ceiling} gradientId={gradientId} available={!loading && !error} />
+            <button type="button" className="atlas-detail-track" onClick={() => onTrack(row.trackId)} title={`${row.label} · ${row.endpoint} · ${row.client}`}><strong>{row.label}</strong><small>{row.location} · {row.client}</small><span><span className="atlas-down">↓ {loading || error ? '—' : formatBytes(row.received)}</span><span className="atlas-up">↑ {loading || error ? '—' : formatBytes(row.sent)}</span></span></button>
+            <div className="atlas-detail-lane"><TimelineFlows bins={bins} ceiling={ceiling} gradientId={gradientId} available={!loading && !error} />
               {(!hasCapture || loading || error || !row.windowBytes) && <span className="atlas-no-capture">{loading ? 'Loading…' : error ? 'Capture unavailable' : !hasCapture ? 'No captured samples' : 'No traffic in this window'}</span>}
               <i className="atlas-detail-playhead" /><input type="range" aria-label={`Seek ${row.label} ${row.endpoint} timeline`} aria-valuetext={formatCursor(cursorMs)} min={range.from} max={Math.max(range.from + 1, range.to)} step={50} value={Math.max(range.from, Math.min(range.to, cursorMs))} onChange={event => onSeek(Number(event.target.value))} />
             </div>

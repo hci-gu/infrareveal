@@ -1,7 +1,6 @@
 import { captureQuality } from '@infrareveal/session-state'
 import type { MapSeries } from './mapTracks'
 import type { DestinationVolumeIndex } from './destinationVolumes'
-import type { TrafficDirection } from './mapWorkspace'
 
 export type WireBin = { received: number; sent: number; complete: boolean; observed: boolean }
 export type WireRange = { from: number; to: number }
@@ -71,9 +70,9 @@ export function wireWaveform(series: readonly MapSeries[], index: DestinationVol
   }
   return bins
 }
-export function waveformCeiling(series: WireBin[][], direction: TrafficDirection, previous = 0) {
+export function waveformCeiling(series: WireBin[][], previous = 0) {
   let peak = 1
-  for (const bins of series) for (const bin of bins) peak = Math.max(peak, direction === 'sent' ? 0 : bin.received, direction === 'received' ? 0 : bin.sent)
+  for (const bins of series) for (const bin of bins) peak = Math.max(peak, bin.received, bin.sent)
   if (peak <= previous) return previous
   // Hold the scale through quiet periods; new peaks get 25% breathing room.
   const step = 10 ** (Math.floor(Math.log10(peak)) - 1)

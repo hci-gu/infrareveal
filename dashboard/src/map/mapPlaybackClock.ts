@@ -79,8 +79,7 @@ export class MapPlaybackClock {
 }
 
 export type TrafficAnimation = { clock: MapPlaybackClock; epochMs: number; anchorMs: number }
-export function trafficAnimationTime(animation: TrafficAnimation | null | undefined, time: number, phase: number, bucketMs: number) {
-  if (!animation) return { time, phase }
+export function trafficAnimationTime(animation: TrafficAnimation, bucketMs: number) {
   const seconds = animation.clock.getTimeSeconds()
   return { time: seconds, phase: (animation.epochMs + seconds * 1000 - animation.anchorMs) / bucketMs }
 }

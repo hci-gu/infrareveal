@@ -1,7 +1,7 @@
 // Playwright CLI check of CSS transitions with a 135-endpoint fixture.
-async (page) => {
-  const assert = (value, message) => { if (!value) throw new Error(message) }
-  await page.goto('http://127.0.0.1:5193')
+export default async (page, harness) => {
+  const { assert, map } = harness
+  await page.goto(map)
   await page.setViewportSize({ width: 1440, height: 1000 })
   await page.emulateMedia({ reducedMotion: 'no-preference' })
   await page.evaluate(async () => {

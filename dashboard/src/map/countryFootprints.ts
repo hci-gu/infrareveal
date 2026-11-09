@@ -24,7 +24,7 @@ for (const [alias, code] of Object.entries({ 'United States of America': 'US', '
   if (country) byName.set(normalize(alias), country)
 }
 
-export function isCountryLocation(location: { city?: string; country?: string }) {
+function isCountryLocation(location: { city?: string; country?: string }) {
   return !location.city?.trim() && Boolean(location.country?.trim())
 }
 

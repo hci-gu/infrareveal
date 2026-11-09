@@ -1,14 +1,13 @@
 import { memo } from 'react'
-import type { TrafficDirection } from './mapWorkspace'
 import { WIRE_FLOW_HEIGHT, wireFlows, wireGaps } from './wireWaveform'
 import type { WireBin } from './wireWaveform'
 
 /** Geometry changes with captured samples, never with the animation clock.
  * Separate SVG subpaths preserve silence/gaps without a React node per burst. */
-export const TimelineFlows = memo(function TimelineFlows({ bins, direction, ceiling, gradientId, available }: {
-  bins: WireBin[]; direction: TrafficDirection; ceiling: number; gradientId: string; available: boolean
+export const TimelineFlows = memo(function TimelineFlows({ bins, ceiling, gradientId, available }: {
+  bins: WireBin[]; ceiling: number; gradientId: string; available: boolean
 }) {
-  const directions = (['received', 'sent'] as const).filter(value => direction === 'both' || value === direction)
+  const directions = ['received', 'sent'] as const
   return <div className="atlas-flow-viewport"><svg viewBox={`0 0 1000 ${WIRE_FLOW_HEIGHT}`} preserveAspectRatio="none" aria-hidden="true">
     {available && wireGaps(bins).map(gap => <rect key={gap.x} x={gap.x} y={0} width={gap.width} height={WIRE_FLOW_HEIGHT} fill={`url(#${gradientId}-gap)`} />)}
     {available && directions.flatMap(value => {

@@ -1,4 +1,4 @@
-export type MapIconName = 'globe' | 'back' | 'play' | 'pause' | 'rewind' | 'forward' | 'expand' | 'plus' | 'minus' | 'target' | 'layers' | 'close' | 'arrow' | 'activity' | 'pin' | 'settings' | 'filter' | 'sort'
+type MapIconName = 'globe' | 'back' | 'play' | 'pause' | 'rewind' | 'forward' | 'expand' | 'plus' | 'minus' | 'target' | 'layers' | 'close' | 'arrow' | 'activity' | 'settings' | 'filter' | 'sort'
 
 const paths: Record<MapIconName, string> = {
   sort: 'M3 6h12M3 12h8M3 18h4M18 6v14m-3-3 3 3 3-3',
@@ -18,7 +18,6 @@ const paths: Record<MapIconName, string> = {
   close: 'm6 6 12 12M6 18 18 6',
   arrow: 'M5 12h14m-5-5 5 5-5 5',
   activity: 'M2 12h5l3-8 4 16 3-8h5',
-  pin: 'M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0ZM14 10a2 2 0 1 1-4 0 2 2 0 0 1 4 0Z',
 }
 
 export function MapIcon({ name, size = 18 }: { name: MapIconName; size?: number }) {

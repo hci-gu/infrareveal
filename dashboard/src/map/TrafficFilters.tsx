@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef } from 'react'
 import { DEFAULT_TRAFFIC_FILTERS, trafficFilterCount } from './mapWorkspace'
 import type { WorkspaceProjection, WorkspaceState } from './mapWorkspace'
 import { MapIcon } from './MapIcon'
@@ -7,18 +7,17 @@ export function TrafficFilters({ open, state, data, onChange, onClose }: {
   open: boolean; state: WorkspaceState; data: WorkspaceProjection; onChange: (value: WorkspaceState) => void; onClose: () => void
 }) {
   const search = useRef<HTMLInputElement>(null)
+  const close = useCallback(() => { onClose(); document.getElementById('traffic-filters-toggle')?.focus({ preventScroll: true }) }, [onClose])
   useEffect(() => { if (open) search.current?.focus({ preventScroll: true }) }, [open])
   useEffect(() => {
     if (!open) return
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      event.preventDefault(); event.stopPropagation(); onClose()
-      document.getElementById('traffic-filters-toggle')?.focus({ preventScroll: true })
+      event.preventDefault(); event.stopPropagation(); close()
     }
     document.addEventListener('keydown', onKey, true)
     return () => document.removeEventListener('keydown', onKey, true)
-  }, [open, onClose])
-  const close = () => { onClose(); document.getElementById('traffic-filters-toggle')?.focus({ preventScroll: true }) }
+  }, [open, close])
   return <aside id="traffic-filters" className="atlas-filter-drawer" aria-labelledby="traffic-filters-title" aria-hidden={!open} inert={!open} data-open={open || undefined}>
     <header><div><h2 id="traffic-filters-title">Filters</h2><p>Applies to the map, lists and timeline.</p></div><button type="button" className="atlas-icon-button" aria-label="Close filters" onClick={close}><MapIcon name="close" /></button></header>
     <div className="atlas-filter-fields">

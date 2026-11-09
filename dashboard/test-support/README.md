@@ -1,72 +1,82 @@
-# Browser checks against the product API
+# Browser checks
 
 Seed an isolated core database with `scripts/dev-data.sh`, then start its backend
-on port 8091 with capture and routing disabled. The example recording and one
-empty live session exercise both data-bearing and unavailable-capture views.
-Use a disposable database; never use production data for this procedure.
+on port 8091 with capture and routing disabled. The `Example` recording and one
+empty live session exercise data-bearing and unavailable-capture views. Use a
+disposable database, not production data.
 
-Start both frontends with `VITE_POCKETBASE_URL=http://127.0.0.1:8091`, the map on
-port 5193 and debug dashboard on 5194. Open a browser with Playwright CLI and run:
+Start both frontends with `VITE_POCKETBASE_URL=http://127.0.0.1:8091`, the dashboard
+on port 5193 and debug dashboard on 5194. Open a named Playwright CLI session:
 
 ```sh
-playwright-cli open http://127.0.0.1:5193 --headed
-playwright-cli run-code --filename dashboard/test-support/browser-product-api.js
-playwright-cli run-code --filename dashboard/test-support/browser-traffic-timeline.js
-playwright-cli run-code --filename dashboard/test-support/browser-shared-filters.js
-playwright-cli run-code --filename dashboard/test-support/browser-timeline-motion.js
+corepack pnpm dlx @playwright/cli -s=dashboard open http://127.0.0.1:5193 --headed
+node dashboard/test-support/run.mjs browser-product-api dashboard
+node dashboard/test-support/run.mjs browser-shared-filters dashboard
+node dashboard/test-support/run.mjs browser-traffic-timeline dashboard
+node dashboard/test-support/run.mjs browser-timeline-motion dashboard
 ```
 
-The script reads actual manifest, map, block and revision endpoints. It checks
-recorded playback, both projections, block evidence, empty live capture, paused
-live time, activity details, absent diagnostics, Lab navigation and stream cleanup.
-It does not mutate sessions or arm gate controls. Change its three origin constants
-if your ports differ. The check expects the seeded `Example` recording.
+`run.mjs` supplies origins, seeded session discovery, assertions and page-error
+collection through `browser-harness.mjs`. It invokes Playwright CLI without adding
+a second browser dependency to the dashboard. Override `DASHBOARD_ORIGIN`,
+`DEBUG_DASHBOARD_ORIGIN` and `GATEWAY_ORIGIN` for other ports; `PLAYWRIGHT_CLI` can
+point to an installed CLI or wrapper. Scenario modules export one async function
+and should be run through this runner, rather than passed directly to `run-code`.
 
-For optional diagnostics, start a second isolated database seeded with the
-diagnostics profile and point the debug frontend at it. Open the example Activity
-page, expand Optional diagnostics, select DNS, and verify an invalid administrator
-token is rejected. Enter a disposable superuser token and load the selected window;
-the seeded DNS record should appear. Keep tokens out of screenshots, logs and git.
+The checks cover:
 
-`testdata/aggregate-window-v2.json` is the unit-test contract fixture. Browser
-checks deliberately use the backend schema and query implementation rather than
-mocking collection responses. Physical capture, NFQUEUE controls and sustained
-device performance require the separate Pi validation procedures in `docs/validation`.
+- `browser-product-api`: real manifests, windows, revisions, recorded/live views,
+  both projections, activity evidence, debug Lab navigation and stream cleanup.
+- `browser-shared-filters`: matching search/history/activity/location membership
+  and totals across maps, lists and lanes; shared sorting; independent inspection;
+  preserving location and service details across projection switches; keyboard
+  controls and mobile layout.
+- `browser-traffic-timeline`: recorded flow shapes, five-minute defaults, seeking,
+  hold/resume, both themes/projections, mobile layout, fullscreen settings and
+  paused-live recovery. It runs 132 GPU shader assertions, including while the
+  system motion preference is reduced.
+- `browser-timeline-motion`: 135 synthetic endpoints using the production timeline,
+  retained quiet history, activity promotion, CSS transitions, entry fading and
+  focus stability. This fixture never writes to the backend.
 
-Live refresh regression tests mount the real shared hooks with delayed responses
-in `src/map/runtimeContinuity.test.tsx`. They cover window rollovers, extended
-outages, automatic recovery, retention, capture clears, late responses and revision
-coalescing. `aggregateProjection.test.ts` checks newest-first ordering, direction,
-location and playhead boundaries; `useLiveList.test.tsx` checks the update cadence,
-scroll/focus stability and returning to the latest order. Run `corepack pnpm test`
-from the repository root. The server's ordering and cursor checks run with
-`go test ./timeline ./gateway` from `pocketbase`.
+Screenshots go to ignored `output/playwright/`. The product scenarios read actual
+backend data and do not arm gateway controls or mutate sessions.
 
-The traffic timeline browser check covers recorded flow rendering, window defaults,
-keyboard seeking, holding/resuming, both projections, light/dark themes, mobile
-layout, removal of rendering-detail controls and returning from paused live time.
-It runs with the system motion preference set to reduce, verifies the production
-traffic shaders on the GPU, and saves screenshots to `output/playwright/`. `MapTimeline.test.tsx` adds a
-135-endpoint regression for activity filtering, virtualization and browsing
-stability. Flow geometry tests verify shared scaling and gaps without invented
-traffic across silence or missing capture.
+## Live animation measurements
 
-The motion check mounts the production timeline with 135 synthetic endpoints in
-the browser. It verifies the five-minute default, retained quiet history, actual
-CSS transitions when activity promotes a lane, entry fading, animations with either system motion preference, and
-stability while focused. Its fixture never writes to the backend.
+Start a three-minute simulation in the isolated backend:
 
-For continuous scrolling under live load, start a three-minute simulation in the
-isolated backend, open its map, and run
-`playwright-cli run-code --filename dashboard/scripts/check-timeline-animation.js`.
-The check measures the position of a fixed timestamp across display frames and
-buffer changes. It requires motion between data publications at both five-minute
-and thirty-second windows and half-speed playback, then verifies pause and held
-history remain stationary. It reports frame timing and long tasks for comparison;
-run it in each projection. The simulation removes its own data after three minutes.
+```sh
+curl -X POST http://127.0.0.1:8091/api/infrareveal/simulation
+```
 
-The shared-filter check covers search, activity, location and history across both
-map projections, sidebar lists, timeline lanes and totals. It also verifies that
-opening/closing location details leaves filters unchanged, reset and keyboard
-closing work, and the drawer fits mobile screens. `aggregateProjection.test.ts`
-covers exact endpoint membership and the fifteen-second activity boundary.
+Open the returned session's `/map/:sessionID` in the named browser. Choose Mercator
+and keep the map visible for the map check; the timeline check opens its own view.
+
+```sh
+node dashboard/test-support/run.mjs check-map-playback dashboard
+node dashboard/test-support/run.mjs check-timeline-animation dashboard
+```
+
+The map check measures real shader draw cadence and clock continuity during live
+updates and replay, then checks pause and GPU behavior. The timeline check measures
+a fixed timestamp across display frames and data-buffer boundaries at five-minute,
+thirty-second and half-speed windows. It checks that pause and held history stay
+stationary, and reports frame timing/long tasks. Run it in both projections. The
+simulation removes its data when it expires; restart it if more time is needed.
+Measurements depend on the browser, GPU and viewport, so compare like-for-like runs.
+
+## Unit and integration coverage
+
+`testdata/aggregate-window-v2.json` is the shared contract fixture. Runtime
+continuity tests live in `packages/session-state/src/runtimeContinuity.test.tsx`
+and cover retention, outages, recovery, late responses, capture clears and revision
+coalescing. Dashboard tests cover byte conservation, geographic evidence,
+filter/playhead boundaries, stable caches, uncapped connection projection, lane
+virtualization and ordering. Renderer assertions target our geometry and shaders;
+they do not duplicate third-party uniform-store internals.
+
+Run `corepack pnpm test`, `corepack pnpm lint` and `corepack pnpm build` from the
+repository root. The server's ordering/cursor checks run with
+`go test ./timeline ./gateway` from `pocketbase`. Physical capture and NFQUEUE
+controls require the separate procedures in `docs/validation`.

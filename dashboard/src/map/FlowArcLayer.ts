@@ -1,12 +1,12 @@
 import { trafficAnimationTime } from './mapPlaybackClock'
 import type { TrafficAnimation } from './mapPlaybackClock'
 import { ArcLayer } from '@deck.gl/layers'
-import type { Accessor, UpdateParameters } from '@deck.gl/core'
+import type { Accessor } from '@deck.gl/core'
 import { Geometry, Model } from '@luma.gl/engine'
 import type { ShaderModule } from '@luma.gl/shadertools'
 import { trafficShaderClock, TRAFFIC_BUCKET_MS, TRAFFIC_TRAVEL_SECONDS } from './mapTraffic'
 
-export const trafficUniforms = {
+const trafficUniforms = {
   name: 'traffic',
   vs: `layout(std140) uniform trafficUniforms {
     float phase;
@@ -16,18 +16,15 @@ export const trafficUniforms = {
 } as const satisfies ShaderModule<{ phase: number; clock: number }>
 
 type VolumeProps<T> = {
-  animation?: TrafficAnimation | null
-  time: number
-  phase: number
+  animation: TrafficAnimation
   getRadii0: Accessor<T, number[]>
   getRadii1: Accessor<T, number[]>
   getRadii2: Accessor<T, number[]>
   getDirection: Accessor<T, number>
-  getProgress: Accessor<T, number[]>
 }
 
 /** Temporal sampling for city and country traffic streams. */
-export const trafficHistoryShader = `
+const trafficHistoryShader = `
 float historyValue(int i) {
   if (i < 4) return instanceRadii0[clamp(i, 0, 3)];
   if (i < 8) return instanceRadii1[i - 4];
@@ -57,7 +54,6 @@ in float instanceHeights;
 in vec4 instanceRadii0;
 in vec4 instanceRadii1;
 in vec4 instanceRadii2;
-in vec2 instanceProgress;
 in float instanceDirection;
 out vec4 vColor;
 out vec3 vNormal;
@@ -88,9 +84,8 @@ vec3 pointOnArc(float t) {
 ${trafficHistoryShader}
 float radiusAt(float t) {
   // Accent motion stays on the timeline clock, independent of sample updates.
-  float pathProgress = mix(instanceProgress.x, instanceProgress.y, t);
-  float amount = transportedRadius(pathProgress);
-  float phase = pathProgress * instanceDirection * 2.0 - traffic.clock * 0.5;
+  float amount = transportedRadius(t);
+  float phase = t * instanceDirection * 2.0 - traffic.clock * 0.5;
   float wave = pow(0.5 + 0.5 * cos(phase * 2.0 * PI), 2.0);
   float envelope = 0.12 + 0.88 * wave;
   float ends = smoothstep(0.0, 0.018, t) * (1.0 - smoothstep(0.982, 1.0, t));
@@ -126,7 +121,7 @@ void main() {
 }
 `
 
-export const trafficFragmentShader = `#version 300 es
+const trafficFragmentShader = `#version 300 es
 #define SHADER_NAME traffic-volume-fragment
 precision highp float;
 in vec4 vColor;
@@ -149,14 +144,13 @@ void main() {
 `
 
 /** City and country connections share tube meshes, attributes and animation. */
-export abstract class TrafficLayer<T, ExtraProps extends object = object> extends ArcLayer<T, VolumeProps<T> & ExtraProps> {
-  static layerName = 'TrafficLayer'
+export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
+  static layerName = 'FlowArcLayer'
   static defaultProps = {
-    ...ArcLayer.defaultProps, numSegments: 160, time: 0, phase: 0, animation: { type: 'object', value: null, compare: false },
+    ...ArcLayer.defaultProps, numSegments: 160, animation: { type: 'object', value: null, compare: false },
     getRadii0: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii1: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii2: { type: 'accessor', value: [0, 0, 0, 0] },
-    getProgress: { type: 'accessor', value: [0, 1] },
     getDirection: { type: 'accessor', value: 1 },
   }
 
@@ -166,32 +160,17 @@ export abstract class TrafficLayer<T, ExtraProps extends object = object> extend
       instanceRadii0: { size: 4, accessor: 'getRadii0' },
       instanceRadii1: { size: 4, accessor: 'getRadii1' },
       instanceRadii2: { size: 4, accessor: 'getRadii2' },
-      instanceProgress: { size: 2, accessor: 'getProgress' },
       instanceDirection: { size: 1, accessor: 'getDirection' },
     })
   }
 
   getShaders() {
     const shaders = super.getShaders()
-    return { ...shaders, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
-  }
-
-  updateState(params: UpdateParameters<this>) {
-    super.updateState(params)
-    if (!params.changeFlags.extensionsChanged && params.props.numSegments !== params.oldProps.numSegments) {
-      this.state.model?.destroy()
-      this.state.model = this._getModel()
-      this.getAttributeManager()!.invalidateAll()
-    }
-  }
-
-  protected meshResolution() {
-    const segments = Math.max(2, Math.round(this.props.numSegments))
-    return { segments, sides: 12 }
+    return { ...shaders, vs: vertexShader, fs: trafficFragmentShader, modules: [...shaders.modules, trafficUniforms] }
   }
 
   protected _getModel(): Model {
-    const { segments: SEGMENTS, sides: SIDES } = this.meshResolution()
+    const SEGMENTS = 160, SIDES = 12
     const positions = new Float32Array((SEGMENTS + 1) * (SIDES + 1) * 2)
     const indices = new Uint16Array(SEGMENTS * SIDES * 6)
     for (let i = 0; i <= SEGMENTS; i += 1) {
@@ -212,7 +191,7 @@ export abstract class TrafficLayer<T, ExtraProps extends object = object> extend
     })
   }
 
-  getAnimationTime() { return trafficAnimationTime(this.props.animation, this.props.time, this.props.phase, TRAFFIC_BUCKET_MS) }
+  getAnimationTime() { return trafficAnimationTime(this.props.animation, TRAFFIC_BUCKET_MS) }
 
   draw() {
     const model = this.state.model
@@ -220,13 +199,5 @@ export abstract class TrafficLayer<T, ExtraProps extends object = object> extend
     const { time, phase } = this.getAnimationTime()
     model.shaderInputs.setProps({ arc: { numSegments: this.props.numSegments }, traffic: { clock: trafficShaderClock(time), phase } })
     model.draw(this.context.renderPass)
-  }
-}
-
-/** A real round mesh: light and depth reveal the swelling volume from any camera angle. */
-export class FlowArcLayer<T> extends TrafficLayer<T> {
-  static layerName = 'FlowArcLayer'
-  getShaders() {
-    return { ...super.getShaders(), vs: vertexShader }
   }
 }

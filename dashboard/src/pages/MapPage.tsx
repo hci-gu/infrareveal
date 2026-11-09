@@ -16,8 +16,8 @@ import {
 } from '@infrareveal/session-state'
 import { gatewayOrigin, mapStyleUrl } from '../config'
 import { buildMapTimelineScene } from '../map/mapModel'
-import { MapComposition } from '../remotion/MapComposition'
-import type { MapCompositionProps } from '../remotion/MapComposition'
+import { MapWorkspace } from '../map/MapWorkspaceView'
+import type { MapWorkspaceProps } from '../map/MapWorkspaceView'
 import { MapIcon } from '../map/MapIcon'
 import { MapTransport } from '../map/MapTransport'
 import { formatCursor } from '../map/format'
@@ -34,7 +34,6 @@ import type { ActivityOrder } from '../map/activityOrder'
 import { createWireWaveformCache } from '../map/wireWaveform'
 import { themedAtlasStyle } from '../map/atlasStyle'
 import '../map/map.css'
-import '../map/workspace.css'
 
 const LIVE_DURATION_HEADROOM_SECONDS = 30
 const LIVE_EDGE_TOLERANCE_MS = 2_000
@@ -48,13 +47,12 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const kiosk = Boolean(demo)
   const { preferences, setPreferences, theme } = useMapPreferences()
   const publishMs = 250
-  const [, setInspectorOpen] = useState(false)
   const [blocksOpen, setBlocksOpen] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
   const closeFilters = useCallback(() => setFiltersOpen(false), [])
   const [settingsOpen, setSettingsOpen] = useState(false)
-  const [view, setView] = useState<WorkspaceState & { sessionId: string }>({ ...DEFAULT_TRAFFIC_FILTERS, sessionId: sessionID, direction: 'both', expanded: false })
-  const workspace = useMemo<WorkspaceState>(() => ({ ...(view.sessionId === sessionID ? view : { ...DEFAULT_TRAFFIC_FILTERS, direction: view.direction, expanded: false }), order: (view.sessionId === sessionID ? view.order : undefined) ?? (timeline.mode === 'live' ? 'latest' : undefined) }), [view, sessionID, timeline.mode])
+  const [view, setView] = useState<WorkspaceState & { sessionId: string }>({ ...DEFAULT_TRAFFIC_FILTERS, sessionId: sessionID, expanded: false })
+  const workspace = useMemo<WorkspaceState>(() => ({ ...(view.sessionId === sessionID ? view : { ...DEFAULT_TRAFFIC_FILTERS, expanded: false }), order: (view.sessionId === sessionID ? view.order : undefined) ?? (timeline.mode === 'live' ? 'latest' : undefined) }), [view, sessionID, timeline.mode])
   const historySpan = workspace.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs
   const updateWorkspace = useCallback((next: WorkspaceState) => setView({ ...next, sessionId: sessionID }), [sessionID])
   const pageRef = useRef<HTMLElement>(null)
@@ -81,11 +79,11 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const bucketMs = timeline.manifest?.policy.bucket_ms ?? 50
   const history = useMapWindow(sessionID, windowFrom, windowTo, Math.ceil(1000/bucketMs)*bucketMs, '', true, `history:${historySpan}`)
   const activity = useMapWindow(sessionID, Math.max(windowFrom, windowAnchor - 30_000), windowAnchor + 60_000, bucketMs, '', true, `activity:${historySpan}`)
-  const scene = useMemo(() => buildMapTimelineScene(history.window, timeline.manifest, gatewayOrigin), [history.window, timeline.manifest])
+  const trackCatalog = useMemo(() => buildMapTrackCatalog(history.window, trackPalette.colors), [history.window, trackPalette])
+  const scene = useMemo(() => buildMapTimelineScene(trackCatalog, timeline.manifest, gatewayOrigin), [trackCatalog, timeline.manifest])
   const contentEndMs = Math.max(scene.startMs + 1_000, scene.endMs, timeline.liveEdgeMs)
   const contentDurationInFrames = Math.max(FPS, frameForTime(playbackEpochMs, contentEndMs, FPS) + 1)
   const durationInFrames = timeline.mode === 'live' ? roundLiveDuration(contentDurationInFrames) : contentDurationInFrames
-  const trackCatalog = useMemo(() => buildMapTrackCatalog(history.window, trackPalette.colors), [history.window, trackPalette])
   const trafficIndex = useMemo(() => indexMapTraffic(activity.window.series, activity.window.coverage), [activity.window])
   const destinationIndex = useMemo(() => indexDestinationVolumes(history.window.series, history.window.from_ms, history.window.coverage, history.window.to_ms), [history.window])
   const timelineDetailIndex = useMemo(() => workspace.expanded && activity.hasData
@@ -112,7 +110,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   }, [playbackEpochMs, timeline.liveEdgeMs, timeline.mode])
 
   // Only an expired replay position needs a seek. Ordinary retention ticks
-  // must not rewind frames, restart Remotion, or shift the travelling streams.
+  // must not rewind frames, restart playback, or shift the travelling streams.
   useEffect(() => {
     const player = playerRef.current
     if (!timeline.manifest?.ephemeral || !player || initializedSessionRef.current !== scene.sessionId) return
@@ -162,10 +160,9 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
 
   const seekTime = useCallback((time: number, resumeTimeline = false) => seek(frameForTime(playbackEpochMs, time, FPS), resumeTimeline), [playbackEpochMs, seek])
 
-  const inputProps = useMemo<MapCompositionProps>(() => ({
+  const inputProps = useMemo<MapWorkspaceProps>(() => ({
     scene,
-    onInspectorChange: setInspectorOpen,
-    fps: FPS, clock, width: size.width, height: size.height,
+    clock, width: size.width, height: size.height,
     playbackEpochMs,
     cursorMs: projectionCursor,
     mapStyleUrl: styledMap,
@@ -321,7 +318,6 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       className={`atlas-page${kiosk ? " atlas-demo" : ""}${workspace.expanded ? " atlas-timeline-open" : ""}`}
       data-theme={theme}
       data-projection={preferences.projection}
-      data-direction={workspace.direction}
       data-session-id={scene.sessionId ?? ''}
       data-session-state={connectionState}
       data-timeline-mode={timeline.mode}
@@ -350,12 +346,12 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       {timeline.manifest?.capture.error && <div className="atlas-connection-notice" role="status">Capture {timeline.manifest.capture.quality}: {timeline.manifest.capture.error}</div>}
       {demoWarning && <div className="atlas-connection-notice" role="status">{demoWarning}</div>}
       <div className="atlas-map-container" data-filters-open={filtersOpen || undefined}>
-        <div ref={mapContainerRef} className="atlas-filter-workspace"><MapComposition {...inputProps} /></div>
+        <div ref={mapContainerRef} className="atlas-filter-workspace"><MapWorkspace {...inputProps} /></div>
         <TrafficFilters open={filtersOpen} state={workspace} data={overview} onChange={updateWorkspace} onClose={closeFilters} />
       </div>
       {blocksOpen && <ActivityBlockBrowser live={timeline.mode === 'live'} cursorMs={cursorMs} sessionId={sessionID} fromMs={windowFrom} toMs={Math.min(windowTo, contentEndMs)} data={overview} state={workspace} onSeek={seekTime} onClose={() => setBlocksOpen(false)} />}
       <MapSettings open={settingsOpen} preferences={preferences} fullscreen={fullscreen} fullscreenError={fullscreenError} onChange={setPreferences} onToggleFullscreen={() => void toggleFullscreen()} onClose={() => setSettingsOpen(false)} />
-      <MapTransport scene={scene} bins={playbackBins} direction={workspace.direction} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}
+      <MapTransport scene={scene} bins={playbackBins} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}
         live={timeline.mode === 'live'} following={timeline.playback === 'following'}
         onToggle={togglePlayback} onSeek={frame => seekTime(timeForFrame(scene.startMs, frame, FPS), true)}

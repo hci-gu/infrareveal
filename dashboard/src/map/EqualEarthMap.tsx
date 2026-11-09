@@ -3,7 +3,7 @@ import type { Ref } from 'react'
 import countries from './data/countries.json'
 import type { MapPosition, GatewayOrigin } from './mapModel'
 import { equalEarth, equalEarthPath } from './equalEarth'
-import type { LocationTraffic, TrafficDirection } from './mapWorkspace'
+import type { LocationTraffic } from './mapWorkspace'
 import { formatBytes } from './format'
 import { MapIcon } from './MapIcon'
 import type { CountryFootprint } from './countryFootprints'
@@ -23,8 +23,8 @@ const graticule = [
   ...Array.from({ length: 5 }, (_, i) => equalEarthPath(Array.from({ length: 121 }, (_, j) => [j * 3 - 180, i * 30 - 60]))),
 ]
 export type EqualEarthControls = { fit: (positions: MapPosition[]) => void }
-export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, locations, origin, direction, selected, onSelect, labels, showTraffic }: {
-  controlsRef: Ref<EqualEarthControls>; locations: LocationTraffic[]; origin: GatewayOrigin; direction: TrafficDirection; selected: string | null; onSelect: (id: string | null) => void; labels: boolean; showTraffic: boolean
+export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, locations, origin, selected, onSelect, labels, showTraffic }: {
+  controlsRef: Ref<EqualEarthControls>; locations: LocationTraffic[]; origin: GatewayOrigin; selected: string | null; onSelect: (id: string | null) => void; labels: boolean; showTraffic: boolean
 }) {
   const id = useId().replace(/:/g, '')
   const svgRef = useRef<SVGSVGElement>(null)
@@ -87,13 +87,13 @@ export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, location
           return <g key={location.id} className={dimmed ? 'is-dimmed' : ''} data-map-location={location.id} tabIndex={0} role="button" aria-pressed={selected === location.id} aria-label={`${location.label}, ${formatBytes(location.bytes)}, inspect location`} onClick={() => select(location)} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onSelect(selected === location.id ? null : location.id) } }}>
             <title>{`${location.label}\n↓ ${formatBytes(location.received)} downloaded\n↑ ${formatBytes(location.sent)} sent\n${location.detail}`}</title>
             {country && path && <path d={path} fillRule="evenodd" className="atlas-earth-footprint" />}
-            {showTraffic && (['received', 'sent'] as const).filter(key => direction === 'both' || direction === key).map(key => {
+            {showTraffic && (['received', 'sent'] as const).map(key => {
               if (location[key] <= 0) return null
               // Country anchors are layout references, not located destination pins.
               const d = key === 'received' ? `M${x} ${y}Q${(gx + x) / 2} ${cy} ${gx} ${gy}` : `M${gx} ${gy + 4}Q${(gx + x) / 2} ${cy - 12} ${x} ${y + 4}`
               return <path key={key} className={`atlas-earth-flow ${key}${country ? ' country-estimate' : ''}`} d={d} markerEnd={`url(#${id}-${key})`} />
             })}
-            {!country && <><circle cx={x} cy={y} r={10} fill="transparent" /><circle cx={x} cy={y} r={3.5} className="atlas-earth-point" />{(['received', 'sent'] as const).filter(key => direction === 'both' || direction === key).map((key, i) => <rect key={key} className={`atlas-earth-bar ${key}`} x={x + 7 + i * 6} y={y - location[key] / peak * 52} width={4} height={location[key] / peak * 52} rx={1} />)}</>}
+            {!country && <><circle cx={x} cy={y} r={10} fill="transparent" /><circle cx={x} cy={y} r={3.5} className="atlas-earth-point" />{(['received', 'sent'] as const).map((key, i) => <rect key={key} className={`atlas-earth-bar ${key}`} x={x + 7 + i * 6} y={y - location[key] / peak * 52} width={4} height={location[key] / peak * 52} rx={1} />)}</>}
             {country && !path && <text x={x} y={y} className="atlas-earth-location">{location.label} · country estimate</text>}
             {labels && (selected === location.id || mapped.length < 8) && <text x={x} y={y + 20} className="atlas-earth-location">{location.label}{country ? ' · country estimate' : ''}</text>}
           </g>
@@ -102,7 +102,7 @@ export const EqualEarthMap = memo(function EqualEarthMap({ controlsRef, location
         {labels && <text x={gx + 16} y={gy - 12} className="atlas-earth-location">{origin.label} · your devices</text>}
       </g>
     </svg>
-    {featured && !selected && <div className="atlas-map-location-card" data-location-card={featured.id}><small>Largest exchange</small><h3>{featured.label}</h3><div>{direction !== 'sent' && <span className="atlas-down">↓ {formatBytes(featured.received)}<small>Downloaded</small></span>}{direction !== 'received' && <span className="atlas-up">↑ {formatBytes(featured.sent)}<small>Sent</small></span>}</div><p>{featured.partial ? 'Partial capture · ' : ''}{featured.detail}</p></div>}
+    {featured && !selected && <div className="atlas-map-location-card" data-location-card={featured.id}><small>Largest exchange</small><h3>{featured.label}</h3><div><span className="atlas-down">↓ {formatBytes(featured.received)}<small>Downloaded</small></span><span className="atlas-up">↑ {formatBytes(featured.sent)}<small>Sent</small></span></div><p>{featured.partial ? 'Partial capture · ' : ''}{featured.detail}</p></div>}
     <div className="atlas-map-tools" aria-label="Equal Earth map controls"><button type="button" className="atlas-icon-button" onClick={() => zoom(1.3)} aria-label="Zoom in"><MapIcon name="plus" /></button><button type="button" className="atlas-icon-button" onClick={() => zoom(1 / 1.3)} aria-label="Zoom out"><MapIcon name="minus" /></button><button type="button" className="atlas-icon-button" onClick={fit} aria-label="Fit world"><MapIcon name="expand" /></button><button type="button" className="atlas-icon-button" aria-label="Center on gateway" onClick={() => setCamera({ zoom: 2, x: (500 - gx) * 2, y: (280 - gy) * 2 })}><MapIcon name="target" /></button></div>
     <a className="atlas-earth-credit" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a>
   </div>

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react'
 
 export type MapPreferences = { projection: 'equal-earth' | 'mercator'; theme: 'dark' | 'light' | 'system'; labels: boolean }
-export const defaultMapPreferences: MapPreferences = { projection: 'equal-earth', theme: 'dark', labels: true }
-export const MAP_PREFERENCES_KEY = 'infrareveal.map.display.v1'
+const defaultMapPreferences: MapPreferences = { projection: 'equal-earth', theme: 'dark', labels: true }
+const MAP_PREFERENCES_KEY = 'infrareveal.map.display.v1'
 export function parseMapPreferences(value: string | null): MapPreferences {
   try {
     const parsed = JSON.parse(value ?? '{}') ?? {}

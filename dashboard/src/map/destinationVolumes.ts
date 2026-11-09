@@ -6,7 +6,7 @@ import { hasMapCoordinates } from './mapCoordinates'
 import { countryFootprint } from './countryFootprints'
 import type { CountryFootprint } from './countryFootprints'
 type Interval = { start: number; end: number; received: number; sent: number; partial: boolean }
-type VolumeSeries = { intervals: Interval[]; received: number[]; sent: number[]; partial: number[]; lastReceived: number[]; lastSent: number[] }
+type VolumeSeries = { intervals: Interval[]; received: number[]; sent: number[]; lastActivity: number[] }
 export type DestinationVolumeIndex = Map<string, VolumeSeries> & { fromMs?: number; toMs?: number; coverage?: CaptureInterval[] }
 export type ByteTotals = { received: number; sent: number; partial: boolean }
 export type DestinationVolume = ByteTotals & {
@@ -15,7 +15,7 @@ export type DestinationVolume = ByteTotals & {
   country?: CountryFootprint | null
 }
 export type DestinationColumn = ByteTotals & {
-  trackId: string; label: string; bytes: number; base: number; height: number; destination: DestinationVolume
+  trackId: string; label: string; bytes: number; destination: DestinationVolume
 }
 
 
@@ -23,7 +23,7 @@ export type DestinationColumn = ByteTotals & {
 export function indexDestinationVolumes(chunks: readonly TrafficChunk[], fromMs = 0, coverage: CaptureInterval[] = [], toMs?: number): DestinationVolumeIndex {
   const index: DestinationVolumeIndex = new Map()
   for (const chunk of chunks) {
-    const key = seriesKey(chunk), value = index.get(key) ?? { intervals: [], received: [0], sent: [0], partial: [0], lastReceived: [0], lastSent: [0] }
+    const key = seriesKey(chunk), value = index.get(key) ?? { intervals: [], received: [0], sent: [0], lastActivity: [0] }
     for (const sample of chunk.samples) {
       const start = chunk.start_ms + sample[0], end = start + chunk.bucket_ms
       if (start < fromMs) continue
@@ -33,7 +33,7 @@ export function indexDestinationVolumes(chunks: readonly TrafficChunk[], fromMs 
   }
   for (const value of index.values()) {
     value.intervals.sort((a,b) => a.end-b.end)
-    for (const interval of value.intervals) { value.received.push(value.received[value.received.length - 1] + interval.received); value.sent.push(value.sent[value.sent.length - 1] + interval.sent); value.partial.push(value.partial[value.partial.length - 1] + Number(interval.partial)); value.lastReceived.push(interval.received > 0 ? interval.end : value.lastReceived[value.lastReceived.length - 1]); value.lastSent.push(interval.sent > 0 ? interval.end : value.lastSent[value.lastSent.length - 1]) }
+    for (const interval of value.intervals) { value.received.push(value.received[value.received.length - 1] + interval.received); value.sent.push(value.sent[value.sent.length - 1] + interval.sent); value.lastActivity.push(interval.received + interval.sent > 0 ? interval.end : value.lastActivity[value.lastActivity.length - 1]) }
   }
   index.fromMs = fromMs; index.toMs = toMs; index.coverage = coverage
   return index
@@ -49,12 +49,12 @@ export function seriesVolume(series: MapSeries, index: DestinationVolumeIndex, c
   return { received: value.received[end] - value.received[low], sent: value.sent[end] - value.sent[low], partial: captureQuality(index.coverage ?? [], Math.max(index.fromMs ?? 0, fromMs, series.startMs), Math.min(cursorMs, series.endMs)) !== 'complete' }
 }
 /** Last completed traffic bin, never a future sample or attribution timestamp. */
-export function seriesLastActivity(series: Pick<MapSeries, 'id'>, index: DestinationVolumeIndex, cursorMs: number, direction: 'both' | 'received' | 'sent' = 'both') {
+export function seriesLastActivity(series: Pick<MapSeries, 'id'>, index: DestinationVolumeIndex, cursorMs: number) {
   const value = index.get(series.id)
   if (!value) return 0
   let low = 0, high = value.intervals.length
   while (low < high) { const middle = (low + high) >>> 1; if (value.intervals[middle].end <= cursorMs) low = middle + 1; else high = middle }
-  return direction === 'received' ? value.lastReceived[low] : direction === 'sent' ? value.lastSent[low] : Math.max(value.lastReceived[low], value.lastSent[low])
+  return value.lastActivity[low]
 }
 /** Each series contributes once, even when destinations share a location. */
 export function projectDestinationVolumes(scene: MapTimelineScene, series: Map<string, MapSeries>, index: DestinationVolumeIndex, cursorMs: number, volumes?: ReadonlyMap<string, ByteTotals>): DestinationVolume[] {
@@ -83,7 +83,7 @@ export function projectDestinationVolumes(scene: MapTimelineScene, series: Map<s
       if (!group.ips.includes(endpoint.ip)) group.ips.push(endpoint.ip)
       let track = group.tracks.find(track => track.trackId === source.trackId)
       if (!track) {
-        track = { trackId: source.trackId, label: source.label, received: 0, sent: 0, bytes: 0, height: 0, base: 0, partial: false, destination: group }
+        track = { trackId: source.trackId, label: source.label, received: 0, sent: 0, bytes: 0, partial: false, destination: group }
         group.tracks.push(track)
       }
       track.received += volume.received; track.sent += volume.sent; track.bytes += bytes
@@ -94,18 +94,12 @@ export function projectDestinationVolumes(scene: MapTimelineScene, series: Map<s
   for (const group of groups.values()) {
     group.height = group.country ? 0 : destinationHeight(group.bytes)
     group.tracks.sort((a, b) => a.trackId.localeCompare(b.trackId))
-    let base = 0
-    for (const track of group.tracks) {
-      track.base = base
-      track.height = group.height * track.bytes / group.bytes
-      base += track.height
-    }
   }
   return [...groups.values()].sort((a, b) => b.bytes - a.bytes || a.id.localeCompare(b.id))
 }
 
 /** Fixed logarithmic scale: adding a larger destination never shrinks others. */
-export function destinationHeight(bytes: number) {
+function destinationHeight(bytes: number) {
   return bytes > 0 && Number.isFinite(bytes) ? 14 * Math.log2(1 + bytes / 4096) : 0
 }
 
@@ -113,11 +107,10 @@ export function columnMetersPerPixel(latitude: number, zoom: number) {
   return 40_075_016.686 * Math.cos(Math.max(-85, Math.min(85, latitude)) * Math.PI / 180) / (512 * 2 ** zoom)
 }
 
-export type DirectionalColumn = DestinationColumn & { direction: number }
+export type DirectionalColumn = DestinationColumn & { direction: number; base: number; height: number }
 /** Paired, independently scaled sent/received stacks; track selection stays available. */
-export function directionalColumns(destinations: DestinationVolume[], direction: 'both' | 'received' | 'sent'): DirectionalColumn[] {
-  return destinations.filter(destination => !destination.country).flatMap(destination => (['received', 'sent'] as const)
-    .filter(key => direction === 'both' || direction === key).flatMap(key => {
+export function directionalColumns(destinations: DestinationVolume[]): DirectionalColumn[] {
+  return destinations.filter(destination => !destination.country).flatMap(destination => (['received', 'sent'] as const).flatMap(key => {
       const height = destinationHeight(destination[key])
       let base = 0
       return destination.tracks.filter(track => track[key] > 0).map(track => {

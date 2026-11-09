@@ -19,7 +19,7 @@ describe('map playback independent of React frames', () => {
     expect(paints).toBe(2)
     expect(publications).toBe(0)
     expect(h.clock.getTimeSeconds()).toBeCloseTo(.016)
-    expect(trafficAnimationTime({ clock: h.clock, epochMs: 1000, anchorMs: 1000 }, 0, 0, 500)).toEqual({ time: .016, phase: .032 })
+    expect(trafficAnimationTime({ clock: h.clock, epochMs: 1000, anchorMs: 1000 }, 500)).toEqual({ time: .016, phase: .032 })
     h.clock.pause(); h.advance(1000)
     expect(paints).toBe(2)
     expect(h.clock.getTimeSeconds()).toBeCloseTo(.016)

@@ -32,7 +32,7 @@ cover the selected history up to the cursor; they are captured wire bytes, inclu
 headers. A counter enters the total only when its entire source bucket has elapsed.
 Connection lifetime counters and conntrack estimates do not contribute.
 
-Expand the left pane to open the full-screen traffic timeline. The lane ruler
+Use the expand button in the left pane to open the fullscreen traffic timeline. The lane ruler
 starts at the top, with no separate title or playback toolbar. Escape or the
 left pane's **Back to map** button returns to the map; on mobile the main header
 provides that button. Filters and the playhead survive the transition. Each lane is
@@ -127,7 +127,7 @@ to thirty minutes, 4,000 chunks and 8 MiB per complete response. Dense recording
 may require a shorter history interval. Activity lists use separate bounded pages.
 
 `MapPlaybackClock` owns playback without frame-driven React renders. The renderer
-reads clock uniforms and requests at most thirty animation paints per second.
+reads clock uniforms and requests a paint on every display frame while playing.
 Hidden maps and expanded timelines do not run map animation. UI publication uses
 250 ms; user actions are immediate. Geography and connection geometry are cached
 independently of changing rates and totals. Mercator uses device-resolution graphics
@@ -139,6 +139,20 @@ using that same clock, independently of React publications and incoming capture.
 Buffered SVG geometry is cached per lane and transformed as time advances; unchanged
 measurements retain their geometry across data refreshes. Pause, seek, playback
 speed and held history all use this clock without adding another animation timer.
+
+The implementation has one workspace shell in
+`dashboard/src/map/MapWorkspaceView.tsx`. It owns the overview, timeline and
+location/service inspectors, preserving inspection when projection changes.
+`dashboard/src/rendering/` contains the projection adapters and Mercator animation
+loop. `map.css` owns shared layout, theme tokens and responsive styles.
+
+`mapTracks.ts` groups and sorts captured chunks once into a catalog. `mapModel.ts`
+uses that catalog for geography; `mapWorkspace.ts` computes filtered series,
+locations, tracks and totals in one pass. There is no renderer connection cutoff;
+API response/cache bounds still apply. Traffic-profile caching depends on captured
+samples, endpoint availability and time boundaries rather than changing overview
+counters. Geometry remains stable when only rates change. `FlowArcLayer` owns the
+fixed mesh and clock-driven shader; no alternate detail or clockless path remains.
 
 The debug dashboard uses the same activity contract. Raw flow, DNS and gate panels
 appear only for recorded diagnostic profiles and require a PocketBase superuser

@@ -10,7 +10,6 @@ export function sameTrafficArcGeometry(data: unknown, oldData?: unknown) {
     const old = previous[i]
     return arc.id === old.id && arc.trackIds === old.trackIds && arc.direction === old.direction
       && arc.sourcePosition === old.sourcePosition && arc.targetPosition === old.targetPosition
-      && arc.height === old.height && arc.tilt === old.tilt
   })
 }
 

@@ -3,7 +3,7 @@ import { filterScope, scopeTracks } from './mapWorkspace'
 import type { WorkspaceProjection, WorkspaceState } from './mapWorkspace'
 
 /** Inspection never changes global filters. Detail lists share their projection. */
-export function useMapInspector(overview: WorkspaceProjection, workspace: WorkspaceState, onWorkspace: (value: WorkspaceState) => void) {
+export function useMapInspector(overview: WorkspaceProjection, workspace: WorkspaceState) {
   const scope = `${overview.scene.sessionId}:${filterScope(workspace)}`
   const [selected, setSelected] = useState<{ scope: string; trackId: string | null; locationId: string | null } | null>(null)
   if (selected && selected.scope !== scope) setSelected(null)
@@ -28,5 +28,5 @@ export function useMapInspector(overview: WorkspaceProjection, workspace: Worksp
     if (location) requestAnimationFrame(() => document.querySelector<HTMLButtonElement>(`button[data-location-id="${CSS.escape(location.id)}"]`)?.focus({ preventScroll: true }))
   }, [selectLocation, location])
 
-  return { track, location, tracks, open: Boolean(track || location), changeWorkspace: onWorkspace, selectLocation, selectTrack, closeLocation }
+  return { track, location, tracks, open: Boolean(track || location), selectLocation, selectTrack, closeLocation }
 }

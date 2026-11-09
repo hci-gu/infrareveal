@@ -1,5 +1,5 @@
 // Browser regression check. With `pnpm --dir dashboard dev` running, execute:
-// await (await import('/scripts/check-traffic-animation.js')).checkTrafficAnimation()
+// await (await import('/test-support/check-traffic-animation.js')).checkTrafficAnimation()
 // in the browser console (or via Playwright page.evaluate).
 import { FlowArcLayer } from '../src/map/FlowArcLayer.ts'
 import { CountryFlowArcLayer } from '../src/map/CountryLayers.ts'
@@ -44,7 +44,6 @@ precision highp float;
 uniform vec4 instanceRadii0;
 uniform vec4 instanceRadii1;
 uniform vec4 instanceRadii2;
-uniform vec2 instanceProgress;
 uniform float instanceDirection;
 uniform float probeProgress;
 struct Traffic { float phase; float clock; };
@@ -66,7 +65,6 @@ void main() { result = radiusAt(probeProgress); gl_Position = vec4(0.0); }
     function radius(lane, phase, clock = 0, progress = .5) {
       const radii = lane?.radii ?? Array(12).fill(0)
       for (let i = 0; i < 3; i++) gl.uniform4fv(gl.getUniformLocation(program, `instanceRadii${i}`), radii.slice(i * 4, i * 4 + 4))
-      gl.uniform2f(gl.getUniformLocation(program, 'instanceProgress'), 0, 1)
       gl.uniform1f(gl.getUniformLocation(program, 'instanceDirection'), lane?.direction ?? 1)
       gl.uniform1f(gl.getUniformLocation(program, 'probeProgress'), progress)
       gl.uniform1f(gl.getUniformLocation(program, 'traffic.phase'), phase)

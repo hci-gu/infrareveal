@@ -1,11 +1,11 @@
-async (page) => {
+export default async (page, harness) => {
+  const { assert } = harness
   // Run with Playwright CLI on an open /map/:sessionID for an active session.
   // Reload so HMR or earlier shader probes cannot leave duplicate module versions.
   await page.reload();
   const speed = page.getByRole('combobox', { name: 'Playback speed' });
   const state = () => page.locator('main').getAttribute('data-playback-state');
   const live = () => page.getByRole('button', { name: /^(Go live|Live)$/ }).click();
-  const assert = (condition, message) => { if (!condition) throw new Error(message); };
   await page.getByRole('button', { name: /^(Go live|Live)$/ }).waitFor();
   for (const rate of ['0.5', '4']) {
     await live();
@@ -20,21 +20,27 @@ async (page) => {
     if (!url) throw new Error('Run against the Vite dev server');
     const { FlowArcLayer } = await import(url);
     const draw = FlowArcLayer.prototype.draw;
-    const samples = [];
+    const samples = [], displayFrames = [];
+    let frame;
+    const sampleFrame = now => { displayFrames.push(now); frame = requestAnimationFrame(sampleFrame); };
+    frame = requestAnimationFrame(sampleFrame);
     FlowArcLayer.prototype.draw = function (...args) {
       if (this.props.id === 'traffic-streams') samples.push({ wall: performance.now(), clock: this.getAnimationTime().time });
       return draw.apply(this, args);
     };
     try {
       await new Promise(resolve => setTimeout(resolve, 6000));
-    } finally { FlowArcLayer.prototype.draw = draw; }
+    } finally { cancelAnimationFrame(frame); FlowArcLayer.prototype.draw = draw; }
     if (samples.length < 2) throw new Error('No rendered animation frames were observed');
     const elapsed = (samples.at(-1).wall - samples[0].wall) / 1000;
     const advanced = samples.at(-1).clock - samples[0].clock;
     const jumps = samples.slice(1).filter((sample, i) => sample.clock < samples[i].clock || Math.abs(sample.clock - samples[i].clock - (sample.wall - samples[i].wall) / 1000) > 0.1).length;
-    return { elapsed, advanced, jumps, renders: samples.length };
+    const renders = new Set(samples.map(sample => sample.wall.toFixed(1))).size;
+    const frameMS = displayFrames.slice(1).map((time, i) => time - displayFrames[i]).sort((a,b) => a-b);
+    return { elapsed, advanced, jumps, renders, displayFrames: displayFrames.length, rendersPerSecond: renders / elapsed, p95FrameMS: frameMS[Math.floor(frameMS.length * .95)] };
   });
   const following = await measure();
+  assert(following.renders >= following.displayFrames * .9, 'Map is skipping display frames');
   assert(following.jumps === 0, 'Live clock jumped during normal updates');
   assert(Math.abs(following.advanced - following.elapsed) < 0.25, 'Live clock drifted');
   await page.getByRole('button', { name: 'Back 10 seconds', exact: true }).click();
@@ -52,7 +58,7 @@ async (page) => {
   });
   assert(paused.before === paused.after, 'Paused animation moved');
   await live();
-  const shader = await page.evaluate(async () => (await import('/scripts/check-traffic-animation.js')).checkTrafficAnimation());
+  const shader = await page.evaluate(async () => (await import('/test-support/check-traffic-animation.js')).checkTrafficAnimation());
   assert(shader.passed, shader.failures.join('\n'));
   return { following, playback, paused, shader };
 }
