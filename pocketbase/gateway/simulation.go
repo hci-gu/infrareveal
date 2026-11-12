@@ -136,6 +136,10 @@ func (g *Runtime) watchSimulation(ctx context.Context, run *simulationRun) {
 // the source has its own deadline, so failed cleanup never prolongs generation.
 func (g *Runtime) stopSimulation(ctx context.Context) error {
 	if g.simulation == nil {
+		// Commands such as --version terminate without opening storage.
+		if !g.app.IsBootstrapped() {
+			return nil
+		}
 		return g.cleanupSimulations()
 	}
 	run := g.simulation

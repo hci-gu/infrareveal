@@ -131,10 +131,10 @@ paged large route records, retention, failed-commit retries, cache invalidation,
 segment index equivalence and capture health messages.
 
 The 5,000-series / 30-minute production browser run on the development computer
-loaded in 35.8 seconds, mounted 20 sidebar rows and 32 timeline lanes, and had no
-failed map requests. Five-second measured frame cadence was 103 fps for the
-timeline, 113 fps for Equal Earth, and 68 fps for Mercator. Pause-to-paint was
-44 ms. Mercator had initialization/GC stalls (maximum 749 ms); these averages
+loaded in 28.7 seconds, mounted 20 sidebar rows and 32 timeline lanes, and had no
+failed map requests. Five-second measured frame cadence was 104 fps for the
+timeline, 108 fps for Equal Earth, and 98 fps for Mercator. Pause-to-paint was
+42 ms. Mercator had occasional stalls (maximum 90 ms); these averages
 are not a guarantee of hitch-free playback on other display hardware. The API
 fixture checks preserved the expected traffic totals.
 
