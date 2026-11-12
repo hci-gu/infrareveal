@@ -131,7 +131,9 @@ refreshes do not download the same immutable history again.
 
 Prefix indexes also belong to immutable segments. Refreshing a tail replaces
 only its index, and sums/last activity use binary searches over segment and bin
-prefixes. Sidebars and location inspectors mount a viewport plus overscan;
+prefixes. Waveform caches retain only weak identity numbers for source indexes,
+with an 8 MiB estimated output budget, so old views cannot pin superseded tails.
+Sidebars and location inspectors mount a viewport plus overscan;
 service details page through 20 expandable series. Timeline waveform generation
 is restricted to the 32 mounted lanes, with a shared scale derived from all
 matching lanes. No contributor is removed from totals or map geometry by these

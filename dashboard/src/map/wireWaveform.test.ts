@@ -8,6 +8,20 @@ import { createWireWaveformCache, waveformCeiling, waveformGrid, wireWaveform, w
 const bins = (received: number, sent = 0) => [[{ received, sent, complete: true, observed: true }]]
 
 describe('steady timeline waveforms', () => {
+  it('evicts advancing viewports by memory budget and recreates identical measurements', () => {
+    const chunk = fixture.window.series[0] as TrafficChunk
+    const series = [{ id: seriesKey(chunk) } as MapSeries]
+    const index = indexDestinationVolumes([chunk], 0, fixture.window.coverage)
+    const range = { from: chunk.start_ms, to: chunk.start_ms + chunk.chunk_ms }
+    const cache = createWireWaveformCache(12000)
+    const first = cache(series, index, range)
+    for (let i = 1; i <= 100; i++) cache(series, index, { ...range, to: range.to + i })
+    expect(cache.stats.bytes).toBeLessThanOrEqual(12000)
+    expect(cache.stats.entries).toBeLessThan(4)
+    const recreated = cache(series, index, range)
+    expect(recreated).not.toBe(first)
+    expect(recreated).toEqual(first)
+  })
   it('reuses unchanged geometry across live window replacements but publishes changed counters', () => {
     const chunk = fixture.window.series[0] as TrafficChunk
     const series = [{ id: seriesKey(chunk) } as MapSeries]

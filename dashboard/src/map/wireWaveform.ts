@@ -29,14 +29,26 @@ export function timelineWaveformGrid(range: WireRange, windowMs: number) {
 }
 
 /** A playhead or total change cannot invalidate immutable captured intervals. */
-export function createWireWaveformCache() {
-  const entries = new Map<string, { series: unknown[]; coverage: unknown; bins: WireBin[] }>()
-  return (series: readonly MapSeries[], index: DestinationVolumeIndex, range: WireRange, count = 96) => {
+export function createWireWaveformCache(maxBytes = 8 * 1024 * 1024) {
+  // Cache identity numbers, not historical indexes: keeping a previous tail
+  // alive for every viewport key multiplies retained samples during live use.
+  const identities = new WeakMap<object, number>()
+  let sequence = 0, bytes = 0
+  const identity = (value: object | undefined) => {
+    if (!value) return 0
+    let id = identities.get(value)
+    if (!id) { id = ++sequence; identities.set(value, id) }
+    return id
+  }
+  const entries = new Map<string, { series: number[]; coverage: number; bins: WireBin[]; bytes: number }>()
+  const stats = { entries: 0, bytes: 0 }
+  const project = (series: readonly MapSeries[], index: DestinationVolumeIndex, range: WireRange, count = 96) => {
     const ordered = [...series].sort((a, b) => a.id.localeCompare(b.id))
     const key = JSON.stringify([range.from, range.to, count, index.fromMs ?? 0, ordered.map(c => c.id)])
-    const captured = ordered.map(c => index.get(c.id))
+    const captured = ordered.map(c => identity(index.get(c.id)))
+    const coverage = identity(index.coverage)
     const cached = entries.get(key)
-    if (cached && cached.coverage === index.coverage && captured.every((value, i) => value === cached.series[i])) return cached.bins
+    if (cached && cached.coverage === coverage && captured.every((value, i) => value === cached.series[i])) return cached.bins
     let bins = wireWaveform(ordered, index, range, count)
     // Live queries replace the index even when a lane's measured shape is
     // unchanged. Preserve its identity so cursor updates don't rebuild SVGs.
@@ -44,10 +56,18 @@ export function createWireWaveformCache() {
       const previous = cached.bins[i]
       return bin.received === previous.received && bin.sent === previous.sent && bin.complete === previous.complete && bin.observed === previous.observed
     })) bins = cached.bins
-    entries.set(key, { series: captured, coverage: index.coverage, bins })
-    if (entries.size > 1024) entries.delete(entries.keys().next().value!)
+    const size = key.length * 2 + captured.length * 8 + bins.length * 48 + 128
+    if (cached) bytes -= cached.bytes
+    entries.delete(key)
+    entries.set(key, { series: captured, coverage, bins, bytes: size }); bytes += size
+    while ((entries.size > 1024 || bytes > maxBytes) && entries.size) {
+      const [oldKey, old] = entries.entries().next().value!
+      entries.delete(oldKey); bytes -= old.bytes
+    }
+    stats.entries = entries.size; stats.bytes = bytes
     return bins
   }
+  return Object.assign(project, { stats })
 }
 /** Rates divide only observed sample volume; missing intervals stay visible gaps. */
 export function wireWaveform(series: readonly MapSeries[], index: DestinationVolumeIndex, range: WireRange, count = 96): WireBin[] {

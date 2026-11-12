@@ -123,7 +123,7 @@ also separate from steady-state live latency.
 
 ## Acceptance evidence
 
-The implementation has passed all 141 workspace tests, frontend lint, production
+The implementation has passed all 142 workspace tests, frontend lint, production
 builds, backend tests and the race detector for data, capture, timeline and
 gateway packages. Regression coverage includes all six counters beyond the old
 4,000-row limit, pinned revisions during concurrent correction, independently

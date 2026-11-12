@@ -121,8 +121,12 @@ without sampling or dropping counters, while block detail retains raw bins.
 Deletion, retention and capture-epoch changes invalidate obsolete snapshots.
 Collection APIs are private, including operational probe admissions.
 
-One gateway-owned worker runs a passive WAL checkpoint each second on a separate
-connection, keeping routine syncing off capture commits. The writer retains an
+One gateway-owned worker runs a passive WAL checkpoint approximately each second
+on its own connection, keeping routine syncing off capture commits. Timing varies
+from 750–1,249 ms to avoid repeatedly colliding with capture and browser timers.
+After fully checkpointing a WAL of at least 16,384 pages, it attempts truncation
+with zero busy timeout; a reader or writer in the way defers reclamation. The
+connection's timeout is restored before returning it to the pool. The writer retains an
 automatic checkpoint fallback at 16,384 pages; shutdown or an unexpected worker
 error restores the previous setting. SQLite's existing `synchronous=NORMAL`
 setting is unchanged. Active read snapshots can delay checkpoint progress; the

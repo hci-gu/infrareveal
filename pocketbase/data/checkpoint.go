@@ -2,12 +2,15 @@ package data
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"log"
+	"math/rand/v2"
 	"sync"
 	"time"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 )
 
@@ -25,25 +28,54 @@ type Checkpoints struct {
 }
 
 func StartCheckpoints(app core.App) (*Checkpoints, error) {
+	db, ok := app.ConcurrentDB().(*dbx.DB)
+	if !ok {
+		return nil, fmt.Errorf("checkpoint worker requires concurrent storage")
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	connection, err := db.DB().Conn(ctx)
+	if err != nil {
+		cancel()
+		return nil, err
+	}
+	// Own this connection so the zero wait policy never leaks into API reads.
+	var busyTimeout int
+	if err = connection.QueryRowContext(ctx, "PRAGMA busy_timeout").Scan(&busyTimeout); err == nil {
+		_, err = connection.ExecContext(ctx, "PRAGMA busy_timeout=0")
+	}
+	if err != nil {
+		cancel()
+		_ = connection.Close()
+		return nil, err
+	}
+	release := func() {
+		_, _ = connection.ExecContext(context.Background(), fmt.Sprintf("PRAGMA busy_timeout=%d", busyTimeout))
+		_ = connection.Close()
+	}
 	var previous int
 	if err := app.NonconcurrentDB().NewQuery("PRAGMA wal_autocheckpoint").Row(&previous); err != nil {
+		cancel()
+		release()
 		return nil, err
 	}
 	if _, err := app.NonconcurrentDB().NewQuery("PRAGMA wal_autocheckpoint=16384").Execute(); err != nil {
+		cancel()
+		release()
 		return nil, err
 	}
-	ctx, cancel := context.WithCancel(context.Background())
 	w := &Checkpoints{cancel: cancel, done: make(chan struct{}), app: app, previous: previous}
 	go func() {
 		defer close(w.done)
-		ticker := time.NewTicker(time.Second)
-		defer ticker.Stop()
+		defer release()
+		// Avoid repeatedly colliding with one-second capture and browser timers.
+		timer := time.NewTimer(time.Second)
+		defer timer.Stop()
 		for {
 			select {
 			case <-ctx.Done():
 				return
-			case <-ticker.C:
-				if _, err := app.ConcurrentDB().NewQuery("PRAGMA wal_checkpoint(PASSIVE)").WithContext(ctx).Execute(); err != nil && ctx.Err() == nil {
+			case <-timer.C:
+				if err := checkpoint(ctx, connection); err != nil && ctx.Err() == nil {
 					log.Printf("background WAL checkpoint: %v", err)
 					// Restore the ordinary writer-side fallback after an unexpected error.
 					if err := w.restore(ctx); err != nil {
@@ -51,10 +83,25 @@ func StartCheckpoints(app core.App) (*Checkpoints, error) {
 					}
 					return
 				}
+				timer.Reset(time.Duration(750+rand.IntN(500)) * time.Millisecond)
 			}
 		}
 	}()
 	return w, nil
+}
+
+func checkpoint(ctx context.Context, connection *sql.Conn) error {
+	var busy, pages, written int
+	if err := connection.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &pages, &written); err != nil {
+		return err
+	}
+	// Continuous short readers can prevent WAL reuse even after its frames are
+	// copied. Try to reclaim a large, fully checkpointed WAL without waiting for
+	// any reader or writer. A busy result is normal and retried on a later tick.
+	if busy == 0 && pages >= 16384 && pages == written {
+		return connection.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &pages, &written)
+	}
+	return nil
 }
 
 func (w *Checkpoints) restore(ctx context.Context) error {
