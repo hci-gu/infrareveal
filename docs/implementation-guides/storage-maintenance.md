@@ -67,3 +67,33 @@ untouched. Preserve `maxmind.json` with the rest of the private application data
 do not commit it or include it in shared test reports.
 
 Reference: [MaxMind download documentation](https://dev.maxmind.com/geoip/updating-databases/).
+
+## Pi deployment verification — 12 November 2026
+
+Feature revision `775345c5aed6cc776e1ee83727762d18a5a73f6c` is deployed from
+`/home/pi/Documents/infrareveal-releases/775345c-maintenance-20261112`.
+The original checkout was left unchanged. Online backups of both databases
+passed `quick_check` before deployment. The prior release can be restored with
+`sudo /home/pi/Documents/infrareveal-backups/20261112-before-775345c-maintenance-20261112/rollback.sh`.
+That script switches application images without restoring or deleting recordings.
+
+Validation passed: the full Go suite; race checks for geolocation, gateway,
+observer and routing; 145 frontend tests; workspace lint; and the production
+dashboard build. Browser checks covered cancellation and confirmed deletion in
+an isolated local database, credential setup, progress/error behavior in tests,
+and desktop/mobile layout. Download tests used a local HTTP server and an
+official MaxMind test database, including corrupt and interrupted downloads.
+
+On the Pi, the storage page rendered correctly, capacity matched the host
+filesystem, all 20 dashboard asset hashes and both executable hashes matched
+the release, the existing session was preserved, and live capture advanced
+without additional reported drops during the smoke check. No production
+recordings were deleted and no client load experiment was run.
+
+At verification the filesystem had about 1.9 GiB available, the recording
+database plus journal used 1.7 MiB, and the application log database plus journal
+used 41.3 MiB. The installed GeoLite2 City file was 55.3 MiB, with an internal
+build date of 7 February 2025 (distinct from its filesystem modification date).
+It was preserved byte-for-byte. A licensed production download still requires
+entering the account ID and license key in MaxMind settings; it has not been
+claimed as verified without those credentials.
