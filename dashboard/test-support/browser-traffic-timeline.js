@@ -10,7 +10,9 @@ export default async (page, harness) => {
     await page.getByRole('button', { name: 'Dark', exact: true }).click()
     const fullscreen = page.getByRole('switch', { name: 'Fullscreen', exact: true })
     await fullscreen.click()
-    await page.waitForFunction(() => document.fullscreenElement?.matches('.atlas-page'))
+    await page.waitForFunction(() => document.fullscreenElement?.matches('.atlas-page') || document.body.innerText.includes('Fullscreen is not available in this browser.'))
+    const fullscreenAvailable = await page.evaluate(() => Boolean(document.fullscreenElement))
+    if (fullscreenAvailable) {
     await page.locator('[role="switch"][aria-labelledby="map-fullscreen-label"][aria-checked="true"]').waitFor()
     await page.waitForFunction(() => {
       const dialog = document.querySelector('.atlas-settings'), rect = dialog.getBoundingClientRect()
@@ -24,6 +26,9 @@ export default async (page, harness) => {
     await page.waitForFunction(() => Boolean(document.fullscreenElement))
     await page.evaluate(() => document.exitFullscreen())
     await page.locator('[role="switch"][aria-labelledby="map-fullscreen-label"][aria-checked="false"]').waitFor()
+    } else {
+      assert(await page.getByText('Fullscreen is not available in this browser.', { exact: true }).count() === 1, 'Missing fullscreen fallback')
+    }
     await page.getByRole('button', { name: 'Close display settings' }).click()
     if (await page.getByRole('button', { name: 'Pause playback' }).count()) await page.getByRole('button', { name: 'Pause playback' }).click()
     await page.getByRole('button', { name: 'Forward 10 seconds', exact: true }).click()
@@ -84,6 +89,6 @@ export default async (page, harness) => {
     await page.locator('.atlas-page[data-playback-state="following"]').waitFor()
     assert(await page.getByRole('button', { name: 'Pause playback' }).count() === 1, 'Follow live must resume playback')
     assert(errors.length === 0, `Browser errors: ${errors.join('; ')}`)
-    return { passed: true, pageErrors: errors, shaderChecks: shader.checks, checks: 'recorded traffic shapes, five-minute default, keyboard seeking, hold/resume, both projections, light/dark, mobile, removed detail settings, paused live → follow live' }
+    return { passed: true, fullscreen: fullscreenAvailable ? 'passed' : 'unavailable; fallback verified', pageErrors: errors, shaderChecks: shader.checks, checks: 'recorded traffic shapes, five-minute default, keyboard seeking, hold/resume, both projections, light/dark, mobile, removed detail settings, paused live → follow live' }
   } finally { await page.emulateMedia({ reducedMotion: 'no-preference' }) }
 }

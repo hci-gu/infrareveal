@@ -44,13 +44,13 @@ func New(app *pocketbase.PocketBase, geo *geoip2.Reader, config Config, sessionI
 		config.SampleInterval = time.Second
 	}
 	if config.Packet.FlushInterval <= 0 {
-		config.Packet.FlushInterval = 400 * time.Millisecond
+		config.Packet.FlushInterval = time.Second
 	}
 	if config.Packet.EventQueueSize <= 0 {
-		config.Packet.EventQueueSize = 8192
+		config.Packet.EventQueueSize = 32768
 	}
 	if config.Packet.MaxPendingChunks <= 0 {
-		config.Packet.MaxPendingChunks = 4096
+		config.Packet.MaxPendingChunks = 16384
 	}
 	if config.NetworkEpoch == nil {
 		config.NetworkEpoch = func() string { return "" }
@@ -243,6 +243,7 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 		}
 	}
 	var a *aggregate
+	writeCache := &captureWriteCache{}
 	destinations := map[string]data.Destination{}
 	byIP := map[string]string{}
 	var current, lastCoverage data.CaptureInterval
@@ -288,7 +289,7 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 			}
 		}
 		health := data.CaptureHealth{Running: running && !final, ConfirmedMS: confirmed, Quality: current.Quality, Error: reason, Dropped: drops}
-		floor, err := persistCapture(r.app, a.session, a.epoch, a.generation, chunks, destinations, coverage, health)
+		floor, err := persistCapture(r.app, a.session, a.epoch, a.generation, chunks, destinations, coverage, health, writeCache)
 		if err != nil {
 			current.Dropped -= drops
 			return err
@@ -298,8 +299,10 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 				r.onTraffic(delta)
 			}
 		}
-		for _, f := range a.flows {
-			diagnostic(a.session, "flow_diagnostics", diagnosticFlow(a, f))
+		if r.config.Diagnostics {
+			for _, f := range a.flows {
+				diagnostic(a.session, "flow_diagnostics", diagnosticFlow(a, f))
+			}
 		}
 		a.committed(logicalNow, floor)
 		pending = nil
@@ -339,6 +342,7 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 			return err
 		}
 		a = nil
+		writeCache = &captureWriteCache{}
 		lastCoverage = data.CaptureInterval{}
 		pending = nil
 		destinations = map[string]data.Destination{}
@@ -368,10 +372,101 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 		confirmed = now
 		return nil
 	}
+	process := func(e sourceEvent) {
+		now := time.Now().UnixMilli()
+		if err := switchSession(r.sessionID(), now); err != nil {
+			log.Printf("capture session: %v", err)
+			return
+		}
+		if a == nil || e.session != a.session {
+			return
+		}
+		at := e.at.UnixMilli()
+		if e.status != "" {
+			if e.status == "heartbeat" {
+				if running {
+					current.EndMS = max(current.EndMS, at)
+					confirmed = max(confirmed, at)
+				}
+				return
+			}
+			if running {
+				current.EndMS = max(current.EndMS, confirmed)
+			} else {
+				current.EndMS = max(current.EndMS, at)
+			}
+			if len(pending) < 256 {
+				pending = append(pending, current)
+			}
+			running = e.status == "complete"
+			reason = e.reason
+			start := at
+			if !running {
+				start = confirmed
+			}
+			current = interval(start, e.status, reason)
+			current.EndMS = at
+			confirmed = max(confirmed, at)
+		}
+		if e.packet != nil {
+			p := *e.packet
+			ip := p.Tuple.RemoteIP.String()
+			if !p.Tuple.RemoteIP.IsValid() {
+				if t, ok := tupleFromKey(p.FlowKey); ok {
+					p.Tuple = t
+					ip = t.RemoteIP.String()
+				} else {
+					return
+				}
+			}
+			id := byIP[ip]
+			// Recheck after the queue: display mode may have started since
+			// the packet was read. No new attribution, trace or route work.
+			if r.config.Scope.ExcludesClient(p.Tuple.ClientIP.String(), p.ClientMAC) {
+				return
+			}
+			if id == "" {
+				if len(byIP) >= 2048 {
+					byIP = map[string]string{}
+					keep := map[string]data.Destination{}
+					for _, p := range a.parts {
+						keep[p.chunk.DestinationID] = destinations[p.chunk.DestinationID]
+					}
+					destinations = keep
+				}
+				d := destinationSnapshot(r.geo, ip, e.at)
+				if r.destination != nil {
+					d = r.destination(ip, e.at)
+				}
+				id = d.ID
+				destinations[id] = d
+				byIP[ip] = id
+			}
+			a.packet(p, r.config.NetworkEpoch(), destinations[id])
+			r.trace.TryBurst(debugtrace.BurstInput{SessionID: a.session, TraceID: "capture:" + p.FlowKey, FlowKey: p.FlowKey, Protocol: p.Tuple.Protocol, Direction: debugtrace.Direction(p.Direction), OccurredAtMs: p.ObservedAt.UnixMilli(), WireBytes: uint64(p.WireBytes), PayloadBytes: uint64(p.PayloadBytes), PacketCount: 1, TCPFlags: p.TCPFlags})
+		}
+		if e.dns != nil {
+			for _, q := range a.dns.add(a.session, *e.dns, at, r.config.Scope) {
+				diagnostic(a.session, "dns_queries", q)
+				r.trace.TryEmit(debugtrace.Event{ID: fmt.Sprintf("dns:%s:%d", q.ID, len(q.Answers)), SessionID: a.session, TraceID: "dns:" + q.ID, Kind: debugtrace.KindDNS, Stage: debugtrace.StageDNS, OccurredAtMs: q.ObservedMS, Timing: debugtrace.TimingObserved, Summary: debugtrace.Summary{ClientIP: q.ClientIP, DNSName: q.QueryName, DNSType: q.QueryType}})
+			}
+		}
+		for ip, mac := range e.leases {
+			a.client(ip, mac)
+		}
+		if e.samples != nil {
+			filtered := e.samples[:0]
+			for _, sample := range e.samples {
+				if !r.config.Scope.ExcludesClient(sample.ClientIP, "") {
+					filtered = append(filtered, sample)
+				}
+			}
+			a.conntrack(filtered, at)
+		}
+	}
 	for {
 		select {
 		case e, ok := <-events:
-			now := time.Now().UnixMilli()
 			if !ok {
 				for {
 					err := flush(time.Now().UnixMilli(), true)
@@ -382,96 +477,19 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 					time.Sleep(500 * time.Millisecond)
 				}
 			}
-			if err := switchSession(r.sessionID(), now); err != nil {
-				log.Printf("capture session: %v", err)
-				continue
-			}
-			if a == nil || e.session != a.session {
-				continue
-			}
-			at := e.at.UnixMilli()
-			if e.status != "" {
-				if e.status == "heartbeat" {
-					if running {
-						current.EndMS = max(current.EndMS, at)
-						confirmed = max(confirmed, at)
-					}
-					continue
-				}
-				if running {
-					current.EndMS = max(current.EndMS, confirmed)
-				} else {
-					current.EndMS = max(current.EndMS, at)
-				}
-				if len(pending) < 256 {
-					pending = append(pending, current)
-				}
-				running = e.status == "complete"
-				reason = e.reason
-				start := at
-				if !running {
-					start = confirmed
-				}
-				current = interval(start, e.status, reason)
-				current.EndMS = at
-				confirmed = max(confirmed, at)
-			}
-			if e.packet != nil {
-				p := *e.packet
-				ip := p.Tuple.RemoteIP.String()
-				if !p.Tuple.RemoteIP.IsValid() {
-					if t, ok := tupleFromKey(p.FlowKey); ok {
-						p.Tuple = t
-						ip = t.RemoteIP.String()
-					} else {
-						continue
-					}
-				}
-				id := byIP[ip]
-				// Recheck after the queue: display mode may have started since
-				// the packet was read. No new attribution, trace or route work.
-				if r.config.Scope.ExcludesClient(p.Tuple.ClientIP.String(), p.ClientMAC) {
-					continue
-				}
-				if id == "" {
-					if len(byIP) >= 2048 {
-						byIP = map[string]string{}
-						keep := map[string]data.Destination{}
-						for _, p := range a.parts {
-							keep[p.chunk.DestinationID] = destinations[p.chunk.DestinationID]
-						}
-						destinations = keep
-					}
-					d := destinationSnapshot(r.geo, ip, e.at)
-					if r.destination != nil {
-						d = r.destination(ip, e.at)
-					}
-					id = d.ID
-					destinations[id] = d
-					byIP[ip] = id
-				}
-				a.packet(p, r.config.NetworkEpoch(), destinations[id])
-				r.trace.TryBurst(debugtrace.BurstInput{SessionID: a.session, TraceID: "capture:" + p.FlowKey, FlowKey: p.FlowKey, Protocol: p.Tuple.Protocol, Direction: debugtrace.Direction(p.Direction), OccurredAtMs: p.ObservedAt.UnixMilli(), WireBytes: uint64(p.WireBytes), PayloadBytes: uint64(p.PayloadBytes), PacketCount: 1, TCPFlags: p.TCPFlags})
-			}
-			if e.dns != nil {
-				for _, q := range a.dns.add(a.session, *e.dns, at, r.config.Scope) {
-					diagnostic(a.session, "dns_queries", q)
-					r.trace.TryEmit(debugtrace.Event{ID: fmt.Sprintf("dns:%s:%d", q.ID, len(q.Answers)), SessionID: a.session, TraceID: "dns:" + q.ID, Kind: debugtrace.KindDNS, Stage: debugtrace.StageDNS, OccurredAtMs: q.ObservedMS, Timing: debugtrace.TimingObserved, Summary: debugtrace.Summary{ClientIP: q.ClientIP, DNSName: q.QueryName, DNSType: q.QueryType}})
-				}
-			}
-			for ip, mac := range e.leases {
-				a.client(ip, mac)
-			}
-			if e.samples != nil {
-				filtered := e.samples[:0]
-				for _, sample := range e.samples {
-					if !r.config.Scope.ExcludesClient(sample.ClientIP, "") {
-						filtered = append(filtered, sample)
-					}
-				}
-				a.conntrack(filtered, at)
-			}
+
+			process(e)
 		case now := <-ticker.C:
+			// A slow flush leaves both ticker and input ready. Flush only after
+			// draining the queued batch; otherwise select can flush after every
+			// single packet and permanently fall behind a perfectly modest rate.
+			queued := len(events)
+			for i := 0; i < queued; i++ {
+				if e, ok := <-events; ok {
+					process(e)
+				}
+			}
+			now = time.Now()
 			if err := switchSession(r.sessionID(), now.UnixMilli()); err != nil {
 				log.Printf("capture session: %v", err)
 				continue

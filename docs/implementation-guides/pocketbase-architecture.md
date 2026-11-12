@@ -55,7 +55,7 @@ jump cannot add traffic behind the sealed prefix: those packets are reported as
 capture loss until their timestamps catch up. This keeps incremental block
 summaries consistent with the immutable captured history.
 
-Persistence flushes approximately every 400 ms. Source heartbeats travel behind
+Persistence flushes approximately every second. Source heartbeats travel behind
 accepted packet events; coverage advances only through the confirmed source
 watermark in the same transaction as counters. Queue/kernel drops produce
 partial coverage. Disabled/unavailable capture never claims known zero traffic;
@@ -110,11 +110,27 @@ network/scope retention and survive session deletion through their quota horizon
 ## API and optional diagnostics
 
 The public read API exposes session manifests, bounded map windows, paged blocks
-and one coalesced revision stream. Map and block pagination share an eight-entry,
-32 MiB cache with a 15-second lifetime, so capture can continue between page reads.
-Each complete result is limited to 4,000 rows and 8 MiB. Map windows are limited to
-30 minutes. Deletion, retention and capture-epoch changes invalidate obsolete
-snapshots. Collection APIs are private, including operational probe admissions.
+and one coalesced revision stream. Map and block pages share at most eight pinned
+WAL read transactions, each expiring after 60 seconds. Completed reads release
+the transaction immediately; abandoned pages cannot pin the WAL indefinitely.
+Capture keeps its own writer connection. Keyset pages scan at most 8,192 source
+rows and target 2 MiB of traffic payload per response; auxiliary contexts have
+separate bounded pages. There is no 4,000-row whole-window cutoff. Map windows
+remain limited to 30 minutes. Compact reads group exact bindings and evidence
+without sampling or dropping counters, while block detail retains raw bins.
+Deletion, retention and capture-epoch changes invalidate obsolete snapshots.
+Collection APIs are private, including operational probe admissions.
+
+One gateway-owned worker runs a passive WAL checkpoint each second on a separate
+connection, keeping routine syncing off capture commits. The writer retains an
+automatic checkpoint fallback at 16,384 pages; shutdown or an unexpected worker
+error restores the previous setting. SQLite's existing `synchronous=NORMAL`
+setting is unchanged. Active read snapshots can delay checkpoint progress; the
+60-second expiry limits how long any one reader holds it back. Overlapping reads
+can still grow the WAL, so monitor it under sustained load. WAL files may retain
+their allocated high-water size for reuse. This follows SQLite's [checkpoint scheduling
+guidance](https://sqlite.org/wal.html#performance_considerations); the bundled
+SQLite version is 3.53.3.
 
 `DIAGNOSTICS_ENABLED=true` creates `flow_diagnostics`, `dns_queries` and
 `gate_events`. Flow records include inline attribution. Optional writes use a

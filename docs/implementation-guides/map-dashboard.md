@@ -112,19 +112,31 @@ camera transitions always animate, independently of system motion preferences.
 ## Data and rendering cost
 
 The shared runtime reads the session manifest, map windows and activity blocks.
-One coalesced session revision stream invalidates cached windows. Pages of a map
-window are assembled before replacing the displayed data; an incomplete page set
-is never published. The browser cache is bounded to twelve windows and an
-estimated 12 MiB. Reconnection refetches the manifest and affected windows.
+One coalesced session revision stream invalidates the mutable tail. Pages are
+assembled before replacing displayed data; an incomplete page set is never
+published. Finalized 30-second segments are reused across revisions, with an
+estimated 384 MiB LRU budget per loader. The small generic window cache retains
+its twelve-window/12 MiB bound. Epoch and policy changes discard segment caches;
+retention clips expired facts immediately. Reconnection refetches the manifest
+and mutable data.
 
-Map history requests overlap by an extra thirty seconds where the API limit
-allows, so the shortest live history stays visible across request boundaries.
-Buffered samples outside the selected history do not contribute to totals.
-Map history requests use one-second resolution; a smaller window around the
-playhead retains the source resolution for activity shapes. The backend preserves
-fine bins at partial edges. Requests move in thirty-second steps and are bounded
-to thirty minutes, 4,000 chunks and 8 MiB per complete response. Dense recordings
-may require a shorter history interval. Activity lists use separate bounded pages.
+History resolution adapts to the selected span (250 ms through 5 seconds), using
+valid divisors of source chunks. A 15-second window around the playhead retains
+source resolution for moving traffic. Totals count completed bins at the stated
+resolution; fine bins remain at partial query edges. Compact API pages preserve
+all six counters and exact binding/evidence identity. Neither traffic volume nor
+series count triggers a silent cutoff. The 30-minute request cap still applies.
+Large initial histories take longer to load; cached playback and live-tail
+refreshes do not download the same immutable history again.
+
+Prefix indexes also belong to immutable segments. Refreshing a tail replaces
+only its index, and sums/last activity use binary searches over segment and bin
+prefixes. Sidebars and location inspectors mount a viewport plus overscan;
+service details page through 20 expandable series. Timeline waveform generation
+is restricted to the 32 mounted lanes, with a shared scale derived from all
+matching lanes. No contributor is removed from totals or map geometry by these
+rendering bounds. Capture backlog and cumulative packet loss are visible in the
+workspace independently of rendering performance.
 
 `MapPlaybackClock` owns playback without frame-driven React renders. The renderer
 reads clock uniforms and requests a paint on every display frame while playing.

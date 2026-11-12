@@ -25,6 +25,11 @@ and should be run through this runner, rather than passed directly to `run-code`
 
 The checks cover:
 
+- `browser-dense-traffic`: isolated generated 1,500–5,000-series recordings,
+  bounded rows, playback in both projections, pause latency and request errors.
+  See [dense traffic validation](../../docs/validation/dense-traffic.md) for the
+  generator, production-build setup and Pi soak procedure.
+
 - `browser-product-api`: real manifests, windows, revisions, recorded/live views,
   both projections, activity evidence, debug Lab navigation and stream cleanup.
 - `browser-shared-filters`: matching search/history/activity/location membership

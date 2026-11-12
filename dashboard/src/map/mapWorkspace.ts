@@ -49,7 +49,7 @@ export function projectWorkspace(catalog: MapTrackCatalog, scene: MapTimelineSce
     const first = visible[0]
     const startMs = first.start_ms + (first.samples[0]?.[0] ?? 0)
     if (startMs > cursor) continue
-    const endMs = Math.max(startMs, ...visible.flatMap(chunk => chunk.samples.filter(sample => chunk.start_ms + sample[0] + chunk.bucket_ms <= cursor).map(sample => chunk.start_ms + sample[0] + chunk.bucket_ms)))
+    const endMs = Math.max(startMs, seriesLastActivity({ id }, index, cursor))
     const destination = catalog.destinations.get(first.destination_id)
     const trackId = serviceKey(first)
     const series: MapSeries = {

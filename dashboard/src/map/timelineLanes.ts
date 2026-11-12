@@ -1,4 +1,5 @@
 import type { TimelineTrafficRow } from './mapWorkspace'
+import { seriesLastActivity, seriesVolume } from './destinationVolumes'
 import type { DestinationVolumeIndex } from './destinationVolumes'
 import type { WireRange } from './wireWaveform'
 import { ACTIVITY_HOLD_MS } from './activityOrder'
@@ -9,12 +10,11 @@ export function timelineLanes(rows: TimelineTrafficRow[], index: DestinationVolu
   const to = Math.min(range.to, cursorMs)
   return rows.map(row => {
     let lastActivityMs = 0, bytes = 0
-    for (const series of row.series) for (const interval of index.get(series.id)?.intervals ?? []) {
-      if (interval.end <= range.from || interval.end > to) continue
-      const volume = (interval.received + interval.sent)
-      if (volume <= 0) continue
-      lastActivityMs = Math.max(lastActivityMs, interval.end)
-      bytes += volume * (interval.end - Math.max(range.from, interval.start)) / (interval.end - interval.start)
+    for (const series of row.series) {
+      const volume = seriesVolume(series, index, to, range.from)
+      bytes += volume.sent + volume.received
+      const last = seriesLastActivity(series, index, to)
+      if (last > range.from) lastActivityMs = Math.max(lastActivityMs, last)
     }
     const quietMs = Math.max(0, to - lastActivityMs)
     const recentlyActive = bytes > 0 && quietMs < ACTIVITY_HOLD_MS

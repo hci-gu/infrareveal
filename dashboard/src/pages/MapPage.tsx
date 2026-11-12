@@ -23,7 +23,7 @@ import { MapTransport } from '../map/MapTransport'
 import { formatCursor } from '../map/format'
 import { indexMapTraffic } from '../map/mapTraffic'
 import { buildMapTrackCatalog, TrackColors } from '../map/mapTracks'
-import { indexDestinationVolumes } from '../map/destinationVolumes'
+import { createDestinationVolumeCache, indexDestinationVolumes } from '../map/destinationVolumes'
 import { ActivityBlockBrowser } from '../map/ActivityBlockBrowser'
 import { MapSettings } from '../map/MapSettings'
 import { useMapPreferences } from '../map/mapPreferences'
@@ -33,6 +33,7 @@ import type { WorkspaceState } from '../map/mapWorkspace'
 import type { ActivityOrder } from '../map/activityOrder'
 import { createWireWaveformCache } from '../map/wireWaveform'
 import { themedAtlasStyle } from '../map/atlasStyle'
+import { captureStatus } from '../map/captureStatus'
 import '../map/map.css'
 
 const LIVE_DURATION_HEADROOM_SECONDS = 30
@@ -77,15 +78,17 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   // while the next window loads. Stay within the API's 30-minute request limit.
   const windowFrom = Math.max(timeline.manifest?.retained_from_ms ?? 0, windowTo - Math.min(1_800_000, historySpan + 30_000))
   const bucketMs = timeline.manifest?.policy.bucket_ms ?? 50
-  const history = useMapWindow(sessionID, windowFrom, windowTo, Math.ceil(1000/bucketMs)*bucketMs, '', true, `history:${historySpan}`)
-  const activity = useMapWindow(sessionID, Math.max(windowFrom, windowAnchor - 30_000), windowAnchor + 60_000, bucketMs, '', true, `activity:${historySpan}`)
+  const history = useMapWindow(sessionID, windowFrom, windowTo, ([250, 500, 1000, 2500, 5000].find(ms => ms >= historySpan / 480 && ms % bucketMs === 0 && (timeline.manifest?.policy.chunk_ms ?? 5000) % ms === 0) ?? bucketMs), '', true, `history:${historySpan}`, true)
+  const activityAnchor = Math.floor(cursorMs / 5000) * 5000
+  const activity = useMapWindow(sessionID, Math.max(windowFrom, activityAnchor - 10_000), activityAnchor + 5000, bucketMs, '', true, `activity:${historySpan}`, true)
   const trackCatalog = useMemo(() => buildMapTrackCatalog(history.window, trackPalette.colors), [history.window, trackPalette])
   const scene = useMemo(() => buildMapTimelineScene(trackCatalog, timeline.manifest, gatewayOrigin), [trackCatalog, timeline.manifest])
   const contentEndMs = Math.max(scene.startMs + 1_000, scene.endMs, timeline.liveEdgeMs)
   const contentDurationInFrames = Math.max(FPS, frameForTime(playbackEpochMs, contentEndMs, FPS) + 1)
   const durationInFrames = timeline.mode === 'live' ? roundLiveDuration(contentDurationInFrames) : contentDurationInFrames
   const trafficIndex = useMemo(() => indexMapTraffic(activity.window.series, activity.window.coverage), [activity.window])
-  const destinationIndex = useMemo(() => indexDestinationVolumes(history.window.series, history.window.from_ms, history.window.coverage, history.window.to_ms), [history.window])
+  const volumeCache = useMemo(() => createDestinationVolumeCache(), [])
+  const destinationIndex = useMemo(() => volumeCache(history.window), [history.window, volumeCache])
   const timelineDetailIndex = useMemo(() => workspace.expanded && activity.hasData
     ? indexDestinationVolumes(activity.window.series, activity.window.from_ms, activity.window.coverage, activity.window.to_ms) : undefined,
   [workspace.expanded, activity.hasData, activity.window])
@@ -93,6 +96,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationIndex, projectionCursor, workspace), [trackCatalog, scene, destinationIndex, projectionCursor, workspace])
   const waveform = useMemo(() => createWireWaveformCache(), [])
   const playbackBins = useMemo(() => waveform([...overview.bySeries.values()], destinationIndex, { from: scene.startMs, to: contentEndMs }), [waveform, overview.bySeries, destinationIndex, scene.startMs, contentEndMs])
+  const captureWarning = captureStatus(timeline.manifest, timeline.liveEdgeMs)
   const demoWarning = demo && (demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow)))
   const styledMap = useMemo(() => themedAtlasStyle(mapStyleUrl, theme, preferences.labels), [theme, preferences.labels])
   const timelineRef = useRef({
@@ -343,7 +347,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       </header>
       {!!timeline.manifest?.simulation_expires_ms && <SimulationBanner key={sessionID} session={sessionID} expiresMS={timeline.manifest.simulation_expires_ms} serverMS={timeline.manifest.server_ms} />}
       {(error || history.error || activity.error) && <div className="atlas-connection-notice" role="status"><span>{error || history.error || activity.error}</span><button type="button" onClick={() => { void refresh(); history.refresh(); activity.refresh() }}>Retry connection</button></div>}
-      {timeline.manifest?.capture.error && <div className="atlas-connection-notice" role="status">Capture {timeline.manifest.capture.quality}: {timeline.manifest.capture.error}</div>}
+      {captureWarning && <div className="atlas-connection-notice" role="status">{captureWarning}</div>}
       {demoWarning && <div className="atlas-connection-notice" role="status">{demoWarning}</div>}
       <div className="atlas-map-container" data-filters-open={filtersOpen || undefined}>
         <div ref={mapContainerRef} className="atlas-filter-workspace"><MapWorkspace {...inputProps} /></div>

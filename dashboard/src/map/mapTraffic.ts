@@ -36,6 +36,7 @@ export function indexMapTraffic(chunks: readonly TrafficChunk[], coverage: Captu
     for (const sample of chunk.samples) samples.push({ start: chunk.start_ms + sample[0], end: chunk.start_ms + sample[0] + chunk.bucket_ms, sent: sample[3], received: sample[4], packetsSent: sample[5], packetsReceived: sample[6] })
     index.set(key, samples)
   }
+  for (const samples of index.values()) samples.sort((a, b) => a.start - b.start)
   index.coverage = coverage
   return index
 }
@@ -110,8 +111,12 @@ export function trafficRadius(bytesPerSecond: number, packetsPerSecond = 0): num
 
 function trafficInBin(samples: RateSample[] | undefined, coverage: CaptureInterval[], start: number, end: number) {
   let sent = 0, received = 0, packetsSent = 0, packetsReceived = 0
-  for (const sample of samples ?? []) {
-    if (sample.start < start || sample.end > end) continue
+  const values = samples ?? []
+  let low = 0, high = values.length
+  while (low < high) { const mid = (low + high) >>> 1; if (values[mid].start < start) low = mid + 1; else high = mid }
+  for (let i = low; i < values.length && values[i].start < end; i++) {
+    const sample = values[i]
+    if (sample.end > end) continue
     sent += sample.sent; received += sample.received; packetsSent += sample.packetsSent; packetsReceived += sample.packetsReceived
   }
   const factor = 1000 / TRAFFIC_BUCKET_MS

@@ -1,3 +1,4 @@
+import { useVirtualRows } from './useVirtualRows'
 import { useLiveList } from './useLiveList'
 import { BackToLatest } from './BackToLatest'
 import type { ActivityOrder } from './activityOrder'
@@ -25,6 +26,7 @@ export function MapLocationInspector({ cursorMs, order, refreshing, location, tr
   const ref = useRef<HTMLElement>(null)
   useEffect(() => { ref.current?.focus({ preventScroll: true }) }, [])
   const { items: orderedItems, scrollRef: listRef, paused: listPaused, back: resumeList, onScroll: scrollList, onFocus: focusList, pause: pauseList } = useLiveList(tracks, JSON.stringify([location.id, order]), cursorMs)
+  const virtual = useVirtualRows(orderedItems, 68, JSON.stringify([location.id, order]))
   const destinations = new Set(location.series.map(series => series.chunks[0].destination_ip)).size
   const clients = new Set(location.series.map(series => series.chunks[0].client_id)).size
   const bytes = (value: number) => loading || error ? '—' : formatBytes(value)
@@ -44,12 +46,12 @@ export function MapLocationInspector({ cursorMs, order, refreshing, location, tr
     </div>
     <div className="atlas-track-map-status"><span role="status">{refreshing ? 'Updating · showing last loaded capture' : loading ? 'Loading totals…' : error ? 'Capture unavailable' : location.partial ? 'Captured wire bytes · partial capture' : 'Captured wire bytes'}</span><button type="button" disabled={!location.position} onClick={onFit}>Fit location</button></div>
     {location.country && <p className="atlas-location-note">Only destinations without a city estimate. The footprint does not show where within the country traffic goes.</p>}
-    <BackToLatest paused={listPaused} onClick={resumeList} /><div ref={listRef} onScroll={scrollList} onFocusCapture={focusList} onClick={pauseList} className="atlas-inspector-scroll">
+    <BackToLatest paused={listPaused} onClick={resumeList} /><div ref={listRef} onScroll={event => { scrollList(event); virtual.onScroll(event) }} onFocusCapture={focusList} onClick={pauseList} className="atlas-inspector-scroll">
       <div className="atlas-section-heading"><h3>Services at this location <span className="atlas-count">{tracks.length}</span></h3></div>
-      <div className="atlas-location-services">{orderedItems.map(track => <button type="button" key={track.id} className="atlas-destination atlas-track" data-location-track-id={track.id} style={{ '--track-color': colorCSS(track.color) } as CSSProperties} aria-label={`Inspect ${track.label} · ${track.client}`} onClick={() => onTrack(track.id)}>
+      <div className="atlas-location-services" role="list" aria-label="Services at this location"><div aria-hidden="true" style={{ height: virtual.before }} />{virtual.rows.map((track, i) => <div role="listitem" key={track.id} aria-posinset={virtual.first + i + 1} aria-setsize={orderedItems.length}><button type="button" key={track.id} className="atlas-destination atlas-track" data-location-track-id={track.id} style={{ '--track-color': colorCSS(track.color), height: 68, minHeight: 68, margin: 0 } as CSSProperties} aria-label={`Inspect ${track.label} · ${track.client}`} onClick={() => onTrack(track.id)}>
         <span className="atlas-track-dot" /><span className="atlas-destination-content"><span className="atlas-destination-name">{track.label}</span><span className="atlas-destination-location">{track.client} · {track.series.length} series</span><span className="atlas-volume-track" aria-hidden="true"><span style={{ width: `${track.bytes / peak * 100}%` }} /></span></span>
         <span className="atlas-destination-volume">{bytes(track.bytes)}<MapIcon name="arrow" size={13} /></span>
-      </button>)}</div>
+      </button></div>)}<div aria-hidden="true" style={{ height: virtual.after }} /></div>
       {!tracks.length && <p className="atlas-list-empty">{loading ? 'Loading services…' : 'No traffic at the playhead.'}</p>}
     </div>
   </section>

@@ -20,7 +20,7 @@ const SimulationLanes = 144
 // host accounting settings or real capture resources are used.
 func NewSimulation(app *pocketbase.PocketBase, session string, expires time.Time, diagnostics bool) *Runtime {
 	scope := simulationScope()
-	r := New(app, nil, Config{Scope: scope, Diagnostics: diagnostics}, func() string { return session }, nil, nil)
+	r := New(app, nil, Config{Scope: scope, Diagnostics: diagnostics, Packet: PacketActivityConfig{FlushInterval: 400 * time.Millisecond}}, func() string { return session }, nil, nil)
 	lanes := simulationLanes(session)
 	destinations := make(map[string]data.Destination, len(lanes))
 	for _, lane := range lanes {
@@ -194,7 +194,8 @@ func simulationFrame(lane int, client, remote string, incoming bool) []byte {
 	}
 	frame := make([]byte, 14+20+header+payload)
 	copy(frame[:6], []byte{2, 0, 0, 0, 0, 1})
-	copy(frame[6:12], []byte{2, 0, 0, 0, 1, byte(10 + lane/18)})
+	clientAddress := netip.MustParseAddr(client).As4()
+	copy(frame[6:12], []byte{2, 0, 0, 0, 1, clientAddress[3]})
 	binary.BigEndian.PutUint16(frame[12:14], 0x0800)
 	ip := frame[14:]
 	ip[0], ip[8], ip[9] = 0x45, 64, 6

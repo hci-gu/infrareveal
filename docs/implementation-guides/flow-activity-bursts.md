@@ -24,7 +24,7 @@ Sparse 50 ms samples have this fixed tuple shape:
 
 Wire bytes are the accounting source. Payload counts identify transfer-active bins; TCP ACK-only packets contribute wire and packet counts without extending activity blocks. Empty sample buckets indicate silence only where `capture_intervals` establishes complete coverage. Coverage advances after successful persistence and is recorded even when no packets arrive. Queue loss, capture failures and restart gaps remain visible independently of classification.
 
-Open chunks flush approximately every 400 ms. Five-second chunk size does not imply five-second publication delay. Clients replace revised chunks/windows instead of adding new cumulative totals to old ones.
+Open chunks flush approximately every second. Five-second chunk size does not imply five-second publication delay. Clients replace revised chunks/windows instead of adding new cumulative totals to old ones. The consumer drains the queued event batch before flushing after a storage delay. Persistence uses prepared writes and a commit-aware cache of the correction tail: unchanged rows are skipped, removed attribution groups are deleted, and sealed history remains immutable. Optional flow diagnostics are constructed only when enabled. The small built-in illustrative simulation retains a 400 ms flush interval.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -32,11 +32,11 @@ Open chunks flush approximately every 400 ms. Five-second chunk size does not im
 | `PACKET_ACTIVITY_IFACE` | `AP_IFACE` | Client-facing interface |
 | `TRAFFIC_BUCKET_MS` | `50` | 20–1000 ms, aligned to the chunk size |
 | `TRAFFIC_CHUNK_MS` | `5000` | 1000–10000 ms in whole seconds, divisible by the bucket size |
-| `TRAFFIC_FLUSH_MS` | `400` | 100–2000 ms persistence interval |
+| `TRAFFIC_FLUSH_MS` | `1000` | 100–2000 ms persistence interval |
 | `TRAFFIC_CORRECTION_MS` | `10000` | 0–30000 ms mutable attribution tail |
 | `ACTIVITY_QUIET_GAP_MS` | `45000` | 1000–300000 ms gap between activity blocks |
-| `TRAFFIC_MAX_PENDING_CHUNKS` | `4096` | 128–16384 pending contribution entries |
-| `PACKET_ACTIVITY_EVENT_QUEUE` | `8192` | 256–131072 parsed metadata events |
+| `TRAFFIC_MAX_PENDING_CHUNKS` | `16384` | 128–65536 pending contribution entries |
+| `PACKET_ACTIVITY_EVENT_QUEUE` | `32768` | 256–131072 parsed metadata events |
 | `CONNTRACK_SAMPLE_MS` | `1000` | 250–5000 ms identity checks; never an accounting source |
 
 Sample/correction/grouping settings are pinned in the session policy. Retention belongs to the session; there is no separate flow-activity retention store.

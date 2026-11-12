@@ -150,3 +150,60 @@ func TestRemovedSessionCannotBeRecreatedByCapture(t *testing.T) {
 		t.Fatal("orphan traffic saved")
 	}
 }
+
+func TestCaptureCacheFollowsCommitCorrectionAndRetention(t *testing.T) {
+	app, a, destinations := captureApp(t)
+	cache := &captureWriteCache{}
+	flush := func(at int64, d map[string]data.Destination) error {
+		chunks := a.snapshot(at)
+		_, err := persistCapture(app, a.session, a.epoch, a.generation, chunks, d, nil, data.CaptureHealth{ConfirmedMS: at}, cache)
+		return err
+	}
+	a.packet(testPacket(100000, 40000), "network", testDestination())
+	if err := flush(100050, destinations); err != nil {
+		t.Fatal(err)
+	}
+	generation := storedChunks(t, app)[0].Generation
+	if err := flush(100100, destinations); err != nil {
+		t.Fatal(err)
+	}
+	if got := storedChunks(t, app)[0].Generation; got != generation {
+		t.Fatalf("unchanged row rewritten: %d -> %d", generation, got)
+	}
+	a.packet(testPacket(100100, 40000), "network", testDestination())
+	if err := flush(100150, nil); err == nil {
+		t.Fatal("invalid batch committed")
+	}
+	if totals(storedChunks(t, app))[0] != 150 {
+		t.Fatal("failed commit changed totals")
+	}
+	if err := flush(100200, destinations); err != nil {
+		t.Fatal(err)
+	}
+	if totals(storedChunks(t, app))[0] != 300 {
+		t.Fatal("cache skipped failed-commit retry")
+	}
+	answer(a, "svt.se", 100250)
+	if err := flush(100300, destinations); err != nil {
+		t.Fatal(err)
+	}
+	if rows := storedChunks(t, app); len(rows) != 1 || rows[0].ServiceKey != "svt.se" || totals(rows)[0] != 300 {
+		t.Fatal("cache broke correction", rows)
+	}
+	_, err := app.DB().NewQuery("UPDATE sessions SET retained_from_ms=100100 WHERE id={:id}").Bind(dbx.Params{"id": a.session}).Execute()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := flush(100400, destinations); err != nil {
+		t.Fatal(err)
+	}
+	if totals(storedChunks(t, app))[0] != 150 {
+		t.Fatal("cache restored expired sample")
+	}
+	if err := flush(120000, destinations); err != nil {
+		t.Fatal(err)
+	}
+	if len(cache.chunks) != 0 || !storedChunks(t, app)[0].Sealed {
+		t.Fatal("cache retained sealed history")
+	}
+}

@@ -230,7 +230,7 @@ func TestBlockPagesPinRevisionAndInvalidateOnClearOrRetention(t *testing.T) {
 	}
 }
 
-func TestBlockSnapshotRejectsMoreThanFourThousandSummaries(t *testing.T) {
+func TestBlockPagesExceedFourThousandSummaries(t *testing.T) {
 	app := testsupport.App(t)
 	session := saveFact(t, app, "sessions", data.Session{ID: data.NewID(), StartedMS: 1000, EndedMS: 100000})
 	if _, err := app.DB().NewQuery("WITH RECURSIVE n(value) AS (SELECT 1 UNION ALL SELECT value+1 FROM n WHERE value<=4000) INSERT INTO activity_blocks (id,session,start_ms,end_ms) SELECT printf('block%010d',value),{:s},1000+value,1050+value FROM n").Bind(dbx.Params{"s": session.Id}).Execute(); err != nil {
@@ -240,8 +240,22 @@ func TestBlockSnapshotRejectsMoreThanFourThousandSummaries(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := New(app).Blocks(session.Id, q); !errors.Is(err, ErrWindowTooLarge) {
-		t.Fatalf("unbounded block snapshot accepted: %v", err)
+	reader := New(app)
+	defer reader.Close()
+	count := 0
+	for {
+		page, err := reader.Blocks(session.Id, q)
+		if err != nil {
+			t.Fatal(err)
+		}
+		count += len(page.Items)
+		if page.NextCursor == "" {
+			break
+		}
+		q.cursor = page.NextCursor
+	}
+	if count != 4001 {
+		t.Fatalf("lost blocks: %d", count)
 	}
 }
 

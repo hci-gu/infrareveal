@@ -8,6 +8,7 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"myapp/data"
+	"slices"
 	"time"
 )
 
@@ -48,8 +49,13 @@ func writeCaptureHealth(app core.App, session string, h data.CaptureHealth) erro
 // persistCapture atomically replaces the provisional epoch tail and its
 // confirmed coverage. The session fence survives deleted chunks, so an older
 // retry cannot resurrect a group removed by attribution or retention.
-func persistCapture(app core.App, session, epoch string, generation int64, chunks []data.TrafficChunk, destinations map[string]data.Destination, coverage []data.CaptureInterval, health data.CaptureHealth) (int64, error) {
+func persistCapture(app core.App, session, epoch string, generation int64, chunks []data.TrafficChunk, destinations map[string]data.Destination, coverage []data.CaptureInterval, health data.CaptureHealth, caches ...*captureWriteCache) (int64, error) {
 	var floor int64
+	var cache *captureWriteCache
+	if len(caches) > 0 {
+		cache = caches[0]
+	}
+	next := map[string]data.TrafficChunk{}
 	err := app.RunInTransaction(func(tx core.App) error {
 		record, err := tx.FindRecordById("sessions", session)
 		if err != nil {
@@ -63,10 +69,16 @@ func persistCapture(app core.App, session, epoch string, generation int64, chunk
 		if s.Capture.Epoch != epoch || s.Capture.Generation >= generation {
 			return errStaleFlush
 		}
-		// Keep sealed history immutable, including a previous capture epoch.
-		if _, err = tx.DB().NewQuery("DELETE FROM traffic_chunks WHERE session={:s} AND capture_epoch={:e} AND sealed=0").Bind(dbx.Params{"s": session, "e": epoch}).Execute(); err != nil {
+		// Replace only changed provisional facts. Rewriting every row through
+		// PocketBase hooks and deleting the entire tail amplified each flush by
+		// thousands of redundant reads, validations and index writes.
+		var previous []string
+		if err := tx.DB().Select("id").From("traffic_chunks").Where(dbx.NewExp("session={:s} AND capture_epoch={:e} AND sealed=0", dbx.Params{"s": session, "e": epoch})).Column(&previous); err != nil {
 			return err
 		}
+		retained := make(map[string]bool, len(chunks))
+		write := tx.DB().NewQuery(trafficUpsert).Prepare()
+		defer write.Close()
 		saved := map[string]bool{}
 		for _, c := range chunks {
 			if c.StartMS+c.ChunkMS <= floor {
@@ -79,10 +91,14 @@ func persistCapture(app core.App, session, epoch string, generation int64, chunk
 			if c.Session != session || c.CaptureEpoch != epoch || c.Generation != generation {
 				return fmt.Errorf("invalid capture batch")
 			}
-			if r, err := tx.FindRecordById("traffic_chunks", c.ID); err == nil && r.GetBool("sealed") {
-				continue
-			} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				return err
+			retained[c.ID] = true
+			if cache != nil {
+				if !c.Sealed {
+					next[c.ID] = c
+				}
+				if old, ok := cache.chunks[c.ID]; ok && sameCapturedChunk(old, c) {
+					continue
+				}
 			}
 			if !saved[c.DestinationID] {
 				d, ok := destinations[c.DestinationID]
@@ -98,8 +114,24 @@ func persistCapture(app core.App, session, epoch string, generation int64, chunk
 				}
 				saved[d.ID] = true
 			}
-			if _, err = data.Write(tx, "traffic_chunks", c); err != nil {
+			samples, err := json.Marshal(c.Samples)
+			if err != nil {
 				return err
+			}
+			evidence, err := json.Marshal(c.Evidence)
+			if err != nil {
+				return err
+			}
+			if _, err = write.Bind(dbx.Params{"id": c.ID, "session": c.Session, "capture_epoch": c.CaptureEpoch, "client_id": c.ClientID, "client_ip": c.ClientIP, "service_key": c.ServiceKey, "service_label": c.ServiceLabel, "destination_id": c.DestinationID, "destination_ip": c.DestinationIP, "protocol": c.Protocol, "destination_port": c.DestinationPort, "network_epoch": c.NetworkEpoch, "start_ms": c.StartMS, "bucket_ms": c.BucketMS, "chunk_ms": c.ChunkMS, "generation": c.Generation, "sealed": c.Sealed, "evidence": string(evidence), "samples": string(samples)}).Execute(); err != nil {
+				return err
+			}
+			retained[c.ID] = true
+		}
+		for _, id := range previous {
+			if !retained[id] {
+				if _, err := tx.DB().Delete("traffic_chunks", dbx.HashExp{"id": id, "sealed": false}).Execute(); err != nil {
+					return err
+				}
 			}
 		}
 		for _, c := range coverage {
@@ -116,12 +148,18 @@ func persistCapture(app core.App, session, epoch string, generation int64, chunk
 		health.ConfirmedMS = max(s.Capture.ConfirmedMS, health.ConfirmedMS)
 		return writeCaptureHealth(tx, session, health)
 	})
+	if err == nil && cache != nil {
+		cache.chunks = next
+	}
 	return floor, err
 }
 
 // Store complete source buckets. Retention rounds up to a bucket boundary;
 // keeping partial bucket counts would let a later flush count them twice.
 func clipSamples(c data.TrafficChunk, floor int64) []data.Sample {
+	if len(c.Samples) == 0 || c.StartMS+c.Samples[0][0] >= floor {
+		return c.Samples
+	}
 	samples := make([]data.Sample, 0, len(c.Samples))
 	for _, s := range c.Samples {
 		if c.StartMS+s[0] >= floor {
@@ -141,3 +179,15 @@ type diagnosticWrite struct {
 	value      any
 	queued     time.Time
 }
+
+// This cache advances only after the atomic commit and retains only the
+// correction tail. Retention clipping is applied before comparing, and a new
+// session/epoch starts with an empty cache. The database generation fence still
+// rejects stale writers before any cache decision.
+type captureWriteCache struct{ chunks map[string]data.TrafficChunk }
+
+func sameCapturedChunk(a, b data.TrafficChunk) bool {
+	return a.ID == b.ID && a.Session == b.Session && a.CaptureEpoch == b.CaptureEpoch && a.Evidence == b.Evidence && a.Sealed == b.Sealed && a.ServiceLabel == b.ServiceLabel && a.ClientIP == b.ClientIP && a.BucketMS == b.BucketMS && a.ChunkMS == b.ChunkMS && slices.Equal(a.Samples, b.Samples)
+}
+
+const trafficUpsert = `INSERT INTO traffic_chunks (id,session,capture_epoch,client_id,client_ip,service_key,service_label,destination_id,destination_ip,protocol,destination_port,network_epoch,start_ms,bucket_ms,chunk_ms,generation,sealed,evidence,samples) VALUES ({:id},{:session},{:capture_epoch},{:client_id},{:client_ip},{:service_key},{:service_label},{:destination_id},{:destination_ip},{:protocol},{:destination_port},{:network_epoch},{:start_ms},{:bucket_ms},{:chunk_ms},{:generation},{:sealed},{:evidence},{:samples}) ON CONFLICT(id) DO UPDATE SET generation=excluded.generation,sealed=excluded.sealed,evidence=excluded.evidence,samples=excluded.samples,service_label=excluded.service_label,client_ip=excluded.client_ip WHERE traffic_chunks.sealed=0 AND (traffic_chunks.samples!=excluded.samples OR traffic_chunks.evidence!=excluded.evidence OR traffic_chunks.sealed!=excluded.sealed OR traffic_chunks.service_label!=excluded.service_label OR traffic_chunks.client_ip!=excluded.client_ip)`

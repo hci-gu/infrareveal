@@ -42,13 +42,15 @@ export function MapTimeline({ data, state, index, detailIndex, startMs, endMs, c
   const first = Math.min(Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - 3), Math.max(0, orderedItems.length - 1))
   const rows = orderedItems.slice(first, first + 32)
   const waveform = useMemo(() => createWireWaveformCache(), [])
-  const signature = JSON.stringify(data.rows.map(row => [row.id, row.series.map(c => c.id)]))
-  const waveforms = useMemo(() => new Map(data.rows.map(row => [row.id, waveform(row.series, capture, grid, grid.count)])),
+  const signature = JSON.stringify(rows.map(row => [row.id, row.series.map(c => c.id)]))
+  const waveforms = useMemo(() => new Map(rows.map(row => [row.id, waveform(row.series, capture, grid, grid.count)])),
     // Capture identity and lane membership own samples; cursor-only totals do not.
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [waveform, signature, capture, grid.from, grid.to, grid.count])
   const scaleScope = JSON.stringify([data.scene.sessionId, filterScope(state), grid.binMs])
-  const ceiling = waveformCeiling([...waveforms.values()], scale.scope === scaleScope ? scale.ceiling : 0)
+  // The index stores a conservative all-lane peak, so scrolling cannot change
+  // scale. Only visible lane geometry is generated.
+  const ceiling = waveformCeiling([[{ received: data.rows.reduce((peak, row) => Math.max(peak, ...row.series.map(series => capture.get(series.id)?.peakRate ?? 0)), 0), sent: 0, observed: true, complete: true }]], scale.scope === scaleScope ? scale.ceiling : 0)
   if (scale.scope !== scaleScope || scale.ceiling !== ceiling) setScale({ scope: scaleScope, ceiling })
   const held = anchor !== null || listPaused
   const hold = () => { setAnchor(currentRange().to); pauseList() }

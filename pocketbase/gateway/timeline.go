@@ -1,6 +1,7 @@
 package gateway
 
 import (
+	"context"
 	"database/sql"
 	"encoding/json"
 	"errors"
@@ -18,7 +19,13 @@ import (
 )
 
 func registerSessionTimelineRoutes(r *router.Router[*core.RequestEvent], app core.App) {
+	RegisterSessionTimelineRoutes(r, app)
+}
+
+// RegisterSessionTimelineRoutes also serves isolated load-test databases.
+func RegisterSessionTimelineRoutes(r *router.Router[*core.RequestEvent], app core.App) {
 	reader := timeline.New(app)
+	app.OnTerminate().BindFunc(func(e *core.TerminateEvent) error { reader.Close(); return e.Next() })
 	r.GET("/api/infrareveal/sessions", func(e *core.RequestEvent) error {
 		rows, err := app.FindRecordsByFilter("sessions", "", "-started_ms", 200, 0)
 		if err != nil {
@@ -131,7 +138,7 @@ func timelineError(e *core.RequestEvent, err error) error {
 	switch {
 	case errors.Is(err, timeline.ErrSessionNotFound), errors.Is(err, sql.ErrNoRows):
 		return e.NotFoundError("Session or block not found", nil)
-	case errors.Is(err, timeline.ErrRevisionChanged):
+	case errors.Is(err, timeline.ErrRevisionChanged), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded), errors.Is(err, sql.ErrTxDone):
 		return e.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
 	case errors.Is(err, timeline.ErrWindowTooLarge):
 		return e.JSON(http.StatusRequestEntityTooLarge, map[string]string{"error": err.Error()})

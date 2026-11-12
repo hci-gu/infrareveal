@@ -46,7 +46,7 @@ func ConfigFromEnv(ap string) Config {
 }
 
 func PacketActivityConfigFromEnv(ap string) PacketActivityConfig {
-	return PacketActivityConfig{Enabled: envBool("PACKET_ACTIVITY_ENABLED", true), Interface: envString("PACKET_ACTIVITY_IFACE", ap), FlushInterval: time.Duration(boundedEnvInt("TRAFFIC_FLUSH_MS", 400, 100, 2000)) * time.Millisecond, MaxPendingChunks: boundedEnvInt("TRAFFIC_MAX_PENDING_CHUNKS", 4096, 128, 16384), EventQueueSize: boundedEnvInt("PACKET_ACTIVITY_EVENT_QUEUE", 8192, 256, 131072)}
+	return PacketActivityConfig{Enabled: envBool("PACKET_ACTIVITY_ENABLED", true), Interface: envString("PACKET_ACTIVITY_IFACE", ap), FlushInterval: time.Duration(boundedEnvInt("TRAFFIC_FLUSH_MS", 1000, 100, 2000)) * time.Millisecond, MaxPendingChunks: boundedEnvInt("TRAFFIC_MAX_PENDING_CHUNKS", 16384, 128, 65536), EventQueueSize: boundedEnvInt("PACKET_ACTIVITY_EVENT_QUEUE", 32768, 256, 131072)}
 }
 
 func envString(name, fallback string) string {

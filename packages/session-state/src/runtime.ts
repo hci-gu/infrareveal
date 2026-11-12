@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { TrafficSegments, windowBytes } from './segments'
 import { useRevisionResource } from './resource'
 import type { Snapshot } from './resource'
 import { useStore } from 'zustand'
@@ -74,7 +75,7 @@ const windowCache = new Map<string, { snapshot: Snapshot<MapWindow>; bytes: numb
 const CACHE_BYTES = 12 * 1024 * 1024
 function cacheWindow(snapshot: Snapshot<MapWindow>) {
   windowCache.delete(snapshot.key)
-  windowCache.set(snapshot.key, { snapshot, bytes: JSON.stringify(snapshot.data).length * 2 })
+  windowCache.set(snapshot.key, { snapshot, bytes: windowBytes(snapshot.data) })
   let total = [...windowCache.values()].reduce((sum, entry) => sum + entry.bytes, 0)
   for (const [id, entry] of windowCache) {
     if (total <= CACHE_BYTES && windowCache.size <= 12) break
@@ -93,12 +94,16 @@ function retainedWindow(window: MapWindow, floor: number): MapWindow {
   blocks: window.blocks.filter(block => block.end_ms > floor) }
 }
 
-export function useMapWindow(id: string, from: number, to: number, resolution = 50, block = '', enabled = true, continuityScope = '') {
+export function useMapWindow(id: string, from: number, to: number, resolution = 50, block = '', enabled = true, continuityScope = '', segmented = false) {
   const manifest = useStore(sessionTimelineStore, state => state.selectedSessionId === id ? state.manifest : null)
   const following = useStore(sessionTimelineStore, state => state.selectedSessionId === id && state.mode === 'live' && state.playback === 'following')
   const scope = JSON.stringify([id, resolution, block, continuityScope, manifest?.capture.epoch])
   const key = JSON.stringify([scope, from, to])
-  const fetcher = useCallback((signal: AbortSignal) => getMapWindow(id, from, to, resolution, signal, block), [id, from, to, resolution, block])
+  const segmentLoader = useMemo(() => new TrafficSegments(), [id])
+  const latest = useRef(manifest); latest.current = manifest
+  const fetcher = useCallback((signal: AbortSignal) => segmented && latest.current && !block
+    ? segmentLoader.load(latest.current, from, to, resolution, signal)
+    : getMapWindow(id, from, to, resolution, signal, block), [id, from, to, resolution, block, segmented, segmentLoader])
   const resource = useRevisionResource({ key, scope, from, to }, manifest?.revision ?? 0, enabled && Boolean(id) && to > from, following,
     fetcher, windowCache.get(key)?.snapshot, cacheWindow)
   const loaded = resource.snapshot?.data

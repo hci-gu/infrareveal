@@ -42,6 +42,7 @@ type Runtime struct {
 	displays          *displaymode.Registry
 	cancelMaintenance context.CancelFunc
 	maintenanceDone   chan struct{}
+	checkpoints       *data.Checkpoints
 	maintenance       struct {
 		sync.RWMutex
 		status demoMaintenanceStatus
@@ -118,6 +119,10 @@ func (g *Runtime) Start() (err error) {
 		return err
 	}
 	if err = g.cleanupSimulations(); err != nil {
+		return err
+	}
+	g.checkpoints, err = data.StartCheckpoints(g.app)
+	if err != nil {
 		return err
 	}
 	g.config.Trace.LogEffective()
@@ -209,6 +214,9 @@ func (g *Runtime) closeResources(ctx context.Context) error {
 	}
 	if g.audit != nil && ctx.Err() == nil {
 		errs = append(errs, g.audit.Close(ctx))
+	}
+	if g.checkpoints != nil && ctx.Err() == nil {
+		errs = append(errs, g.checkpoints.Close(ctx))
 	}
 	// A timed-out worker still owns these dependencies. Leave them available for
 	// a subsequent Close, never close storage/lookup handles beneath a writer.

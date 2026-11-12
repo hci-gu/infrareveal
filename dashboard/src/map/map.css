@@ -2825,3 +2825,7 @@
     display: none;
   }
 }
+
+.atlas-series-pages { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 0; font-size: 11px; }
+.atlas-series-pages button { background: var(--atlas-surface); border: 1px solid var(--atlas-border); color: var(--atlas-text); border-radius: 4px; padding: 5px 8px; }
+.atlas-series-pages button:disabled { opacity: .4; }

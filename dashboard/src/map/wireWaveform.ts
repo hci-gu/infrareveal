@@ -1,5 +1,6 @@
 import { captureQuality } from '@infrareveal/session-state'
 import type { MapSeries } from './mapTracks'
+import { volumeIntervals } from './destinationVolumes'
 import type { DestinationVolumeIndex } from './destinationVolumes'
 
 export type WireBin = { received: number; sent: number; complete: boolean; observed: boolean }
@@ -57,7 +58,7 @@ export function wireWaveform(series: readonly MapSeries[], index: DestinationVol
     const quality = captureQuality(index.coverage ?? [], range.from + i*size, range.from + (i+1)*size)
     return { received: 0, sent: 0, complete: quality === 'complete', observed: quality !== 'unavailable' }
   })
-  for (const item of series) for (const interval of index.get(item.id)?.intervals ?? []) {
+  for (const item of series) for (const interval of volumeIntervals(index.get(item.id), range.from, range.to)) {
     const start = Math.max(range.from, interval.start), end = Math.min(range.to, interval.end)
     if (end <= start) continue
     const first = Math.max(0, Math.floor((start-range.from)/size)), last = Math.min(count-1, Math.ceil((end-range.from)/size)-1)

@@ -2,6 +2,7 @@ package observer
 
 import (
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"maps"
 	"reflect"
@@ -454,7 +455,7 @@ func rebuildBlocks(app core.App, s data.Session, from, nowMS, minimumWatermark i
 	if err != nil {
 		return 0, err
 	}
-	rows, err := readRecords[storedBlock](app, "activity_blocks", "session={:s} AND (prefix_open=1 OR (prefix_open=0 AND end_ms>={:from}))", dbx.Params{"s": s.ID, "from": watermark})
+	rows, err := readStoredBlocks(app, "session={:s} AND (prefix_open=1 OR (prefix_open=0 AND end_ms>={:from}))", dbx.Params{"s": s.ID, "from": watermark})
 	if err != nil {
 		return 0, err
 	}
@@ -471,6 +472,8 @@ func rebuildBlocks(app core.App, s data.Session, from, nowMS, minimumWatermark i
 			usedAnchors[b.ID] = true
 		}
 	}
+	write := app.DB().NewQuery(blockUpsert).Prepare()
+	defer write.Close()
 	changed := finalizedCount > 0
 	emit := func(a *blockAccumulator) error {
 		if a.value.Block.ActiveMS == 0 {
@@ -487,8 +490,7 @@ func rebuildBlocks(app core.App, s data.Session, from, nowMS, minimumWatermark i
 		if exists && reflect.DeepEqual(previous, b) {
 			return nil
 		}
-		_, err := data.Write(app, "activity_blocks", b)
-		return err
+		return writeStoredBlock(write, b)
 	}
 	checkpointed := false
 	finish := func(a *blockAccumulator) error {
@@ -613,3 +615,39 @@ func rebuildBlocks(app core.App, s data.Session, from, nowMS, minimumWatermark i
 	}
 	return count, err
 }
+
+// Internal projections share the capture transaction's session/revision fence.
+// Typed reads and one prepared upsert avoid record hooks and repeated SQL
+// compilation for every active client/service on each projection tick.
+func readStoredBlocks(app core.App, filter string, params dbx.Params) ([]storedBlock, error) {
+	var rows []struct {
+		data.ActivityBlock
+		Prefix     sql.NullString `db:"block_prefix"`
+		PrefixOpen bool           `db:"prefix_open"`
+	}
+	if err := app.DB().Select("*").From("activity_blocks").Where(dbx.NewExp(filter, params)).All(&rows); err != nil {
+		return nil, err
+	}
+	blocks := make([]storedBlock, 0, len(rows))
+	for _, row := range rows {
+		b := storedBlock{ActivityBlock: row.ActivityBlock, PrefixOpen: row.PrefixOpen}
+		if row.Prefix.Valid && row.Prefix.String != "" {
+			if err := json.Unmarshal([]byte(row.Prefix.String), &b.Prefix); err != nil {
+				return nil, err
+			}
+		}
+		blocks = append(blocks, b)
+	}
+	return blocks, nil
+}
+
+func writeStoredBlock(query *dbx.Query, b storedBlock) error {
+	prefix, err := json.Marshal(b.Prefix)
+	if err != nil {
+		return err
+	}
+	_, err = query.Bind(dbx.Params{"id": b.ID, "session": b.Session, "client_id": b.ClientID, "client_ip": b.ClientIP, "service_key": b.ServiceKey, "service_label": b.ServiceLabel, "original_start_ms": b.OriginalStartMS, "start_ms": b.StartMS, "end_ms": b.EndMS, "active_ms": b.ActiveMS, "sent": b.Sent, "received": b.Received, "confidence": b.Confidence, "quality": b.Quality, "provisional": b.Provisional, "clipped": b.Clipped, "revision": b.Revision, "block_prefix": string(prefix), "prefix_open": b.PrefixOpen}).Execute()
+	return err
+}
+
+const blockUpsert = `INSERT INTO activity_blocks (id,session,client_id,client_ip,service_key,service_label,original_start_ms,start_ms,end_ms,active_ms,sent,received,confidence,quality,provisional,clipped,revision,block_prefix,prefix_open) VALUES ({:id},{:session},{:client_id},{:client_ip},{:service_key},{:service_label},{:original_start_ms},{:start_ms},{:end_ms},{:active_ms},{:sent},{:received},{:confidence},{:quality},{:provisional},{:clipped},{:revision},{:block_prefix},{:prefix_open}) ON CONFLICT(id) DO UPDATE SET service_label=excluded.service_label,client_ip=excluded.client_ip,start_ms=excluded.start_ms,end_ms=excluded.end_ms,active_ms=excluded.active_ms,sent=excluded.sent,received=excluded.received,confidence=excluded.confidence,quality=excluded.quality,provisional=excluded.provisional,clipped=excluded.clipped,revision=excluded.revision,block_prefix=excluded.block_prefix,prefix_open=excluded.prefix_open`

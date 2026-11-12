@@ -34,6 +34,7 @@ func InstallCore(app core.App) error {
 	SimulationFields(sessions)
 	sessions.Fields.Add(text("network_context", 256), text("network_epoch", 128), number("block_watermark_ms"))
 	chunks := NewCollection("traffic_chunks", text("session", 15), text("capture_epoch", 64), text("client_id", 128), text("client_ip", 64), text("service_key", 300), text("service_label", 300), text("destination_id", 15), text("destination_ip", 64), text("protocol", 16), number("destination_port"), text("network_epoch", 128), number("start_ms"), number("bucket_ms"), number("chunk_ms"), number("generation"), flag("sealed"), jsonField("evidence", 4096), jsonField("samples", 65536))
+	chunks.AddIndex("traffic_binding_time", false, "session,client_id,service_key,destination_id,start_ms,id", "")
 	chunks.AddIndex("traffic_session_time", false, "session,start_ms,id", "")
 	chunks.AddIndex("traffic_session_service", false, "session,client_id,service_key,start_ms", "")
 	chunks.AddIndex("traffic_destination", false, "destination_id", "")

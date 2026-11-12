@@ -1,5 +1,6 @@
+import { seriesKey } from './traffic'
 import { baseUrl, requestJSON, requestSignal } from './pocketbaseHttp'
-import type { BlockPage, DemoStatus, DiagnosticKind, DiagnosticPage, MapWindow, Session, SessionManifest, SimulationStatus } from './types'
+import type { TrafficChunk, Sample, BlockPage, DemoStatus, DiagnosticKind, DiagnosticPage, MapWindow, Session, SessionManifest, SimulationStatus } from './types'
 export { baseUrl }
 const sessionPath = (id: string) => `/api/infrareveal/sessions/${encodeURIComponent(id)}`
 export const getSessions = (signal?: AbortSignal) => requestJSON<{ items: Session[] }>('/api/infrareveal/sessions', signal).then(value => value.items)
@@ -24,24 +25,45 @@ export function getDiagnostics(id: string, kind: DiagnosticKind, from: number, t
     return response.json() as Promise<DiagnosticPage>
   })
 }
-/** Assemble a revision-consistent window. Never publish an incomplete page set. */
-export async function getMapWindow(id: string, from: number, to: number, resolution = 50, signal?: AbortSignal, block = ''): Promise<MapWindow> {
+/** Assemble bounded pages without quadratic array copies. A partial snapshot is
+ * never published, including when capture changes during pagination. */
+export async function getMapWindow(id: string, from: number, to: number, resolution = 50, signal?: AbortSignal, block = '', compact = false): Promise<MapWindow> {
   for (let attempt = 0; ; attempt++) {
     let result: MapWindow | undefined
-    const seen = new Set<string>()
+    const seen = new Set<string>(), groups = new Map<string, TrafficChunk>()
+    const coverage = new Map<string, MapWindow['coverage'][number]>()
+    const blocks = new Map<string, MapWindow['blocks'][number]>()
+    const routes = new Map<string, MapWindow['routes'][number]>()
+    const destinations = new Map<string, MapWindow['destinations'][number]>()
     let cursor = ''
     try {
       do {
         const params = new URLSearchParams({ from: String(from), to: String(to), resolution: String(resolution), cursor })
         if (block) params.set('block', block)
+        if (compact) { params.set('compact', 'true'); params.set('limit', '1000') }
         const page = await requestJSON<MapWindow>(`${sessionPath(id)}/map?${params}`, signal)
         if (result && page.revision !== result.revision) throw new Error('Session changed during window pagination')
-        result = result ? { ...result, complete: page.complete, next_cursor: page.next_cursor, series: [...result.series, ...page.series], destinations: [...new Map([...result.destinations, ...page.destinations].map(d => [d.id, d])).values()] } : page
+        if (!result) result = { ...page, series: [] }
+        for (const chunk of page.series) {
+          if (!compact) { result.series.push(chunk); continue }
+          const key = JSON.stringify([seriesKey(chunk), chunk.bucket_ms, chunk.evidence])
+          const previous = groups.get(key)
+          if (!previous) { groups.set(key, chunk); result.series.push(chunk) }
+          else {
+            for (const sample of chunk.samples) previous.samples.push([sample[0] + chunk.start_ms - previous.start_ms, ...sample.slice(1)] as Sample)
+            previous.chunk_ms = Math.max(previous.chunk_ms, chunk.start_ms + chunk.chunk_ms - previous.start_ms)
+            previous.sealed &&= chunk.sealed
+          }
+        }
+        for (const item of page.coverage) coverage.set(item.id, item)
+        for (const item of page.blocks) blocks.set(item.id, item)
+        for (const item of page.routes) routes.set(item.id, item)
+        for (const item of page.destinations) destinations.set(item.id, item)
         cursor = page.next_cursor || ''
         if ((!page.complete && !cursor) || (cursor && seen.has(cursor))) throw new Error('Invalid map pagination cursor')
         seen.add(cursor)
       } while (cursor)
-      return result!
+      return { ...result!, complete: true, next_cursor: undefined, coverage: [...coverage.values()], blocks: [...blocks.values()], routes: [...routes.values()], destinations: [...destinations.values()] }
     } catch (error) {
       if (attempt < 2 && !signal?.aborted && (error instanceof Error && ('status' in error && error.status === 409 || error.message === 'Session changed during window pagination'))) continue
       throw error

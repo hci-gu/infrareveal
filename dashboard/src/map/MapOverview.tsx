@@ -1,3 +1,4 @@
+import { useVirtualRows } from './useVirtualRows'
 import { useLiveList } from './useLiveList'
 import { BackToLatest } from './BackToLatest'
 import { memo, useState } from 'react'
@@ -14,6 +15,7 @@ export const MapOverview = memo(function MapOverview({ data, state, onChange, st
   const [tab, setTab] = useState<'locations' | 'tracks'>('locations')
   const peak = Math.max(1, ...data.locations.map(location => location.bytes))
   const { items: orderedItems, scrollRef: listRef, paused: listPaused, back: resumeList, onScroll: scrollList, onFocus: focusList, pause: pauseList } = useLiveList(data.locations, JSON.stringify([data.scene.sessionId, filterScope(state), state.order, tab]), cursorMs, state.order === 'latest' ? location => location.lastActivityMs : undefined)
+  const virtual = useVirtualRows(orderedItems, 68, JSON.stringify([data.scene.sessionId, filterScope(state), state.order, tab]))
   return <aside className="atlas-overview" aria-label="Traffic overview">
     <div className="atlas-overview-heading"><h1>Traffic overview</h1><button type="button" className="atlas-icon-button" aria-label={state.expanded ? 'Back to map' : 'Expand traffic timeline'} onClick={() => onChange({ ...state, expanded: !state.expanded })}><MapIcon name={state.expanded ? 'back' : 'expand'} size={17} /></button></div>
     <p className="atlas-scope">{formatMinute(Math.max(startMs, cursorMs - (state.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs)))} - {formatMinute(Math.min(cursorMs, capturedToMs))}</p>
@@ -23,9 +25,9 @@ export const MapOverview = memo(function MapOverview({ data, state, onChange, st
     </div>
     <div className="atlas-segmented atlas-overview-tabs" role="group" aria-label="Overview content"><button type="button" aria-pressed={tab === 'locations'} onClick={() => setTab('locations')}>Locations <small>{data.locations.length}</small></button><button type="button" aria-pressed={tab === 'tracks'} onClick={() => setTab('tracks')}>Tracks <small>{data.tracks.length}</small></button></div>
     {tab === 'locations' && <BackToLatest paused={listPaused} onClick={resumeList} />}
-    {tab === 'locations' ? <div ref={listRef} onScroll={scrollList} onFocusCapture={focusList} onClick={pauseList} className="atlas-location-list" aria-label="Remote locations">{orderedItems.map(location => <button type="button" key={location.id} className="atlas-location-row" aria-pressed={selectedLocation === location.id} data-location-id={location.id} onClick={() => onLocation(selectedLocation === location.id ? null : location.id)}>
+    {tab === 'locations' ? <div ref={listRef} onScroll={event => { scrollList(event); virtual.onScroll(event) }} onFocusCapture={focusList} onClick={pauseList} className="atlas-location-list" role="list" aria-label="Remote locations"><div aria-hidden="true" style={{ height: virtual.before, flexShrink: 0 }} />{virtual.rows.map((location, i) => <div role="listitem" key={location.id} aria-posinset={virtual.first + i + 1} aria-setsize={orderedItems.length}><button type="button" key={location.id} className="atlas-location-row" aria-pressed={selectedLocation === location.id} data-location-id={location.id} style={{ height: 68, minHeight: 68, flexShrink: 0 }} onClick={() => onLocation(selectedLocation === location.id ? null : location.id)}>
       <span>{location.label}</span><strong>{loading || error ? '—' : formatBytes(location.bytes)}</strong><small>{location.detail}</small>
       <span className="atlas-location-bars" aria-hidden="true"><i className="atlas-down-bar" style={{ width: `${location.received / peak * 100}%` }} /><i className="atlas-up-bar" style={{ width: `${location.sent / peak * 100}%` }} /></span>
-    </button>)}{!data.locations.length && <p className="atlas-list-empty">{loading ? 'Loading locations…' : error ? 'Locations unavailable · retrying' : refreshing ? 'Updating locations…' : 'No traffic observed at this time.'}</p>}</div> : <MapTrackList loading={loading} error={error} refreshing={refreshing} cursorMs={cursorMs} scope={JSON.stringify([data.scene.sessionId, filterScope(state), state.order])} order={state.order} tracks={data.tracks} selectedId={selectedTrack} onSelect={onTrack} />}
+    </button></div>)}<div aria-hidden="true" style={{ height: virtual.after, flexShrink: 0 }} />{!data.locations.length && <p className="atlas-list-empty">{loading ? 'Loading locations…' : error ? 'Locations unavailable · retrying' : refreshing ? 'Updating locations…' : 'No traffic observed at this time.'}</p>}</div> : <MapTrackList loading={loading} error={error} refreshing={refreshing} cursorMs={cursorMs} scope={JSON.stringify([data.scene.sessionId, filterScope(state), state.order])} order={state.order} tracks={data.tracks} selectedId={selectedTrack} onSelect={onTrack} />}
   </aside>
 })

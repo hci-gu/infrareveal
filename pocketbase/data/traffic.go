@@ -3,12 +3,11 @@ package data
 import (
 	"database/sql"
 	"encoding/json"
-	"github.com/pocketbase/dbx"
 )
 
 // ReadTraffic avoids building PocketBase record/export maps for dense sample
 // arrays. Both block projection and map reads consume the same typed fact.
-func ReadTraffic(query *dbx.SelectQuery) ([]TrafficChunk, error) {
+func ReadTraffic(query interface{ All(any) error }) ([]TrafficChunk, error) {
 	var rows []struct {
 		TrafficChunk
 		Samples  sql.NullString `db:"samples"`

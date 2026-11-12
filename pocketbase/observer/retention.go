@@ -1,6 +1,7 @@
 package observer
 
 import (
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -43,7 +44,7 @@ func pruneSession(app core.App, session string, cutoffMS, nowMS int64) error {
 		s.Revision = record.GetInt64("revision")
 	}
 	p := dbx.Params{"s": session, "cut": cutoffMS}
-	crossing, err := readRecords[storedBlock](app, "activity_blocks", "session={:s} AND start_ms<{:cut} AND end_ms>{:cut}", p)
+	crossing, err := readStoredBlocks(app, "session={:s} AND start_ms<{:cut} AND end_ms>{:cut}", p)
 	if err != nil {
 		return err
 	}
@@ -123,6 +124,8 @@ func pruneSession(app core.App, session string, cutoffMS, nowMS int64) error {
 			prefix.Block.StartMS = first[key]
 		}
 	}
+	write := app.DB().NewQuery(blockUpsert).Prepare()
+	defer write.Close()
 	changed := false
 	for _, b := range crossing {
 		if b.Prefix == nil {
@@ -133,7 +136,7 @@ func pruneSession(app core.App, session string, cutoffMS, nowMS int64) error {
 			b.Revision = s.Revision + 1
 			changed = true
 		}
-		if _, err := data.Write(app, "activity_blocks", b); err != nil {
+		if err := writeStoredBlock(write, b); err != nil {
 			return err
 		}
 	}
@@ -146,9 +149,11 @@ func pruneSession(app core.App, session string, cutoffMS, nowMS int64) error {
 	} else {
 		changed = changed || count > 0
 	}
-	if _, err = app.DB().NewQuery("DELETE FROM traffic_chunks WHERE session={:s} AND start_ms+chunk_ms<= {:cut}").Bind(p).Execute(); err != nil {
+	if _, err = app.DB().NewQuery("DELETE FROM traffic_chunks WHERE session={:s} AND start_ms < {:cut} AND start_ms+chunk_ms<= {:cut}").Bind(p).Execute(); err != nil {
 		return err
 	}
+	clip := app.DB().NewQuery("UPDATE traffic_chunks SET samples={:samples} WHERE id={:id}").Prepare()
+	defer clip.Close()
 	// Keyset paging also bounds many bindings in the one crossing source chunk.
 	if _, err = walkTraffic(app, session, s.Policy, cutoffMS, cutoffMS, func(c data.TrafficChunk) error {
 		c.Samples = clipSamples(c, cutoffMS)
@@ -156,7 +161,11 @@ func pruneSession(app core.App, session string, cutoffMS, nowMS int64) error {
 			_, err := app.DB().Delete("traffic_chunks", dbx.HashExp{"id": c.ID}).Execute()
 			return err
 		}
-		_, err := data.Write(app, "traffic_chunks", c)
+		samples, err := json.Marshal(c.Samples)
+		if err != nil {
+			return err
+		}
+		_, err = clip.Bind(dbx.Params{"id": c.ID, "samples": string(samples)}).Execute()
 		return err
 	}); err != nil {
 		return err
