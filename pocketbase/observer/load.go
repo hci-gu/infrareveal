@@ -49,6 +49,9 @@ func NewTrafficLoad(app *pocketbase.PocketBase, session string, expires time.Tim
 			defer func() { meter.EndedMS.Store(time.Now().UnixMilli()) }()
 		}
 		send(sourceEvent{at: now, status: "complete"}, false)
+		// The isolated source knows it has supplied every event through shutdown.
+		// Advance coverage past the final occupied bucket before closing the queue.
+		defer func() { send(sourceEvent{at: time.Now(), status: "heartbeat"}, false) }()
 		seedDNS := func(at time.Time) {
 			for i, lane := range lanes {
 				for _, line := range []string{fmt.Sprintf("dnsmasq[1]: %d %s/53000 query[A] %s from %s", i+1, lane.client, lane.domain, lane.client), fmt.Sprintf("dnsmasq[1]: %d %s/53000 reply %s is %s", i+1, lane.client, lane.domain, lane.ip)} {
