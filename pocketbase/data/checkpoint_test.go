@@ -30,6 +30,10 @@ func TestCheckpointWorkerRestoresWriterAndPreservesCommits(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = w.Close(context.Background()) })
+	var automatic int
+	if err := app.NonconcurrentDB().NewQuery("PRAGMA wal_autocheckpoint").Row(&automatic); err != nil || automatic != 0 {
+		t.Fatalf("capture writer still owns automatic checkpoint work: %d, %v", automatic, err)
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	for i := 0; i < 10; i++ {
@@ -56,7 +60,7 @@ func TestCheckpointWorkerRestoresWriterAndPreservesCommits(t *testing.T) {
 	}
 }
 
-func TestCheckpointReclaimsLargeWALAfterPinnedReaderFinishes(t *testing.T) {
+func TestCheckpointReusesLargeWALAfterPinnedReaderFinishes(t *testing.T) {
 	app := testsupport.App(t)
 	_, err := app.DB().NewQuery("CREATE TABLE checkpoint_fixture (value BLOB)").Execute()
 	if err != nil {
@@ -90,18 +94,27 @@ func TestCheckpointReclaimsLargeWALAfterPinnedReaderFinishes(t *testing.T) {
 	if err := reader.Rollback(); err != nil {
 		t.Fatal(err)
 	}
+	allocated := info.Size()
 	deadline := time.Now().Add(8 * time.Second)
 	for {
-		info, err = os.Stat(wal)
-		if err == nil && info.Size() == 0 {
+		var busy, pages, written int
+		err = app.ConcurrentDB().NewQuery("PRAGMA wal_checkpoint(NOOP)").Row(&busy, &pages, &written)
+		if err == nil && pages > 0 && pages == written {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("worker did not reclaim the WAL: %v, %v", info, err)
+			t.Fatalf("worker did not checkpoint the WAL: %d/%d, %v", written, pages, err)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	if err := app.DB().NewQuery("SELECT count(*) FROM checkpoint_fixture").Row(&count); err != nil || count != 40 {
 		t.Fatalf("checkpoint changed committed rows: %d, %v", count, err)
+	}
+	if _, err := app.DB().NewQuery("INSERT INTO checkpoint_fixture VALUES (zeroblob(4096))").Execute(); err != nil {
+		t.Fatal(err)
+	}
+	info, err = os.Stat(wal)
+	if err != nil || info.Size() != allocated {
+		t.Fatalf("checkpoint did not reuse the existing WAL allocation: %v, %v", info, err)
 	}
 }

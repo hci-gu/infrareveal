@@ -15,8 +15,8 @@ import (
 )
 
 // Checkpoints moves routine WAL syncing off the single capture writer. PASSIVE
-// never waits for a reader to release its snapshot. A larger automatic threshold
-// remains as a fallback if the worker cannot run; synchronous=NORMAL is unchanged.
+// never waits for a reader to release its snapshot. Writer-side checkpoints are
+// disabled while the worker owns them; synchronous=NORMAL is unchanged.
 // The gateway owns exactly one worker and joins it before closing the database.
 type Checkpoints struct {
 	cancel   context.CancelFunc
@@ -58,7 +58,7 @@ func StartCheckpoints(app core.App) (*Checkpoints, error) {
 		release()
 		return nil, err
 	}
-	if _, err := app.NonconcurrentDB().NewQuery("PRAGMA wal_autocheckpoint=16384").Execute(); err != nil {
+	if _, err := app.NonconcurrentDB().NewQuery("PRAGMA wal_autocheckpoint=0").Execute(); err != nil {
 		cancel()
 		release()
 		return nil, err
@@ -98,10 +98,12 @@ func checkpoint(ctx context.Context, connection *sql.Conn) error {
 		return err
 	}
 	// Continuous short readers can prevent WAL reuse even after its frames are
-	// copied. Try to reclaim a large, fully checkpointed WAL without waiting for
+	// copied. Try to reuse a large, fully checkpointed WAL without waiting for
 	// any reader or writer. A busy result is normal and retried on a later tick.
+	// Keep its allocation: repeatedly truncating and extending the file creates
+	// unnecessary filesystem journal work on small flash devices.
 	if busy == 0 && pages >= 16384 && pages == written {
-		return connection.QueryRowContext(ctx, "PRAGMA wal_checkpoint(TRUNCATE)").Scan(&busy, &pages, &written)
+		return connection.QueryRowContext(ctx, "PRAGMA wal_checkpoint(RESTART)").Scan(&busy, &pages, &written)
 	}
 	return nil
 }
