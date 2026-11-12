@@ -33,7 +33,7 @@ import type { WorkspaceState } from '../map/mapWorkspace'
 import type { ActivityOrder } from '../map/activityOrder'
 import { createWireWaveformCache } from '../map/wireWaveform'
 import { themedAtlasStyle } from '../map/atlasStyle'
-import { captureStatus } from '../map/captureStatus'
+import { useCaptureStatus } from '../map/useCaptureStatus'
 import '../map/map.css'
 
 const LIVE_DURATION_HEADROOM_SECONDS = 30
@@ -96,7 +96,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationIndex, projectionCursor, workspace), [trackCatalog, scene, destinationIndex, projectionCursor, workspace])
   const waveform = useMemo(() => createWireWaveformCache(), [])
   const playbackBins = useMemo(() => waveform([...overview.bySeries.values()], destinationIndex, { from: scene.startMs, to: contentEndMs }), [waveform, overview.bySeries, destinationIndex, scene.startMs, contentEndMs])
-  const captureWarning = captureStatus(timeline.manifest, timeline.liveEdgeMs)
+  const captureWarning = useCaptureStatus(timeline.manifest, timeline.clock)
   const demoWarning = demo && (demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow)))
   const styledMap = useMemo(() => themedAtlasStyle(mapStyleUrl, theme, preferences.labels), [theme, preferences.labels])
   const timelineRef = useRef({

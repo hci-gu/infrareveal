@@ -46,6 +46,9 @@ func RegisterSessionTimelineRoutes(r *router.Router[*core.RequestEvent], app cor
 		if err != nil {
 			return timelineError(e, err)
 		}
+		// Stamp after the read: storage contention is part of capture age, not
+		// a reason to give the display a clock from before the request waited.
+		manifest.ServerMS = time.Now().UnixMilli()
 		return e.JSON(http.StatusOK, manifest)
 	})
 	r.GET("/api/infrareveal/sessions/{id}/map", func(e *core.RequestEvent) error {
@@ -163,7 +166,8 @@ func streamSessionRevisions(e *core.RequestEvent, app core.App) error {
 	e.Response.Header().Set("X-Accel-Buffering", "no")
 	e.Response.WriteHeader(http.StatusOK)
 	send := func(kind string, manifest data.Manifest) error {
-		payload, err := json.Marshal(map[string]any{"revision": manifest.Revision, "retained_from_ms": manifest.RetainedFromMS, "server_ms": manifest.ServerMS})
+		// Ticker values can also be stale after a delayed read or send.
+		payload, err := json.Marshal(map[string]any{"revision": manifest.Revision, "retained_from_ms": manifest.RetainedFromMS, "server_ms": time.Now().UnixMilli()})
 		if err != nil {
 			return err
 		}

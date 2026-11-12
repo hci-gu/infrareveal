@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
@@ -52,6 +53,76 @@ func requestJSON(t *testing.T, handler http.Handler, method, path, body, token s
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	return response
+}
+
+func TestTimelineClocksIncludeTimeWaitingForStorage(t *testing.T) {
+	for _, endpoint := range []string{"manifest", "revisions"} {
+		t.Run(endpoint, func(t *testing.T) {
+			app, _, handler := gatewayHTTP(t)
+			session := testsupport.Save(t, app, "sessions", map[string]any{"name": "clock", "started_ms": 1000, "revision": 1})
+			server := httptest.NewServer(handler)
+			defer server.Close()
+			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			defer cancel()
+			db := app.ConcurrentDB().(*dbx.DB).DB()
+			db.SetMaxOpenConns(1)
+			held, err := db.Conn(ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer held.Close()
+			waits := db.Stats().WaitCount
+			type result struct {
+				response *http.Response
+				err      error
+			}
+			responseCh := make(chan result, 1)
+			go func() {
+				request, _ := http.NewRequestWithContext(ctx, http.MethodGet, server.URL+"/api/infrareveal/sessions/"+session.Id+"/"+endpoint, nil)
+				response, err := server.Client().Do(request)
+				responseCh <- result{response, err}
+			}()
+			for db.Stats().WaitCount == waits {
+				if ctx.Err() != nil {
+					t.Fatal("request never waited for storage")
+				}
+				time.Sleep(time.Millisecond)
+			}
+			// Ensure the request-start clock and response clock differ measurably.
+			time.Sleep(25 * time.Millisecond)
+			released := time.Now().UnixMilli()
+			if err := held.Close(); err != nil {
+				t.Fatal(err)
+			}
+			got := <-responseCh
+			if got.err != nil {
+				t.Fatal(got.err)
+			}
+			defer got.response.Body.Close()
+			var clock struct {
+				ServerMS int64 `json:"server_ms"`
+			}
+			if endpoint == "manifest" {
+				err = json.NewDecoder(got.response.Body).Decode(&clock)
+			} else {
+				reader := bufio.NewReader(got.response.Body)
+				for {
+					var line string
+					line, err = reader.ReadString('\n')
+					if err != nil {
+						break
+					}
+					if strings.HasPrefix(line, "data: ") {
+						err = json.Unmarshal([]byte(strings.TrimPrefix(line, "data: ")), &clock)
+						break
+					}
+				}
+			}
+			if err != nil || clock.ServerMS < released {
+				t.Fatalf("storage delay was hidden by stale server time: clock=%d, released=%d, error=%v", clock.ServerMS, released, err)
+			}
+		})
+	}
 }
 
 func TestSessionControlAPITransitionsAtomically(t *testing.T) {
