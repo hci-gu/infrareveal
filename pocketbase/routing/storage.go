@@ -12,20 +12,20 @@ import (
 	"strings"
 	"time"
 
-	"github.com/oschwald/geoip2-golang"
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
+	"myapp/geolocation"
 )
 
 type evidenceStore struct {
 	app        core.App
-	geo        *geoip2.Reader
+	geo        geolocation.Lookup
 	geoVersion string
 	locations  map[string]*Location
 	config     Config
 }
 
-func newEvidenceStore(app core.App, geo *geoip2.Reader, config Config) evidenceStore {
+func newEvidenceStore(app core.App, geo geolocation.Lookup, config Config) evidenceStore {
 	version := "unknown"
 	if f, err := os.Stat("./geoip/city.mmdb"); err == nil {
 		version = fmt.Sprintf("%d/%d", f.Size(), f.ModTime().Unix())
@@ -298,22 +298,23 @@ func (r evidenceStore) location(ip string) *Location {
 	if !netmeta.PublicAddress(ip) || r.geo == nil {
 		return nil
 	}
-	if v, ok := r.locations[ip]; ok {
+	key := fmt.Sprintf("%d/%s", geolocation.Version(r.geo), ip)
+	if v, ok := r.locations[key]; ok {
 		return v
 	}
 	if len(r.locations) >= 2048 {
 		clear(r.locations)
 	}
 	if r.locations != nil {
-		r.locations[ip] = nil
+		r.locations[key] = nil
 	}
 	v, e := r.geo.City(net.ParseIP(ip))
 	if e != nil || (v.Location.Latitude == 0 && v.Location.Longitude == 0) {
 		return nil
 	}
-	loc := &Location{Lat: v.Location.Latitude, Lon: v.Location.Longitude, City: v.City.Names["en"], Country: v.Country.Names["en"], AccuracyKM: v.Location.AccuracyRadius, GeoVersion: r.geoVersion}
+	loc := &Location{Lat: v.Location.Latitude, Lon: v.Location.Longitude, City: v.City.Names["en"], Country: v.Country.Names["en"], AccuracyKM: v.Location.AccuracyRadius, GeoVersion: fmt.Sprintf("%s/%d", r.geoVersion, geolocation.Version(r.geo))}
 	if r.locations != nil {
-		r.locations[ip] = loc
+		r.locations[key] = loc
 	}
 	return loc
 }

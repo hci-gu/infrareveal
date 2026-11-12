@@ -4,16 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/oschwald/geoip2-golang"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"log"
 	"myapp/data"
 	"myapp/debugtrace"
 	"myapp/displaymode"
+	"myapp/geolocation"
 	"myapp/labgate"
 	"myapp/observer"
 	"myapp/routing"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,7 +36,7 @@ type Runtime struct {
 	gate              *labgate.Controller
 	audit             *labgate.AuditWriter
 	controlToken      []byte
-	geo               *geoip2.Reader
+	geo               *geolocation.Manager
 	routes            *routing.Coordinator
 	observation       *observer.Runtime
 	simulation        *simulationRun
@@ -144,7 +145,7 @@ func (g *Runtime) Start() (err error) {
 	if err != nil {
 		return err
 	}
-	g.geo, _ = geoip2.Open(g.config.GeoIPPath)
+	g.geo = geolocation.Open(g.config.GeoIPPath, filepath.Join(g.app.DataDir(), "maxmind.json"))
 	if err = g.ensureDefaultActiveSession(); err != nil {
 		return fmt.Errorf("ensure active gateway session: %w", err)
 	}
@@ -227,8 +228,9 @@ func (g *Runtime) closeResources(ctx context.Context) error {
 		g.traceHub.Close()
 	}
 	if g.geo != nil {
-		_ = g.geo.Close()
-		g.geo = nil
+		if err := g.geo.Close(ctx); err != nil {
+			return errors.Join(append(errs, err)...)
+		}
 	}
 	g.started = false
 	g.resourcesClosed = true

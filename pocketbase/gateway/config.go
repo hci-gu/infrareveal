@@ -33,7 +33,7 @@ func ConfigFromEnv() (Config, error) {
 		Trace: debugtrace.ConfigFromEnv(), Gate: labgate.ConfigFromEnv(), Routes: routing.ConfigFromEnv(),
 		Observation: observer.ConfigFromEnv(ap), APInterface: ap, InternetInterface: envOrDefault("INTERNET_IFACE", "eth0"),
 		ClientSubnetText: envOrDefault("LAB_GATE_CLIENT_SUBNET", "10.0.0.0/24"),
-		SSID:             envOrDefault("SSID", "Infrareveal"), GeoIPPath: "./geoip/city.mmdb",
+		SSID:             envOrDefault("SSID", "Infrareveal"), GeoIPPath: envOrDefault("GEOIP_CITY_DB", "./geoip/city.mmdb"),
 		Demo: os.Getenv("DEMO_MODE") == "true", Diagnostics: os.Getenv("DIAGNOSTICS_ENABLED") == "true",
 		DemoRetentionMinutes: 30,
 	}

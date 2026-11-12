@@ -39,6 +39,7 @@ services:
       - ROUTE_HOURLY_ATTEMPTS=${ROUTE_HOURLY_ATTEMPTS:-40}
       - ROUTE_MAX_SNAPSHOTS=${ROUTE_MAX_SNAPSHOTS:-100}
       - ROUTE_MAX_BYTES=${ROUTE_MAX_BYTES:-16777216}
+      - GEOIP_CITY_DB=${GEOIP_CITY_DB:-/root/geoip/city.mmdb}
       - ROUTE_ASN_DB=${ROUTE_ASN_DB:-/root/geoip/asn.mmdb}
       - PACKET_ACTIVITY_ENABLED=${PACKET_ACTIVITY_ENABLED:-true}
       - TRAFFIC_CHUNK_MS=${TRAFFIC_CHUNK_MS:-5000}
@@ -74,7 +75,7 @@ services:
       - LAB_GATE_ALLOWED_ORIGINS=${LAB_GATE_ALLOWED_ORIGINS:-}
     volumes:
       - ${DATA_DIR:-./data}:/root/pb/pb_data
-      - ${GEOIP_DIR:-./geoip}:/root/geoip:ro
+      - ${GEOIP_DIR:-./geoip}:/root/geoip
     healthcheck:
       test: ["CMD", "python3", "/root/scripts/gateway-runtime.py", "health"]
       interval: 10s

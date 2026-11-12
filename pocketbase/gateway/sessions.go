@@ -303,13 +303,46 @@ func (g *Runtime) registerSessionControls(r *router.Router[*core.RequestEvent]) 
 		if err != nil {
 			return timelineError(e, err)
 		}
-		if record.GetBool("demo") && g.config.Demo {
-			return e.BadRequestError("Disable DEMO_MODE before deleting its session", nil)
+		if record.GetInt64("simulation_expires_ms") > 0 {
+			if err := g.stopSimulation(e.Request.Context()); err != nil {
+				return e.InternalServerError("Cannot stop and delete simulation", err)
+			}
+			return e.NoContent(http.StatusNoContent)
 		}
 		if _, _, err := g.drainSessionGate(e.Request.Context(), id); err != nil {
 			return e.InternalServerError("Cannot drain session", err)
 		}
-		if err := g.app.Delete(record); err != nil {
+		active := record.GetBool("active")
+		if active && g.routes != nil {
+			if err := g.routes.ResetContext(e.Request.Context()); err != nil {
+				return e.InternalServerError("Cannot finish route work", err)
+			}
+		}
+		// The mutation guard has drained capture. Delete and replace an active
+		// recording atomically, so manual cleanup never leaves the gateway idle.
+		if err := g.app.RunInTransaction(func(tx core.App) error {
+			if err := tx.Delete(record); err != nil {
+				return err
+			}
+			if !active {
+				return nil
+			}
+			collection, err := tx.FindCollectionByNameOrId("sessions")
+			if err != nil {
+				return err
+			}
+			fresh := core.NewRecord(collection)
+			fresh.Set("name", "Gateway Session")
+			fresh.Set("active", true)
+			fresh.Set("ephemeral", record.GetBool("ephemeral"))
+			fresh.Set("retention_minutes", record.GetInt("retention_minutes"))
+			if g.config.Demo {
+				fresh.Set("name", "Lab demo")
+				fresh.Set("demo", true)
+				fresh.Set("ephemeral", true)
+			}
+			return tx.Save(fresh)
+		}); err != nil {
 			return e.InternalServerError("Cannot delete session", err)
 		}
 		return e.NoContent(http.StatusNoContent)

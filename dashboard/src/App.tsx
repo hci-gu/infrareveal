@@ -4,6 +4,8 @@ import { SessionsPage } from './pages/SessionsPage'
 import { DisplayModeProvider } from './display/DisplayMode'
 import { DisplayPage } from './pages/DisplayPage'
 
+const StoragePage = lazy(() => import('./pages/StoragePage').then(module => ({ default: module.StoragePage })))
+
 const DemoPage = lazy(() => import("./pages/DemoPage").then(module => ({ default: module.DemoPage })))
 
 const MapPage = lazy(async () => {
@@ -18,6 +20,7 @@ export default function App() {
       <Suspense fallback={<RouteLoading />}>
         <Routes>
           <Route path="/" element={<SessionsPage />} />
+          <Route path="/storage" element={<StoragePage />} />
           <Route path="/display" element={<DisplayPage />} />
           <Route path="/demo" element={<DemoPage />} />
           <Route path="/map/:sessionID" element={<MapPage />} />

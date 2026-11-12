@@ -10,6 +10,7 @@ RUN go mod download
 COPY pocketbase/*.go ./
 COPY pocketbase/migrations ./migrations
 COPY pocketbase/data ./data
+COPY pocketbase/geolocation ./geolocation
 COPY pocketbase/observer ./observer
 COPY pocketbase/gateway ./gateway
 COPY pocketbase/timeline ./timeline
@@ -52,7 +53,7 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
 # Set the working directory
 WORKDIR /root
 
-# GeoIP assets are supplied by the read-only runtime volume.
+# GeoIP assets are supplied by the writable runtime volume for manual refresh.
 RUN mkdir -p /root/geoip
 
 COPY entrypoint.sh /root/entrypoint.sh

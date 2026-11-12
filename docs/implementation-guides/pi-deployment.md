@@ -231,7 +231,8 @@ sudo docker cp infrareveal-server:/root/geoip/city.mmdb ./geoip/city.mmdb
 ```
 
 If you already have `geoip/city.mmdb`, keep that version or back it up before
-replacing it. An optional ASN database belongs at `geoip/asn.mmdb`. Fresh installs
+replacing it. The dashboard now supports manual MaxMind refreshes; see
+[Storage and maintenance](storage-maintenance.md). An optional ASN database belongs at `geoip/asn.mmdb`. Fresh installs
 can use their own licensed GeoIP files; the gateway runs without them, with
 reduced location/provider information. Database files are not bundled in Git.
 

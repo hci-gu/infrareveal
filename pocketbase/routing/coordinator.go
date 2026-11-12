@@ -12,8 +12,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/oschwald/geoip2-golang"
 	"github.com/pocketbase/pocketbase/core"
+	"myapp/geolocation"
 )
 
 type demand struct {
@@ -89,7 +89,7 @@ type Coordinator struct {
 	network    func() (string, error)
 }
 
-func Start(ctx context.Context, app core.App, geo *geoip2.Reader, session func() string, config Config) *Coordinator {
+func Start(ctx context.Context, app core.App, geo geolocation.Lookup, session func() string, config Config) *Coordinator {
 	if config.MaxSnapshots == 0 {
 		config = defaultConfig()
 	}

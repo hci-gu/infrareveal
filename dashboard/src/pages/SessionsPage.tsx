@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
 import { startSimulation, useSessions } from '@infrareveal/session-state'
 import type { Session } from '@infrareveal/session-state'
+import { DeleteSession } from '../maintenance/DeleteSession'
 import { DisplayModeCard } from '../display/DisplayMode'
 
 const dateFormatter = new Intl.DateTimeFormat('en-GB', {
@@ -41,6 +42,7 @@ export function SessionsPage() {
             <p className="mt-3 max-w-2xl text-base text-slate-600">
               Open a recorded session or follow an active session on the shared timeline map.
             </p>
+            <Link to="/storage" className="mt-4 inline-block text-sm font-bold text-blue-700 hover:underline">Storage & maintenance →</Link>
           </div>
           {status === 'ready' && sessions.length > 0 ? (
             <div className="flex gap-2 text-sm font-semibold">
@@ -94,7 +96,7 @@ export function SessionsPage() {
           <ul className="grid gap-4">
             {sessions.map((session) => (
               <li key={session.id}>
-                <SessionCard session={session} />
+                <SessionCard session={session} onDeleted={loadSessions} />
               </li>
             ))}
           </ul>
@@ -104,11 +106,12 @@ export function SessionsPage() {
   )
 }
 
-function SessionCard({ session }: { session: Session }) {
+function SessionCard({ session, onDeleted }: { session: Session; onDeleted: () => void }) {
   const startedAt = new Date(session.started_ms)
   const endedAt = session.ended_ms ? new Date(session.ended_ms) : null
 
   return (
+    <article className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
     <Link
       to={`/map/${encodeURIComponent(session.id)}`}
       className="group flex flex-col justify-between gap-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:border-blue-300 hover:shadow-md focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 sm:flex-row sm:items-center"
@@ -128,6 +131,8 @@ function SessionCard({ session }: { session: Session }) {
         Open map →
       </span>
     </Link>
+    <div className="flex justify-end px-3 pb-2"><DeleteSession session={session} onDeleted={onDeleted} /></div>
+    </article>
   )
 }
 

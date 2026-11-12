@@ -303,7 +303,7 @@ Each enabled radio is a dedicated AP.
 - PocketBase console: http://10.0.0.1/_/
 - Optional debug dashboard: http://10.0.0.1:8081/
 - Persistent data: `./data` on the host is mounted to `/root/pb/pb_data` in the proxy container
-- GeoIP assets: `./geoip` is mounted read-only at `/root/geoip`
+- GeoIP assets: `./geoip` is mounted at `/root/geoip`, writable for manual database refreshes
 
 ## Security and ethics
 

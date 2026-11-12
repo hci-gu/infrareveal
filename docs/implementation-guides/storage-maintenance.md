@@ -1,0 +1,69 @@
+# Storage and maintenance
+
+Open **Sessions → Storage & maintenance** (`/storage`). All maintenance mutations
+are manual. Existing rolling recording retention and log policies are unchanged.
+
+## Disk information
+
+The gateway reads filesystem capacity and available space from the filesystem
+containing its data directory, including the host's other disk consumers. It
+reports low space below 2 GiB or 15% available, critical below 512 MiB or 5%, and
+read-only filesystems separately. These are status indicators, not automatic
+cleanup thresholds. SD-card wear, remaining life and hardware integrity are not
+inferred from disk capacity.
+
+Recording and application-log panels show their database and WAL file sizes,
+plus unused SQLite pages available for reuse. Refresh storage fetches new
+measurements and indexed traffic-record counts per session. It does not scan
+Docker, run integrity checks, checkpoint, vacuum or delete files.
+
+## Delete sessions
+
+Delete is available on the session cards and maintenance page. Confirmation
+names the session and explains permanent deletion. The server removes its
+traffic chunks, coverage, activity blocks, route evidence and optional diagnostic
+rows transactionally. Destination records shared with another session survive;
+unreferenced destinations are removed. Network-wide probe admissions remain
+charged through their existing operational retention horizon.
+
+Deleting a live recording first drains capture and route work. Its deletion and
+creation of a fresh active session commit together. The new session preserves
+rolling retention settings (and continuous-demo behavior), with a new identity.
+Failure rolls the transaction back. Deleting a synthetic simulation joins its
+separate observer before removing its session. Saved sessions can be deleted
+without removing other recordings.
+
+SQLite reuses deleted pages; file size and filesystem free space may not change
+immediately. This feature does not automatically compact databases, remove
+Docker images or delete host logs/backups.
+
+## Refresh GeoIP
+
+The source remains **MaxMind GeoLite2 City**. Under MaxMind settings, enter the
+account ID and a license key with database-download access. Settings are saved
+only on the gateway as `maxmind.json` in its persistent data directory, with
+mode 0600. Status responses expose the account ID and configured flag, never
+the saved key. An empty key keeps the existing key only for the same account.
+
+Refresh downloads MaxMind's official HTTPS tar.gz permalink using Basic Auth
+and follows its normal download redirect. It streams one expected regular MMDB
+file to a temporary file beside the installed database, checks archive integrity,
+validates the entire MMDB and its edition, and rejects older builds. It then
+atomically replaces the old file and swaps the shared lookup reader. Failed
+updates keep the old database usable. A matching build is reported as already
+current. Downloads and expanded archives are bounded to 512 MiB, with a ten-minute
+timeout and one refresh at a time. Shutdown cancels and joins the download.
+
+The dashboard shows download/validation progress and errors; reopening the page
+reattaches to a running job. Installation invalidates in-memory destination and
+route-location caches for new observations. Stored observations keep their
+original geography. No proxy restart or automatic update schedule is required.
+The optional ASN database is unchanged.
+
+Docker must mount `GEOIP_DIR` writable. The default City path inside the container
+is `/root/geoip/city.mmdb`; `GEOIP_CITY_DB` can override it. Existing read-only
+custom mounts produce an actionable refresh error and leave the current file
+untouched. Preserve `maxmind.json` with the rest of the private application data;
+do not commit it or include it in shared test reports.
+
+Reference: [MaxMind download documentation](https://dev.maxmind.com/geoip/updating-databases/).

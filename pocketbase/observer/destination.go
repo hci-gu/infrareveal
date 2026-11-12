@@ -2,8 +2,8 @@ package observer
 
 import (
 	"encoding/json"
-	"github.com/oschwald/geoip2-golang"
 	"myapp/data"
+	"myapp/geolocation"
 	"net"
 	"time"
 )
@@ -11,7 +11,7 @@ import (
 // A destination is a versioned snapshot. Capture only performs local lookups;
 // resolver latency can never hold up the packet queue. Unknown geography stays
 // explicitly unknown, even though PocketBase numeric fields default to zero.
-func destinationSnapshot(db *geoip2.Reader, ip string, now time.Time) data.Destination {
+func destinationSnapshot(db geolocation.Lookup, ip string, now time.Time) data.Destination {
 	d := data.Destination{IP: ip, Precision: "unknown"}
 	if db != nil {
 		if city, err := db.City(net.ParseIP(ip)); err == nil {

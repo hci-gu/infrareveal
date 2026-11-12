@@ -72,7 +72,8 @@ export async function getMapWindow(id: string, from: number, to: number, resolut
 }
 export async function updateSession(id: string, method: 'POST' | 'PATCH' | 'DELETE', value?: Record<string, unknown>, action = '') {
   const path = id ? `${sessionPath(id)}${action ? `/${action}` : ''}` : '/api/infrareveal/sessions'
-  const response = await fetch(`${baseUrl}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: value ? JSON.stringify(value) : undefined, signal: requestSignal() })
+  // Removing a large recording can take longer on the Pi's SD card.
+  const response = await fetch(`${baseUrl}${path}`, { method, headers: { 'Content-Type': 'application/json' }, body: value ? JSON.stringify(value) : undefined, signal: method === 'DELETE' ? AbortSignal.timeout(120_000) : requestSignal() })
   if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || 'Session operation failed')
   return response.status === 204 ? null : response.json()
 }

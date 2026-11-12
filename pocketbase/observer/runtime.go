@@ -6,12 +6,12 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"github.com/oschwald/geoip2-golang"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/core"
 	"log"
 	"myapp/data"
 	"myapp/debugtrace"
+	"myapp/geolocation"
 	"os"
 	"strings"
 	"sync"
@@ -24,7 +24,7 @@ import (
 // before the final commit; a caller timeout never closes a worker's resources.
 type Runtime struct {
 	app         *pocketbase.PocketBase
-	geo         *geoip2.Reader
+	geo         geolocation.Lookup
 	config      Config
 	sessionID   func() string
 	trace       debugtrace.Sink
@@ -39,7 +39,7 @@ type Runtime struct {
 	destination func(string, time.Time) data.Destination
 }
 
-func New(app *pocketbase.PocketBase, geo *geoip2.Reader, config Config, sessionID func() string, trace debugtrace.Sink, onTraffic func(CommittedTraffic)) *Runtime {
+func New(app *pocketbase.PocketBase, geo geolocation.Lookup, config Config, sessionID func() string, trace debugtrace.Sink, onTraffic func(CommittedTraffic)) *Runtime {
 	if config.SampleInterval <= 0 {
 		config.SampleInterval = time.Second
 	}
@@ -246,6 +246,7 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 	writeCache := &captureWriteCache{}
 	destinations := map[string]data.Destination{}
 	byIP := map[string]string{}
+	geoVersion := geolocation.Version(r.geo)
 	var current, lastCoverage data.CaptureInterval
 	var pending []data.CaptureInterval
 	var confirmed, savedEnd, drops, lastProject, lossUntil int64
@@ -418,6 +419,10 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 				} else {
 					return
 				}
+			}
+			if version := geolocation.Version(r.geo); version != geoVersion {
+				clear(byIP)
+				geoVersion = version
 			}
 			id := byIP[ip]
 			// Recheck after the queue: display mode may have started since
