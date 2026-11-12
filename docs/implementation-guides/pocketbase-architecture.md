@@ -126,10 +126,9 @@ on its own connection, keeping routine syncing off capture commits. Timing varie
 from 3,750–6,249 ms to avoid repeatedly colliding with capture and browser timers.
 Several updates to the same database pages can then be coalesced before syncing;
 committed WAL frames remain readable immediately, with one-second publication.
-Only `PASSIVE` checkpoints run during capture. Even with zero busy timeout,
-`FULL`, `RESTART` and `TRUNCATE` can hold the writer lock during a slow sync.
-Ordinary gaps between short readers permit WAL reuse. The file keeps its
-allocation to avoid repeated truncation/extension on flash storage. The
+After fully checkpointing a WAL of at least 16,384 pages, it attempts `RESTART`
+with zero busy timeout; a reader or writer in the way defers reuse. The file keeps
+its allocation to avoid repeated truncation/extension on flash storage. The
 connection's timeout is restored before returning it to the pool. Automatic
 writer-side checkpoints are disabled while the worker owns them: a size-based
 fallback would put long storage syncs back on capture commits under sustained
