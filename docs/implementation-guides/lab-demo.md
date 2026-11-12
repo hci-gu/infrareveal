@@ -1,10 +1,19 @@
 # Unattended lab demo
 
-The gateway Pi serves the map; a display PC joins `Infrareveal-admin` and opens **http://10.77.0.1/demo**. Visitors join the participant SSID, `Infrareveal` by default. Admin traffic is excluded from capture. Ethernet provides visitor Internet access. The bundled Equal Earth background works offline; the optional Mercator basemap downloads tiles/fonts.
+The gateway Pi serves the map. The display PC and visitors join `Infrareveal` and
+open **http://infrareveal.home.arpa** (fallback **http://10.0.0.1**). Choose **Use
+this device as display** on the shared screen; that device's traffic is then
+excluded from observation. See [shared Wi-Fi](shared-wifi-display.md) for role
+renewal and reconnect behavior. Separate admin Wi-Fi remains optional. Ethernet
+provides visitor Internet access. The bundled Equal Earth background works
+offline; the optional Mercator basemap downloads tiles/fonts.
 
 ## Enable
 
-Follow the [Pi deployment guide](pi-deployment.md). This architecture requires a fresh application database: preserve an old installation separately and do not open its recording database with the new build. Keep the existing networking and GeoIP configuration. Enable:
+Follow the [Pi deployment guide](pi-deployment.md). Current aggregate-schema
+installations upgrade in place; back up recordings before updating. Historical
+flow-store installations require the separate [storage migration](../validation/map-activity-rewrite.md).
+Keep the existing networking and GeoIP configuration. Enable:
 
 ```dotenv
 DEMO_MODE=true
@@ -22,11 +31,16 @@ To stop the dedicated demo, set `DEMO_MODE=false` and recreate the services usin
 
 ## Display PC
 
-1. Save the admin Wi-Fi connection for automatic reconnect and disable sleep/blanking while plugged in.
+1. Save the display's Wi-Fi connection for automatic reconnect and disable sleep/blanking while plugged in.
 2. Install Python 3 and Chromium, copy `scripts/demo-kiosk.py`, and run it at desktop login:
-   `python3 /path/to/demo-kiosk.py --url http://10.77.0.1`.
+   `python3 /path/to/demo-kiosk.py --url http://infrareveal.home.arpa`.
 3. If needed, pass `--browser /path/to/browser`. The launcher uses a dedicated profile, waits for both API and dashboard HTML, reopens the browser after exit and reloads after a sustained gateway outage.
 4. Test a display reboot while the Pi is off, then start the Pi and verify recovery without clicking Retry.
+
+In the shared Wi-Fi setup, select the display role after a gateway restart. The
+kiosk launcher alone does not grant that role. For a 20+ person rehearsal, use
+the [dense traffic procedure](../validation/dense-traffic.md) alongside physical
+client browsing; a synthetic load does not measure the radio or Internet uplink.
 
 The demo follows the live edge and reconnects automatically. Capture, gateway and cleanup problems remain visible; an idle complete capture may legitimately show no traffic. Normal map pages retain pause/seek controls and activity-block browsing. An activity block is inferred service traffic, not measured browsing attention. The screen generates no synthetic visitor activity.
 

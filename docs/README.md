@@ -22,6 +22,7 @@ Start with the [project README](../README.md) for setup and deployment, [CONTEXT
 ## Validation procedures
 
 - [Dense traffic](validation/dense-traffic.md): 1,500–5,000-series fixtures, bounded rendering, exact counters and a 90-minute Pi load procedure.
+- [Dense traffic on Raspberry Pi](validation/dense-traffic-raspberry-pi.md): deployed release, recovery instructions and measured hardware results.
 
 - [Single-radio Pi deployment](validation/single-radio-raspberry-pi.md): proxy-only startup and reboot, disabled admin Wi-Fi, network regression checks and operating commands.
 - [Physical client browsing](validation/client-browsing-e2e.md): real Chromium visits over a second Pi's Wi-Fi, map/activity assertions and repeatable artifacts.

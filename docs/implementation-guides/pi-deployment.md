@@ -70,7 +70,15 @@ The API, DHCP/DNS, capture and internet forwarding all remain part of the proxy.
 
 ## Existing Pi: current deployment and history
 
-**4 November live dashboard update (current):** application commit `f824be6`
+**12 November dense traffic update (current):** application commit `bbd5466`
+runs from `/home/pi/Documents/infrareveal-releases/bbd5466-dense-traffic-20261112`.
+Paged reads, incremental history, bounded rendering and capture write
+improvements are deployed, with
+the existing shared Wi-Fi, session and data mounts preserved. See the
+[deployment and load report](../validation/dense-traffic-raspberry-pi.md) for
+measured limits on the existing SD card, verification and rollback commands.
+
+**4 November live dashboard update:** application commit `f824be6`
 runs from `/home/pi/Documents/infrareveal-releases/f824be6-live-dashboard-20261104`.
 Live refreshes retain loaded data, and live lists default to latest activity.
 The shared Wi-Fi setup, existing session and data mounts are preserved. Gateway

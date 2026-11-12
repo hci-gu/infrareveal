@@ -1,6 +1,6 @@
 # Dense traffic validation
 
-The supported demo layout is 20+ participant browsing devices and one shared
+The intended demo layout is 20+ participant browsing devices and one shared
 dashboard on a display computer. Size traffic by packet rate, simultaneously
 active client/service/destination bindings, and retained history. Device count
 alone does not establish capacity. The load generator below exercises the real
@@ -26,6 +26,9 @@ sending network traffic. It cannot establish Wi-Fi airtime or forwarding capacit
 - Default publication is 1,000 ms, with 32,768 queued packet events and 16,384
   pending contributions. These are bounded buffers, not throughput guarantees.
   The dashboard explicitly reports capture lag and cumulative missed events.
+  Capture age continues advancing locally when revision updates stall, including
+  while playback is paused. API clocks are stamped after storage reads so a
+  delayed response cannot hide the time spent waiting.
 
 See [map rendering](../implementation-guides/map-dashboard.md) and
 [backend ownership](../implementation-guides/pocketbase-architecture.md) for the
@@ -123,7 +126,7 @@ also separate from steady-state live latency.
 
 ## Acceptance evidence
 
-The implementation has passed all 142 workspace tests, frontend lint, production
+The implementation has passed all 143 workspace tests, frontend lint, production
 builds, backend tests and the race detector for data, capture, timeline and
 gateway packages. Regression coverage includes all six counters beyond the old
 4,000-row limit, pinned revisions during concurrent correction, independently
@@ -138,7 +141,9 @@ timeline, 108 fps for Equal Earth, and 98 fps for Mercator. Pause-to-paint was
 are not a guarantee of hitch-free playback on other display hardware. The API
 fixture checks preserved the expected traffic totals.
 
-The deployment report records the final Pi soak and operational checks. A
+The [deployment report](dense-traffic-raspberry-pi.md) records tested packet rates,
+failed stress targets, the final Pi soak and operational checks. The 2,000-packet/s
+command above is a stress target, not an established hardware capacity. A
 physical rehearsal with 20+ browsing devices remains necessary: synthetic
 capture does not exercise the Wi-Fi radio, NAT forwarding, upstream Internet,
 real destination mix or the actual presentation screen.

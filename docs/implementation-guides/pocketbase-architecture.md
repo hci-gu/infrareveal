@@ -133,6 +133,9 @@ connection's timeout is restored before returning it to the pool. Automatic
 writer-side checkpoints are disabled while the worker owns them: a size-based
 fallback would put long storage syncs back on capture commits under sustained
 load. Shutdown or an unexpected worker error restores the previous setting.
+`RESTART` can still hold the writer lock during its storage sync. Slow flash can
+therefore cause capture lag even though lock acquisition never waits; use the
+[Pi load measurements](../validation/dense-traffic-raspberry-pi.md) to assess capacity.
 SQLite's existing `synchronous=NORMAL`
 setting is unchanged. Active read snapshots can delay checkpoint progress; the
 60-second expiry limits how long any one reader holds it back. Overlapping reads
