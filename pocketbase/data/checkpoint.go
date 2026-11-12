@@ -94,18 +94,11 @@ func StartCheckpoints(app core.App) (*Checkpoints, error) {
 
 func checkpoint(ctx context.Context, connection *sql.Conn) error {
 	var busy, pages, written int
-	if err := connection.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &pages, &written); err != nil {
-		return err
-	}
-	// Continuous short readers can prevent WAL reuse even after its frames are
-	// copied. Try to reuse a large, fully checkpointed WAL without waiting for
-	// any reader or writer. A busy result is normal and retried on a later tick.
-	// Keep its allocation: repeatedly truncating and extending the file creates
-	// unnecessary filesystem journal work on small flash devices.
-	if busy == 0 && pages >= 16384 && pages == written {
-		return connection.QueryRowContext(ctx, "PRAGMA wal_checkpoint(RESTART)").Scan(&busy, &pages, &written)
-	}
-	return nil
+	// FULL/RESTART/TRUNCATE take the writer lock even with busy_timeout=0.
+	// A write arriving between PASSIVE and RESTART would make the latter sync
+	// new database pages while holding that lock. Slow flash can turn this into
+	// seconds of capture backlog. Let ordinary reader gaps permit WAL reuse.
+	return connection.QueryRowContext(ctx, "PRAGMA wal_checkpoint(PASSIVE)").Scan(&busy, &pages, &written)
 }
 
 func (w *Checkpoints) restore(ctx context.Context) error {
