@@ -67,8 +67,10 @@ func StartCheckpoints(app core.App) (*Checkpoints, error) {
 	go func() {
 		defer close(w.done)
 		defer release()
-		// Avoid repeatedly colliding with one-second capture and browser timers.
-		timer := time.NewTimer(time.Second)
+		// Coalesce repeated writes to the same tail pages before syncing them.
+		// Committed WAL frames remain immediately readable between checkpoints.
+		// Vary the timing to avoid capture/browser timer collisions.
+		timer := time.NewTimer(5 * time.Second)
 		defer timer.Stop()
 		for {
 			select {
@@ -83,7 +85,7 @@ func StartCheckpoints(app core.App) (*Checkpoints, error) {
 					}
 					return
 				}
-				timer.Reset(time.Duration(750+rand.IntN(500)) * time.Millisecond)
+				timer.Reset(time.Duration(3750+rand.IntN(2500)) * time.Millisecond)
 			}
 		}
 	}()

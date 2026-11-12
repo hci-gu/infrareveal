@@ -121,9 +121,11 @@ without sampling or dropping counters, while block detail retains raw bins.
 Deletion, retention and capture-epoch changes invalidate obsolete snapshots.
 Collection APIs are private, including operational probe admissions.
 
-One gateway-owned worker runs a passive WAL checkpoint approximately each second
+One gateway-owned worker runs a passive WAL checkpoint approximately every five seconds
 on its own connection, keeping routine syncing off capture commits. Timing varies
-from 750–1,249 ms to avoid repeatedly colliding with capture and browser timers.
+from 3,750–6,249 ms to avoid repeatedly colliding with capture and browser timers.
+Several updates to the same database pages can then be coalesced before syncing;
+committed WAL frames remain readable immediately, with one-second publication.
 After fully checkpointing a WAL of at least 16,384 pages, it attempts truncation
 with zero busy timeout; a reader or writer in the way defers reclamation. The
 connection's timeout is restored before returning it to the pool. The writer retains an
