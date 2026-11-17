@@ -27,6 +27,11 @@ type Lookup interface {
 	City(net.IP) (*geoip2.City, error)
 }
 
+// ASNLookup is optional: a missing ASN database leaves network owners unknown.
+type ASNLookup interface {
+	ASN(net.IP) (*geoip2.ASN, error)
+}
+
 func Version(db Lookup) uint64 {
 	if v, ok := db.(interface{ Version() uint64 }); ok {
 		return v.Version()
@@ -47,7 +52,21 @@ type Status struct {
 	FinishedMS      int64  `json:"finished_ms"`
 	Error           string `json:"error"`
 	Message         string `json:"message"`
+	ASNAvailable    bool   `json:"asn_available"`
+	ASNBuildMS      int64  `json:"asn_build_ms"`
+	ASNBytes        int64  `json:"asn_bytes"`
 }
+
+// An edition is one GeoLite2 database the manager installs and serves.
+type edition struct {
+	name, file, databaseType, temp string
+	city                           bool
+}
+
+var (
+	cityEdition = edition{name: "GeoLite2 City", file: "GeoLite2-City.mmdb", databaseType: "GeoLite2-City", temp: ".city-download-*", city: true}
+	asnEdition  = edition{name: "GeoLite2 ASN", file: "GeoLite2-ASN.mmdb", databaseType: "GeoLite2-ASN", temp: ".asn-download-*"}
+)
 
 type credentials struct {
 	AccountID  string `json:"account_id"`
@@ -55,21 +74,27 @@ type credentials struct {
 }
 
 type Manager struct {
-	mu                    sync.RWMutex
-	reader                *geoip2.Reader
-	path, credentialsPath string
-	credentials           credentials
-	status                Status
-	generation            atomic.Uint64
-	cancel                context.CancelFunc
-	done                  chan struct{}
-	closed                bool
-	client                *http.Client
-	endpoint              string
+	mu                             sync.RWMutex
+	reader, asn                    *geoip2.Reader
+	path, asnPath, credentialsPath string
+	credentials                    credentials
+	status                         Status
+	generation                     atomic.Uint64
+	cancel                         context.CancelFunc
+	done                           chan struct{}
+	closed                         bool
+	client                         *http.Client
+	endpoint, asnEndpoint          string
 }
 
+// Open serves the City database at path and, when present, the ASN database
+// beside it as asn.mmdb.
 func Open(path, credentialsPath string) *Manager {
-	m := &Manager{path: path, credentialsPath: credentialsPath, endpoint: "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz", client: &http.Client{Timeout: 10 * time.Minute}, status: Status{Phase: "idle"}}
+	return OpenWithASN(path, filepath.Join(filepath.Dir(path), "asn.mmdb"), credentialsPath)
+}
+
+func OpenWithASN(path, asnPath, credentialsPath string) *Manager {
+	m := &Manager{path: path, asnPath: asnPath, credentialsPath: credentialsPath, endpoint: "https://download.maxmind.com/geoip/databases/GeoLite2-City/download?suffix=tar.gz", asnEndpoint: "https://download.maxmind.com/geoip/databases/GeoLite2-ASN/download?suffix=tar.gz", client: &http.Client{Timeout: 10 * time.Minute}, status: Status{Phase: "idle"}}
 	if b, err := os.ReadFile(credentialsPath); err == nil {
 		_ = json.Unmarshal(b, &m.credentials)
 	}
@@ -78,6 +103,12 @@ func Open(path, credentialsPath string) *Manager {
 		m.readMetadata()
 	} else {
 		m.status.Message = "No readable City database is installed."
+	}
+	if db, err := geoip2.Open(asnPath); err == nil && db.Metadata().DatabaseType == asnEdition.databaseType {
+		m.asn = db
+		m.readASNMetadata()
+	} else if err == nil {
+		_ = db.Close()
 	}
 	return m
 }
@@ -89,6 +120,26 @@ func (m *Manager) readMetadata() {
 	if s, err := os.Stat(m.path); err == nil {
 		m.status.Bytes = s.Size()
 	}
+}
+
+func (m *Manager) readASNMetadata() {
+	m.status.ASNAvailable = true
+	m.status.ASNBuildMS = int64(m.asn.Metadata().BuildEpoch) * 1000
+	if s, err := os.Stat(m.asnPath); err == nil {
+		m.status.ASNBytes = s.Size()
+	}
+}
+
+func (m *Manager) ASN(ip net.IP) (*geoip2.ASN, error) {
+	if m == nil {
+		return nil, errors.New("ASN database unavailable")
+	}
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	if m.asn == nil {
+		return nil, errors.New("ASN database unavailable")
+	}
+	return m.asn.ASN(ip)
 }
 
 func (m *Manager) City(ip net.IP) (*geoip2.City, error) {
@@ -179,10 +230,24 @@ func (m *Manager) Refresh() error {
 	m.cancel, m.done = cancel, make(chan struct{})
 	m.status.Phase, m.status.Error, m.status.Message = "downloading", "", "Downloading GeoLite2 City from MaxMind."
 	m.status.StartedMS, m.status.FinishedMS, m.status.DownloadedBytes = time.Now().UnixMilli(), 0, 0
-	c, done := m.credentials, m.done
+	c, done, endpoint, asnEndpoint := m.credentials, m.done, m.endpoint, m.asnEndpoint
 	go func() {
 		defer cancel()
-		err := m.download(ctx, c)
+		err := m.download(ctx, c, cityEdition, endpoint)
+		if err == nil && asnEndpoint != "" {
+			m.mu.Lock()
+			cityMessage := m.status.Message
+			m.status.Phase, m.status.Message = "downloading", "Downloading GeoLite2 ASN from MaxMind."
+			m.mu.Unlock()
+			// City stays installed when only the optional ASN database fails.
+			if err = m.download(ctx, c, asnEdition, asnEndpoint); err != nil {
+				err = fmt.Errorf("%s ASN: %w", cityMessage, err)
+			} else {
+				m.mu.Lock()
+				m.status.Message = cityMessage + " " + m.status.Message
+				m.mu.Unlock()
+			}
+		}
 		m.mu.Lock()
 		if err != nil {
 			m.status.Phase, m.status.Error = "failed", err.Error()
@@ -210,8 +275,12 @@ func (r progressReader) Read(p []byte) (int, error) {
 
 const maxDatabaseBytes = 512 * 1024 * 1024
 
-func (m *Manager) download(ctx context.Context, c credentials) error {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, m.endpoint, nil)
+func (m *Manager) download(ctx context.Context, c credentials, ed edition, endpoint string) error {
+	path := m.path
+	if !ed.city {
+		path = m.asnPath
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
 		return errors.New("Cannot prepare MaxMind download")
 	}
@@ -230,10 +299,10 @@ func (m *Manager) download(ctx context.Context, c credentials) error {
 		return errors.New("MaxMind download is not a valid gzip archive")
 	}
 	defer gz.Close()
-	if err = os.MkdirAll(filepath.Dir(m.path), 0755); err != nil {
+	if err = os.MkdirAll(filepath.Dir(path), 0755); err != nil {
 		return errors.New("GeoIP folder is not writable")
 	}
-	f, err := os.CreateTemp(filepath.Dir(m.path), ".city-download-*")
+	f, err := os.CreateTemp(filepath.Dir(path), ed.temp)
 	if err != nil {
 		return errors.New("GeoIP folder is not writable; check its disk space and mount")
 	}
@@ -255,9 +324,9 @@ func (m *Manager) download(ctx context.Context, c credentials) error {
 		if ctx.Err() != nil {
 			return errors.New("GeoIP refresh was cancelled")
 		}
-		if h.Typeflag == tar.TypeReg && filepath.Base(h.Name) == "GeoLite2-City.mmdb" {
+		if h.Typeflag == tar.TypeReg && filepath.Base(h.Name) == ed.file {
 			if found || h.Size <= 0 || h.Size > maxDatabaseBytes {
-				return errors.New("Unexpected City database in archive")
+				return fmt.Errorf("Unexpected %s database in archive", ed.name)
 			}
 			if _, err = io.Copy(f, tr); err != nil {
 				return errors.New("Cannot write GeoIP download; check free disk space")
@@ -281,17 +350,17 @@ func (m *Manager) download(ctx context.Context, c credentials) error {
 	m.mu.Unlock()
 	check, err := maxminddb.Open(f.Name())
 	if err != nil {
-		return errors.New("Downloaded City database is invalid")
+		return fmt.Errorf("Downloaded %s database is invalid", ed.name)
 	}
 	err = check.Verify()
 	meta := check.Metadata
 	_ = check.Close()
-	if err != nil || meta.DatabaseType != "GeoLite2-City" || meta.BuildEpoch == 0 {
-		return errors.New("Downloaded file is not a valid GeoLite2 City database")
+	if err != nil || meta.DatabaseType != ed.databaseType || meta.BuildEpoch == 0 {
+		return fmt.Errorf("Downloaded file is not a valid %s database", ed.name)
 	}
 	next, err := geoip2.Open(f.Name())
 	if err != nil {
-		return errors.New("Cannot open downloaded City database")
+		return fmt.Errorf("Cannot open downloaded %s database", ed.name)
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -299,24 +368,32 @@ func (m *Manager) download(ctx context.Context, c credentials) error {
 		_ = next.Close()
 		return errors.New("GeoIP refresh was cancelled")
 	}
-	if m.reader != nil && meta.BuildEpoch < m.reader.Metadata().BuildEpoch {
-		_ = next.Close()
-		return errors.New("Downloaded database is older than the installed version")
+	current := &m.reader
+	if !ed.city {
+		current = &m.asn
 	}
-	if m.reader != nil && meta.BuildEpoch == m.reader.Metadata().BuildEpoch && meta.DatabaseType == m.reader.Metadata().DatabaseType {
+	if *current != nil && meta.BuildEpoch < (*current).Metadata().BuildEpoch {
 		_ = next.Close()
-		m.status.Phase, m.status.Message = "complete", "The installed GeoLite2 City database is already up to date."
+		return fmt.Errorf("Downloaded %s database is older than the installed version", ed.name)
+	}
+	if *current != nil && meta.BuildEpoch == (*current).Metadata().BuildEpoch && meta.DatabaseType == (*current).Metadata().DatabaseType {
+		_ = next.Close()
+		m.status.Phase, m.status.Message = "complete", fmt.Sprintf("The installed %s database is already up to date.", ed.name)
 		return nil
 	}
-	if err = os.Rename(f.Name(), m.path); err != nil {
+	if err = os.Rename(f.Name(), path); err != nil {
 		_ = next.Close()
-		return errors.New("Cannot replace the City database; the existing database is unchanged")
+		return fmt.Errorf("Cannot replace the %s database; the existing database is unchanged", ed.name)
 	}
-	old := m.reader
-	m.reader = next
-	m.readMetadata()
+	old := *current
+	*current = next
+	if ed.city {
+		m.readMetadata()
+	} else {
+		m.readASNMetadata()
+	}
 	m.generation.Add(1)
-	m.status.Phase, m.status.Message = "complete", "GeoLite2 City updated. New traffic uses the refreshed database."
+	m.status.Phase, m.status.Message = "complete", fmt.Sprintf("%s updated. New traffic uses the refreshed database.", ed.name)
 	if old != nil {
 		_ = old.Close()
 	}
@@ -340,10 +417,14 @@ func (m *Manager) Close(ctx context.Context) error {
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	var err error
 	if m.reader != nil {
-		err := m.reader.Close()
+		err = m.reader.Close()
 		m.reader = nil
-		return err
 	}
-	return nil
+	if m.asn != nil {
+		err = errors.Join(err, m.asn.Close())
+		m.asn = nil
+	}
+	return err
 }

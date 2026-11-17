@@ -77,14 +77,17 @@ describe('captured series map projection',()=>{
     const {view}=project(window,start+20000)
     expect(projectMapFrame(view.scene,start+20000).points.every(point => point.activeSeriesCount === 0)).toBe(true)
   })
-  it('gives distinct series their own timeline lanes even at the same service and location',()=>{
+  it('merges every endpoint of one service into a single timeline lane',()=>{
     const original=window.series[0]
     const parallel={...original,id:'parallel',destination_port:8443}
     const restarted={...original,id:'restarted',capture_epoch:'capture-2'}
     const {view}=project({...window,series:[...window.series,parallel,restarted]})
-    expect(view.rows).toHaveLength(view.bySeries.size)
-    expect(view.rows.every(row=>row.series.length===1)).toBe(true)
-    expect(view.rows.filter(row=>row.label==='svt.se')).toHaveLength(3)
+    expect(view.rows).toHaveLength(view.tracks.length)
+    const svt=view.rows.filter(row=>row.label===original.service_label)
+    expect(svt).toHaveLength(1)
+    expect(svt[0].series).toHaveLength(3)
+    expect(svt[0].endpoint).toBe('2 endpoints')
+    expect(view.rows.reduce((sum,row)=>sum+row.series.length,0)).toBe(view.bySeries.size)
     expect(view.rows.reduce((sum,row)=>sum+row.received,0)).toBe(view.total.received)
     expect(view.rows.reduce((sum,row)=>sum+row.sent,0)).toBe(view.total.sent)
   })
@@ -161,10 +164,12 @@ describe('shared dashboard filters', () => {
     const original = projectWorkspace(catalog, scene, index, start + 100, state)
     const target = original.rows.find(row => row.label === 'svt.se')!
     const filtered = projectWorkspace(catalog, scene, index, start + 100, { ...state, query: `SVT.SE ${target.client} ${target.series[0].chunks[0].destination_ip}` })
+    const seriesId = target.series[0].id
+    expect(target.series).toHaveLength(1)
     expect(filtered.rows.map(row => row.id)).toEqual([target.id])
-    expect(filtered.tracks.flatMap(track => track.series.map(series => series.id))).toEqual([target.id])
-    expect(filtered.locations.flatMap(location => location.series.map(series => series.id))).toEqual([target.id])
-    expect(filtered.scene.endpoints.flatMap(endpoint => endpoint.series.map(series => series.id))).toEqual([target.id])
+    expect(filtered.tracks.flatMap(track => track.series.map(series => series.id))).toEqual([seriesId])
+    expect(filtered.locations.flatMap(location => location.series.map(series => series.id))).toEqual([seriesId])
+    expect(filtered.scene.endpoints.flatMap(endpoint => endpoint.series.map(series => series.id))).toEqual([seriesId])
     expect(filtered.total).toMatchObject({ received: target.received, sent: target.sent })
     const volumes = projectDestinationVolumes(filtered.scene, filtered.bySeries, index, start + 100)
     expect(volumes.reduce((sum, volume) => sum + volume.bytes, 0)).toBe(target.bytes)

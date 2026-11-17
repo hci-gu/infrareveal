@@ -34,6 +34,7 @@ FROM debian:bookworm-slim
 # Install required dependencies
 RUN export DEBIAN_FRONTEND=noninteractive; \
     apt-get update --fix-missing && apt-get install -y --no-install-recommends \
+    ca-certificates \
     hostapd \
     iw \
     python3 \

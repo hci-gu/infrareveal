@@ -18,6 +18,7 @@ type connection struct {
 	established, closed          bool
 	evidence                     data.Attribution
 	service, label               string
+	owner                        networkOwner
 }
 type contribution struct {
 	flow    string
@@ -121,7 +122,8 @@ func (a *aggregate) packet(e PacketActivityEvent, network string, destination da
 	}
 	f.last = max(f.last, now)
 	f.established = f.established || (!syn && e.TCPFlags&0x10 != 0)
-	f.service, f.label, f.evidence = a.dns.resolve(a.session, tuple, f.started, now, a.policy, f.evidence)
+	f.owner = ownerOf(destination)
+	f.service, f.label, f.evidence = a.dns.resolve(a.session, tuple, f.started, now, a.policy, f.evidence, f.owner)
 	start := now / a.policy.ChunkMS * a.policy.ChunkMS
 	partKey := f.id + "|" + network + "|" + destination.ID + "|" + fmt.Sprint(start) + "|" + f.service
 	p := a.parts[partKey]
@@ -199,7 +201,7 @@ func (a *aggregate) conntrack(samples []FlowSample, at int64) {
 func (a *aggregate) correct(now int64) {
 	active := map[string]*connection{}
 	for _, f := range a.flows {
-		f.service, f.label, f.evidence = a.dns.resolve(a.session, f.tuple, f.started, now, a.policy, f.evidence)
+		f.service, f.label, f.evidence = a.dns.resolve(a.session, f.tuple, f.started, now, a.policy, f.evidence, f.owner)
 		active[f.id] = f
 	}
 	additions := map[string]*contribution{}

@@ -38,6 +38,7 @@ export function projectWorkspace(catalog: MapTrackCatalog, scene: MapTimelineSce
   const trackGroups = new Map<string, MapTrack>()
   const locations = new Map<string, LocationTraffic>()
   const rows: TimelineTrafficRow[] = []
+  const laneGroups = new Map<string, { row: TimelineTrafficRow; endpoints: Set<string>; locations: Map<string, { label: string; bytes: number }> }>()
   const bySeries = new Map<string, MapSeries>()
   const total = zero()
   const volumeBySeries = new Map<string, ByteTotals>()
@@ -87,7 +88,23 @@ export function projectWorkspace(catalog: MapTrackCatalog, scene: MapTimelineSce
     track.mappedCount += Number(scoped.mapped)
     trackGroups.set(trackId, track)
     const chunk = series.chunks[0]
-    rows.push({ id: series.id, trackId: series.trackId, label: series.label, client: series.client, endpoint: `${chunk.destination_ip}:${chunk.destination_port} · ${chunk.protocol.toUpperCase()}`, location: location.label, locationId: location.id, ...volume, lastActivityMs, bytes: scoped.bytes, series: [scoped] })
+    // One timeline lane per service (client + service key); its endpoints merge.
+    const lane = laneGroups.get(trackId) ?? { row: { id: trackId, trackId, label: series.label, client: series.client, endpoint: '', location: '', locationId: '', ...zero(), lastActivityMs: 0, bytes: 0, series: [] }, endpoints: new Set<string>(), locations: new Map<string, { label: string; bytes: number }>() }
+    lane.row.series.push(scoped); add(lane.row, volume)
+    lane.row.bytes += scoped.bytes
+    lane.row.lastActivityMs = Math.max(lane.row.lastActivityMs, lastActivityMs)
+    lane.endpoints.add(`${chunk.destination_ip}:${chunk.destination_port} · ${chunk.protocol.toUpperCase()}`)
+    const laneLocation = lane.locations.get(location.id) ?? { label: location.label, bytes: 0 }
+    laneLocation.bytes += scoped.bytes; lane.locations.set(location.id, laneLocation)
+    laneGroups.set(trackId, lane)
+  }
+  for (const { row, endpoints, locations: laneLocations } of laneGroups.values()) {
+    sortSeries(row.series, state.order)
+    const [dominantId, dominant] = [...laneLocations].sort((a, b) => b[1].bytes - a[1].bytes || a[1].label.localeCompare(b[1].label))[0]
+    row.locationId = dominantId
+    row.location = laneLocations.size > 1 ? `${dominant.label} +${laneLocations.size - 1}` : dominant.label
+    row.endpoint = endpoints.size > 1 ? `${endpoints.size} endpoints` : [...endpoints][0]
+    rows.push(row)
   }
   const tracks = [...trackGroups.values()].sort(compareActivity(state.order ?? 'volume'))
   for (const track of tracks) sortSeries(track.series, state.order)

@@ -36,6 +36,6 @@ export function TrafficFilters({ open, state, data, onChange, onClose }: {
         {data.locationOptions.map(location => <option key={location.id} value={location.id}>{location.label}</option>)}
       </select>
     </div>
-    <footer><p>{data.rows.length} {data.rows.length === 1 ? 'endpoint' : 'endpoints'} · {data.tracks.length} {data.tracks.length === 1 ? 'track' : 'tracks'}</p><button type="button" disabled={trafficFilterCount(state) === 0} onClick={() => onChange({ ...state, ...DEFAULT_TRAFFIC_FILTERS })}>Reset filters</button></footer>
+    <footer><p>{data.bySeries.size} {data.bySeries.size === 1 ? 'endpoint' : 'endpoints'} · {data.tracks.length} {data.tracks.length === 1 ? 'track' : 'tracks'}</p><button type="button" disabled={trafficFilterCount(state) === 0} onClick={() => onChange({ ...state, ...DEFAULT_TRAFFIC_FILTERS })}>Reset filters</button></footer>
   </aside>
 }

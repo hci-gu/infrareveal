@@ -12,6 +12,7 @@ export type GeoIPStatus = {
   available: boolean; database_type: string; build_ms: number; bytes: number
   configured: boolean; account_id: string; phase: string; downloaded_bytes: number
   started_ms: number; finished_ms: number; error: string; message: string
+  asn_available?: boolean; asn_build_ms?: number; asn_bytes?: number
 }
 
 export async function maintenanceRequest<T>(path: string, method = 'GET', body?: unknown, signal?: AbortSignal): Promise<T> {

@@ -90,8 +90,9 @@ export function GeoIPPanel() {
     finally { setBusy(false) }
   }
   return <section className={card} aria-label="GeoIP database">
-    <h2 className="text-lg font-semibold">GeoIP database</h2><p className="mt-2 text-sm text-muted">MaxMind GeoLite2 City supplies approximate destination locations.</p>
+    <h2 className="text-lg font-semibold">GeoIP database</h2><p className="mt-2 text-sm text-muted">MaxMind GeoLite2 City supplies approximate destination locations. GeoLite2 ASN names the network that owns an address when no DNS lookup identifies the service.</p>
     {geo && <><div className="mt-5 grid gap-5 sm:grid-cols-3"><Metric label="Installed database" value={geo.available ? geo.database_type : 'Not installed'} /><Metric label="Database built" value={geo.build_ms ? new Date(geo.build_ms).toLocaleDateString('en-GB') : 'Unavailable'} /><Metric label="File size" value={storageBytes(geo.bytes)} /></div>
+      <p className="mt-3 text-sm text-ink-2">Network owners (ASN): {geo.asn_available ? `installed · built ${new Date(geo.asn_build_ms ?? 0).toLocaleDateString('en-GB')} · ${storageBytes(geo.asn_bytes ?? 0)}` : 'not installed — the next refresh downloads it'}</p>
       <p className="mt-4 text-sm text-muted">Refresh downloads and checks a replacement before switching files. Saved observations keep their original locations.</p>
       {(geo.phase !== 'idle' || geo.message) && <p role="status" className="mt-4 text-sm font-semibold">{geo.error || geo.message}{geo.phase === 'downloading' ? ` · ${storageBytes(geo.downloaded_bytes)} downloaded` : ''}</p>}
       {!geo.configured && <p className="mt-4 border-l-2 border-accent pl-3 text-sm text-ink-2">Add your MaxMind account ID and license key to enable manual updates.</p>}

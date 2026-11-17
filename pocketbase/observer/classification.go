@@ -42,10 +42,11 @@ func (d *dnsCache) forgetClient(ip string) {
 	d.reindex()
 }
 func (d *dnsCache) add(session string, e dnsLogEvent, at int64, scope ObservationScope) []DNSRecord {
-	if at-d.pruned > 1000 || len(d.entries) >= 8192 {
-		d.entries = slices.DeleteFunc(d.entries, func(q *DNSRecord) bool { return q.ObservedMS < at-300000 || q.Session != session })
-		if len(d.entries) >= 8192 {
-			d.entries = d.entries[len(d.entries)-8191:]
+	if at-d.pruned > 1000 || len(d.entries) >= maxDNSCache {
+		d.entries = slices.DeleteFunc(d.entries, func(q *DNSRecord) bool { return q.ObservedMS < at-dnsMemoryMS || q.Session != session })
+		// Trim with headroom so a full cache does not reindex on every query.
+		if len(d.entries) >= maxDNSCache {
+			d.entries = slices.Delete(d.entries, 0, len(d.entries)-maxDNSCache*7/8)
 		}
 		d.reindex()
 		d.pruned = at
@@ -98,16 +99,31 @@ func canonicalService(host string, policy data.Policy) string {
 	return domain
 }
 
-func (d *dnsCache) resolve(session string, tuple netmeta.FlowTuple, started, now int64, p data.Policy, previous data.Attribution) (string, string, data.Attribution) {
+// Fresh answers name a connection with medium confidence. Devices cache DNS
+// longer than that window, so an older answer for the same client and IP still
+// names it, with low confidence, when every remembered name agrees.
+const (
+	freshDNSMS  = 300000
+	dnsMemoryMS = 30 * 60000
+	maxDNSCache = 8192
+)
+
+func (d *dnsCache) resolve(session string, tuple netmeta.FlowTuple, started, now int64, p data.Policy, previous data.Attribution, owner networkOwner) (string, string, data.Attribution) {
 	ip := tuple.RemoteIP.String()
 	endpoint := "endpoint:" + ip + "|" + tuple.Protocol + "|" + strconv.Itoa(int(tuple.RemotePort))
 	e := data.Attribution{Source: "destination_ip", MatchedIP: ip, Confidence: "low", PolicyVersion: p.Version}
+	if resolver, ok := knownResolver(tuple); ok {
+		// Resolver traffic is identified by address and port, never by DNS names.
+		e.Source, e.Confidence = "known_resolver", "medium"
+		return resolver.key, resolver.label, e
+	}
 	if tuple.RemotePort == 853 || tuple.RemotePort == 51820 || (tuple.Protocol == "udp" && (tuple.RemotePort == 443 || tuple.RemotePort == 500 || tuple.RemotePort == 4500)) {
 		e.Confidence = "hidden"
 	}
+	answers := d.answers[session+"|"+tuple.ClientIP.String()+"|"+ip]
 	service := ""
-	for _, q := range d.answers[session+"|"+tuple.ClientIP.String()+"|"+ip] {
-		if q.ObservedMS < now-300000 || q.ObservedMS < started-300000 {
+	for _, q := range answers {
+		if q.ObservedMS < now-freshDNSMS || q.ObservedMS < started-freshDNSMS {
 			continue
 		}
 		candidate := canonicalService(q.QueryName, p)
@@ -142,15 +158,52 @@ func (d *dnsCache) resolve(session string, tuple netmeta.FlowTuple, started, now
 		e.Hostname = ""
 		e.Source = "ambiguous_dns"
 		e.Confidence = "low"
+		if owner.ok() {
+			return owner.key(), owner.label(), e
+		}
 		return endpoint, ip, e
 	}
 	if service == "" && previous.Hostname != "" {
 		return canonicalService(previous.Hostname, p), canonicalService(previous.Hostname, p), previous
 	}
 	if service == "" {
+		if stale, ok := staleAnswer(answers, started, now, p); ok {
+			service = canonicalService(stale.QueryName, p)
+			e.Hostname, e.ObservedMS, e.Source, e.Confidence = stale.QueryName, stale.ObservedMS, "stale_dns", "low"
+		}
+	}
+	if service == "" && owner.ok() {
+		e.Source = "network_owner"
+		return owner.key(), owner.label(), e
+	}
+	if service == "" {
 		return endpoint, ip, e
 	}
 	return service, service, e
+}
+
+// staleAnswer returns the newest remembered answer older than the fresh window
+// only when all remembered names map to one service.
+func staleAnswer(answers []*DNSRecord, started, now int64, p data.Policy) (*DNSRecord, bool) {
+	var best *DNSRecord
+	service := ""
+	for _, q := range answers {
+		if q.ObservedMS < now-dnsMemoryMS || q.ObservedMS < started-dnsMemoryMS || q.ObservedMS > started+p.CorrectionMS {
+			continue
+		}
+		candidate := canonicalService(q.QueryName, p)
+		if candidate == "" {
+			continue
+		}
+		if service != "" && service != candidate {
+			return nil, false
+		}
+		service = candidate
+		if best == nil || q.ObservedMS > best.ObservedMS {
+			best = q
+		}
+	}
+	return best, best != nil
 }
 
 func tupleFromKey(key string) (netmeta.FlowTuple, bool) {

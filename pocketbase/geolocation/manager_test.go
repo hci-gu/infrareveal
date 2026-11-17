@@ -20,11 +20,14 @@ import (
 )
 
 func archive(t *testing.T, data []byte) []byte {
+	return archiveNamed(t, "GeoLite2-City_test/GeoLite2-City.mmdb", data)
+}
+func archiveNamed(t *testing.T, name string, data []byte) []byte {
 	t.Helper()
 	var b bytes.Buffer
 	gz := gzip.NewWriter(&b)
 	tw := tar.NewWriter(gz)
-	if err := tw.WriteHeader(&tar.Header{Name: "GeoLite2-City_test/GeoLite2-City.mmdb", Mode: 0600, Size: int64(len(data))}); err != nil {
+	if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0600, Size: int64(len(data))}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := tw.Write(data); err != nil {
@@ -58,6 +61,7 @@ func manager(t *testing.T) *Manager {
 	if err := m.Configure("123456", "fixture-key"); err != nil {
 		t.Fatal(err)
 	}
+	m.asnEndpoint = "" // City tests never reach MaxMind for the optional ASN edition.
 	return m
 }
 func completed(t *testing.T, m *Manager) Status {
@@ -214,5 +218,65 @@ func TestRefreshJoinsAndCloseCancels(t *testing.T) {
 	}
 	if err := m.Refresh(); err == nil {
 		t.Fatal("closed manager restarted")
+	}
+}
+
+func TestInstallsOptionalASNAfterCity(t *testing.T) {
+	m := manager(t)
+	city := fixture(t)
+	asn, err := os.ReadFile("testdata/GeoLite2-ASN-Test.mmdb")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/asn" {
+			_, _ = w.Write(archiveNamed(t, "GeoLite2-ASN_test/GeoLite2-ASN.mmdb", asn))
+			return
+		}
+		_, _ = w.Write(archive(t, city))
+	}))
+	defer server.Close()
+	m.endpoint, m.asnEndpoint = server.URL+"/city", server.URL+"/asn"
+	if _, err := m.ASN(net.ParseIP("1.128.0.1")); err == nil {
+		t.Fatal("ASN lookup before install")
+	}
+	if err := m.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	s := completed(t, m)
+	if s.Phase != "complete" || !s.Available || !s.ASNAvailable || s.ASNBytes != int64(len(asn)) || m.Version() != 2 {
+		t.Fatalf("install: %+v", s)
+	}
+	record, err := m.ASN(net.ParseIP("1.128.0.1"))
+	if err != nil || record.AutonomousSystemNumber == 0 || record.AutonomousSystemOrganization == "" {
+		t.Fatalf("ASN lookup: %+v %v", record, err)
+	}
+	reopened := Open(m.path, m.credentialsPath)
+	defer reopened.Close(context.Background())
+	if !reopened.Status().ASNAvailable {
+		t.Fatal("installed ASN database not reopened")
+	}
+}
+
+func TestASNFailureKeepsUpdatedCity(t *testing.T) {
+	m := manager(t)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/asn" {
+			_, _ = w.Write(archiveNamed(t, "GeoLite2-ASN_test/GeoLite2-ASN.mmdb", []byte("not mmdb")))
+			return
+		}
+		_, _ = w.Write(archive(t, fixture(t)))
+	}))
+	defer server.Close()
+	m.endpoint, m.asnEndpoint = server.URL+"/city", server.URL+"/asn"
+	if err := m.Refresh(); err != nil {
+		t.Fatal(err)
+	}
+	s := completed(t, m)
+	if s.Phase != "failed" || !s.Available || s.ASNAvailable || !strings.Contains(s.Error, "ASN") {
+		t.Fatalf("partial failure: %+v", s)
+	}
+	if _, err := m.City(net.ParseIP("81.2.69.160")); err != nil {
+		t.Fatal(err)
 	}
 }

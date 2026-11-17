@@ -9,6 +9,12 @@ import { formatBytes, formatCursor } from './format'
 import { MapIcon } from './MapIcon'
 
 type Props = { cursorMs: number; order?: ActivityOrder; refreshing: boolean; track: MapTrack; traffic: ReturnType<typeof trackTraffic>; locationLabel?: string; onClose: () => void; onFit: () => void }
+const CLASSIFICATION_SOURCES: Record<string, string> = {
+  dns_answer: 'DNS lookup', stale_dns: 'Earlier DNS lookup', ambiguous_dns: 'Shared address',
+  network_owner: 'Network owner (ASN)', known_resolver: 'Public DNS resolver', destination_ip: 'Independent endpoint', combined: 'Combined evidence',
+}
+const classificationSource = (source?: string) => source ? CLASSIFICATION_SOURCES[source] ?? source : 'Independent endpoint'
+
 export function MapTrackInspector({ cursorMs, order, refreshing, track, traffic, locationLabel, onClose, onFit }: Props) {
   const ref = useRef<HTMLElement>(null)
   useEffect(() => { ref.current?.focus({ preventScroll: true }) }, [])
@@ -31,7 +37,7 @@ export function MapTrackInspector({ cursorMs, order, refreshing, track, traffic,
 function SeriesDetails({ series }: { series: MapSeries }) {
   const chunk = series.chunks[series.chunks.length - 1]
   return <details className="atlas-connection"><summary><span className="atlas-connection-name"><strong>{series.hostname}</strong><small>{chunk.destination_ip}:{chunk.destination_port} · {chunk.protocol.toUpperCase()}</small></span><span>{formatBytes(series.bytes)}</span></summary>
-    <div className="atlas-connection-body"><dl><div><dt>Location</dt><dd>{series.location || 'Unknown'}</dd></div><div><dt>Provider</dt><dd>{series.provider || 'Unknown'}</dd></div><div><dt>Classification</dt><dd>{chunk.evidence.source || 'Independent endpoint'} · {chunk.evidence.confidence || 'unknown'}{chunk.evidence.ambiguous ? ' · ambiguous' : ''}</dd></div><div><dt>Observed</dt><dd>{formatCursor(chunk.evidence.observed_ms)} UTC · {chunk.sealed ? 'sealed' : 'provisional'}</dd></div></dl>
+    <div className="atlas-connection-body"><dl><div><dt>Location</dt><dd>{series.location || 'Unknown'}</dd></div><div><dt>Provider</dt><dd>{series.provider || 'Unknown'}</dd></div><div><dt>Classification</dt><dd>{classificationSource(chunk.evidence.source)} · {chunk.evidence.confidence || 'unknown'}{chunk.evidence.ambiguous ? ' · ambiguous' : ''}</dd></div><div><dt>Observed</dt><dd>{formatCursor(chunk.evidence.observed_ms)} UTC · {chunk.sealed ? 'sealed' : 'provisional'}</dd></div></dl>
     </div>
   </details>
 }

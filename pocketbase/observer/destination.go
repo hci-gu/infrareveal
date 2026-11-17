@@ -29,6 +29,12 @@ func destinationSnapshot(db geolocation.Lookup, ip string, now time.Time) data.D
 			}
 		}
 	}
+	if owners, ok := db.(geolocation.ASNLookup); ok {
+		if record, err := owners.ASN(net.ParseIP(ip)); err == nil && record.AutonomousSystemNumber > 0 {
+			d.ASN = int(record.AutonomousSystemNumber)
+			d.Provider = record.AutonomousSystemOrganization
+		}
+	}
 	b, _ := json.Marshal(d)
 	d.Version = data.ID(string(b))
 	d.ID = data.ID(ip, d.Version)

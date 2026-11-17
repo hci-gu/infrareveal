@@ -14,6 +14,7 @@ import (
 	"myapp/labgate"
 	"myapp/observer"
 	"myapp/routing"
+	"os"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -145,7 +146,12 @@ func (g *Runtime) Start() (err error) {
 	if err != nil {
 		return err
 	}
-	g.geo = geolocation.Open(g.config.GeoIPPath, filepath.Join(g.app.DataDir(), "maxmind.json"))
+	// Route enrichment reads the same ASN file; both default beside the City database.
+	asnPath := os.Getenv("ROUTE_ASN_DB")
+	if asnPath == "" {
+		asnPath = filepath.Join(filepath.Dir(g.config.GeoIPPath), "asn.mmdb")
+	}
+	g.geo = geolocation.OpenWithASN(g.config.GeoIPPath, asnPath, filepath.Join(g.app.DataDir(), "maxmind.json"))
 	if err = g.ensureDefaultActiveSession(); err != nil {
 		return fmt.Errorf("ensure active gateway session: %w", err)
 	}
