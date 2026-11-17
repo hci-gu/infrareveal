@@ -36,6 +36,9 @@ import { themedAtlasStyle } from '../map/atlasStyle'
 import { useCaptureStatus } from '../map/useCaptureStatus'
 import '../map/map.css'
 
+/** Enough resolution for a smooth envelope across a wide transport bar. */
+const TRANSPORT_BINS = 240
+
 const LIVE_DURATION_HEADROOM_SECONDS = 30
 const LIVE_EDGE_TOLERANCE_MS = 2_000
 const TRAFFIC_ORDER_LABELS: Record<ActivityOrder | 'default', string> = { default: 'Default', latest: 'Latest activity', volume: 'Traffic volume', name: 'Name' }
@@ -95,8 +98,8 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const projectionCursor = timeline.playback === 'paused' ? cursorMs : Math.floor(cursorMs / publishMs) * publishMs
   const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationIndex, projectionCursor, workspace), [trackCatalog, scene, destinationIndex, projectionCursor, workspace])
   const waveform = useMemo(() => createWireWaveformCache(), [])
-  const playbackBins = useMemo(() => waveform([...overview.bySeries.values()], destinationIndex, { from: scene.startMs, to: contentEndMs }), [waveform, overview.bySeries, destinationIndex, scene.startMs, contentEndMs])
-  const captureWarning = useCaptureStatus(timeline.manifest, timeline.clock)
+  const playbackBins = useMemo(() => waveform([...overview.bySeries.values()], destinationIndex, { from: scene.startMs, to: contentEndMs }, TRANSPORT_BINS), [waveform, overview.bySeries, destinationIndex, scene.startMs, contentEndMs])
+  const captureWarning = useCaptureStatus(timeline.manifest, timeline.clock, history.window.coverage)
   const demoWarning = demo && (demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow)))
   const styledMap = useMemo(() => themedAtlasStyle(mapStyleUrl, theme, preferences.labels), [theme, preferences.labels])
   const timelineRef = useRef({

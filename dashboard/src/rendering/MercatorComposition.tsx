@@ -18,6 +18,7 @@ import type { TrafficArc } from '../map/mapTraffic'
 import { trackOpacity } from '../map/mapTracks'
 import { directionColor } from '../map/mapWorkspace'
 import { CountryLabels } from '../map/CountryLabels'
+import { layoutMapLabels } from '../map/labelLayout'
 import { CountryArcLayer, CountryFlowArcLayer, CountryFootprintLayer } from '../map/CountryLayers'
 import { countryFitPositions, countryFootprint } from '../map/countryFootprints'
 import { columnMetersPerPixel, projectDestinationVolumes, directionalColumns } from '../map/destinationVolumes'
@@ -60,19 +61,36 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
     { focused: false, data: selection ? columns.filter(column => column.trackId !== selection) : [] },
     { focused: true, data: selection ? columns.filter(column => column.trackId === selection) : columns },
   ], [selection, columns])
-  const destinationLabels = useMemo(() => {
+  const labelLayout = useMemo(() => {
     const viewport = new WebMercatorViewport({ ...viewState, width, height })
-    const occupied: number[][] = []
-    return destinations.filter(destination => {
-      if (destination.country) return false
-      if (selection && !destination.tracks.some(track => track.trackId === selection)) return false
-      const [x, y] = viewport.project([...destination.position, destination.height * columnMetersPerPixel(destination.position[1], viewState.zoom)])
-      if (x < 35 || x > width - 55 || y < 90 || y > height - 90 || (x < 30)
-        || (inspectorOpen && width > 1000 && x > width - 385) || occupied.some(([px, py]) => Math.abs(px - x) < 95 && Math.abs(py - y) < 42) || occupied.length >= 10) return false
-      occupied.push([x, y])
-      return true
+    const project = (position: MapPosition, elevation = 0) => viewport.project([...position, elevation]) as [number, number]
+    const inspectorEdge = inspectorOpen && width > 1000
+    const cities = destinations.filter(destination => !destination.country).map(destination => ({
+      id: destination.id, bytes: destination.received + destination.sent, text: formatBytes(destination.received + destination.sent),
+      top: project(destination.position, destination.height * columnMetersPerPixel(destination.position[1], viewState.zoom)), base: project(destination.position),
+      hidden: Boolean(selection && !destination.tracks.some(track => track.trackId === selection)),
+    }))
+    const countries = (width <= 760 && inspectorOpen) ? [] : countryDestinations.map(destination => {
+      const ring = destination.country?.polygons.length ? countryFitPositions(destination.country).map(position => project(position)) : []
+      const xs = ring.map(point => point[0]), ys = ring.map(point => point[1])
+      return {
+        id: destination.id, bytes: destination.received + destination.sent, anchor: project(destination.position),
+        footprint: ring.length ? { width: Math.max(...xs) - Math.min(...xs), height: Math.max(...ys) - Math.min(...ys) } : { width: 0, height: 0 },
+        name: destination.location, total: formatBytes(destination.received + destination.sent),
+        selected: selectedLocation?.id === destination.id, dimmed: Boolean(selection && !destination.tracks.some(track => track.trackId === selection)),
+      }
     })
-  }, [destinations, viewState, width, height, selection, inspectorOpen])
+    return layoutMapLabels({
+      cities, countries,
+      bounds: { left: 12, top: 75, right: width - (inspectorEdge ? 390 : 60), bottom: height - 95 },
+      cityBounds: { left: 35, top: 90, right: inspectorEdge ? width - 385 : width - 55, bottom: height - 90 },
+    })
+  }, [destinations, countryDestinations, viewState, width, height, selection, selectedLocation?.id, inspectorOpen])
+  const destinationLabels = useMemo(() => {
+    const ids = new Set(labelLayout.cities)
+    return destinations.filter(destination => ids.has(destination.id))
+  }, [destinations, labelLayout])
+  const countryById = useMemo(() => new Map(countryDestinations.map(destination => [destination.id, destination])), [countryDestinations])
   const visibleArcs = mapFrame.arcs
   const geometry = useMemo(() => createMapGeometryCache(), [])
   const { connections, countryConnections } = useMemo(() => geometry(visibleArcs), [geometry, visibleArcs])
@@ -265,7 +283,7 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
         <Basemap mapStyle={mapStyleUrl} minZoom={-1} attributionControl={{ compact: true }}
           onError={() => setMapError(true)} onIdle={() => setMapError(false)} />
       </AnimatedMercator>
-      {preferences.labels && <CountryLabels destinations={countryDestinations} viewState={viewState} width={width} height={height} selection={selection} selectedLocationId={selectedLocation?.id ?? null} inspectorOpen={inspectorOpen} onCountry={selectLocation} />}
+      {preferences.labels && <CountryLabels labels={labelLayout.countries} destinations={countryById} selection={selection} selectedLocationId={selectedLocation?.id ?? null} onCountry={selectLocation} />}
       <div className="atlas-vignette" />
 
       <div className="atlas-map-heading"><span>NETWORK ATLAS</span><span className="atlas-map-heading-detail">Mercator</span></div>

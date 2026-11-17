@@ -20,11 +20,13 @@ export function DisplayModeProvider({ children }: { children: ReactNode }) {
 
   const blocked = state.phase === 'checking' || state.phase === 'stopping' || state.phase === 'ended'
     || state.phase === 'reconnecting' && !state.expiresAt
-  const showing = state.phase === 'active' || state.phase === 'reconnecting'
+  // The map stays full-bleed while display mode is healthy; the landing page
+  // card shows that it is on. Only problems that affect exclusion surface here.
+  const alerting = (state.phase === 'active' || state.phase === 'reconnecting') && !blocked && Boolean(state.error)
   return <DisplayModeContext.Provider value={{ client, state }}>
-    <div className={showing && !blocked ? 'display-mode-layout' : undefined}>
-      {showing && !blocked ? <aside className="display-mode-bar" aria-label="Display mode">
-        <span role="status">{state.error || 'Display mode · This device’s internet activity is excluded.'}</span>
+    <div className={alerting ? 'display-mode-layout' : undefined}>
+      {alerting ? <aside className="display-mode-bar" aria-label="Display mode">
+        <span role="alert">{state.error}</span>
         <button type="button" onClick={() => { void client.stop().then(stopped => { if (stopped) navigate('/') }) }}>Stop display mode</button>
       </aside> : null}
       {blocked ? <main className="display-mode-wait"><DisplayModeCard /></main> : children}
@@ -38,9 +40,11 @@ export function DisplayModeCard() {
   const busy = state.phase === 'checking' || state.phase === 'stopping'
   const active = state.phase === 'active' || state.phase === 'reconnecting'
   return <section className="display-mode-card" aria-labelledby="display-mode-title">
-    <p className="display-mode-eyebrow">One Wi-Fi. Any screen.</p>
-    <h2 id="display-mode-title">Use this device as the display</h2>
-    <p>Follow participant activity without including this device’s map downloads, browsing or background updates.</p>
+    <p className="display-mode-eyebrow">{active ? <><i className="display-mode-live" aria-hidden="true" />Display mode is on</> : 'One Wi-Fi. Any screen.'}</p>
+    <h2 id="display-mode-title">{active ? 'This device is the display' : 'Use this device as the display'}</h2>
+    <p>{active
+      ? 'This device’s internet activity is excluded from the map, including map downloads, browsing and background updates. Stop display mode here when you are done.'
+      : 'Follow participant activity without including this device’s map downloads, browsing or background updates.'}</p>
     {state.error ? <p className="display-mode-error" role="alert">{state.error}</p> : null}
     <div className="display-mode-actions">
       {active ? <button type="button" onClick={() => { if (state.expiresAt) navigate('/display'); else client.wake() }}>{state.expiresAt ? 'Open display' : 'Retry connection'}</button>

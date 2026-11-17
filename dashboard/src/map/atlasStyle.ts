@@ -57,7 +57,8 @@ export const atlasStyle: StyleSpecification = {
         'text-letter-spacing': 0.16, 'text-max-width': 8,
         'text-size': ['interpolate', ['linear'], ['zoom'], 1, 9, 5, 12],
       },
-      paint: { 'text-color': '#789099', 'text-halo-color': '#192a35', 'text-halo-width': 1.5, 'text-opacity': 0.85 },
+      // Recede at world zoom so traffic labels read first.
+      paint: { 'text-color': '#789099', 'text-halo-color': '#192a35', 'text-halo-width': 1.5, 'text-opacity': ['interpolate', ['linear'], ['zoom'], 1.5, 0.4, 3, 0.85] },
     },
     {
       id: 'city-labels', type: 'symbol', source: 'earth', 'source-layer': 'place', minzoom: 4,

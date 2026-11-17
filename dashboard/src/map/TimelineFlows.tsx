@@ -4,12 +4,14 @@ import type { WireBin } from './wireWaveform'
 
 /** Geometry changes with captured samples, never with the animation clock.
  * Separate SVG subpaths preserve silence/gaps without a React node per burst. */
-export const TimelineFlows = memo(function TimelineFlows({ bins, ceiling, gradientId, available }: {
+export const TimelineFlows = memo(function TimelineFlows({ bins, ceiling, gradientId, available, gaps = true }: {
   bins: WireBin[]; ceiling: number; gradientId: string; available: boolean
+  /** Hatch unobserved bins. Off where "unobserved" can also mean "not loaded". */
+  gaps?: boolean
 }) {
   const directions = ['received', 'sent'] as const
   return <div className="atlas-flow-viewport"><svg viewBox={`0 0 1000 ${WIRE_FLOW_HEIGHT}`} preserveAspectRatio="none" aria-hidden="true">
-    {available && wireGaps(bins).map(gap => <rect key={gap.x} x={gap.x} y={0} width={gap.width} height={WIRE_FLOW_HEIGHT} fill={`url(#${gradientId}-gap)`} />)}
+    {available && gaps && wireGaps(bins).map(gap => <rect key={gap.x} x={gap.x} y={0} width={gap.width} height={WIRE_FLOW_HEIGHT} fill={`url(#${gradientId}-gap)`} />)}
     {available && directions.flatMap(value => {
       const flows = wireFlows(bins, value, ceiling)
       return [false, true].flatMap(partial => {

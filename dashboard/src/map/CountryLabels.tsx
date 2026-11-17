@@ -1,43 +1,44 @@
-import { WebMercatorViewport } from '@deck.gl/core'
-import type { MapViewState } from '@deck.gl/core'
 import type { DestinationVolume } from './destinationVolumes'
 import { formatBytes } from './format'
+import { leaderEnd } from './labelLayout'
+import type { PlacedCountryLabel } from './labelLayout'
 
 type Props = {
-  destinations: DestinationVolume[]
-  viewState: MapViewState
-  width: number
-  height: number
+  labels: PlacedCountryLabel[]
+  destinations: ReadonlyMap<string, DestinationVolume>
   selection: string | null
   selectedLocationId: string | null
-  inspectorOpen: boolean
   onCountry: (id: string | null) => void
 }
 
-export function CountryLabels({ destinations, viewState, width, height, selection, selectedLocationId, inspectorOpen, onCountry }: Props) {
-  const viewport = new WebMercatorViewport({ ...viewState, width, height })
-  const occupied: number[][] = []
+/** Card size and position come from `layoutMapLabels`; this only renders. */
+export function CountryLabels({ labels, destinations, selection, selectedLocationId, onCountry }: Props) {
+  const leaders = labels.filter(label => label.leader)
   return <div className="atlas-country-labels" aria-label="Country-level traffic">
-    {destinations.map(destination => {
-      const [x, y] = viewport.project(destination.position)
-      const leftEdge = 12
-      const rightEdge = width - (inspectorOpen && width > 1000 ? 390 : 60)
-      const labelWidth = Math.min(200, rightEdge - leftEdge)
-      if ((width <= 760 && inspectorOpen) || x < leftEdge - 50 || x > rightEdge + 50 || y < 75 || y > height) return null
-      const left = Math.max(leftEdge, Math.min(rightEdge - labelWidth, x - labelWidth / 2))
+    {leaders.length > 0 && <svg className="atlas-country-leaders" aria-hidden="true">
+      {leaders.map(({ id, rect, anchor }) => {
+        const [x2, y2] = leaderEnd(rect, anchor)
+        return <g key={id}><line x1={anchor[0]} y1={anchor[1]} x2={x2} y2={y2} /><circle cx={anchor[0]} cy={anchor[1]} r={2.5} /></g>
+      })}
+    </svg>}
+    {labels.map(({ id, variant, rect }) => {
+      const destination = destinations.get(id)
+      if (!destination) return null
+      const total = destination.received + destination.sent
       const selected = selectedLocationId === destination.id
-      const bottom = height - 95
-      let top = Math.max(80, Math.min(y + 20, bottom - 112))
-      while (occupied.some(([px, py]) => Math.abs(px - left) < labelWidth + 8 && Math.abs(py - top) < 120)) top -= 120
-      if (top < 75) return null
-      occupied.push([left, top])
       const dimmed = Boolean(selection && !destination.tracks.some(track => track.trackId === selection))
-      return <div key={destination.id} className={`atlas-country-label${dimmed ? ' is-dimmed' : ''}`} style={{ left, top, width: labelWidth }} data-country-code={destination.country?.code} data-country-bytes={Math.round((destination.received + destination.sent))}>
-        <button type="button" className="atlas-country-summary" aria-pressed={selected} onClick={() => onCountry(selected ? null : destination.id)}>
-          <span className="atlas-country-name"><i className="atlas-country-swatch" />{destination.location}</span>
-          <span className="atlas-country-precision">Country estimate · City unknown</span>
-          <span className="atlas-country-total">{formatBytes(destination.received + destination.sent)}<small>Downloaded + sent</small></span>
-          <span className="atlas-country-tracks" aria-hidden="true"><i style={{ width: `${destination.received / Math.max(1, destination.received + destination.sent) * 100}%`, background: 'var(--atlas-down)' }} /><i style={{ width: `${destination.sent / Math.max(1, destination.received + destination.sent) * 100}%`, background: 'var(--atlas-up)' }} /></span>
+      const split = <span className="atlas-country-tracks" aria-hidden="true"><i style={{ width: `${destination.received / Math.max(1, total) * 100}%`, background: 'var(--atlas-down)' }} /><i style={{ width: `${destination.sent / Math.max(1, total) * 100}%`, background: 'var(--atlas-up)' }} /></span>
+      return <div key={id} className={`atlas-country-label is-${variant}${dimmed ? ' is-dimmed' : ''}`} style={{ left: rect.left, top: rect.top, width: rect.width }} data-country-code={destination.country?.code} data-country-bytes={Math.round(total)} data-label-variant={variant}>
+        <button type="button" className="atlas-country-summary" aria-pressed={selected} onClick={() => onCountry(selected ? null : destination.id)}
+          title={variant === 'full' ? undefined : `${destination.location} · Country estimate, city unknown · ${formatBytes(total)} downloaded + sent`}>
+          {variant === 'pill'
+            ? <><span className="atlas-country-name"><i className="atlas-country-swatch" /><span>{destination.location}</span></span><span className="atlas-country-pill-total">{formatBytes(total)}</span></>
+            : <>
+              <span className="atlas-country-name"><i className="atlas-country-swatch" /><span>{destination.location}</span></span>
+              {variant === 'full' && <span className="atlas-country-precision">Country estimate · City unknown</span>}
+              <span className="atlas-country-total">{formatBytes(total)}{variant === 'full' && <small>Downloaded + sent</small>}</span>
+              {split}
+            </>}
         </button>
       </div>
     })}
