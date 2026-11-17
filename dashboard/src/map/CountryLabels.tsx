@@ -32,12 +32,13 @@ export function CountryLabels({ labels, destinations, selection, selectedLocatio
         <button type="button" className="atlas-country-summary" aria-pressed={selected} onClick={() => onCountry(selected ? null : destination.id)}
           title={variant === 'full' ? undefined : `${destination.location} · Country estimate, city unknown · ${formatBytes(total)} downloaded + sent`}>
           {variant === 'pill'
-            ? <><span className="atlas-country-name"><i className="atlas-country-swatch" /><span>{destination.location}</span></span><span className="atlas-country-pill-total">{formatBytes(total)}</span></>
+            ? <><span className="atlas-country-name"><span>{destination.location}</span></span><span className="atlas-country-pill-total">{formatBytes(total)}</span></>
             : <>
-              <span className="atlas-country-name"><i className="atlas-country-swatch" /><span>{destination.location}</span></span>
+              <span className="atlas-country-name"><span>{destination.location}</span></span>
               {variant === 'full' && <span className="atlas-country-precision">Country estimate · City unknown</span>}
-              <span className="atlas-country-total">{formatBytes(total)}{variant === 'full' && <small>Downloaded + sent</small>}</span>
+              <span className="atlas-country-total">{formatBytes(total)}</span>
               {split}
+              {variant === 'full' && <small className="atlas-country-caption">Downloaded + sent</small>}
             </>}
         </button>
       </div>

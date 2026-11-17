@@ -42,7 +42,7 @@ export type PlacedCountryLabel = {
 
 export type LabelLayout = { cities: string[]; countries: PlacedCountryLabel[] }
 
-const FULL = { width: 200, height: 112 }
+const FULL = { width: 200, height: 116 }
 const COMPACT = { width: 152, height: 64 }
 const PILL_HEIGHT = 24
 const CITY_LABEL_HEIGHT = 20

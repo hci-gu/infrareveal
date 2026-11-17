@@ -34,7 +34,7 @@ export function MapLocationInspector({ cursorMs, order, refreshing, location, tr
   return <section ref={ref} tabIndex={-1} className="atlas-track-inspector atlas-location-inspector" aria-label={`${location.label} location details`} onKeyDown={event => {
     if (event.key === 'Escape') { event.stopPropagation(); onClose() }
   }}>
-    <header className="atlas-inspector-heading"><span>SELECTED LOCATION</span><button type="button" className="atlas-icon-button" aria-label="Close location details" onClick={onClose}><MapIcon name="close" /></button></header>
+    <header className="atlas-inspector-heading"><span>Selected location</span><button type="button" className="atlas-icon-button" aria-label="Close location details" onClick={onClose}><MapIcon name="close" /></button></header>
     <div className="atlas-track-title"><h2>{location.label}</h2><p>{location.detail}</p><span>{destinations} {destinations === 1 ? 'destination' : 'destinations'} · {clients} {clients === 1 ? 'client' : 'clients'} · {location.series.length} series</span></div>
     <div className="atlas-track-summary">
       <div><strong>{bytes(location.bytes)}</strong><span>Downloaded + sent · loaded window to playhead</span></div>

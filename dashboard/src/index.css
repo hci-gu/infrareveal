@@ -1,9 +1,16 @@
+/* Hallmark · shape: app screen · genre: modern-minimal · theme: brand · redesign: restyle · scope: / (sessions) and the shared shell
+ * paper: oklch(17.5% 0.014 235) · accent: oklch(83% 0.115 178) · display: IBM Plex Sans · body: IBM Plex Sans · outlier: IBM Plex Mono (measured figures)
+ * nav: kept · signature: kept (the session list opening onto the atlas) · states: loading, empty, offline, demo starting, demo error
+ * axes: dark/grotesk-sans/chromatic-teal · posture: restrained · contrast: pass · v2.0.0 */
+/* Hallmark · pre-emit critique: P4 H4 E4 S4 R5 V3 · weakest: V, a restyle keeps each layout by request; the index joins the atlas instead of looking like a second product */
 @import "tailwindcss";
+@import "./tokens.css";
+@import "./base.css" layer(base);
 @source "../index.html";
 @source "./**/*.{ts,tsx,js,jsx}";
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  font-family: var(--font-body);
   font-synthesis: none;
   text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
@@ -19,9 +26,9 @@ body,
 
 body {
   margin: 0;
-  min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .maplibregl-ctrl-attrib {
-  font-size: 10px;
+  font-size: var(--text-2xs);
 }

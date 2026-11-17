@@ -18,10 +18,10 @@ export function EqualEarthComposition({ controlsRef, inspection, preferences, wo
     <div className="atlas-map-surface" hidden={workspace.expanded}>
       <EqualEarthMap controlsRef={controls} locations={locations} origin={scene.origin} selected={selectedLocation?.id ?? null} onSelect={selectLocation} labels={preferences.labels} showTraffic={showTraffic} />
       <div className="atlas-vignette" />
-      <div className="atlas-map-heading"><span>NETWORK ATLAS</span><span className="atlas-map-heading-detail">Equal Earth</span></div>
+      <div className="atlas-map-heading"><span>Network atlas</span><span className="atlas-map-heading-detail">Equal Earth</span></div>
       <div className="atlas-view-options"><button type="button" className="atlas-layer-button" aria-pressed={showTraffic} onClick={() => setShowTraffic(value => !value)} title="Show or hide flowing traffic"><MapIcon name="layers" size={16} /><span>Traffic</span><i className="atlas-dot" /></button></div>
       {emptyState}
-      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded · to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent · from your devices</span>{locations.some(location => location.country) && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p>Direct connections · country anchors are approximate · Coarse IP locations</p></div>
+      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent from your devices</span>{locations.some(location => location.country) && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p>Direct connections. Country anchors are approximate. Coarse IP locations.</p></div>
     </div>
   )
 }

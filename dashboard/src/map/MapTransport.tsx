@@ -18,6 +18,8 @@ type Props = {
   rate: number
   live: boolean
   following: boolean
+  /** The history filter's span; the track shades this much time before the playhead. */
+  historyMs: number
   onToggle: () => void
   onSeek: (frame: number) => void
   onStep: (frames: number) => void
@@ -28,17 +30,18 @@ type Props = {
 /** Keep tick labels clear of the end label ("Live" / end time). */
 const END_LABEL_CLEARANCE = 0.08
 
-export function MapTransport({ scene, bins, endMs, frame, fps, playing, rate, live, following, onToggle, onSeek, onStep, onRate, onLive }: Props) {
+export function MapTransport({ scene, bins, endMs, frame, fps, playing, rate, live, following, historyMs, onToggle, onSeek, onStep, onRate, onLive }: Props) {
   const gradientId = useId()
   const peak = waveformCeiling([bins])
   const duration = Math.max(1, (endMs - scene.startMs) / 1000)
   const maxFrame = Math.max(1, Math.floor(duration * fps))
   const progress = Math.min(100, Math.max(0, frame / maxFrame * 100))
+  const historyStart = Math.max(0, progress - historyMs / 1000 / duration * 100)
   const cursorMs = scene.startMs + frame / fps * 1000
   const { step, ticks } = timelineTicks(scene.startMs, endMs, 6)
   const label = (time: number) => step >= 60_000 ? formatMinute(time) : formatCursor(time)
 
-  return <footer className="atlas-transport" aria-label="Session playback" style={{ '--progress': `${progress}%` } as CSSProperties}>
+  return <footer className="atlas-transport" aria-label="Session playback" style={{ '--progress': `${progress}%`, '--history-start': `${historyStart}%` } as CSSProperties}>
     <span className="atlas-transport-title"><MapIcon name="activity" size={14} />Session timeline</span>
     <div className="atlas-transport-meta">
       <span className="atlas-transport-cursor" aria-live="off">{formatCursor(cursorMs)}{live && following ? <small>live</small> : null}</span>
@@ -56,6 +59,7 @@ export function MapTransport({ scene, bins, endMs, frame, fps, playing, rate, li
       <svg className="atlas-flow-definitions" aria-hidden="true"><defs>
         {(['received', 'sent'] as const).map(direction => <linearGradient key={direction} id={`${gradientId}-${direction}`} x1="0" y1={direction === 'received' ? '1' : '0'} x2="0" y2={direction === 'received' ? '0' : '1'} className={`atlas-flow-${direction}`}><stop offset="0" stopColor="currentColor" stopOpacity=".95" /><stop offset="1" stopColor="currentColor" stopOpacity=".35" /></linearGradient>)}
       </defs></svg>
+      <div className="atlas-timeline-history" aria-hidden="true" />
       <div className="atlas-timeline-grid" aria-hidden="true">{ticks.map(tick => <i key={tick.time} style={{ left: `${tick.fraction * 100}%` }} />)}</div>
       {/* The bar spans the whole retained session but only the window around the
           playhead is loaded, so unobserved bins are not shown as capture gaps. */}

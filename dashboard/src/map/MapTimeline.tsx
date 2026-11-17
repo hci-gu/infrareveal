@@ -72,6 +72,6 @@ export function MapTimeline({ data, state, index, detailIndex, startMs, endMs, c
           </div>
         })}
       </div>{orderedItems.length === 0 && <div className="atlas-timeline-empty"><strong>{loading ? 'Loading traffic…' : error ? 'Capture unavailable' : refreshing ? 'Updating traffic…' : 'No traffic in this window'}</strong><p>{loading || error || refreshing ? 'Captured traffic will appear when available.' : 'No matching traffic. Adjust the Filters panel or browse earlier traffic.'}</p></div>}
-    </div><footer><button type="button" disabled={range.from <= startMs} onClick={() => { setAnchor(Math.max(startMs + span, to - span / 2)); pauseList() }}>← Earlier</button><span>{orderedItems.length} {orderedItems.length === 1 ? 'lane' : 'lanes'} · totals to playhead</span><button type="button" disabled={range.to >= endMs} onClick={() => { setAnchor(Math.min(endMs, to + span / 2)); pauseList() }}>Later →</button></footer>
+    </div><footer><button type="button" disabled={range.from <= startMs} onClick={() => { setAnchor(Math.max(startMs + span, to - span / 2)); pauseList() }}>Earlier</button><span>{orderedItems.length} {orderedItems.length === 1 ? 'lane' : 'lanes'} · totals to playhead</span><button type="button" disabled={range.to >= endMs} onClick={() => { setAnchor(Math.min(endMs, to + span / 2)); pauseList() }}>Later</button></footer>
   </section>
 }

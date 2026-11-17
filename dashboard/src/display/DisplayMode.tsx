@@ -40,11 +40,11 @@ export function DisplayModeCard() {
   const busy = state.phase === 'checking' || state.phase === 'stopping'
   const active = state.phase === 'active' || state.phase === 'reconnecting'
   return <section className="display-mode-card" aria-labelledby="display-mode-title">
-    <p className="display-mode-eyebrow">{active ? <><i className="display-mode-live" aria-hidden="true" />Display mode is on</> : 'One Wi-Fi. Any screen.'}</p>
     <h2 id="display-mode-title">{active ? 'This device is the display' : 'Use this device as the display'}</h2>
+    {active ? <p className="display-mode-state" role="status">Display mode is on</p> : null}
     <p>{active
       ? 'This device’s internet activity is excluded from the map, including map downloads, browsing and background updates. Stop display mode here when you are done.'
-      : 'Follow participant activity without including this device’s map downloads, browsing or background updates.'}</p>
+      : 'One Wi-Fi, any screen: follow participant activity without including this device’s map downloads, browsing or background updates.'}</p>
     {state.error ? <p className="display-mode-error" role="alert">{state.error}</p> : null}
     <div className="display-mode-actions">
       {active ? <button type="button" onClick={() => { if (state.expiresAt) navigate('/display'); else client.wake() }}>{state.expiresAt ? 'Open display' : 'Retry connection'}</button>

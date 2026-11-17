@@ -1,23 +1,31 @@
+/* Hallmark · checked: display mode bar and card, restyled into the tokens in ../tokens.css · redesign: restyle */
 .display-mode-layout { --display-bar-height: 44px; padding-top: var(--display-bar-height); }
 .display-mode-layout .atlas-page { height: calc(100dvh - var(--display-bar-height)); }
-.display-mode-bar { position: fixed; inset: 0 0 auto; z-index: 100; min-height: 44px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 8px 20px; background: #5a3a14; color: #fff7ed; font: 500 12px/1.5 system-ui, sans-serif; }
-.display-mode-bar button { flex-shrink: 0; border: 1px solid #8cb7a8; border-radius: 6px; padding: 3px 10px; background: transparent; color: inherit; cursor: pointer; }
-.display-mode-card { margin-bottom: 28px; padding: 28px; border: 1px solid #cbd5e1; border-radius: 16px; background: white; color: #0f172a; box-shadow: 0 3px 12px #0f172a06; }
-.display-mode-card h2, .display-mode-card h1 { margin: 0 0 10px; font-size: 24px; line-height: 1.25; font-weight: 750; letter-spacing: -.025em; }
-.display-mode-card p { max-width: 650px; margin: 10px 0; font-size: 15px; line-height: 1.6; color: #475569; }
-.display-mode-card .display-mode-eyebrow { margin-top: 0; font-size: 11px; font-weight: 750; text-transform: uppercase; letter-spacing: .12em; color: #16634f; }
-.display-mode-actions { display: flex; flex-wrap: wrap; gap: 12px; margin: 20px 0 14px; }
-.display-mode-actions button { border: 0; border-radius: 8px; padding: 11px 18px; background: #12382f; color: white; font-size: 14px; font-weight: 650; cursor: pointer; }
-.display-mode-actions .display-mode-secondary { background: #f1f5f9; color: #334155; }
-.display-mode-actions button:disabled { opacity: .65; cursor: wait; }
-.display-mode-card small { display: block; max-width: 660px; font-size: 12px; line-height: 1.6; color: #64748b; }
-.display-mode-card .display-mode-error { color: #9a3412; }
-.display-mode-live { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: #16a34a; box-shadow: 0 0 0 3px #16a34a33; vertical-align: 1px; }
-.display-mode-wait { min-height: 100dvh; display: grid; place-content: center; padding: 24px; background: #f1f5f9; }
+.display-mode-bar { position: fixed; inset: 0 0 auto; z-index: var(--z-sticky-nav); min-height: 44px; box-sizing: border-box; display: flex; align-items: center; justify-content: space-between; gap: var(--space-md); padding: var(--space-xs) 20px; background: var(--color-warn-paper); color: var(--color-warn); font: 400 var(--text-xs)/1.5 var(--font-body); }
+.display-mode-bar button { flex-shrink: 0; min-height: 32px; border: 1px solid currentColor; border-radius: var(--radius-card); padding: var(--space-2xs) var(--space-sm); background: transparent; color: inherit; cursor: pointer; }
+.display-mode-bar button:hover { background: color-mix(in oklch, var(--color-warn) 12%, transparent); }
+.display-mode-bar button:active { background: color-mix(in oklch, var(--color-warn) 20%, transparent); }
+.display-mode-card { margin-bottom: var(--space-lg); padding: var(--space-lg); border: 1px solid var(--color-rule); border-radius: var(--radius-panel); background: var(--color-paper-2); color: var(--color-ink); font-family: var(--font-body); }
+.display-mode-card h2, .display-mode-card h1 { margin: 0; max-width: none; font-size: var(--text-lg); line-height: 1.25; font-weight: 600; letter-spacing: var(--tracking-display); text-wrap: balance; }
+.display-mode-card p { max-width: 65ch; margin: var(--space-xs) 0 0; font-size: var(--text-sm); line-height: 1.6; color: var(--color-muted); text-wrap: pretty; }
+p.display-mode-state { margin-top: var(--space-2xs); font-size: var(--text-xs); font-weight: 600; color: var(--color-down); }
+.display-mode-actions { display: flex; flex-wrap: wrap; gap: var(--space-sm); margin: 20px 0 var(--space-sm); }
+.display-mode-actions button { height: 36px; border: 1px solid var(--color-accent); border-radius: var(--radius-card); padding: 0 var(--space-md); background: var(--color-accent); color: var(--color-accent-ink); font-size: var(--text-sm); font-weight: 600; white-space: nowrap; cursor: pointer; transition: filter var(--dur-micro) var(--ease-out); }
+.display-mode-actions button:hover { filter: brightness(1.08); }
+.display-mode-actions button:active { filter: brightness(.92); }
+button.display-mode-secondary { border-color: var(--color-field-edge); background: transparent; color: var(--color-ink); }
+button.display-mode-secondary:hover { filter: none; background: var(--color-paper-3); }
+.display-mode-actions button:disabled { opacity: .6; color: var(--color-faint); cursor: not-allowed; filter: none; }
+.display-mode-card small { display: block; max-width: 65ch; font-size: var(--text-xs); line-height: 1.6; color: var(--color-muted); }
+p.display-mode-error { color: var(--color-error); }
+.display-mode-wait { min-height: 100dvh; display: grid; place-content: center; padding: var(--space-lg); background: var(--color-paper); }
 .display-mode-wait .display-mode-card { max-width: 720px; margin: 0; }
-.display-mode-card button:focus-visible, .display-mode-bar button:focus-visible { outline: 3px solid #38bdf8; outline-offset: 3px; }
+.display-mode-card button:focus-visible, .display-mode-bar button:focus-visible { outline: 2px solid var(--color-focus); outline-offset: 3px; }
 @media (max-width: 640px) {
   .display-mode-layout { --display-bar-height: 72px; }
-  .display-mode-bar { height: 72px; padding: 8px 12px; font-size: 11px; }
+  .display-mode-bar { height: 72px; padding: var(--space-xs) var(--space-sm); font-size: var(--text-2xs); }
   .display-mode-card { padding: 20px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .display-mode-actions button { transition-duration: 0.01ms; }
 }

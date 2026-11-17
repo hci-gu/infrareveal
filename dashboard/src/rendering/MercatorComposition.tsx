@@ -286,7 +286,7 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
       {preferences.labels && <CountryLabels labels={labelLayout.countries} destinations={countryById} selection={selection} selectedLocationId={selectedLocation?.id ?? null} onCountry={selectLocation} />}
       <div className="atlas-vignette" />
 
-      <div className="atlas-map-heading"><span>NETWORK ATLAS</span><span className="atlas-map-heading-detail">Mercator</span></div>
+      <div className="atlas-map-heading"><span>Network atlas</span><span className="atlas-map-heading-detail">Mercator</span></div>
       <div className="atlas-view-options">
         <div className="atlas-segmented atlas-view-switch" aria-label="Map perspective">
           <button type="button" aria-pressed={viewState.pitch !== 0} onClick={() => moveTo({ pitch: 35 })}>Perspective</button>
@@ -306,7 +306,7 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
         <button type="button" className="atlas-icon-button" onClick={() => fitNetwork()} aria-label="Fit network" title="Fit network"><MapIcon name="expand" size={17} /></button>
         <button type="button" className="atlas-icon-button" onClick={() => moveTo({ longitude: scene.origin.longitude, latitude: scene.origin.latitude, zoom: 5, bearing: 0 })} aria-label="Center on gateway" title="Center on gateway"><MapIcon name="target" /></button>
       </div>
-      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded · to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent · from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p>Direct connections · Coarse IP locations{(trafficLoading || partialTraffic) ? trafficLoading ? ' · Loading rates' : ' · Partial rates' : ''}</p></div>
+      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p>Direct connections. Coarse IP locations.{(trafficLoading || partialTraffic) ? trafficLoading ? ' Loading rates.' : ' Partial rates.' : ''}</p></div>
       </div>
 
   )
@@ -329,6 +329,6 @@ function tooltipForPoint({ object, layer }: PickingInfo<MapPoint | DestinationCo
     : 'ip' in object ? [object.label, object.location, object.ip, `${object.seriesCount.toLocaleString()} traffic series`, 'Click to inspect this location'] : []
   return {
     text: lines.filter(Boolean).join('\n'),
-    style: { backgroundColor: '#11232e', color: '#e1eeed', fontSize: '12px', lineHeight: '1.7', border: '1px solid #30464f', borderRadius: '8px', padding: '12px 16px' },
+    style: { backgroundColor: 'var(--color-paper-2)', color: 'var(--color-ink)', fontFamily: 'var(--font-body)', fontSize: 'var(--text-xs)', lineHeight: '1.6', border: '1px solid var(--color-rule-2)', borderRadius: 'var(--radius-panel)', padding: '12px 16px', boxShadow: 'var(--shadow-float)' },
   }
 }

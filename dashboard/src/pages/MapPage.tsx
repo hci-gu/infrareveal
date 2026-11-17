@@ -331,7 +331,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       data-playback-state={timeline.playback}
     >
       <header className="atlas-header">
-        <Link to="/" className="atlas-brand" aria-label="InfraReveal — all sessions"><span className="atlas-brand-mark"><MapIcon name="globe" size={23} /></span><span>infra<span>reveal</span><small>NETWORK OBSERVABILITY</small></span></Link>
+        <Link to="/" className="atlas-brand" aria-label="InfraReveal, all sessions"><span className="atlas-brand-mark"><MapIcon name="globe" size={23} /></span><span>infra<span>reveal</span><small>Network observability</small></span></Link>
         <div className="atlas-header-divider" />
         {workspace.expanded && <button type="button" className="atlas-icon-button atlas-mobile-map-return" aria-label="Back to map" title="Back to map" onClick={() => updateWorkspace({ ...workspace, expanded: false })}><MapIcon name="back" size={17} /></button>}
         <nav className="atlas-breadcrumb" aria-label="Breadcrumb"><Link to="/" aria-label="All sessions"><MapIcon name="back" size={15} /><span>Sessions</span></Link><span className="atlas-breadcrumb-slash">/</span><span className="atlas-session-name" title={scene.sessionName}>{scene.sessionName}</span></nav>
@@ -360,7 +360,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
       <MapSettings open={settingsOpen} preferences={preferences} fullscreen={fullscreen} fullscreenError={fullscreenError} onChange={setPreferences} onToggleFullscreen={() => void toggleFullscreen()} onClose={() => setSettingsOpen(false)} />
       <MapTransport scene={scene} bins={playbackBins} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}
-        live={timeline.mode === 'live'} following={timeline.playback === 'following'}
+        live={timeline.mode === 'live'} following={timeline.playback === 'following'} historyMs={historySpan}
         onToggle={togglePlayback} onSeek={frame => seekTime(timeForFrame(scene.startMs, frame, FPS), true)}
         onStep={frames => seek((playerRef.current?.getCurrentFrame() ?? currentFrame) + frames, true)} onRate={(rate) => setTimelinePlayback({
           rate,
