@@ -12,6 +12,8 @@ import { ActivityTab } from './ActivityTab'
 import { useLiveFeed } from './useLiveFeed'
 import type { ActivityTabProps } from './ActivityTab'
 import { domainWeights, fontSize, layoutWords, measureText } from './wordCloud'
+import { hopLabel, summarizeCrossings } from './seaCrossings'
+import type { CrossingClass } from './seaCrossings'
 
 const WINDOW_LABELS: Record<number, string> = { 30_000: '30 seconds', 60_000: 'minute', 300_000: '5 minutes', 1_800_000: '30 minutes' }
 const SIZE = 200
@@ -54,6 +56,7 @@ export const SidePane = memo(function SidePane({ tab, data, state, loading, acti
     <div className="atlas-side-body">
       {tab === 'insights' && <>
         <ShareChart mode={mode} onMode={setMode} data={data} loading={loading} windowLabel={WINDOW_LABELS[windowMs] ?? `${Math.round(windowMs / 1000)} s`} />
+        <SeaCrossings data={data} loading={loading} />
         <DirectionScatter data={data} loading={loading} />
         <DomainCloud data={data} loading={loading} />
       </>}
@@ -102,6 +105,40 @@ function ShareChart({ mode, onMode, data, loading, windowLabel }: { mode: ShareM
           <td>{percent(share.share)}</td>
         </tr>)}</tbody>
       </table>
+    </>}
+  </section>
+}
+
+const CROSSING_CLASSES: { id: CrossingClass; label: string }[] = [
+  { id: 'required', label: 'Crossed the sea' },
+  { id: 'possible', label: 'Likely crossed the sea' },
+  { id: 'none', label: 'Overland or nearby' },
+  { id: 'edge', label: 'Global edge network' },
+  { id: 'unknown', label: 'Unknown location' },
+]
+
+/** How much traffic had to go under the sea, inferred from IP geography alone. */
+function SeaCrossings({ data, loading }: { data: WorkspaceProjection; loading: boolean }) {
+  const summary = useMemo(() => summarizeCrossings(data.bySeries.values(), data.scene.origin), [data.bySeries, data.scene.origin])
+  const classes = CROSSING_CLASSES.filter(item => summary.totals[item.id] > 0)
+  return <section className="atlas-insight" aria-labelledby="sea-crossings-title">
+    <h3 id="sea-crossings-title">Sea crossings</h3>
+    <p className="atlas-insight-help">Inferred from where destinations are located; cables are not observed. Show them on the map with Cables.</p>
+    {!summary.total ? <p className="atlas-insight-empty">{loading ? 'Loading traffic…' : 'No traffic in this window.'}</p> : <>
+      <div className="atlas-crossing-bar" role="img" aria-label={classes.map(item => `${item.label} ${percent(summary.totals[item.id] / summary.total)}`).join(', ')}>
+        {classes.map(item => <i key={item.id} data-crossing={item.id} style={{ width: `${summary.totals[item.id] / summary.total * 100}%` }} />)}
+      </div>
+      <ul className="atlas-crossing-legend">
+        {classes.map(item => <li key={item.id}><i data-crossing={item.id} /><span>{item.label}{item.id === 'edge' && summary.edgeNetworks.length ? <small>{summary.edgeNetworks.join(', ')}</small> : null}</span><strong>{percent(summary.totals[item.id] / summary.total)}</strong></li>)}
+      </ul>
+      {summary.hops.length > 0 && <table className="atlas-share-table">
+        <caption className="atlas-sr-only">Sea crossings by bytes</caption>
+        <thead className="atlas-sr-only"><tr><th scope="col">Crossing</th><th scope="col">Bytes</th></tr></thead>
+        <tbody>{summary.hops.slice(0, 5).map(entry => <tr key={entry.hop.id}>
+          <th scope="row"><span><span>{hopLabel(entry.hop)}</span><small>{entry.confidence === 'required' ? 'Required' : 'Likely'} · {entry.hop.candidates.length} candidate {entry.hop.candidates.length === 1 ? 'cable' : 'cables'}</small></span></th>
+          <td>{formatBytes(entry.bytes)}</td>
+        </tr>)}</tbody>
+      </table>}
     </>}
   </section>
 }

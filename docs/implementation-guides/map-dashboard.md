@@ -91,19 +91,49 @@ activity and do not measure browser focus, pages viewed or a person's attention.
 a fullscreen toggle. Appearance preferences are saved in this browser; fullscreen
 follows the browser’s current state, including when you exit with Escape.
 
-- **Equal Earth** uses bundled Natural Earth geography, directional connections
-  and paired linear volume bars. Its background works without a network connection.
-- **Mercator** offers a detailed MapLibre basemap, perspective controls and directional
-  columns with a fixed logarithmic scale. Its online tiles and fonts need internet
-  access. Both projections always use their full renderer.
+Both projections share one deck.gl renderer (`rendering/MapComposition.tsx`) with
+perspective controls, animated flows, directional columns and labels.
+
+- **Equal Earth** preserves relative land area. `map/mapProjection.ts` projects every
+  position to Equal Earth and inverts it through Web Mercator, so the Mercator view
+  draws it in Equal Earth geometry. Land, borders and country names come from the
+  bundled Natural Earth outlines, so it works without a network connection; arcs are
+  straight map lines rather than great circles.
+- **Mercator** adds a detailed MapLibre basemap (roads, city names). Its online tiles
+  and fonts need internet access.
 
 Country-only evidence uses country footprints. City markers represent approximate
-IP locations. Destinations without coordinates are still counted. Both projections
-show direct connections from the gateway to destination locations. Mercator combines
+IP locations. Destinations without coordinates are still counted.
+
+### Flow layouts
+
+The **Direct / Cables** switch changes how traffic is drawn; totals and filters
+are unaffected.
+
+- **Direct** draws gateway-to-destination arcs (below).
+- **Cables** shows the sea crossings traffic likely took, inferred from IP geography
+  alone (`map/seaCrossings.ts`) and drawn on real cable geometry (TeleGeography).
+  Countries map to coarse regions. Regions are linked by costed overland links and
+  by every cable that lands in both; the cheapest path from the gateway's region
+  decides the crossings. A crossing is *required* when no overland path exists and
+  *likely* when the sea is merely the usual way. Every cable connecting the two
+  regions is a candidate: up to six are highlighted between the landings nearest
+  the gateway and destination, dimmed by how many there are, and the tooltip names
+  the rest. Which cable carried the traffic is never observed. Anycast/CDN networks
+  (Cloudflare, Google, Akamai, Fastly, …) never create a crossing, because their
+  addresses are often geolocated to a headquarters while served nearby; the footer
+  reports their share instead. **Used cables only** hides the rest of the cable
+  network. **Insights → Sea crossings** summarises the same classification.
+
+Direct connections run from the gateway to destination locations. Mercator combines
 all tracks between the same locations into one arc with separate sent and downloaded
 flows. Selecting any contributing track highlights that shared arc; its volume
 continues to include all contributors. Service details show location, provider and
 classification evidence.
+
+In Cables, the same travelling bursts run along each drawn segment
+(`map/FlowPathLayer.ts`), with downloaded and sent traffic on opposite sides; the
+static bands underneath show the history window's volume.
 
 Mercator's travelling bursts illustrate the recent captured payload shape over
 four seconds. They do not alter measurement timestamps or totals. Traffic and

@@ -11,6 +11,10 @@ export type MapSeries = {
   chunks: TrafficChunk[]; startMs: number; endMs: number; lastActivityMs: number; bytes: number; mapped: boolean; location: string; provider: string
   /** Destination country name; empty when IP geography is unknown. */
   country?: string
+  /** ISO 3166-1 alpha-2 destination country, when known. */
+  countryCode?: string
+  /** Network owner (GeoLite2 ASN) of the destination address. */
+  asn?: number
 }
 export type MapTrack = { id: string; label: string; client: string; site: string; color: TrackColor; series: MapSeries[]; lastActivityMs: number; bytes: number; mappedCount: number }
 export type MapTrackCatalog = ReturnType<typeof buildMapTrackCatalog>

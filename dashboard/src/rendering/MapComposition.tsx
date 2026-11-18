@@ -9,12 +9,13 @@ import { lazy, Suspense, useImperativeHandle, useMemo, useState } from 'react'
 import type { MapPoint, MapPosition } from '../map/mapModel'
 import { projectMapFrame } from '../map/mapModel'
 import { FlowArcLayer } from '../map/FlowArcLayer'
+import { flowPathPosition, FlowPathLayer } from '../map/FlowPathLayer'
 import { MapIcon } from '../map/MapIcon'
 import { formatBytes } from '../map/format'
 import type { BundledMapArc } from '../map/bundleMapArcs'
 import { connectionHasTrack } from '../map/bundleMapArcs'
-import { directionalVolumeArcs } from '../map/mapTraffic'
-import type { TrafficArc } from '../map/mapTraffic'
+import { directionalVolumeArcs, TRAFFIC_HISTORY_LENGTH, trafficRadius } from '../map/mapTraffic'
+import type { TrafficArc, TrafficProfile } from '../map/mapTraffic'
 import { trackOpacity } from '../map/mapTracks'
 import { directionColor } from '../map/mapWorkspace'
 import { CountryLabels } from '../map/CountryLabels'
@@ -24,8 +25,8 @@ import { countryFitPositions, countryFootprint } from '../map/countryFootprints'
 import { columnMetersPerPixel, projectDestinationVolumes, directionalColumns } from '../map/destinationVolumes'
 import countries from '../map/data/countries.json'
 import { mapProjection } from '../map/mapProjection'
-import { buildRouteTree } from '../map/routeTree'
-import type { RouteTreeEdge, RouteTreeNode } from '../map/routeTree'
+import { buildSeaNetwork, CABLE_SOURCE, CABLES, hopLabel, splitAntimeridian } from '../map/seaCrossings'
+import type { CrossingConfidence, SeaHop } from '../map/seaCrossings'
 import type { DestinationColumn, DestinationVolume, DirectionalColumn } from '../map/destinationVolumes'
 
 const TiledBasemap = lazy(() => import('../map/TiledBasemap'))
@@ -42,6 +43,21 @@ const BASE_COLORS = {
   light: { land: [210, 222, 217], water: [237, 243, 243], border: [159, 176, 170], label: [106, 127, 131] },
 } satisfies Record<string, Record<string, Color>>
 const MAX_ROUTE_WIDTH = 14
+/** Labelled sea crossings at once; the rest stay unlabelled to keep the map readable. */
+const MAX_CROSSING_LABELS = 5
+const cableById = new Map(CABLES.map(cable => [cable.id, cable]))
+
+type FlowStyle = 'direct' | 'cables'
+/** One drawable flow segment of the inferred sea-crossing network. */
+type FlowEdge = { id: string; kind: 'sea' | 'land'; received: number; sent: number; locationIds: string[]; trackIds: string[]; seriesIds: string[]; confidence?: CrossingConfidence | null; cableId?: string; hopId?: string; candidates?: number }
+type FlowPath = { edge: FlowEdge; path: MapPosition[] }
+/** One direction of live traffic along one drawn path; geometry is reused while the path is unchanged. */
+type AnimatedFlow = { key: string; edgeId: string; direction: number; path: [number, number, number][] }
+/** Static bands show the window's volume as context; the animated tubes on top carry the live rate. */
+const FLOW_OPACITY: Record<FlowEdge['kind'], [band: number, sent: number]> = { sea: [0.4, 0.55], land: [0.18, 0.28] }
+/** Candidate cables share a crossing's traffic, so each is dimmed by how many there are; `possible` crossings recede further. */
+const flowOpacity = (edge: FlowEdge, layer: 0 | 1) => FLOW_OPACITY[edge.kind][layer]
+  * (edge.kind === 'sea' ? (edge.confidence === 'possible' ? 0.65 : 1) / Math.sqrt(Math.min(edge.candidates ?? 1, 6)) : 1)
 /** Approximate glyph advance for the uppercase country names, in pixels. */
 const COUNTRY_NAME_CHAR_PX = 7
 
@@ -58,7 +74,7 @@ function countryNames(toMap: (position: MapPosition) => MapPosition) {
  * `projection.toMap` converts each geographic position at the layer boundary;
  * the composition is keyed by projection, so accessors never need re-triggering.
  */
-export function MapComposition({ controlsRef, inspection, profiles: trafficProfiles, trafficAnchorMs, emptyState, cursorMs, preferences, theme, workspace, overview, scene, clock, width: compositionWidth, height: compositionHeight, playbackEpochMs, mapStyleUrl, trafficLoading, destinationIndex, destinationLoading, routes }: MapRendererProps) {
+export function MapComposition({ controlsRef, inspection, profiles: trafficProfiles, trafficAnchorMs, emptyState, cursorMs, preferences, theme, workspace, overview, scene, clock, width: compositionWidth, height: compositionHeight, playbackEpochMs, mapStyleUrl, trafficLoading, destinationIndex, destinationLoading }: MapRendererProps) {
   const projection = mapProjection(preferences.projection)
   const P = projection.toMap
   /** Column heights are pixel-sized, so scale by the latitude deck.gl actually draws at. */
@@ -72,13 +88,36 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     zoom: width > 760 ? 1.55 : 1.4, minZoom: -1, maxZoom: 16, pitch: 35, bearing: 0,
   }))
   const [showTraffic, setShowTraffic] = useState(true)
-  const [flowStyle, setFlowStyle] = useState<'direct' | 'routes'>('direct')
-  const { routeTree, routePaths } = useMemo(() => {
-    const tree = flowStyle === 'routes' ? buildRouteTree(overview.locations, routes, scene.origin, overview.volumeBySeries, cursorMs) : null
+  const [flowStyle, setFlowStyle] = useState<FlowStyle>('direct')
+  /** Cables view: hide the reference network and keep only cables traffic is inferred to have used. */
+  const [usedCablesOnly, setUsedCablesOnly] = useState(false)
+  const { seaNetwork, flowPaths, flowPeak, seaHops } = useMemo(() => {
     const { toMap, wrap } = mapProjection(preferences.projection)
-    return { routeTree: tree, routePaths: tree?.edges.map(edge => ({ edge, path: routeCurve(toMap(edge.from), toMap(edge.to), wrap) })) ?? [] }
-  }, [flowStyle, overview.locations, routes, scene.origin, overview.volumeBySeries, cursorMs, preferences.projection])
-  const measuredShare = routeTree && routeTree.total > 0 ? Math.round(routeTree.measured / routeTree.total * 100) : 0
+    // Cable lines may run past ±180°; split them first so neither projection draws across the world.
+    const lane = (path: MapPosition[]) => splitAntimeridian(path).map(part => part.map(toMap))
+    const network = flowStyle === 'cables' ? buildSeaNetwork(overview.locations, scene.origin, overview.volumeBySeries) : null
+    const seaHops = new Map(network?.hops.map(total => [total.hop.id, total.hop]) ?? [])
+    const paths: FlowPath[] = network?.edges.flatMap(edge => edge.kind === 'sea' ? lane(edge.path).map(path => ({ edge, path })) : [{ edge, path: routeCurve(toMap(edge.path[0]), toMap(edge.path[1]), wrap) }]) ?? []
+    return { seaNetwork: network, flowPaths: paths, flowPeak: network?.peak ?? 1, seaHops }
+  }, [flowStyle, overview.locations, scene.origin, overview.volumeBySeries, preferences.projection])
+  // The full cable network only depends on the projection; keep it out of the per-update memo above.
+  const cablePaths = useMemo(() => {
+    if (flowStyle !== 'cables') return []
+    const { toMap } = mapProjection(preferences.projection)
+    return CABLES.flatMap(cable => cable.lines.flatMap(line => splitAntimeridian(line).map(part => part.map(toMap))))
+  }, [flowStyle, preferences.projection])
+  const flowGeometry = useMemo(() => createFlowGeometryCache(), [])
+  const animatedFlows = useMemo(() => flowGeometry(flowPaths), [flowGeometry, flowPaths])
+  const flowEdges = useMemo(() => new Map(flowPaths.map(item => [item.edge.id, item.edge])), [flowPaths])
+  const flowRadii = useMemo(() => flowRateRadii(flowEdges, trafficProfiles), [flowEdges, trafficProfiles])
+  /** One label per crossing, placed on its best-ranked (first drawn) cable. */
+  const crossingLabels = useMemo(() => (seaNetwork?.hops ?? []).slice(0, MAX_CROSSING_LABELS).flatMap(total => {
+    const edge = seaNetwork!.edges.find(item => item.kind === 'sea' && item.hopId === total.hop.id)
+    if (!edge) return []
+    const part = splitAntimeridian(edge.path).sort((a, b) => distanceAlong(b) - distanceAlong(a))[0]
+    const cables = total.hop.candidates.length
+    return [{ edge, position: pointAlong(part, 0.5), text: `${hopLabel(total.hop)} · ${cables} ${cables === 1 ? 'cable' : 'cables'} · ${formatBytes(total.received + total.sent)}` }]
+  }), [seaNetwork])
   const [mapError, setMapError] = useState(false)
   const { track: selected, location: selectedLocation, open: inspectorOpen, selectLocation } = inspection
   const selection = selected?.id ?? null
@@ -125,6 +164,20 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the projection is fixed for this composition's lifetime
   }, [destinations, countryDestinations, viewState, width, height, selection, selectedLocation?.id, inspectorOpen, showCityNames])
+  /** Busiest crossings claim label space first; a label that would overlap one already placed is dropped. */
+  const placedCrossingLabels = useMemo(() => {
+    const { toMap } = mapProjection(preferences.projection)
+    const viewport = new WebMercatorViewport({ ...viewState, width, height })
+    const boxes: [number, number, number, number][] = []
+    return crossingLabels.filter(label => {
+      const [x, y] = viewport.project(toMap(label.position))
+      const halfWidth = label.text.length * 3.4 + 8, top = y - 24, bottom = y
+      if (x - halfWidth < 0 || x + halfWidth > width || top < 70 || bottom > height - 90) return false
+      if (boxes.some(([left, upper, right, lower]) => x - halfWidth < right && x + halfWidth > left && top < lower && bottom > upper)) return false
+      boxes.push([x - halfWidth, top, x + halfWidth, bottom])
+      return true
+    })
+  }, [crossingLabels, viewState, width, height, preferences.projection])
   const destinationLabels = useMemo(() => {
     const ids = new Set(labelLayout.cities)
     return destinations.filter(destination => ids.has(destination.id))
@@ -154,7 +207,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
       getSourcePosition: (arc: BundledMapArc) => P(arc.sourcePosition),
       getTargetPosition: (arc: BundledMapArc) => P(arc.targetPosition),
       getHeight: 0.18, getTilt: 0,
-      visible: showTraffic && !routeTree, parameters: { depthCompare: 'always' as const, depthWriteEnabled: false },
+      visible: showTraffic && flowStyle === 'direct', parameters: { depthCompare: 'always' as const, depthWriteEnabled: false },
       updateTriggers: { getSourceColor: [selection, theme], getTargetColor: [selection, theme] },
     }
     const volumeProps = {
@@ -167,9 +220,8 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     }
     const countryOpacity = (code: string) => !selection || countryVolumes.get(code)?.tracks.some(track => track.trackId === selection) ? 1 : 0.12
     const base = BASE_COLORS[theme]
-    const routeDimmed = (edge: RouteTreeEdge) => Boolean((selection && !edge.trackIds.includes(selection)) || (selectedLocation && !edge.locationIds.includes(selectedLocation.id)))
-    const routeWidth = (bytes: number) => bytes > 0 ? Math.max(1, MAX_ROUTE_WIDTH * bytes / Math.max(1, routeTree?.peak ?? 1)) : 0
-    const hopPeak = Math.max(1, ...(routeTree?.nodes ?? []).map(node => node.received + node.sent))
+    const routeDimmed = (edge: FlowEdge) => Boolean((selection && !edge.trackIds.includes(selection)) || (selectedLocation && !edge.locationIds.includes(selectedLocation.id)))
+    const routeWidth = (bytes: number) => bytes > 0 ? Math.max(1, MAX_ROUTE_WIDTH * bytes / Math.max(1, flowPeak)) : 0
     return [
       ...(projection.tiles ? [] : [
         new SolidPolygonLayer<MapPosition[]>({
@@ -240,23 +292,42 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         getTargetColor: (arc) => alpha(flowColor(arc.direction), 0.92 * connectionOpacity(arc)),
         parameters: { depthCompare: 'less-equal', depthWriteEnabled: focused },
       })),
-      new PathLayer<{ edge: RouteTreeEdge; path: MapPosition[] }>({
-        id: 'route-bands', data: routePaths, visible: showTraffic, getPath: route => route.path, wrapLongitude: projection.wrap,
+      new PathLayer<MapPosition[]>({
+        id: 'sea-cables', data: cablePaths, visible: !usedCablesOnly, getPath: path => path, widthUnits: 'pixels', getWidth: 1.5, capRounded: true, jointRounded: true,
+        getColor: alpha(neutralColor(), 0.22), updateTriggers: { getColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+      }),
+      new PathLayer<FlowPath>({
+        id: 'flow-bands', data: flowPaths, visible: showTraffic, getPath: route => route.path, wrapLongitude: projection.wrap, pickable: true,
         widthUnits: 'pixels', capRounded: true, jointRounded: true, getWidth: route => routeWidth(route.edge.received + route.edge.sent),
-        getColor: route => alpha(flowColor(-1), (route.edge.kind === 'route' ? 0.6 : 0.22) * (routeDimmed(route.edge) ? 0.15 : 1)),
+        getColor: route => alpha(flowColor(-1), flowOpacity(route.edge, 0) * (routeDimmed(route.edge) ? 0.15 : 1)),
         updateTriggers: { getColor: [selection, selectedLocation?.id, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
-      new PathLayer<{ edge: RouteTreeEdge; path: MapPosition[] }>({
-        id: 'route-sent', data: routePaths.filter(route => route.edge.sent > 0), visible: showTraffic, getPath: route => route.path, wrapLongitude: projection.wrap,
+      new PathLayer<FlowPath>({
+        id: 'flow-sent', data: flowPaths.filter(route => route.edge.sent > 0), visible: showTraffic, getPath: route => route.path, wrapLongitude: projection.wrap,
         widthUnits: 'pixels', capRounded: true, jointRounded: true, getWidth: route => routeWidth(route.edge.sent),
-        getColor: route => alpha(flowColor(1), (route.edge.kind === 'route' ? 0.9 : 0.35) * (routeDimmed(route.edge) ? 0.15 : 1)),
+        getColor: route => alpha(flowColor(1), flowOpacity(route.edge, 1) * (routeDimmed(route.edge) ? 0.15 : 1)),
         updateTriggers: { getColor: [selection, selectedLocation?.id, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
-      new ScatterplotLayer<RouteTreeNode>({
-        id: 'route-hops', data: routeTree?.nodes ?? [], visible: showTraffic, pickable: true, stroked: true,
-        getPosition: node => P(node.position), radiusUnits: 'pixels', getRadius: node => 2.5 + 4 * Math.sqrt((node.received + node.sent) / hopPeak),
-        getFillColor: theme === 'light' ? [237, 243, 243, 255] : [11, 24, 34, 255], getLineColor: flowColor(-1), getLineWidth: 1.2, lineWidthUnits: 'pixels',
-        updateTriggers: { getFillColor: theme, getLineColor: theme }, parameters: { depthCompare: 'always' },
+      new FlowPathLayer<AnimatedFlow>({
+        id: 'flow-traffic', data: animatedFlows, visible: showTraffic, animation, dataComparator: sameAnimatedFlows,
+        getPath: flow => flow.path,
+        getRadii0: flow => (flowRadii.get(`${flow.edgeId}|${flow.direction}`) ?? NO_RADII).slice(0, 4),
+        getRadii1: flow => (flowRadii.get(`${flow.edgeId}|${flow.direction}`) ?? NO_RADII).slice(4, 8),
+        getRadii2: flow => (flowRadii.get(`${flow.edgeId}|${flow.direction}`) ?? NO_RADII).slice(8, 12),
+        getColor: flow => { const edge = flowEdges.get(flow.edgeId); return alpha(flowColor(flow.direction), edge && routeDimmed(edge) ? 0.12 : 1) },
+        // Triggers are compared shallowly by key; wrap objects in arrays so a new Map counts as a change.
+        updateTriggers: { getRadii0: [flowRadii], getRadii1: [flowRadii], getRadii2: [flowRadii], getColor: [selection, selectedLocation?.id, theme, flowEdges] },
+        parameters: { depthCompare: 'always', depthWriteEnabled: false },
+      }),
+      new ScatterplotLayer<{ id: string; position: MapPosition }>({
+        id: 'sea-landings', data: seaNetwork?.landings ?? [], visible: showTraffic, stroked: true, radiusUnits: 'pixels', getRadius: 3,
+        getPosition: landing => P(landing.position), getFillColor: theme === 'light' ? [237, 243, 243, 255] : [11, 24, 34, 255],
+        getLineColor: alpha(flowColor(-1), 0.8), getLineWidth: 1.2, lineWidthUnits: 'pixels', updateTriggers: { getFillColor: theme, getLineColor: theme }, parameters: { depthCompare: 'always' },
+      }),
+      new TextLayer<(typeof crossingLabels)[number]>({
+        id: 'sea-crossing-labels', data: placedCrossingLabels, visible: showTraffic && preferences.labels, getPosition: label => P(label.position), getText: label => label.text,
+        characterSet: 'auto', getSize: 11, fontFamily: 'system-ui, sans-serif', fontWeight: 600, getColor: [223, 240, 239, 255],
+        background: true, getBackgroundColor: [10, 23, 32, 215], backgroundPadding: [6, 3], getPixelOffset: [0, -12], parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
       new ScatterplotLayer<MapPoint>({
         id: 'destination-halos', data: cityPoints, getPosition: (point) => P(point.position),
@@ -314,7 +385,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
       }),
     ].filter(layer => layer.props.visible !== false && (!Array.isArray(layer.props.data) || layer.props.data.length > 0))
   // eslint-disable-next-line react-hooks/exhaustive-deps -- the projection is fixed for this composition's lifetime
-  }, [animation, trafficProfiles, connections, origin, selection, selectedLocation, showTraffic, showCityNames, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryConnections, countryTraffic, cityPoints, theme, workspace.expanded, preferences.labels, routeTree, routePaths, names])
+  }, [animation, trafficProfiles, connections, origin, selection, selectedLocation, showTraffic, showCityNames, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryConnections, countryTraffic, cityPoints, theme, workspace.expanded, preferences.labels, usedCablesOnly, flowPaths, flowPeak, cablePaths, seaNetwork, placedCrossingLabels, names, animatedFlows, flowEdges, flowRadii])
 
   function moveTo(next: Partial<MapViewState>) {
     setViewState((current) => ({ ...current, ...next, transitionDuration: 700, transitionInterpolator: new FlyToInterpolator() }))
@@ -351,14 +422,11 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
 
   return (
     <div className="atlas-map-surface" hidden={workspace.expanded} data-map-zoom={viewState.zoom.toFixed(2)} data-map-pitch={viewState.pitch} data-connection-count={connections.length + countryConnections.length} data-city-column-count={columns.length}>
-      <AnimatedMercator clock={clock} active={!workspace.expanded && showTraffic && (trafficArcs.length + countryTraffic.length > 0)} useDevicePixels deviceProps={{ webgl: { antialias: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' } }}
+      <AnimatedMercator clock={clock} active={!workspace.expanded && showTraffic && (trafficArcs.length + countryTraffic.length + animatedFlows.length > 0)} useDevicePixels deviceProps={{ webgl: { antialias: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' } }}
         controller={{ dragRotate: true, touchRotate: true }} viewState={viewState}
         onViewStateChange={({ viewState: next }) => setViewState(next as MapViewState)}
         layers={layers} getTooltip={info => {
-          if (info.layer?.id === 'route-hops' && info.object) {
-            const node = info.object as RouteTreeNode
-            return { text: `${node.label}\n${node.routers} router${node.routers === 1 ? '' : 's'} on measured paths\n${formatBytes(node.received + node.sent)} through this point\nApproximate path` }
-          }
+          if (info.layer?.id === 'flow-bands' && info.object) return flowTooltip((info.object as FlowPath).edge, seaHops)
           if (info.layer?.id === 'country-footprints' && info.object) {
             const destination = countryVolumes.get(info.object.countryCode)
             return destination ? { text: `${destination.location} · Country estimate\nCity unknown\n${formatBytes(destination.received + destination.sent)} downloaded + sent\nClick for country totals and tracks` } : null
@@ -388,8 +456,9 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         </div>
         <div className="atlas-segmented atlas-view-switch" role="group" aria-label="Flow layout">
           <button type="button" aria-pressed={flowStyle === 'direct'} onClick={() => setFlowStyle('direct')} title="Draw each destination as a direct connection">Direct</button>
-          <button type="button" aria-pressed={flowStyle === 'routes'} onClick={() => setFlowStyle('routes')} title="Bundle traffic along measured network routes">Routes</button>
+          <button type="button" aria-pressed={flowStyle === 'cables'} onClick={() => setFlowStyle('cables')} title="Show the sea crossings traffic likely took, inferred from IP location">Cables</button>
         </div>
+        {flowStyle === 'cables' && <button type="button" className="atlas-layer-button" aria-pressed={usedCablesOnly} onClick={() => setUsedCablesOnly(value => !value)} title="Show only cables that traffic is inferred to have crossed, hiding the rest of the cable network"><span>Used cables only</span><i className="atlas-dot" /></button>}
         <button type="button" className="atlas-layer-button" aria-pressed={showTraffic} onClick={() => setShowTraffic((value) => !value)} title="Show or hide flowing traffic"><MapIcon name="layers" size={16} /><span>Traffic</span><i className="atlas-dot" /></button>
       </div>
 
@@ -405,7 +474,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         <button type="button" className="atlas-icon-button" onClick={() => fitNetwork()} aria-label="Fit network" title="Fit network"><MapIcon name="expand" size={17} /></button>
         <button type="button" className="atlas-icon-button" onClick={() => { const [longitude, latitude] = P([scene.origin.longitude, scene.origin.latitude]); moveTo({ longitude, latitude, zoom: 5, bearing: 0 }) }} aria-label="Center on gateway" title="Center on gateway"><MapIcon name="target" /></button>
       </div>
-      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p>{routeTree ? `Measured routes cover ${measuredShare}% of mapped traffic; paths are approximate and faint lines have no measured route.` : 'Direct connections.'} Coarse IP locations.{(trafficLoading || partialTraffic) ? trafficLoading ? ' Loading rates.' : ' Partial rates.' : ''}</p></div>
+      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p>{seaNetwork ? seaFooter(seaNetwork) : 'Direct connections.'} Coarse IP locations.{(trafficLoading || partialTraffic) ? trafficLoading ? ' Loading rates.' : ' Partial rates.' : ''}</p></div>
       </div>
 
   )
@@ -455,4 +524,122 @@ function routeCurve(from: MapPosition, to: MapPosition, wrap: boolean): MapPosit
     const t = i / 24, u = 1 - t
     return [u * u * x1 + 2 * u * t * cx + t * t * x2, lat(u * u * y1 + 2 * u * t * cy + t * t * y2)]
   })
+}
+
+const CONFIDENCE_TEXT: Record<CrossingConfidence, string> = {
+  required: 'Sea crossing required: no overland route exists',
+  possible: 'Sea crossing likely: the usual route, though an overland one exists',
+}
+
+function flowTooltip(edge: FlowEdge, hops: Map<string, SeaHop>) {
+  const bytes = `${formatBytes(edge.received + edge.sent)} · ↓ ${formatBytes(edge.received)} ↑ ${formatBytes(edge.sent)} · ${edge.locationIds.length} ${edge.locationIds.length === 1 ? 'location' : 'locations'}`
+  if (edge.kind === 'sea' && edge.cableId) {
+    const hop = edge.hopId ? hops.get(edge.hopId) : undefined
+    const others = (hop?.candidates ?? []).filter(candidate => candidate.cable.id !== edge.cableId).map(candidate => candidate.cable.name)
+    return { text: [
+      cableById.get(edge.cableId)?.name ?? 'Submarine cable', hop ? hopLabel(hop) : '', edge.confidence ? CONFIDENCE_TEXT[edge.confidence] : '',
+      `Traffic needing this crossing: ${bytes}`,
+      others.length ? `One of ${others.length + 1} cables connecting these regions; also ${others.slice(0, 5).join(', ')}${others.length > 5 ? ` and ${others.length - 5} more` : ''}` : 'The only cable connecting these regions in the data',
+      `Inferred from IP location; which cable carried the traffic is not observed. Cable data: ${CABLE_SOURCE.label}.`,
+    ].filter(Boolean).join('\n') }
+  }
+  return { text: `Overland or coastal connection (not drawn to scale)\n${bytes}` }
+}
+
+function seaFooter(network: { totals: Record<string, number>; edgeNetworks: string[] }) {
+  const total = Object.values(network.totals).reduce((sum, value) => sum + value, 0)
+  const share = (bytes: number) => total ? `${Math.round(bytes / total * 100)}%` : '0%'
+  const edge = network.totals.edge > 0 ? ` ${share(network.totals.edge)} is served by global edge networks (${network.edgeNetworks.join(', ')}) and not placed.` : ''
+  return `Sea crossings inferred from IP location: ${share(network.totals.required)} required one, ${share(network.totals.possible)} likely. Highlighted cables are the candidates; which one carried the traffic is not observed.${edge} Cable data: ${CABLE_SOURCE.label}.`
+}
+
+/** Planar length in degrees; only used to compare and walk along schematic lanes. */
+function distanceAlong(path: MapPosition[]) {
+  return path.slice(1).reduce((sum, [x, y], i) => sum + Math.hypot(x - path[i][0], y - path[i][1]), 0)
+}
+function pointAlong(path: MapPosition[], fraction: number): MapPosition {
+  let remaining = distanceAlong(path) * fraction
+  for (let i = 1; i < path.length; i++) {
+    const [x0, y0] = path[i - 1], [x1, y1] = path[i], step = Math.hypot(x1 - x0, y1 - y0)
+    if (step >= remaining && step > 0) return [x0 + (x1 - x0) * remaining / step, y0 + (y1 - y0) * remaining / step]
+    remaining -= step
+  }
+  return path[path.length - 1]
+}
+
+const NO_RADII = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0)
+
+/** Live rate history per drawn edge and direction, summed over the series it carries, on the arcs' radius scale. */
+function flowRateRadii(edges: Map<string, FlowEdge>, profiles: Map<string, TrafficProfile>) {
+  const radii = new Map<string, number[]>()
+  for (const edge of edges.values()) {
+    for (const direction of [1, -1]) {
+      const rates = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0), packets = rates.slice()
+      for (const id of edge.seriesIds) {
+        const profile = profiles.get(id)
+        if (!profile) continue
+        const rate = direction === 1 ? profile.outRates : profile.inRates, count = direction === 1 ? profile.outPackets : profile.inPackets
+        for (let i = 0; i < TRAFFIC_HISTORY_LENGTH; i++) { rates[i] += rate?.[i] ?? 0; packets[i] += count?.[i] ?? 0 }
+      }
+      const values = rates.map((rate, i) => trafficRadius(rate, packets[i]))
+      if (values.some(value => value > 0)) radii.set(`${edge.id}|${direction}`, values)
+    }
+  }
+  return radii
+}
+
+/**
+ * Animated paths in both directions, with per-vertex progress. Paths are split
+ * at the antimeridian here (with progress carried across the cut), so the
+ * layer never re-splits them and every vertex keeps its progress value.
+ * Unchanged paths keep their objects, so deck.gl keeps their buffers.
+ */
+function createFlowGeometryCache() {
+  let previous = new Map<string, AnimatedFlow>()
+  return (paths: FlowPath[]) => {
+    const next = new Map<string, AnimatedFlow>()
+    const flows: AnimatedFlow[] = []
+    paths.forEach(({ edge, path }) => {
+      // Keyed by geometry, not list position: edges re-sort by volume on every update.
+      const signature = `${edge.id}:${path.length}:${path[0]}:${path[path.length - 1]}`
+      const parts = previous.has(`${signature}|1|0`) ? null : splitWithProgress(path)
+      for (const direction of [1, -1]) {
+        for (let part = 0; ; part++) {
+          const key = `${signature}|${direction}|${part}`
+          const cached = previous.get(key)
+          const source = parts?.[part]
+          if (!cached && !source) break
+          const flow = cached ?? { key, edgeId: edge.id, direction, path: source!.path.map((point, i) => flowPathPosition(point, source!.progress[i], direction)) }
+          next.set(key, flow); flows.push(flow)
+        }
+      }
+    })
+    previous = next
+    return flows
+  }
+}
+function splitWithProgress(path: MapPosition[]) {
+  const lengths = [0]
+  for (let i = 1; i < path.length; i++) lengths.push(lengths[i - 1] + Math.hypot(path[i][0] - path[i - 1][0], path[i][1] - path[i - 1][1]))
+  const total = Math.max(lengths[lengths.length - 1], 1e-9)
+  const wrap = (lon: number) => ((lon + 540) % 360) - 180
+  const parts: { path: MapPosition[]; progress: number[] }[] = [{ path: [], progress: [] }]
+  for (let i = 0; i < path.length; i++) {
+    const point: MapPosition = [wrap(path[i][0]), path[i][1]], progress = lengths[i] / total
+    if (i) {
+      const prior: MapPosition = [wrap(path[i - 1][0]), path[i - 1][1]], priorProgress = lengths[i - 1] / total
+      if (Math.abs(point[0] - prior[0]) > 180) {
+        const edge = prior[0] > 0 ? 180 : -180
+        const t = Math.abs(edge - prior[0]) / Math.max(360 - Math.abs(point[0] - prior[0]), 1e-9)
+        const lat = prior[1] + (point[1] - prior[1]) * t, at = priorProgress + (progress - priorProgress) * t
+        parts[parts.length - 1].path.push([edge, lat]); parts[parts.length - 1].progress.push(at)
+        parts.push({ path: [[-edge, lat]], progress: [at] })
+      }
+    }
+    parts[parts.length - 1].path.push(point); parts[parts.length - 1].progress.push(progress)
+  }
+  return parts.filter(part => part.path.length > 1)
+}
+function sameAnimatedFlows(data: unknown, oldData?: unknown) {
+  return Array.isArray(data) && Array.isArray(oldData) && data.length === oldData.length && data.every((flow, i) => flow === oldData[i])
 }

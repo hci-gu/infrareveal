@@ -1,7 +1,6 @@
 import { lazy, memo, Suspense, useEffect, useMemo, useRef } from 'react'
 import type { ReactNode, Ref } from 'react'
 import type { StyleSpecification } from 'maplibre-gl'
-import type { RouteEvidence } from '@infrareveal/session-state'
 import type { MapTimelineScene } from './mapModel'
 import { createTrafficProfileCache, TRAFFIC_BUCKET_MS } from './mapTraffic'
 import type { MapTrafficIndex, TrafficProfile } from './mapTraffic'
@@ -48,12 +47,10 @@ export type MapWorkspaceProps = {
   destinationLoading: boolean
   destinationError: boolean
   connectedClients: ConnectedClientsState | null
-  /** Measured route evidence for the loaded window, used by the route-bundled view. */
-  routes: readonly RouteEvidence[]
 }
 
 export type MapControls = { fit: (trackId?: string) => void }
-export type MapRendererProps = Pick<MapWorkspaceProps, 'preferences' | 'theme' | 'workspace' | 'overview' | 'scene' | 'cursorMs' | 'clock' | 'width' | 'height' | 'playbackEpochMs' | 'mapStyleUrl' | 'trafficLoading' | 'destinationIndex' | 'destinationLoading' | 'routes'> & {
+export type MapRendererProps = Pick<MapWorkspaceProps, 'preferences' | 'theme' | 'workspace' | 'overview' | 'scene' | 'cursorMs' | 'clock' | 'width' | 'height' | 'playbackEpochMs' | 'mapStyleUrl' | 'trafficLoading' | 'destinationIndex' | 'destinationLoading'> & {
   controlsRef: Ref<MapControls>
   inspection: ReturnType<typeof useMapInspector>
   profiles: Map<string, TrafficProfile>

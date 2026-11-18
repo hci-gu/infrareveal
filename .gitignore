@@ -18,6 +18,8 @@ node_modules/
 .env
 secrets/
 data/
+# Bundled map reference data (Natural Earth, Wikidata cables) is source, not runtime data.
+!dashboard/src/map/data/
 # This is frontend source, not deployment state.
 !packages/session-state/src/data/
 !pocketbase/data/

@@ -66,7 +66,7 @@ export function projectWorkspace(catalog: MapTrackCatalog, scene: MapTimelineSce
       client: first.client_ip || first.client_id, site: first.service_key,
       hostname: first.evidence.hostname || first.destination_ip, chunks: visible,
       startMs, endMs, lastActivityMs: 0, bytes: 0, mapped: byEndpoint.has(id),
-      location: destination ? [destination.city, destination.country].filter(Boolean).join(', ') : '', provider: destination?.provider || '', country: destination?.country || '',
+      location: destination ? [destination.city, destination.country].filter(Boolean).join(', ') : '', provider: destination?.provider || '', country: destination?.country || '', countryCode: destination?.country_code || undefined, asn: destination?.asn || undefined,
     }
     const location = byEndpoint.get(series.id) ?? { id: 'unlocated', label: 'Unlocated', detail: 'Included in totals · no map position' }
     locationOptions.set(location.id, { id: location.id, label: location.label })
