@@ -9,6 +9,8 @@ import { colorCSS } from './mapTracks'
 import type { MapTrack, seriesTraffic } from './mapTracks'
 import type { LocationTraffic } from './mapWorkspace'
 import { formatBytes } from './format'
+import type { GatewayOrigin } from './mapModel'
+import { fibreFloorMs, formatRtt, placement } from './latency'
 
 type Props = { cursorMs: number; order?: ActivityOrder; refreshing: boolean;
   location: LocationTraffic
@@ -20,9 +22,11 @@ type Props = { cursorMs: number; order?: ActivityOrder; refreshing: boolean;
   onTrack: (id: string) => void
   onClose: () => void
   onFit: () => void
+  /** Gateway position, for comparing the measured round trip with the physical floor. */
+  origin?: GatewayOrigin
 }
 
-export function MapLocationInspector({ cursorMs, order, refreshing, location, tracks, traffic, loading, error, trafficLoading, onTrack, onClose, onFit }: Props) {
+export function MapLocationInspector({ cursorMs, order, refreshing, location, tracks, traffic, loading, error, trafficLoading, onTrack, onClose, onFit, origin }: Props) {
   const ref = useRef<HTMLElement>(null)
   useEffect(() => { ref.current?.focus({ preventScroll: true }) }, [])
   const { items: orderedItems, scrollRef: listRef, paused: listPaused, back: resumeList, onScroll: scrollList, onFocus: focusList, pause: pauseList } = useLiveList(tracks, JSON.stringify([location.id, order]), cursorMs)
@@ -45,6 +49,7 @@ export function MapLocationInspector({ cursorMs, order, refreshing, location, tr
       <div className="atlas-up"><strong data-location-total="sent">↑ {bytes(location.sent)}</strong><span>Sent</span></div>
     </div>
     <div className="atlas-track-map-status"><span role="status">{refreshing ? 'Updating · showing last loaded capture' : loading ? 'Loading totals…' : error ? 'Capture unavailable' : location.partial ? 'Captured wire bytes · partial capture' : 'Captured wire bytes'}</span><button type="button" disabled={!location.position} onClick={onFit}>Fit location</button></div>
+    <RoundTripNote location={location} origin={origin} />
     {location.country && <p className="atlas-location-note">Only destinations without a city estimate. The footprint does not show where within the country traffic goes.</p>}
     <BackToLatest paused={listPaused} onClick={resumeList} /><div ref={listRef} onScroll={event => { scrollList(event); virtual.onScroll(event) }} onFocusCapture={focusList} onClick={pauseList} className="atlas-inspector-scroll">
       <div className="atlas-section-heading"><h3>Services at this location <span className="atlas-count">{tracks.length}</span></h3></div>
@@ -55,4 +60,16 @@ export function MapLocationInspector({ cursorMs, order, refreshing, location, tr
       {!tracks.length && <p className="atlas-list-empty">{loading ? 'Loading services…' : 'No traffic at the playhead.'}</p>}
     </div>
   </section>
+}
+
+/** The lowest passive round trip in the window, and whether the IP location can explain it. */
+function RoundTripNote({ location, origin }: { location: LocationTraffic; origin?: GatewayOrigin }) {
+  if (location.rttMs === undefined) return null
+  const floor = origin && location.position ? fibreFloorMs(origin, location.position) : undefined
+  const verdict = floor === undefined ? '' : placement(location.rttMs, floor) === 'contradicted'
+    ? ` Faster than light allows from this IP location (at least ${formatRtt(floor)}): served from nearby.`
+    : ` The fastest possible from this IP location is ${formatRtt(floor)}.`
+  return <p className="atlas-location-note" data-location-rtt={location.rttMs}>
+    <strong>{formatRtt(location.rttMs)} round trip</strong> · lowest in window, {location.rttSource === 'udp' ? 'UDP first reply (upper bound)' : 'TCP handshake'}.{verdict}
+  </p>
 }

@@ -41,6 +41,27 @@ Open chunks flush approximately every second. Five-second chunk size does not im
 
 Sample/correction/grouping settings are pinned in the session policy. Retention belongs to the session; there is no separate flow-activity retention store.
 
+## Passive round-trip time
+
+Each traffic chunk may carry `rtt_us` and `rtt_source`: the lowest gateway↔server
+round trip among connections opened in that chunk (`observer/rtt.go`). Nothing is
+sent and no payload is read.
+
+- **TCP:** client SYN → server SYN-ACK as they pass the gateway, so the client's
+  Wi-Fi hop is excluded. A retransmitted SYN makes the pairing ambiguous (Karn's
+  rule) and yields no sample, as do connections joined mid-stream.
+- **UDP:** a new flow's first client datagram → first server datagram. Servers
+  may answer late (QUIC Retry, application time), so this is an upper bound,
+  labelled `udp`, and TCP always outranks it (`TrafficChunk.MergeRTT`).
+- **Timestamps:** kernel receive times from `SO_TIMESTAMPNS`, including the
+  32-bit timespec on armv7; `time.Now()` is the fallback.
+- **Proxy Lab:** while the opt-in gate is armed for a client, its samples are
+  skipped, because held packets would inflate them.
+
+Lowest wins everywhere (aggregation, storage upsert, window merging): queueing
+only ever adds delay. The simulator gives each lane a handshake delayed by a
+distance-based round trip; every seventh lane is edge-served (fast but far).
+
 ## Activity blocks and retention
 
 `activity_blocks` projects captured payload activity by client and service. The projector unions overlapping active bins, splits after the configured quiet gap or unavailable capture, and keeps each block's observed span separate from its active duration. Several destinations may contribute to one service block. Shared destination IPs do not merge unrelated services or clients.

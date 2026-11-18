@@ -99,6 +99,13 @@ func seed(app core.App, diagnostics bool, now time.Time) error {
 					continue
 				}
 				c := data.TrafficChunk{ID: data.ID(service, fmt.Sprint(elapsed)), Session: session.ID, CaptureEpoch: "example", ClientID: "example-client", ClientIP: "10.0.0.100", ServiceKey: service, ServiceLabel: label, DestinationID: dest.ID, DestinationIP: dest.IP, Protocol: protocol, DestinationPort: 443, NetworkEpoch: "example-network", StartMS: start + elapsed, BucketMS: policy.BucketMS, ChunkMS: policy.ChunkMS, Generation: 1, Sealed: true, Evidence: evidence}
+				// Illustrative passive round trips: Stockholm over TCP; the unlocated UDP endpoint
+				// only has a first-reply upper bound. Every chunk opens one connection here.
+				if site < 2 {
+					c.RTTUS, c.RTTSource = int64(7_800+site*1_200), "tcp"
+				} else {
+					c.RTTUS, c.RTTSource = 41_000, "udp"
+				}
 				for offset := int64(0); offset+policy.BucketMS <= min(1500, policy.ChunkMS, 120000-elapsed); offset += policy.BucketMS {
 					c.Samples = append(c.Samples, data.Sample{offset, 150, 3000 + int64(site)*500, 90, 2880 + int64(site)*500, 1, 2})
 				}

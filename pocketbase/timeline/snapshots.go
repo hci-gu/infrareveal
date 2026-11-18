@@ -406,6 +406,7 @@ func readTrafficPage(db dbx.Builder, q Query, c *pageCursor, filter string, para
 				}
 				target.ChunkMS = max(target.ChunkMS, chunk.StartMS+chunk.ChunkMS-target.StartMS)
 				target.Sealed = target.Sealed && chunk.Sealed
+				target.MergeRTT(chunk.RTTUS, chunk.RTTSource)
 			} else {
 				groups[key] = len(result)
 				result = append(result, chunk)

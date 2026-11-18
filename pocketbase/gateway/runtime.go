@@ -16,6 +16,7 @@ import (
 	"myapp/routing"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -35,6 +36,12 @@ type Runtime struct {
 	traceHub          *debugtrace.Hub
 	trace             debugtrace.Sink
 	gate              *labgate.Controller
+	gateTiming        struct {
+		sync.Mutex
+		checked time.Time
+		armed   bool
+		clients []string
+	}
 	audit             *labgate.AuditWriter
 	controlToken      []byte
 	geo               *geolocation.Manager
@@ -58,7 +65,33 @@ func New(app *pocketbase.PocketBase, config Config) *Runtime {
 	config.Gate.ExcludedClient = func(ip string) bool { return displays.Excluded(ip, "") }
 	config.Observation.Diagnostics = config.Diagnostics
 	config.Routes.Diagnostics = config.Diagnostics
-	return &Runtime{app: app, config: config, displays: displays}
+	g := &Runtime{app: app, config: config, displays: displays}
+	g.config.Observation.TimingSuppressed = g.gateHolds
+	return g
+}
+
+// gateHolds reports whether an armed Proxy Lab gate may be holding this
+// client's packets. It is consulted only when a round-trip sample completes
+// (about once per connection), and the gate status is cached for a second so
+// observation never waits on the gate controller.
+func (g *Runtime) gateHolds(clientIP string) bool {
+	if g.gate == nil || !g.config.Gate.Enabled {
+		return false
+	}
+	g.gateTiming.Lock()
+	defer g.gateTiming.Unlock()
+	if time.Since(g.gateTiming.checked) > time.Second {
+		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+		status, err := g.gate.Status(ctx)
+		cancel()
+		g.gateTiming.checked = time.Now()
+		// An unknown gate state is treated as holding: a missed sample is cheaper than a wrong one.
+		g.gateTiming.armed, g.gateTiming.clients = err != nil || status.Armed, status.Clients
+	}
+	if !g.gateTiming.armed {
+		return false
+	}
+	return len(g.gateTiming.clients) == 0 || slices.Contains(g.gateTiming.clients, clientIP)
 }
 
 func (g *Runtime) Register() {

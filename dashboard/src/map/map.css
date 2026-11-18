@@ -2652,8 +2652,14 @@
   display: block;
   min-width: 2px;
 }
+[data-latency=local] { background: var(--atlas-down); }
+[data-latency=regional] { background: color-mix(in oklch, var(--atlas-down) 65%, transparent); }
+[data-latency=continental] { background: color-mix(in oklch, var(--atlas-down) 40%, transparent); }
+[data-latency=intercontinental] { background: color-mix(in oklch, var(--atlas-down) 20%, var(--color-faint)); }
+[data-latency=unmeasured] { background: var(--atlas-border); }
 [data-crossing=required] { background: var(--atlas-down); }
 [data-crossing=possible] { background: color-mix(in oklch, var(--atlas-down) 50%, transparent); }
+[data-crossing=nearby] { background: color-mix(in oklch, var(--atlas-up) 55%, transparent); }
 [data-crossing=none] { background: var(--color-faint); }
 [data-crossing=edge] { background: var(--atlas-up); }
 [data-crossing=unknown] { background: var(--atlas-border); }

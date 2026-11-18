@@ -256,6 +256,24 @@ try:
     assert chunk_totals(chunks()) == idle_totals, "idle heartbeat invented traffic"
     stage("sealed_and_idle_coverage_verified")
 
+    # Passive round-trip timing (observer/rtt.go): veth handshakes are sub-millisecond;
+    # a known upstream delay must show up as the measured gateway↔server round trip.
+    timed = [row for row in chunks() if row["rtt_us"]]
+    assert timed and all(row["rtt_source"] == "tcp" and row["rtt_us"] < 10_000 for row in timed), [(row["rtt_us"], row["rtt_source"]) for row in chunks()]
+    netem = subprocess.run(["ip", "-n", upstream, "qdisc", "add", "dev", "server", "root", "netem", "delay", "40ms"], capture_output=True, text=True)
+    report["netem_rtt_check"] = netem.returncode == 0 or netem.stderr.strip()
+    if netem.returncode == 0:
+        try:
+            before = {row["id"] for row in timed}
+            download(paced=False)
+            wait_for(lambda: any(row["rtt_us"] >= 38_000 for row in chunks() if row["id"] not in before), timeout=15, description="delayed handshake round trip")
+            delayed = max(row["rtt_us"] for row in chunks() if row["id"] not in before)
+            assert 38_000 <= delayed <= 60_000, delayed
+            report["netem_rtt_us"] = delayed
+        finally:
+            subprocess.run(["ip", "-n", upstream, "qdisc", "del", "dev", "server", "root"], check=False)
+    stage("passive_rtt_verified")
+
     # Align close to a five-second boundary so restart can split one chunk into
     # two capture epochs. The report explicitly says whether timing fit.
     wait_for(lambda: int(time.time()*1000)%5000 < 250, timeout=6, description="chunk boundary")

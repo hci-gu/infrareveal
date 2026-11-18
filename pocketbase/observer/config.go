@@ -18,6 +18,9 @@ type Config struct {
 	Packet                                               PacketActivityConfig
 	Diagnostics                                          bool
 	NetworkEpoch                                         func() string
+	// TimingSuppressed reports clients whose packets may be held by an armed
+	// Proxy Lab gate; their handshake round-trip times are not recorded.
+	TimingSuppressed func(clientIP string) bool
 }
 
 type PacketActivityConfig struct {

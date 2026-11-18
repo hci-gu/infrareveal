@@ -49,6 +49,15 @@ func NewSimulation(app *pocketbase.PocketBase, session string, expires time.Time
 		}
 		ticker := time.NewTicker(50 * time.Millisecond)
 		defer ticker.Stop()
+		// Each lane opens with a handshake; its reply is held back by the lane's
+		// round trip, and the lane's traffic starts once the reply has arrived.
+		opened := make([]time.Time, len(lanes))
+		answered := make([]bool, len(lanes))
+		emit := func(frame []byte, at time.Time) {
+			if event, ok := ParsePacketActivityFrame(frame, len(frame), at, scope); ok {
+				send(sourceEvent{at: at, packet: &event}, true)
+			}
+		}
 		for {
 			select {
 			case <-ctx.Done():
@@ -60,6 +69,17 @@ func NewSimulation(app *pocketbase.PocketBase, session string, expires time.Time
 				elapsed := at.Sub(start).Seconds()
 				for i, lane := range lanes {
 					sent, received := simulationPackets(i, elapsed)
+					if !answered[i] {
+						if opened[i].IsZero() && sent+received > 0 {
+							opened[i] = at
+							emit(lane.handshake[0], at)
+						}
+						if opened[i].IsZero() || at.Before(opened[i].Add(lane.rtt)) {
+							continue
+						}
+						answered[i] = true
+						emit(lane.handshake[1], opened[i].Add(lane.rtt))
+					}
 					for direction, count := range []int{sent, received} {
 						for packet := 0; packet < count; packet++ {
 							frame := lane.frames[direction]
@@ -86,7 +106,29 @@ func simulationScope() ObservationScope {
 type simulationLane struct {
 	client, ip, domain string
 	frames             [2][]byte
-	destination        data.Destination
+	// Opening packet (TCP SYN or first UDP datagram) and its reply, for passive RTT.
+	handshake   [2][]byte
+	rtt         time.Duration
+	destination data.Destination
+}
+
+// The simulated round trip follows the distance from a reference gateway
+// (Gothenburg, the default dashboard origin): light in fibre needs ~1 ms per
+// 100 km of round trip, and real paths run ~1.5× longer than great circles.
+// Every seventh lane is "edge-served": answered within a few milliseconds even
+// though its IP location is far away, as CDN and anycast addresses are.
+var simulationGateway = [2]float64{57.69, 11.92}
+
+func simulationRTT(lane int, place *data.Destination) time.Duration {
+	jitter := time.Duration(lane%5) * 700 * time.Microsecond
+	if place.Lat == nil || lane%7 == 3 {
+		return 3*time.Millisecond + jitter
+	}
+	rad := math.Pi / 180
+	dLat, dLon := (*place.Lat-simulationGateway[0])*rad, (*place.Lon-simulationGateway[1])*rad
+	h := math.Pow(math.Sin(dLat/2), 2) + math.Cos(simulationGateway[0]*rad)*math.Cos(*place.Lat*rad)*math.Pow(math.Sin(dLon/2), 2)
+	km := 12742 * math.Asin(math.Min(1, math.Sqrt(h)))
+	return 2*time.Millisecond + time.Duration(km*1.5/100*float64(time.Millisecond)) + jitter
 }
 
 // Distinct registrable names keep activity attribution and client/service lanes
@@ -135,8 +177,9 @@ func simulationLanes(session string) []simulationLane {
 			d.Country, d.CountryCode, d.City, d.Precision = "", "", "", "unknown"
 			d.Lat, d.Lon = nil, nil
 		}
-		lanes[i] = simulationLane{client: client, ip: ip, domain: domain, destination: d,
-			frames: [2][]byte{simulationFrame(i, client, ip, false), simulationFrame(i, client, ip, true)}}
+		lanes[i] = simulationLane{client: client, ip: ip, domain: domain, destination: d, rtt: simulationRTT(i, &d),
+			frames:    [2][]byte{simulationFrame(i, client, ip, false), simulationFrame(i, client, ip, true)},
+			handshake: [2][]byte{simulationOpening(i, client, ip, false), simulationOpening(i, client, ip, true)}}
 	}
 	return lanes
 }
@@ -178,6 +221,20 @@ func simulationPackets(lane int, seconds float64) (sent, received int) {
 		}
 	}
 	return 0, 0
+}
+
+// simulationOpening is the lane's TCP SYN / SYN-ACK, or for UDP lanes a plain
+// first datagram in each direction.
+func simulationOpening(lane int, client, remote string, incoming bool) []byte {
+	frame := simulationFrame(lane, client, remote, incoming)
+	if lane%18 > 2 {
+		flags := byte(0x02)
+		if incoming {
+			flags = 0x12
+		}
+		frame[14+20+13] = flags
+	}
+	return frame
 }
 
 // Full synthetic Ethernet/IPv4 transport frames exercise the production packet

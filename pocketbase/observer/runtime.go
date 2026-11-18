@@ -364,6 +364,7 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 			policy = DefaultPolicy()
 		}
 		a = newAggregate(id, epoch, policy, r.config.Packet.MaxPendingChunks)
+		a.timingSuppressed = r.config.TimingSuppressed
 		a.frozenBefore = max(session.StartedMS, session.RetainedFromMS, session.Capture.ConfirmedMS/policy.BucketMS*policy.BucketMS)
 		quality := "unavailable"
 		if running {

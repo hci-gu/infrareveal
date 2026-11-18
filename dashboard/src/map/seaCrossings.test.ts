@@ -104,8 +104,20 @@ describe('sea crossings on real cables', () => {
     expect(network.edges.some(edge => edge.trackIds.includes('cdn'))).toBe(false)
   })
 
+  it('lets a measured round trip overrule or confirm the inferred crossing', () => {
+    const context = { origin: gothenburg, position: [-74, 40.7] as MapPosition }
+    // "New York" answering in 4 ms was served nearby, whatever its ASN says.
+    expect(classifySeries({ countryCode: 'US', rttMs: 4 }, home, context)).toMatchObject({ kind: 'nearby', hops: [] })
+    // 95 ms is consistent with crossing the Atlantic; even an edge ASN does not veto it.
+    const measured = classifySeries({ countryCode: 'US', asn: 15169, rttMs: 95 }, home, context)
+    expect(measured).toMatchObject({ kind: 'required', measuredMs: 95 })
+    expect(measured.hops.map(hop => hop.id)).toEqual(['nordic~north_america'])
+    // Without a measurement, the CDN list still applies.
+    expect(classifySeries({ countryCode: 'US', asn: 15169 }, home, context).kind).toBe('edge')
+  })
+
   it('summarises bytes per class and crossing', () => {
-    const summary = summarizeCrossings([series('a', 'US', 300), series('b', 'GB', 100), series('c', 'SE', 50), series('d', 'US', 25, 54113)], gothenburg)
+    const summary = summarizeCrossings([location('us', [-74, 40.7], [series('a', 'US', 300), series('d', 'US', 25, 54113)]), location('gb', [-0.1, 51.5], [series('b', 'GB', 100)]), location('se', [18.07, 59.33], [series('c', 'SE', 50)])], gothenburg)
     expect(summary.totals).toMatchObject({ required: 300, possible: 100, none: 50, edge: 25 })
     expect(summary.total).toBe(475)
     expect(summary.hops.map(entry => [entry.hop.id, entry.bytes, entry.confidence])).toEqual([['nordic~north_america', 300, 'required'], ['british_isles~nordic', 100, 'possible']])

@@ -5,7 +5,7 @@ import { ArcLayer, ColumnLayer, PathLayer, ScatterplotLayer, SolidPolygonLayer, 
 import { AnimatedMercator } from './AnimatedMercator'
 import type { MapRendererProps } from '../map/MapWorkspaceView'
 import { createMapGeometryCache, sameTrafficArcGeometry } from '../map/mapGeometryCache'
-import { lazy, Suspense, useImperativeHandle, useMemo, useState } from 'react'
+import { lazy, Suspense, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import type { MapPoint, MapPosition } from '../map/mapModel'
 import { projectMapFrame } from '../map/mapModel'
 import { FlowArcLayer } from '../map/FlowArcLayer'
@@ -27,6 +27,8 @@ import countries from '../map/data/countries.json'
 import { mapProjection } from '../map/mapProjection'
 import { buildSeaNetwork, CABLE_SOURCE, CABLES, hopLabel, splitAntimeridian } from '../map/seaCrossings'
 import type { CrossingConfidence, SeaHop } from '../map/seaCrossings'
+import { bearingDegrees, fibreFloorMs, formatRtt, LATENCY_RINGS, latencyPosition, latencyRing, placement, UNMEASURED_RING_MS } from '../map/latency'
+import type { Placement } from '../map/latency'
 import type { DestinationColumn, DestinationVolume, DirectionalColumn } from '../map/destinationVolumes'
 
 const TiledBasemap = lazy(() => import('../map/TiledBasemap'))
@@ -48,6 +50,13 @@ const MAX_CROSSING_LABELS = 5
 const cableById = new Map(CABLES.map(cable => [cable.id, cable]))
 
 type FlowStyle = 'direct' | 'cables'
+type Layout = 'geography' | 'latency'
+/** Where a destination sits in the latency view, and what its round trip says about its IP location. */
+type LatencyEntry = { position: MapPosition; bearing: number; rttMs?: number; source?: 'tcp' | 'udp'; floorMs: number; placement?: Placement; ghost?: MapPosition }
+const positionKey = (position: readonly number[]) => `${position[0]},${position[1]}`
+/** Positions slide between layouts with deck.gl attribute transitions, enabled only while switching. */
+const LAYOUT_TRANSITION_MS = 1200
+const LAYOUT_TRANSITIONS = { getPosition: LAYOUT_TRANSITION_MS, getSourcePosition: LAYOUT_TRANSITION_MS, getTargetPosition: LAYOUT_TRANSITION_MS }
 /** One drawable flow segment of the inferred sea-crossing network. */
 type FlowEdge = { id: string; kind: 'sea' | 'land'; received: number; sent: number; locationIds: string[]; trackIds: string[]; seriesIds: string[]; confidence?: CrossingConfidence | null; cableId?: string; hopId?: string; candidates?: number }
 type FlowPath = { edge: FlowEdge; path: MapPosition[] }
@@ -76,7 +85,52 @@ function countryNames(toMap: (position: MapPosition) => MapPosition) {
  */
 export function MapComposition({ controlsRef, inspection, profiles: trafficProfiles, trafficAnchorMs, emptyState, cursorMs, preferences, theme, workspace, overview, scene, clock, width: compositionWidth, height: compositionHeight, playbackEpochMs, mapStyleUrl, trafficLoading, destinationIndex, destinationLoading }: MapRendererProps) {
   const projection = mapProjection(preferences.projection)
-  const P = projection.toMap
+  const [layout, setLayout] = useState<Layout>('geography')
+  const [switchingLayout, setSwitchingLayout] = useState(false)
+  const pendingFit = useRef(false)
+  /**
+   * Latency layout: the gateway at the centre, each destination at its true
+   * bearing and at a distance set by its lowest measured round trip. Unmeasured
+   * destinations sit on an outer ring. Ghosts mark the fastest round trip
+   * physics allows from each IP location.
+   */
+  const latency = useMemo(() => {
+    if (layout !== 'latency') return null
+    const entries = new Map<string, LatencyEntry>()
+    for (const location of overview.locations) {
+      if (!location.position) continue
+      const bearing = bearingDegrees(scene.origin, location.position), floorMs = fibreFloorMs(scene.origin, location.position)
+      const measured = location.rttMs
+      entries.set(positionKey(location.position), {
+        bearing, floorMs, rttMs: measured, source: location.rttSource,
+        position: latencyPosition(measured ?? UNMEASURED_RING_MS, bearing),
+        placement: measured === undefined ? undefined : placement(measured, floorMs),
+        ghost: measured === undefined ? undefined : latencyPosition(floorMs, bearing),
+      })
+    }
+    return { entries, key: [...entries].map(([key, entry]) => `${key}:${entry.position}`).sort().join('|') }
+  }, [layout, overview.locations, scene.origin])
+  const originKey = positionKey([scene.origin.longitude, scene.origin.latitude])
+  const P = latency
+    ? (position: MapPosition): MapPosition => latency.entries.get(positionKey(position))?.position
+      ?? (positionKey(position) === originKey ? [0, 0] : latencyPosition(UNMEASURED_RING_MS, bearingDegrees(scene.origin, position)))
+    : projection.toMap
+  /** Accessors read positions through P; this changes whenever P would place something differently. */
+  const positionTrigger = latency ? latency.key : 'geography'
+  const transitions = switchingLayout ? LAYOUT_TRANSITIONS : undefined
+  const geographic = !latency
+  const wrap = geographic && projection.wrap
+  function switchLayout(next: Layout) {
+    if (next === layout) return
+    pendingFit.current = true
+    setLayout(next)
+    setSwitchingLayout(true)
+  }
+  useEffect(() => {
+    if (!switchingLayout) return
+    const timer = setTimeout(() => setSwitchingLayout(false), LAYOUT_TRANSITION_MS + 100)
+    return () => clearTimeout(timer)
+  }, [switchingLayout])
   /** Column heights are pixel-sized, so scale by the latitude deck.gl actually draws at. */
   const metersPerPixel = (position: MapPosition, zoom: number) => columnMetersPerPixel(P(position)[1], zoom)
   const names = useMemo(() => { const { tiles, toMap } = mapProjection(preferences.projection); return tiles ? [] : countryNames(toMap) }, [preferences.projection])
@@ -88,7 +142,9 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     zoom: width > 760 ? 1.55 : 1.4, minZoom: -1, maxZoom: 16, pitch: 35, bearing: 0,
   }))
   const [showTraffic, setShowTraffic] = useState(true)
-  const [flowStyle, setFlowStyle] = useState<FlowStyle>('direct')
+  const [chosenFlowStyle, setFlowStyle] = useState<FlowStyle>('direct')
+  // Cables are geographic; the latency view always draws direct connections.
+  const flowStyle: FlowStyle = layout === 'latency' ? 'direct' : chosenFlowStyle
   /** Cables view: hide the reference network and keep only cables traffic is inferred to have used. */
   const [usedCablesOnly, setUsedCablesOnly] = useState(false)
   const { seaNetwork, flowPaths, flowPeak, seaHops } = useMemo(() => {
@@ -162,8 +218,8 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
       bounds: { left: 12, top: 75, right: width - (inspectorEdge ? 390 : 60), bottom: height - 95 },
       cityBounds: { left: 35, top: 90, right: inspectorEdge ? width - 385 : width - 55, bottom: height - 90 },
     })
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- the projection is fixed for this composition's lifetime
-  }, [destinations, countryDestinations, viewState, width, height, selection, selectedLocation?.id, inspectorOpen, showCityNames])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- P depends only on the projection (fixed per composition) and the latency layout
+  }, [destinations, countryDestinations, viewState, width, height, selection, selectedLocation?.id, inspectorOpen, showCityNames, latency])
   /** Busiest crossings claim label space first; a label that would overlap one already placed is dropped. */
   const placedCrossingLabels = useMemo(() => {
     const { toMap } = mapProjection(preferences.projection)
@@ -203,12 +259,12 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     const neutralColor = (): Color => theme === 'light' ? [83, 111, 117] : [143, 171, 180]
     const flowColor = (value?: number): Color => directionColor(value ?? 1, theme === 'light')
     const arcProps = {
-      data: connections, greatCircle: projection.greatCircle, wrapLongitude: projection.wrap, numSegments: 160,
+      data: connections, greatCircle: geographic && projection.greatCircle, wrapLongitude: wrap, numSegments: 160, transitions,
       getSourcePosition: (arc: BundledMapArc) => P(arc.sourcePosition),
       getTargetPosition: (arc: BundledMapArc) => P(arc.targetPosition),
       getHeight: 0.18, getTilt: 0,
       visible: showTraffic && flowStyle === 'direct', parameters: { depthCompare: 'always' as const, depthWriteEnabled: false },
-      updateTriggers: { getSourceColor: [selection, theme], getTargetColor: [selection, theme] },
+      updateTriggers: { getSourceColor: [selection, theme], getTargetColor: [selection, theme], getSourcePosition: positionTrigger, getTargetPosition: positionTrigger },
     }
     const volumeProps = {
       dataComparator: sameTrafficArcGeometry,
@@ -223,7 +279,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     const routeDimmed = (edge: FlowEdge) => Boolean((selection && !edge.trackIds.includes(selection)) || (selectedLocation && !edge.locationIds.includes(selectedLocation.id)))
     const routeWidth = (bytes: number) => bytes > 0 ? Math.max(1, MAX_ROUTE_WIDTH * bytes / Math.max(1, flowPeak)) : 0
     return [
-      ...(projection.tiles ? [] : [
+      ...(projection.tiles || latency ? [] : [
         new SolidPolygonLayer<MapPosition[]>({
           id: 'world-water', data: projection.outline ? [projection.outline] : [], getPolygon: outline => outline,
           getFillColor: base.water, updateTriggers: { getFillColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
@@ -249,12 +305,12 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         }),
       ]),
       new CountryFootprintLayer({
-        id: 'country-footprints', data: countryPolygons, getPolygon: shape => shape.polygon.map(ring => ring.map(P)), pickable: true,
+        id: 'country-footprints', data: countryPolygons, visible: geographic, getPolygon: shape => shape.polygon.map(ring => ring.map(P)), pickable: true,
         getFillColor: shape => alpha(countryColor(shape.countryCode), (0.16 + Math.min(0.2, Math.log2(1 + (countryVolumes.get(shape.countryCode)?.bytes ?? 0) / 4096) * 0.015)) * countryOpacity(shape.countryCode)),
         updateTriggers: { getFillColor: [selection, countryVolumes, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
       new PathLayer({
-        id: 'country-outlines', data: countryBorders, getPath: border => border.path.map(P), getWidth: 1, widthUnits: 'pixels',
+        id: 'country-outlines', data: countryBorders, visible: geographic, getPath: border => border.path.map(P), getWidth: 1, widthUnits: 'pixels',
         getColor: border => alpha(countryColor(border.countryCode), 0.55 * countryOpacity(border.countryCode)),
         updateTriggers: { getColor: [selection, countryVolumes, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
@@ -271,7 +327,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         getTargetColor: arc => alpha(flowColor(arc.direction), connectionOpacity(arc)),
       }),
       new PathLayer<MapPosition[]>({
-        id: 'atlas-grid', data: projection.graticule, getPath: (path) => path,
+        id: 'atlas-grid', data: geographic ? projection.graticule : [], getPath: (path) => path,
         getColor: [69, 102, 118, 27], getWidth: 1, widthUnits: 'pixels', pickable: false,
       }),
       new ArcLayer<BundledMapArc>({
@@ -329,19 +385,20 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         characterSet: 'auto', getSize: 11, fontFamily: 'system-ui, sans-serif', fontWeight: 600, getColor: [223, 240, 239, 255],
         background: true, getBackgroundColor: [10, 23, 32, 215], backgroundPadding: [6, 3], getPixelOffset: [0, -12], parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
+      ...(latency ? latencyLayers(latency.entries, neutralColor(), theme, preferences.labels) : []),
       new ScatterplotLayer<MapPoint>({
         id: 'destination-halos', data: cityPoints, getPosition: (point) => P(point.position),
-        radiusUnits: 'pixels', getRadius: (point) => point.trackId === selection ? 17 : 10,
+        radiusUnits: 'pixels', getRadius: (point) => point.trackId === selection ? 17 : 10, transitions,
         getFillColor: (point) => alpha(neutralColor(), (point.activeSeriesCount > 0 ? 0.08 : 0.04) * trackOpacity(point.trackId, selection)),
-        updateTriggers: { getRadius: selection, getFillColor: [selection, theme] }, parameters: { depthCompare: 'always' },
+        updateTriggers: { getRadius: selection, getFillColor: [selection, theme], getPosition: positionTrigger }, parameters: { depthCompare: 'always' },
       }),
       new ScatterplotLayer<MapPoint>({
         id: 'destinations', data: cityPoints, pickable: true, radiusUnits: 'pixels', stroked: true,
-        getPosition: (point) => P(point.position), getRadius: (point) => point.trackId === selection ? 5.5 : 3.5,
+        getPosition: (point) => P(point.position), getRadius: (point) => point.trackId === selection ? 5.5 : 3.5, transitions,
         getFillColor: (point) => alpha(neutralColor(), (point.activeSeriesCount > 0 ? 1 : 0.55) * trackOpacity(point.trackId, selection)),
         getLineColor: (point) => point.trackId === selection ? [230, 255, 248, 255] : [11, 24, 34, 230 * trackOpacity(point.trackId, selection)],
         getLineWidth: 1.5, lineWidthUnits: 'pixels',
-        updateTriggers: { getRadius: selection, getFillColor: [selection, theme], getLineColor: [selection, theme] }, parameters: { depthCompare: 'always' },
+        updateTriggers: { getRadius: selection, getFillColor: [selection, theme], getLineColor: [selection, theme], getPosition: positionTrigger }, parameters: { depthCompare: 'always' },
       }),
       ...columnLayers.map(({ focused, data }) => new ColumnLayer<DirectionalColumn>({
         id: focused ? 'destination-columns' : 'muted-destination-columns', data, pickable: true,
@@ -350,8 +407,8 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         getElevation: column => column.height * metersPerPixel(column.destination.position, viewState.zoom),
         getFillColor: column => alpha(flowColor(column.direction), 0.92 * trackOpacity(column.trackId, selection)),
         material: { ambient: 0.38, diffuse: 0.7, shininess: 45, specularColor: [130, 170, 180] },
-        updateTriggers: { getPosition: viewState.zoom, getElevation: viewState.zoom, getFillColor: [selection, theme] },
-        parameters: { depthCompare: 'less-equal', depthWriteEnabled: focused },
+        updateTriggers: { getPosition: [viewState.zoom, positionTrigger], getElevation: [viewState.zoom, positionTrigger], getFillColor: [selection, theme] },
+        parameters: { depthCompare: 'less-equal', depthWriteEnabled: focused }, transitions,
       })),
       new TextLayer<DestinationVolume>({
         id: 'destination-totals', data: destinationLabels,
@@ -362,30 +419,30 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         characterSet: showCityNames ? 'auto' : '0123456789. BkMGT≈↓↑',
         getSize: 11, getPixelOffset: [0, -14], fontFamily: 'system-ui, sans-serif', fontWeight: 600,
         getColor: [223, 240, 239, 255], background: true, getBackgroundColor: [10, 23, 32, 225], backgroundPadding: [6, 4],
-        updateTriggers: { getPosition: viewState.zoom, getText: showCityNames }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        updateTriggers: { getPosition: [viewState.zoom, positionTrigger], getText: showCityNames }, parameters: { depthCompare: 'always', depthWriteEnabled: false }, transitions,
       }),
       new ScatterplotLayer({
-        id: 'gateway-ring', data: origin, getPosition: (point) => P(point.position),
+        id: 'gateway-ring', data: origin, getPosition: (point) => P(point.position), transitions, updateTriggers: { getPosition: positionTrigger },
         radiusUnits: 'pixels', getRadius: 13, stroked: true, filled: true,
         getFillColor: [88, 222, 192, 20], getLineColor: [88, 222, 192, 120], getLineWidth: 1,
         lineWidthUnits: 'pixels', parameters: { depthCompare: 'always' },
       }),
       new ScatterplotLayer({
-        id: 'gateway-core', data: origin, getPosition: (point) => P(point.position),
+        id: 'gateway-core', data: origin, getPosition: (point) => P(point.position), transitions, updateTriggers: { getPosition: positionTrigger },
         radiusUnits: 'pixels', getRadius: 5, stroked: true,
         getFillColor: [208, 255, 242, 255], getLineColor: TEAL, getLineWidth: 2,
         lineWidthUnits: 'pixels', parameters: { depthCompare: 'always' },
       }),
       new TextLayer({
-        id: 'gateway-label', visible: preferences.labels, data: origin, getPosition: (point) => P(point.position),
+        id: 'gateway-label', visible: preferences.labels, data: origin, getPosition: (point) => P(point.position), transitions, updateTriggers: { getPosition: positionTrigger },
         getText: () => 'GATEWAY', getSize: 10, getColor: [175, 218, 209, 255],
         getPixelOffset: [0, 26], fontFamily: 'system-ui, sans-serif', fontWeight: 600,
         background: true, getBackgroundColor: [10, 23, 32, 230], backgroundPadding: [7, 4],
         getTextAnchor: 'middle', getAlignmentBaseline: 'center', parameters: { depthCompare: 'always' },
       }),
     ].filter(layer => layer.props.visible !== false && (!Array.isArray(layer.props.data) || layer.props.data.length > 0))
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- the projection is fixed for this composition's lifetime
-  }, [animation, trafficProfiles, connections, origin, selection, selectedLocation, showTraffic, showCityNames, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryConnections, countryTraffic, cityPoints, theme, workspace.expanded, preferences.labels, usedCablesOnly, flowPaths, flowPeak, cablePaths, seaNetwork, placedCrossingLabels, names, animatedFlows, flowEdges, flowRadii])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- P depends only on the projection (fixed per composition) and the latency layout
+  }, [latency, transitions, animation, trafficProfiles, connections, origin, selection, selectedLocation, showTraffic, showCityNames, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryConnections, countryTraffic, cityPoints, theme, workspace.expanded, preferences.labels, usedCablesOnly, flowPaths, flowPeak, cablePaths, seaNetwork, placedCrossingLabels, names, animatedFlows, flowEdges, flowRadii])
 
   function moveTo(next: Partial<MapViewState>) {
     setViewState((current) => ({ ...current, ...next, transitionDuration: 700, transitionInterpolator: new FlyToInterpolator() }))
@@ -395,7 +452,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     const positions = [origin[0].position, ...visiblePoints.filter(point => !trackId || point.trackId === trackId).flatMap(point => 'country' in point && point.country ? countryFitPositions(point.country) : [point.position])].map(P)
     const [originLon] = P(origin[0].position)
     // Unwrap around the gateway so dateline connections take the short way around (Mercator only).
-    const unwrap = (lon: number) => projection.wrap ? originLon + ((lon - originLon + 540) % 360) - 180 : lon
+    const unwrap = (lon: number) => wrap ? originLon + ((lon - originLon + 540) % 360) - 180 : lon
     const longitudes = positions.map(([lon]) => unwrap(lon))
     const latitudes = positions.map(([, lat]) => Math.max(-80, Math.min(80, lat)))
     const padding = compositionWidth > 760 ? { left: 45, right: inspectorOpen && compositionWidth > 1000 ? 350 : 60, top: 100, bottom: 100 } : { left: 50, right: 50, top: 75, bottom: 220 }
@@ -419,6 +476,12 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
   }
 
   useImperativeHandle(controlsRef, () => ({ fit: fitNetwork }))
+  // After a layout switch, frame the new positions (P has changed by now).
+  useEffect(() => {
+    if (!pendingFit.current) return
+    pendingFit.current = false
+    fitNetwork()
+  })
 
   return (
     <div className="atlas-map-surface" hidden={workspace.expanded} data-map-zoom={viewState.zoom.toFixed(2)} data-map-pitch={viewState.pitch} data-connection-count={connections.length + countryConnections.length} data-city-column-count={columns.length}>
@@ -431,7 +494,8 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
             const destination = countryVolumes.get(info.object.countryCode)
             return destination ? { text: `${destination.location} · Country estimate\nCity unknown\n${formatBytes(destination.received + destination.sent)} downloaded + sent\nClick for country totals and tracks` } : null
           }
-          return tooltipForPoint(info)
+          if (info.layer?.id === 'latency-ghosts' && info.object) return ghostTooltip(info.object as LatencyEntry)
+          return tooltipForPoint(info, latency ? position => latency.entries.get(positionKey(position)) : undefined)
         }}
         onClick={({ object, layer }) => {
           if (layer?.id === 'country-footprints' && object) { const id = countryVolumes.get(object.countryCode)?.id ?? null; selectLocation(selectedLocation?.id === id ? null : id); return }
@@ -442,29 +506,33 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
           } }}
         getCursor={({ isDragging, isHovering }) => isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'}
       >
-        {projection.tiles && <Basemap mapStyle={mapStyleUrl} minZoom={-1} attributionControl={{ compact: true }}
+        {projection.tiles && geographic && <Basemap mapStyle={mapStyleUrl} minZoom={-1} attributionControl={{ compact: true }}
           onError={() => setMapError(true)} onIdle={() => setMapError(false)} />}
       </AnimatedMercator>
-      {preferences.labels && <CountryLabels labels={labelLayout.countries} destinations={countryById} selection={selection} selectedLocationId={selectedLocation?.id ?? null} onCountry={selectLocation} />}
+      {preferences.labels && geographic && <CountryLabels labels={labelLayout.countries} destinations={countryById} selection={selection} selectedLocationId={selectedLocation?.id ?? null} onCountry={selectLocation} />}
       <div className="atlas-vignette" />
 
-      <div className="atlas-map-heading"><span>Network atlas</span><span className="atlas-map-heading-detail">{projection.label}</span></div>
+      <div className="atlas-map-heading"><span>Network atlas</span><span className="atlas-map-heading-detail">{latency ? 'Latency' : projection.label}</span></div>
       <div className="atlas-view-options">
         <div className="atlas-segmented atlas-view-switch" aria-label="Map perspective">
           <button type="button" aria-pressed={viewState.pitch !== 0} onClick={() => moveTo({ pitch: 35 })}>Perspective</button>
           <button type="button" aria-pressed={viewState.pitch === 0} onClick={() => moveTo({ pitch: 0, bearing: 0 })}>Top-down</button>
         </div>
-        <div className="atlas-segmented atlas-view-switch" role="group" aria-label="Flow layout">
+        <div className="atlas-segmented atlas-view-switch" role="group" aria-label="Map layout">
+          <button type="button" aria-pressed={layout === 'geography'} onClick={() => switchLayout('geography')} title="Place destinations by their IP location">Geography</button>
+          <button type="button" aria-pressed={layout === 'latency'} onClick={() => switchLayout('latency')} title="Place destinations by measured round-trip time from the gateway">Latency</button>
+        </div>
+        {geographic && <div className="atlas-segmented atlas-view-switch" role="group" aria-label="Flow layout">
           <button type="button" aria-pressed={flowStyle === 'direct'} onClick={() => setFlowStyle('direct')} title="Draw each destination as a direct connection">Direct</button>
           <button type="button" aria-pressed={flowStyle === 'cables'} onClick={() => setFlowStyle('cables')} title="Show the sea crossings traffic likely took, inferred from IP location">Cables</button>
-        </div>
+        </div>}
         {flowStyle === 'cables' && <button type="button" className="atlas-layer-button" aria-pressed={usedCablesOnly} onClick={() => setUsedCablesOnly(value => !value)} title="Show only cables that traffic is inferred to have crossed, hiding the rest of the cable network"><span>Used cables only</span><i className="atlas-dot" /></button>}
         <button type="button" className="atlas-layer-button" aria-pressed={showTraffic} onClick={() => setShowTraffic((value) => !value)} title="Show or hide flowing traffic"><MapIcon name="layers" size={16} /><span>Traffic</span><i className="atlas-dot" /></button>
       </div>
 
 
       {emptyState}
-      {!projection.tiles && <a className="atlas-earth-credit" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a>}
+      {!projection.tiles && geographic && <a className="atlas-earth-credit" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a>}
       {mapError && projection.tiles && <div className="atlas-map-error" role="status">Basemap tiles are unavailable. Traffic is still shown.</div>}
 
       <div className="atlas-map-tools" aria-label="Map controls">
@@ -472,9 +540,9 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         <button type="button" className="atlas-icon-button" onClick={() => moveTo({ zoom: Math.max(-1, viewState.zoom - 1) })} aria-label="Zoom out" title="Zoom out"><MapIcon name="minus" /></button>
         <span />
         <button type="button" className="atlas-icon-button" onClick={() => fitNetwork()} aria-label="Fit network" title="Fit network"><MapIcon name="expand" size={17} /></button>
-        <button type="button" className="atlas-icon-button" onClick={() => { const [longitude, latitude] = P([scene.origin.longitude, scene.origin.latitude]); moveTo({ longitude, latitude, zoom: 5, bearing: 0 }) }} aria-label="Center on gateway" title="Center on gateway"><MapIcon name="target" /></button>
+        <button type="button" className="atlas-icon-button" onClick={() => { const [longitude, latitude] = P([scene.origin.longitude, scene.origin.latitude]); moveTo({ longitude, latitude, zoom: latency ? 3 : 5, bearing: 0 }) }} aria-label="Center on gateway" title="Center on gateway"><MapIcon name="target" /></button>
       </div>
-      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p>{seaNetwork ? seaFooter(seaNetwork) : 'Direct connections.'} Coarse IP locations.{(trafficLoading || partialTraffic) ? trafficLoading ? ' Loading rates.' : ' Partial rates.' : ''}</p></div>
+      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p>{latency ? latencyFooter(latency.entries) : seaNetwork ? seaFooter(seaNetwork) : 'Direct connections.'} {latency ? '' : 'Coarse IP locations.'}{(trafficLoading || partialTraffic) ? trafficLoading ? ' Loading rates.' : ' Partial rates.' : ''}</p></div>
       </div>
 
   )
@@ -492,9 +560,10 @@ function alpha(color: Color, opacity: number): Color {
   return [color[0], color[1], color[2], Math.round((color[3] ?? 255) * opacity)]
 }
 
-function tooltipForPoint({ object, layer }: PickingInfo<MapPoint | DestinationColumn>) {
+function tooltipForPoint({ object, layer }: PickingInfo<MapPoint | DestinationColumn>, latencyOf?: (position: MapPosition) => LatencyEntry | undefined) {
   if (!object || !['destinations', 'destination-columns', 'muted-destination-columns'].includes(layer?.id ?? '')) return null
   const destination = 'destination' in object ? object.destination : null
+  const entry = latencyOf?.(destination?.position ?? (object as MapPoint).position)
   const lines = 'destination' in object && destination
     ? [destination.location, `${formatBytes(destination.received + destination.sent)} downloaded + sent`,
       `↓ ${formatBytes(destination.received)} downloaded from this location`, `↑ ${formatBytes(destination.sent)} sent to this location`,
@@ -503,6 +572,7 @@ function tooltipForPoint({ object, layer }: PickingInfo<MapPoint | DestinationCo
       `Captured wire bytes · completed sample bins${destination.partial ? ' · Partial capture' : ''}`,
       'Click to inspect this location']
     : 'ip' in object ? [object.label, object.location, object.ip, `${object.seriesCount.toLocaleString()} traffic series`, 'Click to inspect this location'] : []
+  if (entry) lines.splice(1, 0, ...latencyLines(entry))
   return {
     text: lines.filter(Boolean).join('\n'),
     style: { backgroundColor: 'var(--color-paper-2)', color: 'var(--color-ink)', fontFamily: 'var(--font-body)', fontSize: 'var(--text-xs)', lineHeight: '1.6', border: '1px solid var(--color-rule-2)', borderRadius: 'var(--radius-panel)', padding: '12px 16px', boxShadow: 'var(--shadow-float)' },
@@ -642,4 +712,65 @@ function splitWithProgress(path: MapPosition[]) {
 }
 function sameAnimatedFlows(data: unknown, oldData?: unknown) {
   return Array.isArray(data) && Array.isArray(oldData) && data.length === oldData.length && data.every((flow, i) => flow === oldData[i])
+}
+
+function latencyLines(entry: LatencyEntry) {
+  if (entry.rttMs === undefined) return ['No round trip measured in this window (no new connection, or no reply)']
+  const how = entry.source === 'udp' ? 'UDP first reply, an upper bound' : 'TCP handshake'
+  return [
+    `Round trip ${formatRtt(entry.rttMs)} · lowest in window (${how})`,
+    `Fastest possible from its IP location: ${formatRtt(entry.floorMs)}`,
+    entry.placement === 'contradicted'
+      ? `Faster than light allows from there: served from within ~${Math.round(entry.rttMs * 100).toLocaleString()} km`
+      : 'Consistent with its IP location',
+  ]
+}
+
+function ghostTooltip(entry: LatencyEntry) {
+  return { text: [`Fastest possible round trip from its IP location: ${formatRtt(entry.floorMs)}`, `Measured: ${formatRtt(entry.rttMs!)}`, entry.placement === 'contradicted' ? 'The measurement is faster: the traffic was served from closer than its IP location' : 'Measured is slower: routing, queueing and server time add to the physical minimum'].join('\n') }
+}
+
+/** Rings at fixed round trips, their labels, and ghost markers for the physical floor of each IP location. */
+function latencyLayers(entries: Map<string, LatencyEntry>, neutral: Color, theme: 'dark' | 'light', labels: boolean) {
+  const rings = [...LATENCY_RINGS.map(ms => ({ ms, unmeasured: false })), { ms: UNMEASURED_RING_MS, unmeasured: true }]
+  const ghosts = [...entries.values()].filter(entry => entry.ghost)
+  const label: Color = theme === 'light' ? [71, 96, 101, 255] : [153, 167, 173, 255]
+  return [
+    new PathLayer<(typeof rings)[number]>({
+      id: 'latency-rings', data: rings, getPath: ring => latencyRing(ring.ms), widthUnits: 'pixels', getWidth: ring => ring.unmeasured ? 1 : 1.2,
+      getColor: ring => alpha(neutral, ring.unmeasured ? 0.12 : 0.28), updateTriggers: { getColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+    }),
+    new TextLayer<(typeof rings)[number]>({
+      id: 'latency-ring-labels', data: rings, visible: labels, getPosition: ring => latencyPosition(ring.ms, 0),
+      getText: ring => ring.unmeasured ? 'NO MEASUREMENT' : `${ring.ms} ms`, getSize: 10, fontFamily: 'system-ui, sans-serif', fontWeight: 600,
+      getColor: label, background: true, getBackgroundColor: theme === 'light' ? [237, 243, 243, 220] : [10, 18, 22, 220], backgroundPadding: [4, 2],
+      updateTriggers: { getColor: theme, getBackgroundColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+    }),
+    new TextLayer<{ text: string; bearing: number }>({
+      id: 'latency-compass', data: [{ text: 'N', bearing: 0 }, { text: 'E', bearing: 90 }, { text: 'S', bearing: 180 }, { text: 'W', bearing: 270 }],
+      getPosition: point => latencyPosition(UNMEASURED_RING_MS * 1.18, point.bearing), getText: point => point.text, getSize: 11,
+      fontFamily: 'system-ui, sans-serif', fontWeight: 700, getColor: alpha(label, 0.7), updateTriggers: { getColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+    }),
+    new PathLayer<LatencyEntry>({
+      id: 'latency-ghost-links', data: ghosts, getPath: entry => [entry.ghost!, entry.position], widthUnits: 'pixels', getWidth: entry => entry.placement === 'contradicted' ? 1.5 : 1,
+      getColor: entry => alpha(neutral, entry.placement === 'contradicted' ? 0.55 : 0.2), updateTriggers: { getColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+    }),
+    new ScatterplotLayer<LatencyEntry>({
+      id: 'latency-ghosts', data: ghosts, pickable: true, getPosition: entry => entry.ghost!, radiusUnits: 'pixels', getRadius: 4,
+      stroked: true, filled: false, getLineColor: entry => alpha(neutral, entry.placement === 'contradicted' ? 0.8 : 0.35), getLineWidth: 1.2, lineWidthUnits: 'pixels',
+      updateTriggers: { getLineColor: theme }, parameters: { depthCompare: 'always' },
+    }),
+  ]
+}
+
+function latencyFooter(entries: Map<string, LatencyEntry>) {
+  const values = [...entries.values()]
+  const unmeasured = values.filter(entry => entry.rttMs === undefined).length
+  const contradicted = values.filter(entry => entry.placement === 'contradicted').length
+  return [
+    'Distance from the centre is the lowest round trip measured passively at the gateway in this window; direction is the true compass bearing.',
+    'Hollow markers show the fastest round trip physics allows from each IP location.',
+    contradicted ? `${contradicted} ${contradicted === 1 ? 'destination answers' : 'destinations answer'} faster than that, so ${contradicted === 1 ? 'it was' : 'they were'} served from nearby.` : '',
+    unmeasured ? `${unmeasured} without a measurement on the outer ring.` : '',
+  ].filter(Boolean).join(' ')
 }

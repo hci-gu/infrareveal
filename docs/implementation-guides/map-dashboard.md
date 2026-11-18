@@ -105,6 +105,24 @@ perspective controls, animated flows, directional columns and labels.
 Country-only evidence uses country footprints. City markers represent approximate
 IP locations. Destinations without coordinates are still counted.
 
+### Latency layout
+
+**Geography | Latency** switches how destinations are placed; filters, totals and
+inspection are unaffected, and positions slide between layouts.
+
+- **Latency** puts the gateway in the centre. Each destination keeps its true
+  compass bearing but sits at a distance set by its lowest measured round trip in
+  the history window (square-root scale; rings at 10/25/50/100/200 ms). Unmeasured
+  destinations sit on an outer ring. The basemap is hidden, and Cables is off.
+- **Physical floor:** light in fibre needs ~1 ms of round trip per 100 km
+  (`map/latency.ts`). Hollow ghost markers show that floor for each IP location.
+  A destination answering below 80% of it was served from nearby (anycast, CDN
+  edge, wrong geolocation); its tooltip, the location inspector and
+  **Insights → Round trips** say so.
+- The same check feeds Cables: a too-fast destination is classified *served
+  nearby* instead of crossing the sea, and a consistent one is labelled measured.
+  The anycast/CDN list only applies without a measurement.
+
 ### Flow layouts
 
 The **Direct / Cables** switch changes how traffic is drawn; totals and filters

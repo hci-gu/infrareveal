@@ -5,6 +5,7 @@ import type { LocationTraffic } from './mapWorkspace'
 import type { ByteTotals } from './destinationVolumes'
 import type { MapSeries } from './mapTracks'
 import { hasMapCoordinates } from './mapCoordinates'
+import { fibreFloorMs, formatRtt, placement } from './latency'
 
 /**
  * Sea crossings inferred from IP geography, drawn on real cable geometry.
@@ -27,8 +28,11 @@ export type CableCandidate = { cable: Cable; from: MapPosition; to: MapPosition;
 /** One sea crossing between two regions, with every cable that connects them. */
 export type SeaHop = { id: string; from: string; to: string; candidates: CableCandidate[] }
 export type CrossingConfidence = 'required' | 'possible'
-export type CrossingClass = 'none' | CrossingConfidence | 'edge' | 'unknown'
-export type Crossing = { kind: CrossingClass; hops: SeaHop[]; reason: string }
+/** `nearby`: a measured round trip too fast for the IP location, so no crossing happened. */
+export type CrossingClass = 'none' | CrossingConfidence | 'nearby' | 'edge' | 'unknown'
+/** `measuredMs`: a round trip that is consistent with the crossing (it does not prove the cable). */
+export type Crossing = { kind: CrossingClass; hops: SeaHop[]; reason: string; measuredMs?: number }
+const emptyTotals = (): Record<CrossingClass, number> => ({ none: 0, possible: 0, required: 0, nearby: 0, edge: 0, unknown: 0 })
 
 const REGIONS: Region[] = [
   { id: 'nordic', label: 'Scandinavia', hub: [11, 58.5], countries: ['SE', 'NO', 'DK'] },
@@ -201,14 +205,24 @@ export function regionCrossing(fromRegion: string, toRegion: string): Crossing {
 }
 
 /**
- * Edge networks only veto a crossing: a nearby location is consistent with
- * edge serving and stays overland, while a far-away one is likely a
- * headquarters geolocation of an address that was served locally.
+ * A measured round trip decides first: answering faster than light allows from
+ * the IP location means the traffic was served nearby, so no crossing is
+ * claimed; a consistent one is noted. Without a measurement, edge networks veto
+ * a crossing: a nearby location is consistent with edge serving and stays
+ * overland, while a far-away one is likely a headquarters geolocation of an
+ * address that was served locally.
  */
-export function classifySeries(series: Pick<MapSeries, 'countryCode' | 'asn'>, gatewayRegion: string | undefined): Crossing {
+export function classifySeries(series: Pick<MapSeries, 'countryCode' | 'asn' | 'rttMs'>, gatewayRegion: string | undefined, context?: { origin: GatewayOrigin; position?: MapPosition }): Crossing {
   const region = regionOf(series.countryCode)
   if (!gatewayRegion || !region) return { kind: 'unknown', hops: [], reason: 'The destination country is unknown or outside the modelled regions.' }
   const crossing = regionCrossing(gatewayRegion, region.id)
+  if (series.rttMs !== undefined && context && (crossing.kind === 'required' || crossing.kind === 'possible')) {
+    const floor = fibreFloorMs(context.origin, context.position ?? region.hub)
+    if (placement(series.rttMs, floor) === 'contradicted') {
+      return { kind: 'nearby', hops: [], reason: `Answered in ${formatRtt(series.rttMs)}, faster than light allows from its IP location (at least ${formatRtt(floor)}); it was served from nearby.` }
+    }
+    return { ...crossing, measuredMs: series.rttMs, reason: `${crossing.reason} Consistent with the measured ${formatRtt(series.rttMs)} round trip.` }
+  }
   const edge = series.asn ? EDGE_NETWORK_ASNS.get(series.asn) : undefined
   if (edge && (crossing.kind === 'required' || crossing.kind === 'possible')) return { kind: 'edge', hops: [], reason: `${edge} serves traffic from nearby edge locations; its IP location does not show where it was served from.` }
   return crossing
@@ -346,7 +360,8 @@ export type SeaEdge = {
   /** Traffic series on this edge, for live rates. */
   seriesIds: string[]
 }
-export type SeaHopTotal = { hop: SeaHop; received: number; sent: number; confidence: CrossingConfidence }
+/** `measuredMs`: the lowest consistent round trip among the series using this crossing. */
+export type SeaHopTotal = { hop: SeaHop; received: number; sent: number; confidence: CrossingConfidence; measuredMs?: number }
 export type SeaNetwork = { edges: SeaEdge[]; hops: SeaHopTotal[]; landings: { id: string; position: MapPosition }[]; peak: number; totals: Record<CrossingClass, number>; edgeNetworks: string[] }
 
 const CONNECTOR_MIN_KM = 40
@@ -364,7 +379,7 @@ export function buildSeaNetwork(locations: LocationTraffic[], origin: GatewayOri
   const edges = new Map<string, SeaEdge & { locations: Set<string>; tracks: Set<string>; series: Set<string> }>()
   const hops = new Map<string, SeaHopTotal>()
   const landings = new Map<string, MapPosition>()
-  const totals: Record<CrossingClass, number> = { none: 0, possible: 0, required: 0, edge: 0, unknown: 0 }
+  const totals = emptyTotals()
   const edgeNetworks = new Set<string>()
   const add = (edge: Omit<SeaEdge, 'received' | 'sent' | 'locationIds' | 'trackIds' | 'seriesIds'>, volume: ByteTotals, locationId: string, trackId: string, seriesId: string) => {
     const entry = edges.get(edge.id) ?? { ...edge, received: 0, sent: 0, locationIds: [], trackIds: [], seriesIds: [], locations: new Set(), tracks: new Set(), series: new Set() }
@@ -377,7 +392,7 @@ export function buildSeaNetwork(locations: LocationTraffic[], origin: GatewayOri
     for (const series of location.series) {
       const volume = volumeBySeries.get(series.id)
       if (!volume || volume.received + volume.sent <= 0) continue
-      const crossing = classifySeries(series, home)
+      const crossing = classifySeries(series, home, { origin, position: location.position })
       totals[crossing.kind] += volume.received + volume.sent
       if (crossing.kind === 'edge' && series.asn) edgeNetworks.add(EDGE_NETWORK_ASNS.get(series.asn)!)
       if (!location.position || !hasMapCoordinates(location.position[1], location.position[0])) continue
@@ -390,6 +405,7 @@ export function buildSeaNetwork(locations: LocationTraffic[], origin: GatewayOri
         const total = hops.get(hop.id) ?? { hop, received: 0, sent: 0, confidence: confidence! }
         total.received += volume.received; total.sent += volume.sent
         if (confidence === 'required') total.confidence = 'required'
+        if (crossing.measuredMs !== undefined) total.measuredMs = Math.min(total.measuredMs ?? Infinity, crossing.measuredMs)
         hops.set(hop.id, total)
         const drawn = candidates.slice(0, DRAWN_CANDIDATES)
         const next: { key: string; position: MapPosition }[] = []
@@ -421,15 +437,15 @@ export function buildSeaNetwork(locations: LocationTraffic[], origin: GatewayOri
 }
 
 export type CrossingSummary = { totals: Record<CrossingClass, number>; total: number; hops: { hop: SeaHop; bytes: number; confidence: CrossingConfidence }[]; edgeNetworks: string[] }
-/** Bytes per crossing class and per region-to-region crossing for the filtered workspace. */
-export function summarizeCrossings(series: Iterable<MapSeries>, origin: GatewayOrigin): CrossingSummary {
+/** Bytes per crossing class and per region-to-region crossing for the filtered workspace's locations. */
+export function summarizeCrossings(locations: readonly LocationTraffic[], origin: GatewayOrigin): CrossingSummary {
   const home = gatewayRegion(origin)
-  const totals: Record<CrossingClass, number> = { none: 0, possible: 0, required: 0, edge: 0, unknown: 0 }
+  const totals = emptyTotals()
   const hops = new Map<string, { hop: SeaHop; bytes: number; confidence: CrossingConfidence }>()
   const edgeNetworks = new Set<string>()
-  for (const item of series) {
+  for (const item of locations.flatMap(location => location.series.map(series => ({ ...series, position: location.position })))) {
     if (item.bytes <= 0) continue
-    const crossing = classifySeries(item, home)
+    const crossing = classifySeries(item, home, { origin, position: item.position })
     totals[crossing.kind] += item.bytes
     if (crossing.kind === 'edge' && item.asn) edgeNetworks.add(EDGE_NETWORK_ASNS.get(item.asn)!)
     if (crossing.kind !== 'required' && crossing.kind !== 'possible') continue

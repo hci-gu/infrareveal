@@ -7,7 +7,11 @@ export type Diagnostics = { flows: boolean; dns: boolean; gate: boolean }
 export type SessionManifest = Session & { server_ms: number; retained_from_ms: number; diagnostics: Diagnostics }
 export type Sample = [offset_ms: number, wire_sent: number, wire_received: number, payload_sent: number, payload_received: number, packets_sent: number, packets_received: number]
 export type Attribution = { hostname: string; source: string; matched_ip: string; observed_ms: number; confidence: string; ambiguous: boolean; policy_version: string }
-export type TrafficChunk = { id: string; session: string; capture_epoch: string; client_id: string; client_ip: string; service_key: string; service_label: string; destination_id: string; destination_ip: string; protocol: string; destination_port: number; network_epoch: string; start_ms: number; bucket_ms: number; chunk_ms: number; generation: number; sealed: boolean; evidence: Attribution; samples: Sample[] }
+export type TrafficChunk = { id: string; session: string; capture_epoch: string; client_id: string; client_ip: string; service_key: string; service_label: string; destination_id: string; destination_ip: string; protocol: string; destination_port: number; network_epoch: string; start_ms: number; bucket_ms: number; chunk_ms: number; generation: number; sealed: boolean; evidence: Attribution; samples: Sample[]
+  /** Lowest passive gateway↔server round trip (µs) for connections opened in this chunk; absent when unmeasured. */
+  rtt_us?: number
+  /** `tcp`: SYN → SYN-ACK. `udp`: first datagram → first reply, an upper bound. */
+  rtt_source?: 'tcp' | 'udp' | '' }
 export type CaptureInterval = { id: string; session: string; capture_epoch: string; start_ms: number; end_ms: number; quality: string; dropped: number; reason: string }
 export type ActivityBlock = { id: string; session: string; client_id: string; client_ip: string; service_key: string; service_label: string; original_start_ms: number; start_ms: number; end_ms: number; active_ms: number; sent: number; received: number; confidence: string; quality: string; provisional: boolean; clipped: boolean; revision: number }
 export type Destination = { id: string; ip: string; version: string; observed_ms: number; country: string; country_code: string; city: string; lat: number | null; lon: number | null; accuracy_km: number; precision: string; provider: string; asn: number; ptr: string }

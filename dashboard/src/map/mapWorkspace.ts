@@ -8,6 +8,7 @@ import { hasMapCoordinates } from './mapCoordinates'
 import { seriesLastActivity, seriesVolume } from './destinationVolumes'
 import type { ByteTotals, DestinationVolumeIndex } from './destinationVolumes'
 import { sceneForTracks } from './mapTracks'
+import { mergeRoundTrip, windowRoundTrip } from './latency'
 import type { MapSeries, MapTrack, MapTrackCatalog } from './mapTracks'
 
 export const DEFAULT_TRAFFIC_FILTERS = { query: '', activeOnly: false, windowMs: 300_000, locationId: null, hiddenClients: [] as HiddenClient[] }
@@ -25,7 +26,10 @@ export function trafficFilterCount(state: WorkspaceState) {
     + Number(Boolean(state.hiddenClients?.length))
 }
 
-export type LocationTraffic = ByteTotals & { id: string; label: string; detail: string; position?: MapPosition; country?: CountryFootprint | null; bytes: number; lastActivityMs: number; series: MapSeries[] }
+export type LocationTraffic = ByteTotals & { id: string; label: string; detail: string; position?: MapPosition; country?: CountryFootprint | null; bytes: number; lastActivityMs: number; series: MapSeries[]
+  /** Lowest measured round trip (ms) across the location's series in the history window. */
+  rttMs?: number
+  rttSource?: 'tcp' | 'udp' }
 export type TimelineTrafficRow = ByteTotals & { id: string; trackId: string; label: string; client: string; endpoint: string; location: string; locationId: string; series: MapSeries[]; bytes: number; lastActivityMs: number }
 export const directionColor = (direction: number, light = false): [number, number, number] => direction === 1 ? light ? [168, 83, 32] : [239, 179, 120] : light ? [22, 123, 106] : [114, 222, 199]
 
@@ -82,10 +86,14 @@ export function projectWorkspace(catalog: MapTrackCatalog, scene: MapTimelineSce
     }
     if (state.locationId && state.locationId !== location.id) continue
     // Filter exact endpoint series once, before any map/list/timeline totals.
-    const scoped = { ...series, lastActivityMs, bytes: (volume.received + volume.sent) }
+    const windowMs = state.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs
+    const roundTrip = windowRoundTrip(series.chunks, cursor - windowMs, cursor)
+    const scoped = { ...series, lastActivityMs, bytes: (volume.received + volume.sent), rttMs: roundTrip?.ms, rttSource: roundTrip?.source }
     volumeBySeries.set(series.id, volume)
     const group = locations.get(location.id) ?? { ...location, ...zero(), bytes: 0, lastActivityMs: 0, series: [] }
     group.lastActivityMs = Math.max(group.lastActivityMs, lastActivityMs); add(group, volume); group.series.push(scoped); group.bytes = (group.received + group.sent)
+    const groupTrip = mergeRoundTrip(group.rttMs !== undefined ? { ms: group.rttMs, source: group.rttSource! } : undefined, roundTrip)
+    group.rttMs = groupTrip?.ms; group.rttSource = groupTrip?.source
     locations.set(group.id, group)
     add(total, volume)
     bySeries.set(series.id, scoped)

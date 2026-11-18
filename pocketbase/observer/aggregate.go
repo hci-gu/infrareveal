@@ -19,6 +19,7 @@ type connection struct {
 	evidence                     data.Attribution
 	service, label               string
 	owner                        networkOwner
+	timing                       handshakeTiming
 }
 type contribution struct {
 	flow    string
@@ -41,6 +42,9 @@ type aggregate struct {
 	dropped        int64
 	lossAt         int64
 	pending        map[string]CommittedTraffic
+	// timingSuppressed reports clients whose packets an armed Proxy Lab gate may
+	// hold; their handshake timing would include that delay, so it is skipped.
+	timingSuppressed func(clientIP string) bool
 }
 
 type CommittedTraffic struct {
@@ -103,6 +107,7 @@ func (a *aggregate) packet(e PacketActivityEvent, network string, destination da
 		delete(a.flows, key)
 		f = nil
 	}
+	fresh := f == nil
 	if f == nil {
 		if len(a.flows) >= maxConnections {
 			var oldest *connection
@@ -121,6 +126,10 @@ func (a *aggregate) packet(e PacketActivityEvent, network string, destination da
 		a.flows[key] = f
 	}
 	f.last = max(f.last, now)
+	rttMicros, rttSource := f.timing.observe(tuple.Protocol, e.Direction, e.TCPFlags, e.ObservedAt.UnixMicro(), fresh)
+	if rttMicros > 0 && a.timingSuppressed != nil && a.timingSuppressed(tuple.ClientIP.String()) {
+		rttMicros = 0
+	}
 	f.established = f.established || (!syn && e.TCPFlags&0x10 != 0)
 	f.owner = ownerOf(destination)
 	f.service, f.label, f.evidence = a.dns.resolve(a.session, tuple, f.started, now, a.policy, f.evidence, f.owner)
@@ -136,6 +145,7 @@ func (a *aggregate) packet(e PacketActivityEvent, network string, destination da
 		p = &contribution{flow: f.id, chunk: data.TrafficChunk{Session: a.session, CaptureEpoch: a.epoch, ClientID: client, ClientIP: tuple.ClientIP.String(), ServiceKey: f.service, ServiceLabel: f.label, DestinationID: destination.ID, DestinationIP: tuple.RemoteIP.String(), Protocol: tuple.Protocol, DestinationPort: int(tuple.RemotePort), NetworkEpoch: network, StartMS: start, BucketMS: a.policy.BucketMS, ChunkMS: a.policy.ChunkMS, Evidence: f.evidence}, samples: map[int64]data.Sample{}}
 		a.parts[partKey] = p
 	}
+	p.chunk.MergeRTT(rttMicros, rttSource)
 	offset := (now - start) / a.policy.BucketMS * a.policy.BucketMS
 	sample := p.samples[offset]
 	sample[0] = offset
@@ -284,6 +294,7 @@ func (a *aggregate) snapshot(now int64) []data.TrafficChunk {
 			g.chunk.Evidence.Ambiguous = g.chunk.Evidence.Ambiguous || p.chunk.Evidence.Ambiguous
 			g.chunk.Evidence.Source = "combined"
 		}
+		g.chunk.MergeRTT(p.chunk.RTTUS, p.chunk.RTTSource)
 		for offset, s := range p.samples {
 			t := g.samples[offset]
 			t[0] = offset

@@ -87,6 +87,24 @@ type TrafficChunk struct {
 	Sealed          bool        `json:"sealed"`
 	Evidence        Attribution `json:"evidence"`
 	Samples         []Sample    `json:"samples"`
+	// RTTUS is the lowest gateway↔server round-trip time, in microseconds, measured
+	// passively from connections opened in this chunk; zero when unmeasured.
+	RTTUS int64 `json:"rtt_us,omitempty" db:"rtt_us"`
+	// RTTSource is "tcp" (SYN → SYN-ACK) or "udp" (first datagram → first reply,
+	// an upper bound because servers may answer late).
+	RTTSource string `json:"rtt_source,omitempty" db:"rtt_source"`
+}
+
+// MergeRTT keeps the most trustworthy round-trip time: TCP handshakes win over
+// UDP first replies, and within a source the lowest value wins, because
+// queueing only ever adds delay.
+func (c *TrafficChunk) MergeRTT(us int64, source string) {
+	if us <= 0 || source == "" {
+		return
+	}
+	if c.RTTUS <= 0 || (source == "tcp" && c.RTTSource != "tcp") || (source == c.RTTSource && us < c.RTTUS) {
+		c.RTTUS, c.RTTSource = us, source
+	}
 }
 
 type CaptureInterval struct {

@@ -15,6 +15,9 @@ export type MapSeries = {
   countryCode?: string
   /** Network owner (GeoLite2 ASN) of the destination address. */
   asn?: number
+  /** Lowest measured round trip (ms) within the history window; TCP preferred over UDP upper bounds. */
+  rttMs?: number
+  rttSource?: 'tcp' | 'udp'
 }
 export type MapTrack = { id: string; label: string; client: string; site: string; color: TrackColor; series: MapSeries[]; lastActivityMs: number; bytes: number; mappedCount: number }
 export type MapTrackCatalog = ReturnType<typeof buildMapTrackCatalog>

@@ -13,6 +13,7 @@ import { useLiveFeed } from './useLiveFeed'
 import type { ActivityTabProps } from './ActivityTab'
 import { domainWeights, fontSize, layoutWords, measureText } from './wordCloud'
 import { hopLabel, summarizeCrossings } from './seaCrossings'
+import { LATENCY_BANDS, summarizeLatency } from './latency'
 import type { CrossingClass } from './seaCrossings'
 
 const WINDOW_LABELS: Record<number, string> = { 30_000: '30 seconds', 60_000: 'minute', 300_000: '5 minutes', 1_800_000: '30 minutes' }
@@ -56,6 +57,7 @@ export const SidePane = memo(function SidePane({ tab, data, state, loading, acti
     <div className="atlas-side-body">
       {tab === 'insights' && <>
         <ShareChart mode={mode} onMode={setMode} data={data} loading={loading} windowLabel={WINDOW_LABELS[windowMs] ?? `${Math.round(windowMs / 1000)} s`} />
+        <RoundTrips data={data} loading={loading} />
         <SeaCrossings data={data} loading={loading} />
         <DirectionScatter data={data} loading={loading} />
         <DomainCloud data={data} loading={loading} />
@@ -109,9 +111,33 @@ function ShareChart({ mode, onMode, data, loading, windowLabel }: { mode: ShareM
   </section>
 }
 
+const LATENCY_LEGEND = [...LATENCY_BANDS.map(band => ({ id: band.id, label: band.label })), { id: 'unmeasured', label: 'Not measured' }]
+
+/** How far away the traffic really was, from round trips measured passively at the gateway. */
+function RoundTrips({ data, loading }: { data: WorkspaceProjection; loading: boolean }) {
+  const summary = useMemo(() => summarizeLatency(data.locations, data.scene.origin), [data.locations, data.scene.origin])
+  const bands = LATENCY_LEGEND.filter(band => summary.bands[band.id] > 0)
+  return <section className="atlas-insight" aria-labelledby="round-trips-title">
+    <h3 id="round-trips-title">Round trips</h3>
+    <p className="atlas-insight-help">Traffic by the lowest round trip measured at the gateway (connection handshakes). Show it on the map with Latency.</p>
+    {!summary.total ? <p className="atlas-insight-empty">{loading ? 'Loading traffic…' : 'No traffic in this window.'}</p> : <>
+      <div className="atlas-crossing-bar" role="img" aria-label={bands.map(band => `${band.label} ${percent(summary.bands[band.id] / summary.total)}`).join(', ')}>
+        {bands.map(band => <i key={band.id} data-latency={band.id} style={{ width: `${summary.bands[band.id] / summary.total * 100}%` }} />)}
+      </div>
+      <ul className="atlas-crossing-legend">
+        {bands.map(band => <li key={band.id}><i data-latency={band.id} /><span>{band.label}</span><strong>{percent(summary.bands[band.id] / summary.total)}</strong></li>)}
+      </ul>
+      {summary.contradicted > 0 && <p className="atlas-insight-help" data-latency-contradicted={summary.contradicted}>
+        {percent(summary.contradicted / summary.locatedMeasured)} of measured traffic answered faster than light allows from its IP location: it was served from nearby, not where the address is registered.
+      </p>}
+    </>}
+  </section>
+}
+
 const CROSSING_CLASSES: { id: CrossingClass; label: string }[] = [
   { id: 'required', label: 'Crossed the sea' },
   { id: 'possible', label: 'Likely crossed the sea' },
+  { id: 'nearby', label: 'Served nearby (measured)' },
   { id: 'none', label: 'Overland or nearby' },
   { id: 'edge', label: 'Global edge network' },
   { id: 'unknown', label: 'Unknown location' },
@@ -119,7 +145,7 @@ const CROSSING_CLASSES: { id: CrossingClass; label: string }[] = [
 
 /** How much traffic had to go under the sea, inferred from IP geography alone. */
 function SeaCrossings({ data, loading }: { data: WorkspaceProjection; loading: boolean }) {
-  const summary = useMemo(() => summarizeCrossings(data.bySeries.values(), data.scene.origin), [data.bySeries, data.scene.origin])
+  const summary = useMemo(() => summarizeCrossings(data.locations, data.scene.origin), [data.locations, data.scene.origin])
   const classes = CROSSING_CLASSES.filter(item => summary.totals[item.id] > 0)
   return <section className="atlas-insight" aria-labelledby="sea-crossings-title">
     <h3 id="sea-crossings-title">Sea crossings</h3>

@@ -43,3 +43,33 @@ func TestSimulationFramesAndChangingWorkload(t *testing.T) {
 		t.Fatalf("insufficient variety: %d/%d/%d/%d", len(lanes), len(clients), len(services), len(places))
 	}
 }
+
+func TestSimulationHandshakesProducePassiveRoundTrips(t *testing.T) {
+	lanes := simulationLanes("synthetic")
+	scope := simulationScope()
+	edge, far := 0, 0
+	for i, lane := range lanes {
+		a := testAggregate()
+		start := time.UnixMilli(100_000)
+		for direction, at := range []time.Time{start, start.Add(lane.rtt)} {
+			packet, ok := ParsePacketActivityFrame(lane.handshake[direction], len(lane.handshake[direction]), at, scope)
+			if !ok {
+				t.Fatalf("lane %d handshake %d rejected by the production parser", i, direction)
+			}
+			a.packet(packet, "network", lane.destination)
+		}
+		rtt, source := rttOf(a.snapshot(101_000))
+		if rtt != lane.rtt.Microseconds() || (source == "tcp") != (i%18 > 2) {
+			t.Fatalf("lane %d rtt = %d %q, want %d", i, rtt, source, lane.rtt.Microseconds())
+		}
+		if lane.rtt < 6*time.Millisecond && lane.destination.CountryCode != "" && lane.destination.CountryCode != "SE" {
+			edge++
+		}
+		if lane.rtt > 150*time.Millisecond {
+			far++
+		}
+	}
+	if edge == 0 || far == 0 {
+		t.Fatalf("simulation should include edge-served (%d) and intercontinental (%d) round trips", edge, far)
+	}
+}

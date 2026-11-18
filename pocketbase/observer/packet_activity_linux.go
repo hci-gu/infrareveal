@@ -52,6 +52,9 @@ func runPacketCaptureHealth(ctx context.Context, interfaceName string, scope Obs
 	if err := unix.SetsockoptInt(fd, unix.SOL_PACKET, unix.PACKET_AUXDATA, 1); err != nil {
 		return err
 	}
+	// Kernel receive times keep round-trip timing free of user-space scheduling
+	// jitter (observer/rtt.go). Without them, capture falls back to time.Now().
+	kernelTimes := unix.SetsockoptInt(fd, unix.SOL_SOCKET, unix.SO_TIMESTAMPNS, 1) == nil
 	if err := attachPacketHeaderFilter(fd); err != nil {
 		return err
 	}
@@ -75,7 +78,7 @@ func runPacketCaptureHealth(ctx context.Context, interfaceName string, scope Obs
 	}
 
 	buffer := make([]byte, packetCaptureHeaderBytes)
-	control := make([]byte, unix.CmsgSpace(packetAuxdataBytes))
+	control := make([]byte, unix.CmsgSpace(packetAuxdataBytes)+unix.CmsgSpace(packetTimespecBytes))
 	for {
 		beat()
 		if err := ctx.Err(); err != nil {
@@ -88,44 +91,69 @@ func runPacketCaptureHealth(ctx context.Context, interfaceName string, scope Obs
 			}
 			return err
 		}
-		wireLength, err := packetOriginalLength(control[:controlLength], n, flags)
+		wireLength, received, err := packetControl(control[:controlLength], n, flags)
 		if err != nil {
 			return err
+		}
+		if !kernelTimes || received.IsZero() {
+			received = time.Now()
 		}
 		capturedLength := n
 		if capturedLength > len(buffer) {
 			capturedLength = len(buffer)
 		}
-		if event, ok := ParsePacketActivityFrame(buffer[:capturedLength], wireLength, time.Now().UTC(), scope); ok {
+		if event, ok := ParsePacketActivityFrame(buffer[:capturedLength], wireLength, received.UTC(), scope); ok {
 			emit(event)
 		}
 	}
 }
 
+// struct timespec with 64-bit fields; 32-bit ABIs deliver half this size.
+const packetTimespecBytes = 16
+
 func packetOriginalLength(control []byte, received, flags int) (int, error) {
+	length, _, err := packetControl(control, received, flags)
+	return length, err
+}
+
+// packetControl reads the original packet length (PACKET_AUXDATA) and, when
+// present, the kernel receive time (SCM_TIMESTAMPNS) from one control message set.
+func packetControl(control []byte, received, flags int) (int, time.Time, error) {
 	if flags&unix.MSG_CTRUNC != 0 {
-		return 0, errors.New("packet capture auxiliary data truncated")
+		return 0, time.Time{}, errors.New("packet capture auxiliary data truncated")
 	}
 	messages, err := unix.ParseSocketControlMessage(control)
 	if err != nil {
-		return 0, fmt.Errorf("packet capture auxiliary data: %w", err)
+		return 0, time.Time{}, fmt.Errorf("packet capture auxiliary data: %w", err)
+	}
+	var at time.Time
+	for _, message := range messages {
+		if message.Header.Level != unix.SOL_SOCKET || message.Header.Type != unix.SCM_TIMESTAMPNS {
+			continue
+		}
+		switch len(message.Data) {
+		case packetTimespecBytes: // 64-bit time_t and long
+			at = time.Unix(int64(binary.NativeEndian.Uint64(message.Data[0:8])), int64(binary.NativeEndian.Uint64(message.Data[8:16])))
+		case packetTimespecBytes / 2: // 32-bit ABIs (armv7) report the legacy 32-bit timespec
+			at = time.Unix(int64(int32(binary.NativeEndian.Uint32(message.Data[0:4]))), int64(binary.NativeEndian.Uint32(message.Data[4:8])))
+		}
 	}
 	for _, message := range messages {
 		if message.Header.Level != unix.SOL_PACKET || message.Header.Type != unix.PACKET_AUXDATA {
 			continue
 		}
 		if len(message.Data) < packetAuxdataBytes {
-			return 0, errors.New("packet capture auxiliary data too short")
+			return 0, time.Time{}, errors.New("packet capture auxiliary data too short")
 		}
 		// Linux tpacket_auxdata starts with native-endian status, len, snaplen.
 		original := int(binary.NativeEndian.Uint32(message.Data[4:8]))
 		snapped := int(binary.NativeEndian.Uint32(message.Data[8:12]))
 		if original < received || snapped != received || original < snapped || original <= 0 {
-			return 0, errors.New("packet capture auxiliary lengths invalid")
+			return 0, time.Time{}, errors.New("packet capture auxiliary lengths invalid")
 		}
-		return original, nil
+		return original, at, nil
 	}
-	return 0, errors.New("packet capture original length unavailable")
+	return 0, time.Time{}, errors.New("packet capture original length unavailable")
 }
 
 func htons(value uint16) uint16 {

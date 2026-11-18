@@ -184,3 +184,36 @@ func TestPacketCaptureHeartbeatWithoutTraffic(t *testing.T) {
 		t.Fatal("heartbeat worker did not stop")
 	}
 }
+
+func TestPacketControlReadsKernelReceiveTime(t *testing.T) {
+	message := func(level, kind int32, payload []byte) []byte {
+		out := make([]byte, unix.CmsgSpace(len(payload)))
+		if unix.CmsgLen(0) == 16 {
+			binary.NativeEndian.PutUint64(out[:8], uint64(unix.CmsgLen(len(payload))))
+		} else {
+			binary.NativeEndian.PutUint32(out[:4], uint32(unix.CmsgLen(len(payload))))
+		}
+		header := unix.CmsgLen(0)
+		binary.NativeEndian.PutUint32(out[header-8:header-4], uint32(level))
+		binary.NativeEndian.PutUint32(out[header-4:header], uint32(kind))
+		copy(out[header:], payload)
+		return out
+	}
+	aux := make([]byte, packetAuxdataBytes)
+	binary.NativeEndian.PutUint32(aux[4:8], 1514)
+	binary.NativeEndian.PutUint32(aux[8:12], packetCaptureHeaderBytes)
+	stamp := make([]byte, packetTimespecBytes)
+	binary.NativeEndian.PutUint64(stamp[0:8], 1_800_000_000)
+	binary.NativeEndian.PutUint64(stamp[8:16], 123_456_789)
+	control := append(message(unix.SOL_SOCKET, unix.SCM_TIMESTAMPNS, stamp), message(unix.SOL_PACKET, unix.PACKET_AUXDATA, aux)...)
+	length, at, err := packetControl(control, packetCaptureHeaderBytes, 0)
+	if err != nil || length != 1514 {
+		t.Fatalf("length = %d, %v", length, err)
+	}
+	if want := time.Unix(1_800_000_000, 123_456_789); !at.Equal(want) {
+		t.Fatalf("kernel time = %v, want %v", at, want)
+	}
+	if _, at, _ = packetControl(message(unix.SOL_PACKET, unix.PACKET_AUXDATA, aux), packetCaptureHeaderBytes, 0); !at.IsZero() {
+		t.Fatal("missing timestamp must fall back")
+	}
+}
