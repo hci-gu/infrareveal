@@ -362,7 +362,30 @@ export type SeaEdge = {
 }
 /** `measuredMs`: the lowest consistent round trip among the series using this crossing. */
 export type SeaHopTotal = { hop: SeaHop; received: number; sent: number; confidence: CrossingConfidence; measuredMs?: number }
-export type SeaNetwork = { edges: SeaEdge[]; hops: SeaHopTotal[]; landings: { id: string; position: MapPosition }[]; peak: number; totals: Record<CrossingClass, number>; edgeNetworks: string[] }
+/**
+ * The drawn edges one series can travel: `fixed` edges always carry it; for each
+ * sea crossing, `hops[h][c]` are the edges (connectors and cable sections) of
+ * its c-th candidate cable. Animation sends each burst along one candidate.
+ */
+export type SeriesRoute = { fixed: string[]; hops: string[][][] }
+export type SeaNetwork = { edges: SeaEdge[]; hops: SeaHopTotal[]; landings: { id: string; position: MapPosition }[]; peak: number; totals: Record<CrossingClass, number>; edgeNetworks: string[]; routes: Map<string, SeriesRoute> }
+
+/** Bursts within one window take the same cable; long enough for a pulse to travel a path. */
+export const ROUTE_CHOICE_WINDOW_MS = 4000
+
+/**
+ * Which candidate cable a burst of a series takes on one crossing. Seeded by the
+ * series, the crossing and the data time of the burst, so playback, seeking and
+ * replays always pick the same cable for the same traffic.
+ */
+export function routeChoice(seriesId: string, hopIndex: number, atMs: number, candidates: number) {
+  if (candidates <= 1) return 0
+  // FNV-1a over the seed, then a final avalanche so neighbouring windows decorrelate.
+  let hash = 0x811c9dc5
+  for (const char of `${seriesId}|${hopIndex}|${Math.floor(atMs / ROUTE_CHOICE_WINDOW_MS)}`) hash = Math.imul(hash ^ char.charCodeAt(0), 0x01000193)
+  hash ^= hash >>> 16; hash = Math.imul(hash, 0x85ebca6b); hash ^= hash >>> 13
+  return (hash >>> 0) % candidates
+}
 
 const CONNECTOR_MIN_KM = 40
 const rank = (value: CrossingConfidence | null) => value === 'required' ? 2 : value === 'possible' ? 1 : 0
@@ -379,6 +402,7 @@ export function buildSeaNetwork(locations: LocationTraffic[], origin: GatewayOri
   const edges = new Map<string, SeaEdge & { locations: Set<string>; tracks: Set<string>; series: Set<string> }>()
   const hops = new Map<string, SeaHopTotal>()
   const landings = new Map<string, MapPosition>()
+  const routes = new Map<string, SeriesRoute>()
   const totals = emptyTotals()
   const edgeNetworks = new Set<string>()
   const add = (edge: Omit<SeaEdge, 'received' | 'sent' | 'locationIds' | 'trackIds' | 'seriesIds'>, volume: ByteTotals, locationId: string, trackId: string, seriesId: string) => {
@@ -387,6 +411,7 @@ export function buildSeaNetwork(locations: LocationTraffic[], origin: GatewayOri
     if (rank(edge.confidence) > rank(entry.confidence)) entry.confidence = edge.confidence
     entry.locations.add(locationId); entry.tracks.add(trackId); entry.series.add(seriesId)
     edges.set(edge.id, entry)
+    return edge.id
   }
   for (const location of locations) {
     for (const series of location.series) {
@@ -398,7 +423,10 @@ export function buildSeaNetwork(locations: LocationTraffic[], origin: GatewayOri
       if (!location.position || !hasMapCoordinates(location.position[1], location.position[0])) continue
       if (crossing.kind !== 'none' && crossing.kind !== 'possible' && crossing.kind !== 'required') continue
       const confidence = crossing.kind === 'none' ? null : crossing.kind
-      let ends: { key: string; position: MapPosition }[] = [{ key: 'gateway', position: gateway }]
+      const route: SeriesRoute = { fixed: [], hops: [] }
+      routes.set(series.id, route)
+      // Each end remembers which candidates of the last crossing reach it, so the final connector follows them.
+      let ends: { key: string; position: MapPosition; owners: number[] }[] = [{ key: 'gateway', position: gateway, owners: [] }]
       for (const [index, hop] of crossing.hops.entries()) {
         // The first and last crossings choose landings near the gateway and the destination themselves.
         const candidates = cablesBetween(hop.from, hop.to, index === 0 ? gateway : undefined, index === crossing.hops.length - 1 ? location.position : undefined)
@@ -408,23 +436,32 @@ export function buildSeaNetwork(locations: LocationTraffic[], origin: GatewayOri
         if (crossing.measuredMs !== undefined) total.measuredMs = Math.min(total.measuredMs ?? Infinity, crossing.measuredMs)
         hops.set(hop.id, total)
         const drawn = candidates.slice(0, DRAWN_CANDIDATES)
-        const next: { key: string; position: MapPosition }[] = []
-        for (const candidate of drawn) {
+        const options: string[][] = drawn.map(() => [])
+        route.hops.push(options)
+        const next: { key: string; position: MapPosition; owners: number[] }[] = []
+        for (const [choice, candidate] of drawn.entries()) {
           const from = wrapPosition(candidate.from), to = wrapPosition(candidate.to)
           const fromKey = `landing:${vertexKey(from)}`, toKey = `landing:${vertexKey(to)}`
           // Connect from the nearest point reached so far, so branching stays readable.
           const start = ends.reduce((best, end) => distanceKm(end.position, from) < distanceKm(best.position, from) ? end : best)
-          if (distanceKm(start.position, from) > CONNECTOR_MIN_KM) add({ id: `land:${start.key}>${fromKey}`, kind: 'land', path: [start.position, from], confidence }, volume, location.id, series.trackId, series.id)
+          if (distanceKm(start.position, from) > CONNECTOR_MIN_KM) options[choice].push(add({ id: `land:${start.key}>${fromKey}`, kind: 'land', path: [start.position, from], confidence }, volume, location.id, series.trackId, series.id))
           const [a, b] = [fromKey, toKey].sort()
           for (const path of cableSection(candidate.cable, candidate.from, candidate.to)) {
-            add({ id: `sea:${candidate.cable.id}:${a}~${b}:${path.length}`, kind: 'sea', path, confidence, cableId: candidate.cable.id, hopId: hop.id, candidates: hop.candidates.length }, volume, location.id, series.trackId, series.id)
+            options[choice].push(add({ id: `sea:${candidate.cable.id}:${a}~${b}:${path.length}`, kind: 'sea', path, confidence, cableId: candidate.cable.id, hopId: hop.id, candidates: hop.candidates.length }, volume, location.id, series.trackId, series.id))
           }
           landings.set(fromKey, from); landings.set(toKey, to)
-          if (!next.some(end => end.key === toKey)) next.push({ key: toKey, position: to })
+          const reached = next.find(end => end.key === toKey)
+          if (reached) reached.owners.push(choice)
+          else next.push({ key: toKey, position: to, owners: [choice] })
         }
         ends = next
       }
-      for (const end of ends) add({ id: `land:${end.key}>loc:${location.id}`, kind: 'land', path: [end.position, location.position], confidence }, volume, location.id, series.trackId, series.id)
+      for (const end of ends) {
+        const id = add({ id: `land:${end.key}>loc:${location.id}`, kind: 'land', path: [end.position, location.position], confidence }, volume, location.id, series.trackId, series.id)
+        const last = route.hops[route.hops.length - 1]
+        if (!last) route.fixed.push(id)
+        else for (const owner of end.owners) last[owner].push(id)
+      }
     }
   }
   const result = [...edges.values()].map(({ locations: locationSet, tracks, series, ...edge }) => ({ ...edge, locationIds: [...locationSet].sort(), trackIds: [...tracks].sort(), seriesIds: [...series].sort() }))
@@ -432,7 +469,7 @@ export function buildSeaNetwork(locations: LocationTraffic[], origin: GatewayOri
   return {
     edges: result, hops: [...hops.values()].sort((a, b) => (b.received + b.sent) - (a.received + a.sent) || a.hop.id.localeCompare(b.hop.id)),
     landings: [...landings].map(([id, position]) => ({ id, position })).sort((a, b) => a.id.localeCompare(b.id)),
-    peak: Math.max(0, ...result.map(edge => edge.received + edge.sent)), totals, edgeNetworks: [...edgeNetworks].sort(),
+    peak: Math.max(0, ...result.map(edge => edge.received + edge.sent)), totals, edgeNetworks: [...edgeNetworks].sort(), routes,
   }
 }
 

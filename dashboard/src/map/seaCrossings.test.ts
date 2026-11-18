@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildSeaNetwork, cableSection, cablesBetween, CABLES, classifySeries, gatewayRegion, regionCrossing, splitAntimeridian, summarizeCrossings } from './seaCrossings'
+import { buildSeaNetwork, cableSection, cablesBetween, CABLES, classifySeries, gatewayRegion, regionCrossing, ROUTE_CHOICE_WINDOW_MS, routeChoice, splitAntimeridian, summarizeCrossings } from './seaCrossings'
 import type { Cable } from './seaCrossings'
 import type { LocationTraffic } from './mapWorkspace'
 import type { MapSeries } from './mapTracks'
@@ -122,6 +122,34 @@ describe('sea crossings on real cables', () => {
     expect(summary.total).toBe(475)
     expect(summary.hops.map(entry => [entry.hop.id, entry.bytes, entry.confidence])).toEqual([['nordic~north_america', 300, 'required'], ['british_isles~nordic', 100, 'possible']])
     expect(summary.edgeNetworks).toEqual(['Fastly'])
+  })
+
+  it('sends each burst along one candidate, chosen deterministically from the data', () => {
+    const at = 1_800_000_000_000
+    // Same series, crossing and data time: always the same cable, however often it is replayed.
+    expect(routeChoice('series-a', 0, at, 4)).toBe(routeChoice('series-a', 0, at, 4))
+    // Bursts within one window keep their cable; over many windows every candidate is used.
+    expect(routeChoice('series-a', 0, at, 4)).toBe(routeChoice('series-a', 0, at - at % ROUTE_CHOICE_WINDOW_MS + ROUTE_CHOICE_WINDOW_MS - 1, 4))
+    const used = new Set(Array.from({ length: 64 }, (_, window) => routeChoice('series-a', 0, at + window * ROUTE_CHOICE_WINDOW_MS, 4)))
+    expect(used).toEqual(new Set([0, 1, 2, 3]))
+    expect(routeChoice('series-a', 0, at, 1)).toBe(0)
+  })
+
+  it('records the edges of every candidate route per series', () => {
+    const volumes = new Map([['a', { received: 80, sent: 20, partial: false }], ['de', { received: 7, sent: 3, partial: false }]])
+    const network = buildSeaNetwork([location('ny', [-74, 40.7], [series('a', 'US')]), location('berlin', [13.4, 52.5], [series('de', 'DE')])], gothenburg, volumes)
+    expect(network.routes.get('de')).toEqual({ fixed: ['land:gateway>loc:berlin'], hops: [] })
+    const route = network.routes.get('a')!
+    expect(route.fixed).toEqual([])
+    expect(route.hops).toHaveLength(1)
+    const ids = new Set(network.edges.map(edge => edge.id))
+    for (const option of route.hops[0]) {
+      // Each candidate: its own cable section(s) and the connector on to the destination.
+      expect(option.some(id => id.startsWith('sea:'))).toBe(true)
+      expect(option.some(id => id.endsWith('>loc:ny'))).toBe(true)
+      expect(option.every(id => ids.has(id))).toBe(true)
+      expect(new Set(option.filter(id => id.startsWith('sea:')).map(id => id.split(':')[1])).size).toBe(1)
+    }
   })
 
   it('splits paths at the antimeridian', () => {

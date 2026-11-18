@@ -149,7 +149,10 @@ flows. Selecting any contributing track highlights that shared arc; its volume
 continues to include all contributors. Service details show location, provider and
 classification evidence.
 
-In Cables, the same travelling bursts run along each drawn segment
+In Cables, each burst of a series travels one of its crossing's candidate cables
+(with its connectors), not all of them: `routeChoice` picks it from the series,
+the crossing and the burst's data time in 4-second windows, so playback and
+seeking always replay the same choice. The same travelling bursts run along each drawn segment
 (`map/FlowPathLayer.ts`), with downloaded and sent traffic on opposite sides; the
 static bands underneath show the history window's volume.
 

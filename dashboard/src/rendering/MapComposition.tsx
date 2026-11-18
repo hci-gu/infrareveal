@@ -14,7 +14,7 @@ import { MapIcon } from '../map/MapIcon'
 import { formatBytes } from '../map/format'
 import type { BundledMapArc } from '../map/bundleMapArcs'
 import { connectionHasTrack } from '../map/bundleMapArcs'
-import { directionalVolumeArcs, TRAFFIC_HISTORY_LENGTH, trafficRadius } from '../map/mapTraffic'
+import { directionalVolumeArcs, TRAFFIC_BUCKET_MS, TRAFFIC_HISTORY_LENGTH, trafficRadius } from '../map/mapTraffic'
 import type { TrafficArc, TrafficProfile } from '../map/mapTraffic'
 import { trackOpacity } from '../map/mapTracks'
 import { directionColor } from '../map/mapWorkspace'
@@ -25,7 +25,8 @@ import { countryFitPositions, countryFootprint } from '../map/countryFootprints'
 import { columnMetersPerPixel, projectDestinationVolumes, directionalColumns } from '../map/destinationVolumes'
 import countries from '../map/data/countries.json'
 import { mapProjection } from '../map/mapProjection'
-import { buildSeaNetwork, CABLE_SOURCE, CABLES, hopLabel, splitAntimeridian } from '../map/seaCrossings'
+import { buildSeaNetwork, CABLE_SOURCE, CABLES, hopLabel, routeChoice, splitAntimeridian } from '../map/seaCrossings'
+import type { SeriesRoute } from '../map/seaCrossings'
 import type { CrossingConfidence, SeaHop } from '../map/seaCrossings'
 import { bearingDegrees, fibreFloorMs, formatRtt, LATENCY_RINGS, latencyPosition, latencyRing, placement, UNMEASURED_RING_MS } from '../map/latency'
 import type { Placement } from '../map/latency'
@@ -165,7 +166,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
   const flowGeometry = useMemo(() => createFlowGeometryCache(), [])
   const animatedFlows = useMemo(() => flowGeometry(flowPaths), [flowGeometry, flowPaths])
   const flowEdges = useMemo(() => new Map(flowPaths.map(item => [item.edge.id, item.edge])), [flowPaths])
-  const flowRadii = useMemo(() => flowRateRadii(flowEdges, trafficProfiles), [flowEdges, trafficProfiles])
+  const flowRadii = useMemo(() => flowRateRadii(seaNetwork?.routes, trafficProfiles, trafficAnchorMs), [seaNetwork, trafficProfiles, trafficAnchorMs])
   /** One label per crossing, placed on its best-ranked (first drawn) cable. */
   const crossingLabels = useMemo(() => (seaNetwork?.hops ?? []).slice(0, MAX_CROSSING_LABELS).flatMap(total => {
     const edge = seaNetwork!.edges.find(item => item.kind === 'sea' && item.hopId === total.hop.id)
@@ -639,21 +640,40 @@ function pointAlong(path: MapPosition[], fraction: number): MapPosition {
 
 const NO_RADII = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0)
 
-/** Live rate history per drawn edge and direction, summed over the series it carries, on the arcs' radius scale. */
-function flowRateRadii(edges: Map<string, FlowEdge>, profiles: Map<string, TrafficProfile>) {
-  const radii = new Map<string, number[]>()
-  for (const edge of edges.values()) {
+/**
+ * Live rate history per drawn edge and direction, on the arcs' radius scale.
+ * Every bucket of a series' history is a burst that travels one candidate cable
+ * per crossing: `routeChoice` picks it from the series and the bucket's data
+ * time, so a burst keeps its cable as it moves and replays identically.
+ */
+function flowRateRadii(routes: Map<string, SeriesRoute> | undefined, profiles: Map<string, TrafficProfile>, anchorMs: number) {
+  const rates = new Map<string, { rates: number[]; packets: number[] }>()
+  const add = (key: string, i: number, rate: number, packets: number) => {
+    const entry = rates.get(key) ?? { rates: new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0), packets: new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0) }
+    entry.rates[i] += rate; entry.packets[i] += packets
+    rates.set(key, entry)
+  }
+  for (const [seriesId, route] of routes ?? []) {
+    const profile = profiles.get(seriesId)
+    if (!profile) continue
     for (const direction of [1, -1]) {
-      const rates = new Array<number>(TRAFFIC_HISTORY_LENGTH).fill(0), packets = rates.slice()
-      for (const id of edge.seriesIds) {
-        const profile = profiles.get(id)
-        if (!profile) continue
-        const rate = direction === 1 ? profile.outRates : profile.inRates, count = direction === 1 ? profile.outPackets : profile.inPackets
-        for (let i = 0; i < TRAFFIC_HISTORY_LENGTH; i++) { rates[i] += rate?.[i] ?? 0; packets[i] += count?.[i] ?? 0 }
+      const rate = direction === 1 ? profile.outRates : profile.inRates, count = direction === 1 ? profile.outPackets : profile.inPackets
+      for (let i = 0; i < TRAFFIC_HISTORY_LENGTH; i++) {
+        const bytes = rate?.[i] ?? 0, packets = count?.[i] ?? 0
+        if (bytes <= 0 && packets <= 0) continue
+        // Bucket i of the history ends i buckets before the anchor.
+        const atMs = anchorMs - (i + 1) * TRAFFIC_BUCKET_MS
+        for (const id of route.fixed) add(`${id}|${direction}`, i, bytes, packets)
+        route.hops.forEach((options, hop) => {
+          for (const id of options[routeChoice(seriesId, hop, atMs, options.length)] ?? []) add(`${id}|${direction}`, i, bytes, packets)
+        })
       }
-      const values = rates.map((rate, i) => trafficRadius(rate, packets[i]))
-      if (values.some(value => value > 0)) radii.set(`${edge.id}|${direction}`, values)
     }
+  }
+  const radii = new Map<string, number[]>()
+  for (const [key, entry] of rates) {
+    const values = entry.rates.map((rate, i) => trafficRadius(rate, entry.packets[i]))
+    if (values.some(value => value > 0)) radii.set(key, values)
   }
   return radii
 }
