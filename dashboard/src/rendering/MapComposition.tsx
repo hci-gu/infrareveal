@@ -1,7 +1,7 @@
 import type { MapProps } from 'react-map-gl/maplibre'
 import { FlyToInterpolator, WebMercatorViewport } from '@deck.gl/core'
 import type { Color, MapViewState, PickingInfo } from '@deck.gl/core'
-import { ArcLayer, ColumnLayer, PathLayer, ScatterplotLayer, TextLayer } from '@deck.gl/layers'
+import { ArcLayer, ColumnLayer, PathLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer } from '@deck.gl/layers'
 import { AnimatedMercator } from './AnimatedMercator'
 import type { MapRendererProps } from '../map/MapWorkspaceView'
 import { createMapGeometryCache, sameTrafficArcGeometry } from '../map/mapGeometryCache'
@@ -22,26 +22,63 @@ import { layoutMapLabels } from '../map/labelLayout'
 import { CountryArcLayer, CountryFlowArcLayer, CountryFootprintLayer } from '../map/CountryLayers'
 import { countryFitPositions, countryFootprint } from '../map/countryFootprints'
 import { columnMetersPerPixel, projectDestinationVolumes, directionalColumns } from '../map/destinationVolumes'
+import countries from '../map/data/countries.json'
+import { mapProjection } from '../map/mapProjection'
+import { buildRouteTree } from '../map/routeTree'
+import type { RouteTreeEdge, RouteTreeNode } from '../map/routeTree'
 import type { DestinationColumn, DestinationVolume, DirectionalColumn } from '../map/destinationVolumes'
 
 const TiledBasemap = lazy(() => import('../map/TiledBasemap'))
 function Basemap(props: MapProps) { return <Suspense fallback={null}><TiledBasemap {...props} /></Suspense> }
 
 const TEAL: Color = [88, 222, 192, 235]
-const GRATICULE: MapPosition[][] = [
-  ...Array.from({ length: 13 }, (_, index) => [[-180 + index * 30, -80], [-180 + index * 30, 80]] as MapPosition[]),
-  ...Array.from({ length: 5 }, (_, index) => Array.from({ length: 37 }, (_, x) => [-180 + x * 10, -60 + index * 30] as MapPosition)),
-]
+/** Bundled Natural Earth land, drawn where online tiles cannot be (non-Mercator projections). */
+const WORLD = (countries as { code: string; name: string; position: MapPosition; polygons: MapPosition[][][] }[])
+const WORLD_POLYGONS = WORLD.flatMap(country => country.polygons)
+const WORLD_RINGS = WORLD_POLYGONS.flat()
+/** Mirrors the land, water and boundary colors of the tiled atlas style. */
+const BASE_COLORS = {
+  dark: { land: [26, 35, 40], water: [10, 18, 22], border: [63, 74, 80], label: [118, 131, 137] },
+  light: { land: [210, 222, 217], water: [237, 243, 243], border: [159, 176, 170], label: [106, 127, 131] },
+} satisfies Record<string, Record<string, Color>>
+const MAX_ROUTE_WIDTH = 14
+/** Approximate glyph advance for the uppercase country names, in pixels. */
+const COUNTRY_NAME_CHAR_PX = 7
 
-export function MercatorComposition({ controlsRef, inspection, profiles: trafficProfiles, trafficAnchorMs, emptyState, cursorMs, preferences, theme, workspace, overview, scene, clock, width: compositionWidth, height: compositionHeight, playbackEpochMs, mapStyleUrl, trafficLoading, destinationIndex, destinationLoading }: MapRendererProps) {
+/** Country names with the drawn width of their largest landmass, in map degrees. */
+function countryNames(toMap: (position: MapPosition) => MapPosition) {
+  return WORLD.map(country => {
+    const widths = country.polygons.map(polygon => { const xs = polygon[0].map(position => toMap(position)[0]); return Math.max(...xs) - Math.min(...xs) })
+    return { name: country.name.toUpperCase(), position: toMap(country.position), width: Math.max(0, ...widths) }
+  })
+}
+
+/**
+ * The atlas renders every projection through one deck.gl Web Mercator view.
+ * `projection.toMap` converts each geographic position at the layer boundary;
+ * the composition is keyed by projection, so accessors never need re-triggering.
+ */
+export function MapComposition({ controlsRef, inspection, profiles: trafficProfiles, trafficAnchorMs, emptyState, cursorMs, preferences, theme, workspace, overview, scene, clock, width: compositionWidth, height: compositionHeight, playbackEpochMs, mapStyleUrl, trafficLoading, destinationIndex, destinationLoading, routes }: MapRendererProps) {
+  const projection = mapProjection(preferences.projection)
+  const P = projection.toMap
+  /** Column heights are pixel-sized, so scale by the latitude deck.gl actually draws at. */
+  const metersPerPixel = (position: MapPosition, zoom: number) => columnMetersPerPixel(P(position)[1], zoom)
+  const names = useMemo(() => { const { tiles, toMap } = mapProjection(preferences.projection); return tiles ? [] : countryNames(toMap) }, [preferences.projection])
   const width = compositionWidth > 760 ? compositionWidth - 290 : compositionWidth
   const height = compositionWidth > 760 ? compositionHeight : Math.max(100, compositionHeight - 260)
   const mapFrame = useMemo(() => projectMapFrame(overview.scene, cursorMs), [cursorMs, overview.scene])
   const [viewState, setViewState] = useState<MapViewState>(() => ({
-    longitude: scene.origin.longitude - (width > 760 ? 42 : 0), latitude: Math.max(-55, Math.min(55, scene.origin.latitude - 16)),
+    longitude: P([scene.origin.longitude, scene.origin.latitude])[0] - (width > 760 ? 42 : 0), latitude: Math.max(-55, Math.min(55, P([scene.origin.longitude, scene.origin.latitude])[1] - 16)),
     zoom: width > 760 ? 1.55 : 1.4, minZoom: -1, maxZoom: 16, pitch: 35, bearing: 0,
   }))
   const [showTraffic, setShowTraffic] = useState(true)
+  const [flowStyle, setFlowStyle] = useState<'direct' | 'routes'>('direct')
+  const { routeTree, routePaths } = useMemo(() => {
+    const tree = flowStyle === 'routes' ? buildRouteTree(overview.locations, routes, scene.origin, overview.volumeBySeries, cursorMs) : null
+    const { toMap, wrap } = mapProjection(preferences.projection)
+    return { routeTree: tree, routePaths: tree?.edges.map(edge => ({ edge, path: routeCurve(toMap(edge.from), toMap(edge.to), wrap) })) ?? [] }
+  }, [flowStyle, overview.locations, routes, scene.origin, overview.volumeBySeries, cursorMs, preferences.projection])
+  const measuredShare = routeTree && routeTree.total > 0 ? Math.round(routeTree.measured / routeTree.total * 100) : 0
   const [mapError, setMapError] = useState(false)
   const { track: selected, location: selectedLocation, open: inspectorOpen, selectLocation } = inspection
   const selection = selected?.id ?? null
@@ -64,11 +101,11 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
   ], [selection, columns])
   const labelLayout = useMemo(() => {
     const viewport = new WebMercatorViewport({ ...viewState, width, height })
-    const project = (position: MapPosition, elevation = 0) => viewport.project([...position, elevation]) as [number, number]
+    const project = (position: MapPosition, elevation = 0) => viewport.project([...P(position), elevation]) as [number, number]
     const inspectorEdge = inspectorOpen && width > 1000
     const cities = destinations.filter(destination => !destination.country).map(destination => ({
       id: destination.id, bytes: destination.received + destination.sent, text: columnLabel(destination, showCityNames),
-      top: project(destination.position, destination.height * columnMetersPerPixel(destination.position[1], viewState.zoom)), base: project(destination.position),
+      top: project(destination.position, destination.height * metersPerPixel(destination.position, viewState.zoom)), base: project(destination.position),
       hidden: Boolean(selection && !destination.tracks.some(track => track.trackId === selection)),
     }))
     const countries = (width <= 760 && inspectorOpen) ? [] : countryDestinations.map(destination => {
@@ -86,6 +123,7 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
       bounds: { left: 12, top: 75, right: width - (inspectorEdge ? 390 : 60), bottom: height - 95 },
       cityBounds: { left: 35, top: 90, right: inspectorEdge ? width - 385 : width - 55, bottom: height - 90 },
     })
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the projection is fixed for this composition's lifetime
   }, [destinations, countryDestinations, viewState, width, height, selection, selectedLocation?.id, inspectorOpen, showCityNames])
   const destinationLabels = useMemo(() => {
     const ids = new Set(labelLayout.cities)
@@ -112,11 +150,11 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
     const neutralColor = (): Color => theme === 'light' ? [83, 111, 117] : [143, 171, 180]
     const flowColor = (value?: number): Color => directionColor(value ?? 1, theme === 'light')
     const arcProps = {
-      data: connections, greatCircle: true, wrapLongitude: true, numSegments: 160,
-      getSourcePosition: (arc: BundledMapArc) => arc.sourcePosition,
-      getTargetPosition: (arc: BundledMapArc) => arc.targetPosition,
+      data: connections, greatCircle: projection.greatCircle, wrapLongitude: projection.wrap, numSegments: 160,
+      getSourcePosition: (arc: BundledMapArc) => P(arc.sourcePosition),
+      getTargetPosition: (arc: BundledMapArc) => P(arc.targetPosition),
       getHeight: 0.18, getTilt: 0,
-      visible: showTraffic, parameters: { depthCompare: 'always' as const, depthWriteEnabled: false },
+      visible: showTraffic && !routeTree, parameters: { depthCompare: 'always' as const, depthWriteEnabled: false },
       updateTriggers: { getSourceColor: [selection, theme], getTargetColor: [selection, theme] },
     }
     const volumeProps = {
@@ -128,14 +166,43 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
       return selection && destination?.tracks.some(track => track.trackId === selection) ? neutralColor() : TEAL
     }
     const countryOpacity = (code: string) => !selection || countryVolumes.get(code)?.tracks.some(track => track.trackId === selection) ? 1 : 0.12
+    const base = BASE_COLORS[theme]
+    const routeDimmed = (edge: RouteTreeEdge) => Boolean((selection && !edge.trackIds.includes(selection)) || (selectedLocation && !edge.locationIds.includes(selectedLocation.id)))
+    const routeWidth = (bytes: number) => bytes > 0 ? Math.max(1, MAX_ROUTE_WIDTH * bytes / Math.max(1, routeTree?.peak ?? 1)) : 0
+    const hopPeak = Math.max(1, ...(routeTree?.nodes ?? []).map(node => node.received + node.sent))
     return [
+      ...(projection.tiles ? [] : [
+        new SolidPolygonLayer<MapPosition[]>({
+          id: 'world-water', data: projection.outline ? [projection.outline] : [], getPolygon: outline => outline,
+          getFillColor: base.water, updateTriggers: { getFillColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        }),
+        new SolidPolygonLayer<MapPosition[][]>({
+          id: 'world-land', data: WORLD_POLYGONS, getPolygon: polygon => polygon.map(ring => ring.map(P)), _normalize: true,
+          getFillColor: base.land, updateTriggers: { getFillColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        }),
+        new PathLayer<MapPosition[]>({
+          id: 'world-borders', data: WORLD_RINGS, getPath: ring => ring.map(P), getWidth: 0.7, widthUnits: 'pixels',
+          getColor: alpha(base.border, 0.65), updateTriggers: { getColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        }),
+        new PathLayer<MapPosition[]>({
+          id: 'world-edge', data: projection.outline ? [projection.outline] : [], getPath: outline => [...outline, outline[0]], getWidth: 1, widthUnits: 'pixels',
+          getColor: alpha(base.border, 0.8), updateTriggers: { getColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        }),
+        // Like the tiled style's collision handling: a name appears once its country is wide enough to hold it.
+        new TextLayer<(typeof names)[number]>({
+          id: 'world-country-names', data: names.filter(country => country.width * 512 * 2 ** viewState.zoom / 360 > country.name.length * COUNTRY_NAME_CHAR_PX),
+          visible: preferences.labels, getPosition: country => country.position, getText: country => country.name, characterSet: 'auto',
+          getSize: viewState.zoom >= 3 ? 12 : 9, fontFamily: 'system-ui, sans-serif', getColor: alpha(base.label, viewState.zoom >= 3 ? 0.85 : 0.45),
+          updateTriggers: { getColor: [theme, viewState.zoom >= 3], getSize: viewState.zoom >= 3 }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        }),
+      ]),
       new CountryFootprintLayer({
-        id: 'country-footprints', data: countryPolygons, getPolygon: shape => shape.polygon, pickable: true,
+        id: 'country-footprints', data: countryPolygons, getPolygon: shape => shape.polygon.map(ring => ring.map(P)), pickable: true,
         getFillColor: shape => alpha(countryColor(shape.countryCode), (0.16 + Math.min(0.2, Math.log2(1 + (countryVolumes.get(shape.countryCode)?.bytes ?? 0) / 4096) * 0.015)) * countryOpacity(shape.countryCode)),
         updateTriggers: { getFillColor: [selection, countryVolumes, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
       new PathLayer({
-        id: 'country-outlines', data: countryBorders, getPath: border => border.path, getWidth: 1, widthUnits: 'pixels',
+        id: 'country-outlines', data: countryBorders, getPath: border => border.path.map(P), getWidth: 1, widthUnits: 'pixels',
         getColor: border => alpha(countryColor(border.countryCode), 0.55 * countryOpacity(border.countryCode)),
         updateTriggers: { getColor: [selection, countryVolumes, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
@@ -152,7 +219,7 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
         getTargetColor: arc => alpha(flowColor(arc.direction), connectionOpacity(arc)),
       }),
       new PathLayer<MapPosition[]>({
-        id: 'atlas-grid', data: GRATICULE, getPath: (path) => path,
+        id: 'atlas-grid', data: projection.graticule, getPath: (path) => path,
         getColor: [69, 102, 118, 27], getWidth: 1, widthUnits: 'pixels', pickable: false,
       }),
       new ArcLayer<BundledMapArc>({
@@ -173,15 +240,33 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
         getTargetColor: (arc) => alpha(flowColor(arc.direction), 0.92 * connectionOpacity(arc)),
         parameters: { depthCompare: 'less-equal', depthWriteEnabled: focused },
       })),
+      new PathLayer<{ edge: RouteTreeEdge; path: MapPosition[] }>({
+        id: 'route-bands', data: routePaths, visible: showTraffic, getPath: route => route.path, wrapLongitude: projection.wrap,
+        widthUnits: 'pixels', capRounded: true, jointRounded: true, getWidth: route => routeWidth(route.edge.received + route.edge.sent),
+        getColor: route => alpha(flowColor(-1), (route.edge.kind === 'route' ? 0.6 : 0.22) * (routeDimmed(route.edge) ? 0.15 : 1)),
+        updateTriggers: { getColor: [selection, selectedLocation?.id, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+      }),
+      new PathLayer<{ edge: RouteTreeEdge; path: MapPosition[] }>({
+        id: 'route-sent', data: routePaths.filter(route => route.edge.sent > 0), visible: showTraffic, getPath: route => route.path, wrapLongitude: projection.wrap,
+        widthUnits: 'pixels', capRounded: true, jointRounded: true, getWidth: route => routeWidth(route.edge.sent),
+        getColor: route => alpha(flowColor(1), (route.edge.kind === 'route' ? 0.9 : 0.35) * (routeDimmed(route.edge) ? 0.15 : 1)),
+        updateTriggers: { getColor: [selection, selectedLocation?.id, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+      }),
+      new ScatterplotLayer<RouteTreeNode>({
+        id: 'route-hops', data: routeTree?.nodes ?? [], visible: showTraffic, pickable: true, stroked: true,
+        getPosition: node => P(node.position), radiusUnits: 'pixels', getRadius: node => 2.5 + 4 * Math.sqrt((node.received + node.sent) / hopPeak),
+        getFillColor: theme === 'light' ? [237, 243, 243, 255] : [11, 24, 34, 255], getLineColor: flowColor(-1), getLineWidth: 1.2, lineWidthUnits: 'pixels',
+        updateTriggers: { getFillColor: theme, getLineColor: theme }, parameters: { depthCompare: 'always' },
+      }),
       new ScatterplotLayer<MapPoint>({
-        id: 'destination-halos', data: cityPoints, getPosition: (point) => point.position,
+        id: 'destination-halos', data: cityPoints, getPosition: (point) => P(point.position),
         radiusUnits: 'pixels', getRadius: (point) => point.trackId === selection ? 17 : 10,
         getFillColor: (point) => alpha(neutralColor(), (point.activeSeriesCount > 0 ? 0.08 : 0.04) * trackOpacity(point.trackId, selection)),
         updateTriggers: { getRadius: selection, getFillColor: [selection, theme] }, parameters: { depthCompare: 'always' },
       }),
       new ScatterplotLayer<MapPoint>({
         id: 'destinations', data: cityPoints, pickable: true, radiusUnits: 'pixels', stroked: true,
-        getPosition: (point) => point.position, getRadius: (point) => point.trackId === selection ? 5.5 : 3.5,
+        getPosition: (point) => P(point.position), getRadius: (point) => point.trackId === selection ? 5.5 : 3.5,
         getFillColor: (point) => alpha(neutralColor(), (point.activeSeriesCount > 0 ? 1 : 0.55) * trackOpacity(point.trackId, selection)),
         getLineColor: (point) => point.trackId === selection ? [230, 255, 248, 255] : [11, 24, 34, 230 * trackOpacity(point.trackId, selection)],
         getLineWidth: 1.5, lineWidthUnits: 'pixels',
@@ -190,8 +275,8 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
       ...columnLayers.map(({ focused, data }) => new ColumnLayer<DirectionalColumn>({
         id: focused ? 'destination-columns' : 'muted-destination-columns', data, pickable: true,
         diskResolution: 6, radius: 6, radiusUnits: 'pixels', angle: 30, extruded: true, flatShading: true,
-        getPosition: column => [column.destination.position[0] + column.direction * 7 * 360 / (512 * 2 ** viewState.zoom), column.destination.position[1], column.base * columnMetersPerPixel(column.destination.position[1], viewState.zoom)],
-        getElevation: column => column.height * columnMetersPerPixel(column.destination.position[1], viewState.zoom),
+        getPosition: column => { const [lon, lat] = P(column.destination.position); return [lon + column.direction * 7 * 360 / (512 * 2 ** viewState.zoom), lat, column.base * columnMetersPerPixel(lat, viewState.zoom)] },
+        getElevation: column => column.height * metersPerPixel(column.destination.position, viewState.zoom),
         getFillColor: column => alpha(flowColor(column.direction), 0.92 * trackOpacity(column.trackId, selection)),
         material: { ambient: 0.38, diffuse: 0.7, shininess: 45, specularColor: [130, 170, 180] },
         updateTriggers: { getPosition: viewState.zoom, getElevation: viewState.zoom, getFillColor: [selection, theme] },
@@ -199,7 +284,7 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
       })),
       new TextLayer<DestinationVolume>({
         id: 'destination-totals', data: destinationLabels,
-        getPosition: destination => [...destination.position, destination.height * columnMetersPerPixel(destination.position[1], viewState.zoom)],
+        getPosition: destination => [...P(destination.position), destination.height * metersPerPixel(destination.position, viewState.zoom)],
         getText: destination => columnLabel(destination, showCityNames),
         visible: preferences.labels,
         // City names need their own glyphs (å, ü, …); totals alone keep the small fixed set.
@@ -209,35 +294,38 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
         updateTriggers: { getPosition: viewState.zoom, getText: showCityNames }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
       new ScatterplotLayer({
-        id: 'gateway-ring', data: origin, getPosition: (point) => point.position,
+        id: 'gateway-ring', data: origin, getPosition: (point) => P(point.position),
         radiusUnits: 'pixels', getRadius: 13, stroked: true, filled: true,
         getFillColor: [88, 222, 192, 20], getLineColor: [88, 222, 192, 120], getLineWidth: 1,
         lineWidthUnits: 'pixels', parameters: { depthCompare: 'always' },
       }),
       new ScatterplotLayer({
-        id: 'gateway-core', data: origin, getPosition: (point) => point.position,
+        id: 'gateway-core', data: origin, getPosition: (point) => P(point.position),
         radiusUnits: 'pixels', getRadius: 5, stroked: true,
         getFillColor: [208, 255, 242, 255], getLineColor: TEAL, getLineWidth: 2,
         lineWidthUnits: 'pixels', parameters: { depthCompare: 'always' },
       }),
       new TextLayer({
-        id: 'gateway-label', visible: preferences.labels, data: origin, getPosition: (point) => point.position,
+        id: 'gateway-label', visible: preferences.labels, data: origin, getPosition: (point) => P(point.position),
         getText: () => 'GATEWAY', getSize: 10, getColor: [175, 218, 209, 255],
         getPixelOffset: [0, 26], fontFamily: 'system-ui, sans-serif', fontWeight: 600,
         background: true, getBackgroundColor: [10, 23, 32, 230], backgroundPadding: [7, 4],
         getTextAnchor: 'middle', getAlignmentBaseline: 'center', parameters: { depthCompare: 'always' },
       }),
     ].filter(layer => layer.props.visible !== false && (!Array.isArray(layer.props.data) || layer.props.data.length > 0))
-  }, [animation, trafficProfiles, connections, origin, selection, showTraffic, showCityNames, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryConnections, countryTraffic, cityPoints, theme, workspace.expanded, preferences.labels])
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- the projection is fixed for this composition's lifetime
+  }, [animation, trafficProfiles, connections, origin, selection, selectedLocation, showTraffic, showCityNames, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryConnections, countryTraffic, cityPoints, theme, workspace.expanded, preferences.labels, routeTree, routePaths, names])
 
   function moveTo(next: Partial<MapViewState>) {
     setViewState((current) => ({ ...current, ...next, transitionDuration: 700, transitionInterpolator: new FlyToInterpolator() }))
   }
 
   function fitNetwork(trackId?: string) {
-    const positions = [origin[0].position, ...visiblePoints.filter(point => !trackId || point.trackId === trackId).flatMap(point => 'country' in point && point.country ? countryFitPositions(point.country) : [point.position])]
-    // Unwrap around the gateway so dateline connections take the short way around.
-    const longitudes = positions.map(([lon]) => scene.origin.longitude + ((lon - scene.origin.longitude + 540) % 360) - 180)
+    const positions = [origin[0].position, ...visiblePoints.filter(point => !trackId || point.trackId === trackId).flatMap(point => 'country' in point && point.country ? countryFitPositions(point.country) : [point.position])].map(P)
+    const [originLon] = P(origin[0].position)
+    // Unwrap around the gateway so dateline connections take the short way around (Mercator only).
+    const unwrap = (lon: number) => projection.wrap ? originLon + ((lon - originLon + 540) % 360) - 180 : lon
+    const longitudes = positions.map(([lon]) => unwrap(lon))
     const latitudes = positions.map(([, lat]) => Math.max(-80, Math.min(80, lat)))
     const padding = compositionWidth > 760 ? { left: 45, right: inspectorOpen && compositionWidth > 1000 ? 350 : 60, top: 100, bottom: 100 } : { left: 50, right: 50, top: 75, bottom: 220 }
     const viewport = new WebMercatorViewport({ width, height }).fitBounds([
@@ -248,10 +336,10 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
     let zoom = viewport.zoom
     for (let attempt = 0; attempt < 40 && zoom > -1; attempt += 1) {
       const camera = new WebMercatorViewport({ width, height, longitude: viewport.longitude, latitude: viewport.latitude, zoom, pitch: viewState.pitch, bearing: 0 })
-      const tops = fittedDestinations.map(destination => [
-        scene.origin.longitude + ((destination.position[0] - scene.origin.longitude + 540) % 360) - 180,
-        destination.position[1], destination.height * columnMetersPerPixel(destination.position[1], zoom),
-      ])
+      const tops = fittedDestinations.map(destination => {
+        const [lon, lat] = P(destination.position)
+        return [unwrap(lon), lat, destination.height * columnMetersPerPixel(lat, zoom)]
+      })
       const projected = [...longitudes.map((lon, i) => [lon, latitudes[i]]), ...tops].map(position => camera.project(position))
       if (projected.every(([x, y]) => x >= padding.left && x <= width - padding.right && y >= padding.top && y <= height - padding.bottom)) break
       zoom = Math.max(-1, zoom - 0.1)
@@ -267,6 +355,10 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
         controller={{ dragRotate: true, touchRotate: true }} viewState={viewState}
         onViewStateChange={({ viewState: next }) => setViewState(next as MapViewState)}
         layers={layers} getTooltip={info => {
+          if (info.layer?.id === 'route-hops' && info.object) {
+            const node = info.object as RouteTreeNode
+            return { text: `${node.label}\n${node.routers} router${node.routers === 1 ? '' : 's'} on measured paths\n${formatBytes(node.received + node.sent)} through this point\nApproximate path` }
+          }
           if (info.layer?.id === 'country-footprints' && info.object) {
             const destination = countryVolumes.get(info.object.countryCode)
             return destination ? { text: `${destination.location} · Country estimate\nCity unknown\n${formatBytes(destination.received + destination.sent)} downloaded + sent\nClick for country totals and tracks` } : null
@@ -282,33 +374,38 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
           } }}
         getCursor={({ isDragging, isHovering }) => isDragging ? 'grabbing' : isHovering ? 'pointer' : 'grab'}
       >
-        <Basemap mapStyle={mapStyleUrl} minZoom={-1} attributionControl={{ compact: true }}
-          onError={() => setMapError(true)} onIdle={() => setMapError(false)} />
+        {projection.tiles && <Basemap mapStyle={mapStyleUrl} minZoom={-1} attributionControl={{ compact: true }}
+          onError={() => setMapError(true)} onIdle={() => setMapError(false)} />}
       </AnimatedMercator>
       {preferences.labels && <CountryLabels labels={labelLayout.countries} destinations={countryById} selection={selection} selectedLocationId={selectedLocation?.id ?? null} onCountry={selectLocation} />}
       <div className="atlas-vignette" />
 
-      <div className="atlas-map-heading"><span>Network atlas</span><span className="atlas-map-heading-detail">Mercator</span></div>
+      <div className="atlas-map-heading"><span>Network atlas</span><span className="atlas-map-heading-detail">{projection.label}</span></div>
       <div className="atlas-view-options">
         <div className="atlas-segmented atlas-view-switch" aria-label="Map perspective">
           <button type="button" aria-pressed={viewState.pitch !== 0} onClick={() => moveTo({ pitch: 35 })}>Perspective</button>
           <button type="button" aria-pressed={viewState.pitch === 0} onClick={() => moveTo({ pitch: 0, bearing: 0 })}>Top-down</button>
+        </div>
+        <div className="atlas-segmented atlas-view-switch" role="group" aria-label="Flow layout">
+          <button type="button" aria-pressed={flowStyle === 'direct'} onClick={() => setFlowStyle('direct')} title="Draw each destination as a direct connection">Direct</button>
+          <button type="button" aria-pressed={flowStyle === 'routes'} onClick={() => setFlowStyle('routes')} title="Bundle traffic along measured network routes">Routes</button>
         </div>
         <button type="button" className="atlas-layer-button" aria-pressed={showTraffic} onClick={() => setShowTraffic((value) => !value)} title="Show or hide flowing traffic"><MapIcon name="layers" size={16} /><span>Traffic</span><i className="atlas-dot" /></button>
       </div>
 
 
       {emptyState}
-      {mapError && <div className="atlas-map-error" role="status">Basemap tiles are unavailable. Traffic is still shown.</div>}
+      {!projection.tiles && <a className="atlas-earth-credit" href="https://www.naturalearthdata.com/" target="_blank" rel="noreferrer">Natural Earth</a>}
+      {mapError && projection.tiles && <div className="atlas-map-error" role="status">Basemap tiles are unavailable. Traffic is still shown.</div>}
 
       <div className="atlas-map-tools" aria-label="Map controls">
         <button type="button" className="atlas-icon-button" onClick={() => moveTo({ zoom: Math.min(16, viewState.zoom + 1) })} aria-label="Zoom in" title="Zoom in"><MapIcon name="plus" /></button>
         <button type="button" className="atlas-icon-button" onClick={() => moveTo({ zoom: Math.max(-1, viewState.zoom - 1) })} aria-label="Zoom out" title="Zoom out"><MapIcon name="minus" /></button>
         <span />
         <button type="button" className="atlas-icon-button" onClick={() => fitNetwork()} aria-label="Fit network" title="Fit network"><MapIcon name="expand" size={17} /></button>
-        <button type="button" className="atlas-icon-button" onClick={() => moveTo({ longitude: scene.origin.longitude, latitude: scene.origin.latitude, zoom: 5, bearing: 0 })} aria-label="Center on gateway" title="Center on gateway"><MapIcon name="target" /></button>
+        <button type="button" className="atlas-icon-button" onClick={() => { const [longitude, latitude] = P([scene.origin.longitude, scene.origin.latitude]); moveTo({ longitude, latitude, zoom: 5, bearing: 0 }) }} aria-label="Center on gateway" title="Center on gateway"><MapIcon name="target" /></button>
       </div>
-      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p>Direct connections. Coarse IP locations.{(trafficLoading || partialTraffic) ? trafficLoading ? ' Loading rates.' : ' Partial rates.' : ''}</p></div>
+      <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p>{routeTree ? `Measured routes cover ${measuredShare}% of mapped traffic; paths are approximate and faint lines have no measured route.` : 'Direct connections.'} Coarse IP locations.{(trafficLoading || partialTraffic) ? trafficLoading ? ' Loading rates.' : ' Partial rates.' : ''}</p></div>
       </div>
 
   )
@@ -341,4 +438,21 @@ function tooltipForPoint({ object, layer }: PickingInfo<MapPoint | DestinationCo
     text: lines.filter(Boolean).join('\n'),
     style: { backgroundColor: 'var(--color-paper-2)', color: 'var(--color-ink)', fontFamily: 'var(--font-body)', fontSize: 'var(--text-xs)', lineHeight: '1.6', border: '1px solid var(--color-rule-2)', borderRadius: 'var(--radius-panel)', padding: '12px 16px', boxShadow: 'var(--shadow-float)' },
   }
+}
+
+/**
+ * A gently bent route segment, sampled in Web Mercator space so it is drawn
+ * as a smooth planar curve in either projection. Bends are consistently
+ * left-handed so sibling branches fan apart instead of overlapping.
+ */
+function routeCurve(from: MapPosition, to: MapPosition, wrap: boolean): MapPosition[] {
+  const mercY = (lat: number) => Math.log(Math.tan(Math.PI / 4 + Math.max(-85, Math.min(85, lat)) * Math.PI / 360)) * 180 / Math.PI
+  const lat = (y: number) => (2 * Math.atan(Math.exp(y * Math.PI / 180)) - Math.PI / 2) * 180 / Math.PI
+  const x1 = from[0], y1 = mercY(from[1])
+  const x2 = wrap ? x1 + ((to[0] - x1 + 540) % 360) - 180 : to[0], y2 = mercY(to[1])
+  const cx = (x1 + x2) / 2 - (y2 - y1) * .14, cy = (y1 + y2) / 2 + (x2 - x1) * .14
+  return Array.from({ length: 25 }, (_, i) => {
+    const t = i / 24, u = 1 - t
+    return [u * u * x1 + 2 * u * t * cx + t * t * x2, lat(u * u * y1 + 2 * u * t * cy + t * t * y2)]
+  })
 }

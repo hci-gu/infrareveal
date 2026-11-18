@@ -70,7 +70,12 @@ vec3 pointOnArc(float t) {
   vec3 b = sphere(instanceTargetPositions.xy);
   float angle = acos(clamp(dot(a, b), -1.0, 1.0));
   vec2 lngLat;
-  if (angle < 0.00001 || abs(angle - PI) < 0.001) {
+  if (!arc.greatCircle) {
+    // Straight on the map: interpolate in Mercator space (substitute Equal Earth coordinates).
+    float y0 = log(tan(PI * 0.25 + radians(instanceSourcePositions.y) * 0.5));
+    float y1 = log(tan(PI * 0.25 + radians(instanceTargetPositions.y) * 0.5));
+    lngLat = vec2(mix(instanceSourcePositions.x, instanceTargetPositions.x, t), degrees(2.0 * atan(exp(mix(y0, y1, t))) - PI * 0.5));
+  } else if (angle < 0.00001 || abs(angle - PI) < 0.001) {
     float delta = mod(instanceTargetPositions.x - instanceSourcePositions.x + 540.0, 360.0) - 180.0;
     lngLat = vec2(instanceSourcePositions.x + delta * t, mix(instanceSourcePositions.y, instanceTargetPositions.y, t));
     lngLat.x = mod(lngLat.x + 540.0, 360.0) - 180.0;
@@ -197,7 +202,7 @@ export class FlowArcLayer<T> extends ArcLayer<T, VolumeProps<T>> {
     const model = this.state.model
     if (!model) return
     const { time, phase } = this.getAnimationTime()
-    model.shaderInputs.setProps({ arc: { numSegments: this.props.numSegments }, traffic: { clock: trafficShaderClock(time), phase } })
+    model.shaderInputs.setProps({ arc: { numSegments: this.props.numSegments, greatCircle: this.props.greatCircle }, traffic: { clock: trafficShaderClock(time), phase } })
     model.draw(this.context.renderPass)
   }
 }

@@ -193,7 +193,8 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     destinationIndex,
     destinationLoading: history.loading,
     destinationError: Boolean(history.error) && !history.hasData,
-  }), [timeline.mode, navigationRevision, timelineDetailIndex, clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, history.hasData, history.refreshing, styledMap, preferences, theme, workspace, overview, updateWorkspace, connectedClients, contentEndMs, seekTime])
+    routes: history.window.routes,
+  }), [history.window.routes, timeline.mode, navigationRevision, timelineDetailIndex, clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, history.hasData, history.refreshing, styledMap, preferences, theme, workspace, overview, updateWorkspace, connectedClients, contentEndMs, seekTime])
   useEffect(() => { clock.configure({ durationInFrames, rate: timeline.rate }) }, [clock, durationInFrames, timeline.rate])
   useEffect(() => () => clock.dispose(), [clock])
 

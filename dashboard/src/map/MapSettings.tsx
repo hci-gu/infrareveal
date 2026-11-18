@@ -27,7 +27,7 @@ export function MapSettings({ open, preferences, fullscreen, fullscreenError, on
     <div className="atlas-settings-body">
       <label htmlFor="map-projection">Map projection</label>
       <select id="map-projection" value={preferences.projection} onChange={event => onChange({ ...preferences, projection: event.target.value as MapPreferences['projection'] })}><option value="equal-earth">Equal Earth</option><option value="mercator">Mercator</option></select>
-      <p>{preferences.projection === 'equal-earth' ? 'Preserves relative land area. A flat worldwide view using bundled geography.' : 'Detailed map with perspective, online basemap tiles and directional traffic flows.'}</p>
+      <p>{preferences.projection === 'equal-earth' ? 'Preserves relative land area. Same map and traffic, drawn on bundled country outlines instead of online tiles.' : 'Online basemap tiles with roads and city names. Enlarges areas towards the poles.'}</p>
       <span className="atlas-setting-label">Appearance</span><div className="atlas-segmented" aria-label="Appearance">{(['dark', 'light', 'system'] as const).map(theme => <button key={theme} type="button" aria-pressed={preferences.theme === theme} onClick={() => onChange({ ...preferences, theme })}>{theme[0].toUpperCase() + theme.slice(1)}</button>)}</div>
       <div className="atlas-setting-switch"><span id="map-fullscreen-label">Fullscreen</span><button type="button" className="atlas-switch" role="switch" aria-labelledby="map-fullscreen-label" aria-checked={fullscreen} onClick={onToggleFullscreen}><span /></button></div>
       {fullscreenError && <p role="status">{fullscreenError}</p>}

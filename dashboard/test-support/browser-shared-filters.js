@@ -69,7 +69,7 @@ export default async (page, harness) => {
     assert(await page.locator('.atlas-composition').getAttribute('data-location-filter') === 'unlocated', 'Projection switch lost filters')
     assert(await sort().inputValue() === 'name', 'Projection switch lost shared ordering')
     await page.getByRole('button', { name: 'Back to map', exact: true }).click()
-    assert(await page.locator('.atlas-composition').getAttribute('data-destination-count') === (projection === 'equal-earth' ? '1' : '0'), 'Projection included an excluded mapped destination')
+    assert(await page.locator('.atlas-composition').getAttribute('data-destination-count') === '0', 'Projection included an excluded mapped destination')
     await page.getByRole('button', { name: 'Expand traffic timeline', exact: true }).click()
     await page.locator('.atlas-detail-timeline[data-visible-lanes="1"]').waitFor()
   }

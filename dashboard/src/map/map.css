@@ -1605,103 +1605,6 @@
   flex: 1;
   min-height: 0;
 }
-.atlas-equal-earth {
-  position: absolute;
-  inset: 0;
-  background: var(--atlas-water);
-}
-.atlas-equal-earth>svg {
-  width: 100%;
-  height: 100%;
-  display: block;
-  cursor: grab;
-  touch-action: none;
-  position: absolute;
-  inset: 0;
-  isolation: isolate;
-  transform: translateZ(0);
-}
-.atlas-earth-grid {
-  fill: none;
-  stroke: var(--atlas-grid);
-  stroke-width: .6;
-  vector-effect: non-scaling-stroke;
-}
-.atlas-earth-country {
-  fill: var(--atlas-land);
-  stroke: var(--atlas-coast);
-  stroke-width: .5;
-  vector-effect: non-scaling-stroke;
-}
-.atlas-earth-footprint {
-  fill: var(--atlas-down);
-  fill-opacity: .12;
-  stroke: var(--atlas-down);
-  stroke-width: 1;
-  vector-effect: non-scaling-stroke;
-}
-.atlas-earth-flow {
-  fill: none;
-  stroke: var(--atlas-down);
-  stroke-width: 1.6;
-  opacity: .8;
-  vector-effect: non-scaling-stroke;
-  pointer-events: none;
-}
-.atlas-earth-flow.sent {
-  stroke: var(--atlas-up);
-  stroke-dasharray: 5 4;
-}
-.atlas-earth-flow.country-estimate {
-  opacity: .45;
-}
-.atlas-equal-earth [data-map-location] {
-  cursor: pointer;
-  outline: none;
-}
-.atlas-equal-earth [data-map-location]:focus-visible .atlas-earth-point {
-  stroke-width: 3;
-}
-.atlas-equal-earth [data-map-location]:focus-visible .atlas-earth-footprint {
-  stroke-width: 3;
-}
-.atlas-equal-earth .is-dimmed {
-  opacity: .14;
-}
-.atlas-earth-point {
-  fill: var(--atlas-panel);
-  stroke: var(--atlas-text);
-  stroke-width: 1.2;
-  vector-effect: non-scaling-stroke;
-}
-.atlas-earth-bar.received {
-  fill: var(--atlas-down);
-}
-.atlas-earth-bar.sent {
-  fill: var(--atlas-up);
-}
-.atlas-earth-location {
-  font: 9px var(--font-body);
-  fill: var(--atlas-text);
-  paint-order: stroke;
-  stroke: var(--atlas-water);
-  stroke-width: 2px;
-  stroke-linejoin: round;
-  pointer-events: none;
-}
-.atlas-earth-gateway-ring {
-  fill: var(--atlas-down);
-  fill-opacity: .15;
-  stroke: var(--atlas-down);
-  stroke-width: 1;
-}
-.atlas-earth-gateway {
-  fill: var(--atlas-down);
-}
-.atlas-equal-earth .atlas-map-tools {
-  right: 20px;
-  bottom: 100px;
-}
 .atlas-map-location-card {
   position: absolute;
   left: 22px;
@@ -2157,9 +2060,6 @@
 }
 .atlas-timeline-open .atlas-map-tools {
   display: none;
-}
-.atlas-equal-earth>svg.atlas-earth-basemap {
-  pointer-events: none;
 }
 .atlas-list-order {
   display: flex;
@@ -3559,10 +3459,6 @@
     font-size: var(--text-2xs);
     gap: var(--space-sm);
   }
-  .atlas-equal-earth .atlas-map-tools {
-    bottom: 77px;
-    right: 10px;
-  }
   .atlas-map-surface .atlas-map-tools {
     bottom: 77px;
     right: 10px;
@@ -3624,10 +3520,6 @@
   .atlas-overview .atlas-overview-heading h1 {
     display: block;
     margin: 0;
-  }
-  .atlas-earth-location {
-    font-size: 22px;
-    stroke-width: 3px;
   }
   .atlas-live-button {
     font-size: var(--text-2xs) !important;
@@ -3798,10 +3690,6 @@
 .atlas-page [tabindex="0"]:focus-visible {
   outline: 2px solid var(--color-focus);
   outline-offset: 2px;
-}
-.atlas-equal-earth [data-map-location]:focus-visible .atlas-earth-point,
-.atlas-equal-earth [data-map-location]:focus-visible .atlas-earth-footprint {
-  stroke: var(--color-focus);
 }
 .atlas-page button:active:not(:disabled) {
   background-color: var(--color-paper-3);
