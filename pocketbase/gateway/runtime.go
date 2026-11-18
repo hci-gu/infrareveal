@@ -42,6 +42,7 @@ type Runtime struct {
 	observation       *observer.Runtime
 	simulation        *simulationRun
 	displays          *displaymode.Registry
+	clients           connectedClients
 	cancelMaintenance context.CancelFunc
 	maintenanceDone   chan struct{}
 	checkpoints       *data.Checkpoints

@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "name": "Paced ordinary browsing",
+  "profiles": [
+    {
+      "name": "reader",
+      "kind": "browser",
+      "weight": 1,
+      "urls": [
+        "https://sv.wikipedia.org/wiki/Raspberry_Pi",
+        "https://sv.wikipedia.org/wiki/Internet",
+        "https://www.svt.se/nyheter"
+      ],
+      "dwellSeconds": [25, 50],
+      "pauseSeconds": [15, 40],
+      "timeoutSeconds": 45
+    }
+  ]
+}

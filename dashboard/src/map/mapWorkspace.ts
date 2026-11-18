@@ -10,13 +10,19 @@ import type { ByteTotals, DestinationVolumeIndex } from './destinationVolumes'
 import { sceneForTracks } from './mapTracks'
 import type { MapSeries, MapTrack, MapTrackCatalog } from './mapTracks'
 
-export const DEFAULT_TRAFFIC_FILTERS = { query: '', activeOnly: false, windowMs: 300_000, locationId: null }
-export type WorkspaceState = { locationId: string | null; expanded: boolean; order?: ActivityOrder; query?: string; activeOnly?: boolean; windowMs?: number }
-export const filterScope = (state: WorkspaceState) => JSON.stringify([state.locationId, state.query ?? '', state.activeOnly ?? false, state.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs])
+export const DEFAULT_TRAFFIC_FILTERS = { query: '', activeOnly: false, windowMs: 300_000, locationId: null, hiddenClients: [] as HiddenClient[] }
+/** A hidden client keeps its label so it can be shown again after it disconnects. */
+export type HiddenClient = { key: string; label: string }
+export type WorkspaceState = { locationId: string | null; expanded: boolean; order?: ActivityOrder; query?: string; activeOnly?: boolean; windowMs?: number; hiddenClients?: HiddenClient[] }
+export const filterScope = (state: WorkspaceState) => JSON.stringify([state.locationId, state.query ?? '', state.activeOnly ?? false, state.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs, (state.hiddenClients ?? []).map(client => client.key)])
+/** Traffic matches a connected client by observer identity, or by IP before a lease identity exists. */
+export const clientKey = (id: string, ip: string) => id || `ip:${ip}`
+const clientHidden = (hidden: Set<string>, chunk: { client_id: string; client_ip: string }) => hidden.has(chunk.client_id) || hidden.has(`ip:${chunk.client_ip}`)
 export function trafficFilterCount(state: WorkspaceState) {
   return Number(Boolean(state.query?.trim())) + Number(Boolean(state.locationId))
     + Number(Boolean(state.activeOnly))
     + Number((state.windowMs ?? DEFAULT_TRAFFIC_FILTERS.windowMs) !== DEFAULT_TRAFFIC_FILTERS.windowMs)
+    + Number(Boolean(state.hiddenClients?.length))
 }
 
 export type LocationTraffic = ByteTotals & { id: string; label: string; detail: string; position?: MapPosition; country?: CountryFootprint | null; bytes: number; lastActivityMs: number; series: MapSeries[] }
@@ -44,10 +50,12 @@ export function projectWorkspace(catalog: MapTrackCatalog, scene: MapTimelineSce
   const volumeBySeries = new Map<string, ByteTotals>()
   const locationOptions = new Map<string, { id: string; label: string }>()
   const terms = (state.query ?? '').toLowerCase().trim().split(/\s+/).filter(Boolean)
+  const hiddenClients = new Set((state.hiddenClients ?? []).map(client => client.key))
   for (const [id, chunks] of catalog.grouped) {
     const visible = chunks.filter(chunk => chunk.start_ms <= cursor)
     if (!visible.length) continue
     const first = visible[0]
+    if (hiddenClients.size && clientHidden(hiddenClients, first)) continue
     const startMs = first.start_ms + (first.samples[0]?.[0] ?? 0)
     if (startMs > cursor) continue
     const endMs = Math.max(startMs, seriesLastActivity({ id }, index, cursor))
@@ -58,7 +66,7 @@ export function projectWorkspace(catalog: MapTrackCatalog, scene: MapTimelineSce
       client: first.client_ip || first.client_id, site: first.service_key,
       hostname: first.evidence.hostname || first.destination_ip, chunks: visible,
       startMs, endMs, lastActivityMs: 0, bytes: 0, mapped: byEndpoint.has(id),
-      location: destination ? [destination.city, destination.country].filter(Boolean).join(', ') : '', provider: destination?.provider || '',
+      location: destination ? [destination.city, destination.country].filter(Boolean).join(', ') : '', provider: destination?.provider || '', country: destination?.country || '',
     }
     const location = byEndpoint.get(series.id) ?? { id: 'unlocated', label: 'Unlocated', detail: 'Included in totals · no map position' }
     locationOptions.set(location.id, { id: location.id, label: location.label })

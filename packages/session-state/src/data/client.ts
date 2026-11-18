@@ -1,11 +1,12 @@
 import { seriesKey } from './traffic'
 import { baseUrl, requestJSON, requestSignal } from './pocketbaseHttp'
-import type { TrafficChunk, Sample, BlockPage, DemoStatus, DiagnosticKind, DiagnosticPage, MapWindow, Session, SessionManifest, SimulationStatus } from './types'
+import type { ConnectedClients, TrafficChunk, Sample, BlockPage, DemoStatus, DiagnosticKind, DiagnosticPage, MapWindow, Session, SessionManifest, SimulationStatus } from './types'
 export { baseUrl }
 const sessionPath = (id: string) => `/api/infrareveal/sessions/${encodeURIComponent(id)}`
 export const getSessions = (signal?: AbortSignal) => requestJSON<{ items: Session[] }>('/api/infrareveal/sessions', signal).then(value => value.items)
 export const getSessionManifest = (id: string, signal?: AbortSignal) => requestJSON<SessionManifest>(`${sessionPath(id)}/manifest`, signal)
 export const getDemoStatus = (signal?: AbortSignal) => requestJSON<DemoStatus>('/api/infrareveal/demo', signal)
+export const getConnectedClients = (signal?: AbortSignal) => requestJSON<ConnectedClients>('/api/infrareveal/clients', signal)
 export const getSimulationStatus = (signal?: AbortSignal) => requestJSON<SimulationStatus>('/api/infrareveal/simulation', signal)
 export async function startSimulation(): Promise<SimulationStatus> {
   const response = await fetch(`${baseUrl}/api/infrareveal/simulation`, { method: 'POST', signal: requestSignal() })

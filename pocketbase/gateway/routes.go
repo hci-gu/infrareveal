@@ -16,6 +16,7 @@ func (g *Runtime) registerRoutes(r *router.Router[*core.RequestEvent]) {
 	registerSessionTimelineRoutes(r, g.app)
 	g.registerSessionControls(r)
 	g.registerDemoRoutes(r)
+	g.registerClientRoutes(r)
 	g.registerStorageRoutes(r)
 	g.registerSimulationRoutes(r)
 	registerTraceRoutes(r, g.app, g.traceHub)

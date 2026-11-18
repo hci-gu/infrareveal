@@ -2,10 +2,13 @@ import { useCallback, useEffect, useRef } from 'react'
 import { DEFAULT_TRAFFIC_FILTERS, trafficFilterCount } from './mapWorkspace'
 import type { WorkspaceProjection, WorkspaceState } from './mapWorkspace'
 import { MapIcon } from './MapIcon'
+import { clientVisibilityRows, toggleClient } from './clientVisibility'
+import type { ConnectedClientsState } from './useConnectedClients'
 
-export function TrafficFilters({ open, state, data, onChange, onClose }: {
-  open: boolean; state: WorkspaceState; data: WorkspaceProjection; onChange: (value: WorkspaceState) => void; onClose: () => void
+export function TrafficFilters({ open, state, data, clients, onChange, onClose }: {
+  open: boolean; state: WorkspaceState; data: WorkspaceProjection; clients: ConnectedClientsState | null; onChange: (value: WorkspaceState) => void; onClose: () => void
 }) {
+  const clientRows = clientVisibilityRows(clients, state)
   const search = useRef<HTMLInputElement>(null)
   const close = useCallback(() => { onClose(); document.getElementById('traffic-filters-toggle')?.focus({ preventScroll: true }) }, [onClose])
   useEffect(() => { if (open) search.current?.focus({ preventScroll: true }) }, [open])
@@ -35,6 +38,13 @@ export function TrafficFilters({ open, state, data, onChange, onClose }: {
         {state.locationId && !data.locationOptions.some(location => location.id === state.locationId) && <option value={state.locationId}>Location outside loaded history</option>}
         {data.locationOptions.map(location => <option key={location.id} value={location.id}>{location.label}</option>)}
       </select>
+      {clientRows.length > 0 && <div className="atlas-filter-clients" role="group" aria-labelledby="traffic-filter-clients-label">
+        <div className="atlas-filter-clients-heading"><span id="traffic-filter-clients-label">Clients{clients && <small>{clients.connected} connected</small>}</span>{(state.hiddenClients?.length ?? 0) > 0 && <button type="button" onClick={() => onChange({ ...state, hiddenClients: [] })}>Show all</button>}</div>
+        {clientRows.map(row => <div key={row.key} className="atlas-filter-switch" data-connected={row.connected}>
+          <div><span id={`traffic-filter-client-${row.key}`}>{row.label}</span><p>{row.detail}</p></div>
+          <button type="button" className="atlas-switch" role="switch" aria-labelledby={`traffic-filter-client-${row.key}`} aria-checked={!row.hidden} onClick={() => onChange(toggleClient(state, row))}><span /></button>
+        </div>)}
+      </div>}
     </div>
     <footer><p>{data.bySeries.size} {data.bySeries.size === 1 ? 'endpoint' : 'endpoints'} · {data.tracks.length} {data.tracks.length === 1 ? 'track' : 'tracks'}</p><button type="button" disabled={trafficFilterCount(state) === 0} onClick={() => onChange({ ...state, ...DEFAULT_TRAFFIC_FILTERS })}>Reset filters</button></footer>
   </aside>

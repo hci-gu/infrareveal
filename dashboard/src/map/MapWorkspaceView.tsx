@@ -16,6 +16,8 @@ import { MapLocationInspector } from './MapLocationInspector'
 import { useMapInspector } from './useMapInspector'
 import { MapIcon } from './MapIcon'
 import { EqualEarthComposition } from '../rendering/EqualEarthComposition'
+import { MapClientsPill } from './MapClientsPill'
+import type { ConnectedClientsState } from './useConnectedClients'
 
 const MercatorComposition = lazy(() => import('../rendering/MercatorComposition').then(module => ({ default: module.MercatorComposition })))
 
@@ -45,6 +47,7 @@ export type MapWorkspaceProps = {
   destinationIndex: DestinationVolumeIndex
   destinationLoading: boolean
   destinationError: boolean
+  connectedClients: ConnectedClientsState | null
 }
 
 export type MapControls = { fit: (trackId?: string) => void }
@@ -85,6 +88,7 @@ export const MapWorkspace = memo(function MapWorkspace(props: MapWorkspaceProps)
   const rendererProps = { ...props, controlsRef: controls, inspection, profiles, trafficAnchorMs, emptyState }
   return <div className="atlas-composition" data-selected-track={track?.id} data-inspector-open={open || undefined} data-track-count={overview.tracks.length} data-destination-count={preferences.projection === 'equal-earth' ? overview.locations.length : overview.locations.filter(location => location.position).length} data-workspace={workspace.expanded ? 'timeline' : 'map'} data-location-filter={workspace.locationId ?? ''}>
     {preferences.projection === 'equal-earth' ? <EqualEarthComposition {...rendererProps} /> : <Suspense fallback={<div role="status">Loading map…</div>}><MercatorComposition {...rendererProps} /></Suspense>}
+    {!workspace.expanded && <MapClientsPill clients={props.connectedClients} workspace={workspace} onWorkspace={onWorkspace} />}
     <MapOverview capturedToMs={destinationIndex.toMs ?? cursorMs} refreshing={refreshing} data={overview} state={workspace} onChange={onWorkspace} startMs={destinationIndex.fromMs ?? scene.startMs} cursorMs={cursorMs} loading={destinationLoading} error={destinationError} selectedTrack={track?.id ?? null} onTrack={selectTrack} selectedLocation={location?.id ?? null} onLocation={selectLocation} />
     {workspace.expanded && <MapTimeline clock={props.clock} playbackEpochMs={props.playbackEpochMs} live={props.live} navigationRevision={props.navigationRevision} detailIndex={props.timelineDetailIndex} refreshing={refreshing} data={overview} state={workspace} index={destinationIndex} startMs={destinationIndex.fromMs ?? scene.startMs} endMs={props.endMs} cursorMs={cursorMs} onSeek={props.onSeekTime} onTrack={selectTrack} loading={destinationLoading} error={destinationError} />}
     {!track && location && <MapLocationInspector cursorMs={cursorMs} order={workspace.order} refreshing={refreshing} key={location.id} location={location} tracks={tracks} traffic={seriesTraffic(location.series, profiles)} loading={destinationLoading} error={destinationError} trafficLoading={props.trafficLoading} onTrack={selectTrack} onClose={closeLocation} onFit={() => fit()} />}

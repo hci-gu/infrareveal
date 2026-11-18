@@ -9,6 +9,8 @@ const PALETTE: TrackColor[] = [[104, 222, 193], [175, 148, 246], [247, 181, 100]
 export type MapSeries = {
   id: string; trackId: string; label: string; client: string; site: string; hostname: string
   chunks: TrafficChunk[]; startMs: number; endMs: number; lastActivityMs: number; bytes: number; mapped: boolean; location: string; provider: string
+  /** Destination country name; empty when IP geography is unknown. */
+  country?: string
 }
 export type MapTrack = { id: string; label: string; client: string; site: string; color: TrackColor; series: MapSeries[]; lastActivityMs: number; bytes: number; mappedCount: number }
 export type MapTrackCatalog = ReturnType<typeof buildMapTrackCatalog>

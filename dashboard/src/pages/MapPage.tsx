@@ -24,7 +24,6 @@ import { formatCursor } from '../map/format'
 import { indexMapTraffic } from '../map/mapTraffic'
 import { buildMapTrackCatalog, TrackColors } from '../map/mapTracks'
 import { createDestinationVolumeCache, indexDestinationVolumes } from '../map/destinationVolumes'
-import { ActivityBlockBrowser } from '../map/ActivityBlockBrowser'
 import { MapSettings } from '../map/MapSettings'
 import { useMapPreferences } from '../map/mapPreferences'
 import { DEFAULT_TRAFFIC_FILTERS, projectWorkspace, trafficFilterCount } from '../map/mapWorkspace'
@@ -34,6 +33,10 @@ import type { ActivityOrder } from '../map/activityOrder'
 import { createWireWaveformCache } from '../map/wireWaveform'
 import { themedAtlasStyle } from '../map/atlasStyle'
 import { useCaptureStatus } from '../map/useCaptureStatus'
+import { isCaptureLagOnly } from '../map/captureStatus'
+import { useConnectedClients } from '../map/useConnectedClients'
+import { SidePane } from '../map/InsightsPane'
+import type { SidePaneTab } from '../map/InsightsPane'
 import '../map/map.css'
 
 /** Enough resolution for a smooth envelope across a wide transport bar. */
@@ -51,8 +54,10 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const kiosk = Boolean(demo)
   const { preferences, setPreferences, theme } = useMapPreferences()
   const publishMs = 250
-  const [blocksOpen, setBlocksOpen] = useState(false)
   const [filtersOpen, setFiltersOpen] = useState(false)
+  const [sidePane, setSidePane] = useState<SidePaneTab | null>(null)
+  const closeSidePane = useCallback(() => setSidePane(null), [])
+  const toggleSidePane = (tab: SidePaneTab) => setSidePane(current => current === tab ? null : tab)
   const closeFilters = useCallback(() => setFiltersOpen(false), [])
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [view, setView] = useState<WorkspaceState & { sessionId: string }>({ ...DEFAULT_TRAFFIC_FILTERS, sessionId: sessionID, expanded: false })
@@ -99,6 +104,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
   const overview = useMemo(() => projectWorkspace(trackCatalog, scene, destinationIndex, projectionCursor, workspace), [trackCatalog, scene, destinationIndex, projectionCursor, workspace])
   const waveform = useMemo(() => createWireWaveformCache(), [])
   const playbackBins = useMemo(() => waveform([...overview.bySeries.values()], destinationIndex, { from: scene.startMs, to: contentEndMs }, TRANSPORT_BINS), [waveform, overview.bySeries, destinationIndex, scene.startMs, contentEndMs])
+  const connectedClients = useConnectedClients(sessionID, timeline.mode === 'live' && Boolean(timeline.manifest?.active) && !timeline.manifest?.simulation_expires_ms)
   const captureWarning = useCaptureStatus(timeline.manifest, timeline.clock, history.window.coverage)
   const demoWarning = demo && (demo.error || demoHealthMessage(demo.status, Date.parse(demo.status.serverNow)))
   const styledMap = useMemo(() => themedAtlasStyle(mapStyleUrl, theme, preferences.labels), [theme, preferences.labels])
@@ -167,13 +173,16 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
 
   const seekTime = useCallback((time: number, resumeTimeline = false) => seek(frameForTime(playbackEpochMs, time, FPS), resumeTimeline), [playbackEpochMs, seek])
 
+  // The side pane re-renders at the 250 ms projection rate, never per animation frame.
+  const sideActivity = useMemo(() => ({ sessionId: sessionID, chunks: activity.window.series, cursorMs: projectionCursor, live: timeline.mode === 'live', following: timeline.mode === 'live' && timeline.playback === 'following', fromMs: windowFrom, toMs: Math.min(windowTo, contentEndMs), onSeek: seekTime }),
+    [sessionID, activity.window.series, projectionCursor, timeline.mode, timeline.playback, windowFrom, windowTo, contentEndMs, seekTime])
   const inputProps = useMemo<MapWorkspaceProps>(() => ({
     scene,
     clock, width: size.width, height: size.height,
     playbackEpochMs,
     cursorMs: projectionCursor,
     mapStyleUrl: styledMap,
-    preferences, theme, workspace, overview, onWorkspace: updateWorkspace,
+    preferences, theme, workspace, overview, onWorkspace: updateWorkspace, connectedClients,
     endMs: contentEndMs, onSeekTime: seekTime,
     live: timeline.mode === 'live', navigationRevision, timelineDetailIndex,
     unavailable: !history.hasData && (Boolean(history.error) || connectionState === 'error' || connectionState === 'offline'),
@@ -184,7 +193,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     destinationIndex,
     destinationLoading: history.loading,
     destinationError: Boolean(history.error) && !history.hasData,
-  }), [timeline.mode, navigationRevision, timelineDetailIndex, clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, history.hasData, history.refreshing, styledMap, preferences, theme, workspace, overview, updateWorkspace, contentEndMs, seekTime])
+  }), [timeline.mode, navigationRevision, timelineDetailIndex, clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, history.hasData, history.refreshing, styledMap, preferences, theme, workspace, overview, updateWorkspace, connectedClients, contentEndMs, seekTime])
   useEffect(() => { clock.configure({ durationInFrames, rate: timeline.rate }) }, [clock, durationInFrames, timeline.rate])
   useEffect(() => () => clock.dispose(), [clock])
 
@@ -336,27 +345,36 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
         {workspace.expanded && <button type="button" className="atlas-icon-button atlas-mobile-map-return" aria-label="Back to map" title="Back to map" onClick={() => updateWorkspace({ ...workspace, expanded: false })}><MapIcon name="back" size={17} /></button>}
         <nav className="atlas-breadcrumb" aria-label="Breadcrumb"><Link to="/" aria-label="All sessions"><MapIcon name="back" size={15} /><span>Sessions</span></Link><span className="atlas-breadcrumb-slash">/</span><span className="atlas-session-name" title={scene.sessionName}>{scene.sessionName}</span></nav>
         <div className="atlas-header-right">
-          <button type="button" className="atlas-icon-button" aria-label="Browse activity blocks" onClick={() => { setBlocksOpen(value => !value); setFiltersOpen(false) }}><MapIcon name="activity" size={17} /><span className="atlas-header-action-label">Activity</span></button>
           <label className="atlas-traffic-order" title="Sort lists and timeline">
             <MapIcon name="sort" size={16} /><span aria-hidden="true">{TRAFFIC_ORDER_LABELS[workspace.order ?? 'default']}</span>
             <select aria-label="Sort traffic" value={workspace.order ?? 'default'} onChange={event => updateWorkspace({ ...workspace, order: event.target.value === 'default' ? undefined : event.target.value as ActivityOrder })}>
               {Object.entries(TRAFFIC_ORDER_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
             </select>
           </label>
-          <button id="traffic-filters-toggle" type="button" className="atlas-filter-toggle" aria-label="Filters" aria-controls="traffic-filters" aria-expanded={filtersOpen} onClick={() => { setFiltersOpen(value => !value); setBlocksOpen(false) }}><MapIcon name="filter" size={16} /><span>Filters</span>{trafficFilterCount(workspace) > 0 && <small>{trafficFilterCount(workspace)}</small>}</button>
+          <button id="traffic-filters-toggle" type="button" className="atlas-filter-toggle" aria-label="Filters" aria-controls="traffic-filters" aria-expanded={filtersOpen} onClick={() => setFiltersOpen(value => !value)}><MapIcon name="filter" size={16} /><span>Filters</span>{trafficFilterCount(workspace) > 0 && <small>{trafficFilterCount(workspace)}</small>}</button>
+          <div className="atlas-pane-switch" role="group" aria-label="Side panel">
+            <button id="insights-toggle" type="button" aria-label="Insights" aria-controls="side-pane" aria-pressed={sidePane === 'insights'} onClick={() => toggleSidePane('insights')}><MapIcon name="chart" size={16} /><span className="atlas-header-action-label">Insights</span></button>
+            <button id="activity-toggle" type="button" aria-label="Activity" aria-controls="side-pane" aria-pressed={sidePane === 'activity'} onClick={() => toggleSidePane('activity')}><MapIcon name="activity" size={16} /><span className="atlas-header-action-label">Activity</span></button>
+          </div>
           <button type="button" className="atlas-icon-button" aria-label="Open display settings" title="Display settings" onClick={() => { setSettingsOpen(true); setFiltersOpen(false) }}><MapIcon name="settings" /></button>
           <div className="atlas-clock"><strong>{formatCursor(cursorMs)}</strong></div>
         </div>
       </header>
       {!!timeline.manifest?.simulation_expires_ms && <SimulationBanner key={sessionID} session={sessionID} expiresMS={timeline.manifest.simulation_expires_ms} serverMS={timeline.manifest.server_ms} />}
-      {(error || history.error || activity.error) && <div className="atlas-connection-notice" role="status"><span>{error || history.error || activity.error}</span><button type="button" onClick={() => { void refresh(); history.refresh(); activity.refresh() }}>Retry connection</button></div>}
-      {captureWarning && <div className="atlas-connection-notice" role="status">{captureWarning}</div>}
-      {demoWarning && <div className="atlas-connection-notice" role="status">{demoWarning}</div>}
-      <div className="atlas-map-container" data-filters-open={filtersOpen || undefined}>
+      <div className="atlas-map-container" data-filters-open={filtersOpen || undefined} data-side-open={sidePane ? true : undefined}>
+        {/* Notices float over the map so appearing or clearing never moves the page. */}
+        <div className="atlas-notices">
+          {(error || history.error || activity.error) && <div className="atlas-connection-notice" role="status"><span>{error || history.error || activity.error}</span><button type="button" onClick={() => { void refresh(); history.refresh(); activity.refresh() }}>Retry connection</button></div>}
+          {demoWarning && <div className="atlas-connection-notice" role="status">{demoWarning}</div>}
+          {captureWarning && (isCaptureLagOnly(captureWarning)
+            ? <div className="atlas-capture-notice" role="status"><span className="atlas-capture-notice-dot" aria-hidden="true" />{captureWarning}</div>
+            : <div className="atlas-connection-notice" role="status">{captureWarning}</div>)}
+        </div>
         <div ref={mapContainerRef} className="atlas-filter-workspace"><MapWorkspace {...inputProps} /></div>
-        <TrafficFilters open={filtersOpen} state={workspace} data={overview} onChange={updateWorkspace} onClose={closeFilters} />
+        <SidePane tab={sidePane} data={overview} state={workspace} loading={history.loading} onClose={closeSidePane}
+          activity={sideActivity} />
+        <TrafficFilters open={filtersOpen} state={workspace} data={overview} clients={connectedClients} onChange={updateWorkspace} onClose={closeFilters} />
       </div>
-      {blocksOpen && <ActivityBlockBrowser live={timeline.mode === 'live'} cursorMs={cursorMs} sessionId={sessionID} fromMs={windowFrom} toMs={Math.min(windowTo, contentEndMs)} data={overview} state={workspace} onSeek={seekTime} onClose={() => setBlocksOpen(false)} />}
       <MapSettings open={settingsOpen} preferences={preferences} fullscreen={fullscreen} fullscreenError={fullscreenError} onChange={setPreferences} onToggleFullscreen={() => void toggleFullscreen()} onClose={() => setSettingsOpen(false)} />
       <MapTransport scene={scene} bins={playbackBins} endMs={contentEndMs} frame={frameForTime(scene.startMs, cursorMs, FPS)} fps={FPS}
         playing={timeline.playback === 'playing' || timeline.playback === 'following'} rate={timeline.rate}

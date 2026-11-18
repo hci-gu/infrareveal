@@ -166,6 +166,19 @@ func (r *Registry) Stop(ip, token string) {
 	}
 }
 
+// ActiveMAC reports whether a Wi-Fi station currently holds the display role.
+func (r *Registry) ActiveMAC(mac string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	now := r.now()
+	for _, entry := range r.entries {
+		if entry.ExpiresMS > now.UnixMilli() && (entry.leaseExpires.IsZero() || now.Before(entry.leaseExpires)) && strings.EqualFold(entry.mac, mac) {
+			return true
+		}
+	}
+	return false
+}
+
 // Excluded is called before aggregation, DNS attribution, tracing and gating.
 // Packet sources supply the Ethernet MAC, making the hot path memory-only.
 // IP-only sources resolve the current lease, never trusting an old IP binding.

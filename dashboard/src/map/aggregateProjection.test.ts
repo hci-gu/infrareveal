@@ -4,7 +4,7 @@ import type { MapWindow, SessionManifest } from '@infrareveal/session-state'
 import { buildMapTimelineScene, projectMapFrame } from './mapModel'
 import { buildMapTrackCatalog, seriesTraffic, trackTraffic } from './mapTracks'
 import { indexDestinationVolumes, projectDestinationVolumes } from './destinationVolumes'
-import { projectWorkspace } from './mapWorkspace'
+import { clientKey, projectWorkspace } from './mapWorkspace'
 import { directionalVolumeArcs, indexMapTraffic, projectTrafficProfiles } from './mapTraffic'
 import { wireWaveform } from './wireWaveform'
 const window=fixture.window as MapWindow, manifest=fixture.manifest as SessionManifest, start=manifest.started_ms
@@ -41,6 +41,19 @@ describe('captured series map projection',()=>{
     const other=project({...window,destinations:[...window.destinations,berlin],series:[...window.series,{...late,destination_id:berlin.id}]},start+2000)
     const scoped=projectWorkspace(other.catalog,other.scene,other.index,start+2000,{locationId:'18.0686,59.3293',expanded:false,order:'latest'})
     expect(scoped.tracks.find(track=>track.label==='svt.se')!.lastActivityMs).toBe(start+100)
+  })
+  it('removes a hidden client from every projection, matching by observer identity or IP',()=>{
+    const {scene,catalog,index}=project()
+    const all=projectWorkspace(catalog,scene,index,start+100,{locationId:null,expanded:false})
+    const target=window.series[0]
+    const sameClient=window.series.filter(chunk=>chunk.client_id===target.client_id)
+    const remaining=all.total.received+all.total.sent
+    for (const key of [clientKey(target.client_id,target.client_ip),`ip:${target.client_ip}`]) {
+      const hidden=projectWorkspace(catalog,scene,index,start+100,{locationId:null,expanded:false,hiddenClients:[{key,label:'phone'}]})
+      expect([...hidden.bySeries.values()].some(series=>series.chunks.some(chunk=>chunk.client_id===target.client_id))).toBe(false)
+      expect(hidden.total.received+hidden.total.sent).toBeLessThan(remaining)
+      expect(sameClient.length).toBeGreaterThan(0)
+    }
   })
   it('preserves all wire bytes once, separates shared-IP services, and includes unknown locations',()=>{
     const {view, index}=project()

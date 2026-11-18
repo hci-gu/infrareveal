@@ -12,6 +12,8 @@ export type DestinationVolumeIndex = Map<string, VolumeSeries> & { fromMs?: numb
 export type ByteTotals = { received: number; sent: number; partial: boolean }
 export type DestinationVolume = ByteTotals & {
   id: string; position: MapPosition; location: string; bytes: number; height: number
+  /** City name for a located city destination; absent for country estimates or unknown cities. */
+  city?: string
   ips: string[]; seriesCount: number; tracks: DestinationColumn[]
   country?: CountryFootprint | null
 }
@@ -136,6 +138,7 @@ export function projectDestinationVolumes(scene: MapTimelineScene, series: Map<s
       if (bytes <= 0) continue
       const group = groups.get(id) ?? {
         id, position, country, location: country?.name ?? ([endpoint.city, endpoint.country].filter(Boolean).join(', ') || endpoint.label),
+        ...(!country && endpoint.city ? { city: endpoint.city } : {}),
         received: 0, sent: 0, bytes: 0, height: 0, partial: false, ips: [], seriesCount: 0, tracks: [],
       }
       group.received += volume.received; group.sent += volume.sent; group.bytes += bytes

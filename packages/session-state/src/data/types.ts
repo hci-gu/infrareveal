@@ -19,4 +19,8 @@ export type BlockPage = { session_id: string; revision: number; items: ActivityB
 export type DiagnosticKind = keyof Diagnostics
 export type DiagnosticPage = { items: Record<string, unknown>[]; next_cursor?: string }
 export type ConnectionState = 'loading' | 'live' | 'offline' | 'error'
+/** Wi-Fi stations associated with the participant AP; display devices are counted separately. */
+/** `id` matches TrafficChunk.client_id in the current session; empty before a DHCP lease. */
+export type ConnectedClient = { id: string; ip: string; hostname: string }
+export type ConnectedClients = { available: boolean; connected: number; displays: number; clients: ConnectedClient[]; sessionId?: string; serverMs: number }
 export type DemoStatus = { enabled: boolean; sessionId: string; observing: boolean; serverNow: string; capture?: CaptureHealth; maintenance: { lastError: string; lastSuccess: string } }

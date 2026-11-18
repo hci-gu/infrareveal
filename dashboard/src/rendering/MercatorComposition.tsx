@@ -57,6 +57,7 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
   const countryPolygons = useMemo(() => countryGeometry.filter(polygon => countryCodes.split('|').includes(polygon.countryCode)), [countryGeometry, countryCodes])
   const countryBorders = useMemo(() => countryPolygons.flatMap(polygon => polygon.polygon.map(path => ({ countryCode: polygon.countryCode, path }))), [countryPolygons])
   const columns = useMemo(() => directionalColumns(destinations), [destinations])
+  const showCityNames = viewState.zoom >= CITY_NAME_ZOOM
   const columnLayers = useMemo(() => [
     { focused: false, data: selection ? columns.filter(column => column.trackId !== selection) : [] },
     { focused: true, data: selection ? columns.filter(column => column.trackId === selection) : columns },
@@ -66,7 +67,7 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
     const project = (position: MapPosition, elevation = 0) => viewport.project([...position, elevation]) as [number, number]
     const inspectorEdge = inspectorOpen && width > 1000
     const cities = destinations.filter(destination => !destination.country).map(destination => ({
-      id: destination.id, bytes: destination.received + destination.sent, text: formatBytes(destination.received + destination.sent),
+      id: destination.id, bytes: destination.received + destination.sent, text: columnLabel(destination, showCityNames),
       top: project(destination.position, destination.height * columnMetersPerPixel(destination.position[1], viewState.zoom)), base: project(destination.position),
       hidden: Boolean(selection && !destination.tracks.some(track => track.trackId === selection)),
     }))
@@ -85,7 +86,7 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
       bounds: { left: 12, top: 75, right: width - (inspectorEdge ? 390 : 60), bottom: height - 95 },
       cityBounds: { left: 35, top: 90, right: inspectorEdge ? width - 385 : width - 55, bottom: height - 90 },
     })
-  }, [destinations, countryDestinations, viewState, width, height, selection, selectedLocation?.id, inspectorOpen])
+  }, [destinations, countryDestinations, viewState, width, height, selection, selectedLocation?.id, inspectorOpen, showCityNames])
   const destinationLabels = useMemo(() => {
     const ids = new Set(labelLayout.cities)
     return destinations.filter(destination => ids.has(destination.id))
@@ -199,12 +200,13 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
       new TextLayer<DestinationVolume>({
         id: 'destination-totals', data: destinationLabels,
         getPosition: destination => [...destination.position, destination.height * columnMetersPerPixel(destination.position[1], viewState.zoom)],
-        getText: destination => `${''}${formatBytes(destination.received + destination.sent)}`,
+        getText: destination => columnLabel(destination, showCityNames),
         visible: preferences.labels,
-        characterSet: '0123456789. BkMGT≈↓↑',
+        // City names need their own glyphs (å, ü, …); totals alone keep the small fixed set.
+        characterSet: showCityNames ? 'auto' : '0123456789. BkMGT≈↓↑',
         getSize: 11, getPixelOffset: [0, -14], fontFamily: 'system-ui, sans-serif', fontWeight: 600,
         getColor: [223, 240, 239, 255], background: true, getBackgroundColor: [10, 23, 32, 225], backgroundPadding: [6, 4],
-        updateTriggers: { getPosition: viewState.zoom }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        updateTriggers: { getPosition: viewState.zoom, getText: showCityNames }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
       }),
       new ScatterplotLayer({
         id: 'gateway-ring', data: origin, getPosition: (point) => point.position,
@@ -226,7 +228,7 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
         getTextAnchor: 'middle', getAlignmentBaseline: 'center', parameters: { depthCompare: 'always' },
       }),
     ].filter(layer => layer.props.visible !== false && (!Array.isArray(layer.props.data) || layer.props.data.length > 0))
-  }, [animation, trafficProfiles, connections, origin, selection, showTraffic, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryConnections, countryTraffic, cityPoints, theme, workspace.expanded, preferences.labels])
+  }, [animation, trafficProfiles, connections, origin, selection, showTraffic, showCityNames, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryConnections, countryTraffic, cityPoints, theme, workspace.expanded, preferences.labels])
 
   function moveTo(next: Partial<MapViewState>) {
     setViewState((current) => ({ ...current, ...next, transitionDuration: 700, transitionInterpolator: new FlyToInterpolator() }))
@@ -310,6 +312,14 @@ export function MercatorComposition({ controlsRef, inspection, profiles: traffic
       </div>
 
   )
+}
+
+/** Regional zoom: columns are far enough apart to carry a place name. */
+const CITY_NAME_ZOOM = 4
+
+function columnLabel(destination: DestinationVolume, withCity: boolean) {
+  const total = formatBytes(destination.received + destination.sent)
+  return withCity && destination.city ? `${destination.city} · ${total}` : total
 }
 
 function alpha(color: Color, opacity: number): Color {

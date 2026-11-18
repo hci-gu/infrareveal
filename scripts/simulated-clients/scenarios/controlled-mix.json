@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "name": "Controlled 30-client workload template",
+  "profiles": [
+    { "name": "readers", "kind": "browser", "weight": 10, "urls": ["https://your-test-server.invalid/page"], "dwellSeconds": [20, 45], "pauseSeconds": [10, 30] },
+    { "name": "video-shaped", "kind": "download", "weight": 6, "urls": ["https://your-test-server.invalid/segment-1MiB"], "rateBytesPerSecond": 524288, "pauseSeconds": [2, 5] },
+    { "name": "pollers", "kind": "poll", "weight": 6, "urls": ["https://your-test-server.invalid/status"], "pauseSeconds": [5, 20] },
+    { "name": "background", "kind": "poll", "weight": 4, "urls": ["https://your-test-server.invalid/status"], "pauseSeconds": [45, 90] },
+    { "name": "uploaders", "kind": "upload", "weight": 2, "urls": ["https://your-test-server.invalid/upload"], "uploadBytes": 1048576, "rateBytesPerSecond": 262144, "pauseSeconds": [15, 30] },
+    { "name": "mostly-idle", "kind": "poll", "weight": 2, "urls": ["https://your-test-server.invalid/status"], "pauseSeconds": [90, 120] }
+  ]
+}
