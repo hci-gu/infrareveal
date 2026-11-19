@@ -10,7 +10,6 @@ if (!checks.includes(name)) throw new Error(`Choose a check: ${checks.join(', ')
 const { default: check } = await import(`./${name}.js`)
 const config = {
   map: process.env.DASHBOARD_ORIGIN || 'http://127.0.0.1:5193',
-  debug: process.env.DEBUG_DASHBOARD_ORIGIN || 'http://127.0.0.1:5194',
   api: process.env.GATEWAY_ORIGIN || 'http://127.0.0.1:8091',
   historyMinutes: Number(process.env.TRAFFIC_HISTORY_MINUTES || 5),
 }

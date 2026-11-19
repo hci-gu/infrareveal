@@ -1,6 +1,6 @@
 // Playwright CLI run-code function. Uses the real seeded development backend.
 export default async (page, harness) => {
-  const { map, debug, recorded, live, assert, errors } = harness
+  const { map, recorded, live, assert, errors } = harness
   const requests = []
   const onRequest = request => { if (request.url().includes('/api/')) requests.push(request.url()) }
   page.on('request', onRequest)
@@ -38,27 +38,9 @@ export default async (page, harness) => {
     await page.waitForTimeout(1200)
     assert(await page.locator('.atlas-clock strong').innerText() === pausedClock, 'Paused live cursor moved')
     assert(await page.locator('.atlas-connection-notice').innerText(), 'Unavailable capture needs explicit status')
-    await page.goto(`${debug}/timeline/${recorded.id}`)
-    await page.getByRole('heading', { name: recorded.name }).waitFor()
-    await page.locator('.lab-replay > summary').click()
-    await page.getByRole('slider', { name: 'Lab replay position' }).press('End')
-    await page.locator('.activity-block').first().waitFor()
-    const debugBlocks = await page.locator('.activity-block').count()
-    await page.locator('.activity-block').first().click()
-    await page.getByRole('heading', { name: 'Destinations in loaded minute' }).waitFor()
-    await page.locator('.activity-diagnostics > summary').click()
-    await page.getByText('Not recorded for this session.', { exact: true }).waitFor()
-    assert(await page.evaluate(() => window.__revisionStreams) === 1, 'Activity page must own one revision stream')
-    await page.getByRole('link', { name: 'Gateway lab' }).click()
-    await page.locator('.lab-workspace').waitFor()
-    await page.locator('.lab-recorded-audit').waitFor()
-    assert(await page.evaluate(() => window.__revisionStreams) === 1, 'Activity → Lab leaked a revision stream')
-    await page.getByRole('link', { name: 'Back to Sessions' }).click()
-    await page.getByRole('heading', { name: 'Sessions', exact: true }).waitFor()
-    assert(await page.evaluate(() => window.__revisionStreams) === 0, 'Leaving a session leaked its revision stream')
     assert(!requests.some(url => /\/api\/collections\/|\/window\?/.test(url)), 'Browser requested a retired collector API')
     assert(!errors.length, `Browser errors: ${errors.join('; ')}`)
-    return { recorded: recorded.id, live: live.id, mapBlocks, debugBlocks, productRequests: requests.length, pageErrors: errors, checks: 'recorded map, both projections, block evidence, paused live, unavailable capture, activity, absent diagnostics, Lab and subscription cleanup' }
+    return { recorded: recorded.id, live: live.id, mapBlocks, productRequests: requests.length, pageErrors: errors, checks: 'recorded map, all projections, block evidence, paused live, unavailable capture and one revision stream' }
   } finally {
     page.off('request', onRequest)
   }

@@ -49,30 +49,6 @@ services:
       - ACTIVITY_QUIET_GAP_MS=${ACTIVITY_QUIET_GAP_MS:-45000}
       - TRAFFIC_MAX_PENDING_CHUNKS=${TRAFFIC_MAX_PENDING_CHUNKS:-16384}
       - PACKET_ACTIVITY_EVENT_QUEUE=${PACKET_ACTIVITY_EVENT_QUEUE:-32768}
-      - DIAGNOSTICS_ENABLED=${DIAGNOSTICS_ENABLED:-false}
-      - DIAGNOSTICS_RETENTION_MINUTES=${DIAGNOSTICS_RETENTION_MINUTES:-60}
-      - DIAGNOSTICS_MAX_MB=${DIAGNOSTICS_MAX_MB:-16}
-      - DEBUG_TRACE_ENABLED=${DEBUG_TRACE_ENABLED:-false}
-      - DEBUG_TRACE_RING_EVENTS=${DEBUG_TRACE_RING_EVENTS:-20000}
-      - DEBUG_TRACE_RETENTION_SECONDS=${DEBUG_TRACE_RETENTION_SECONDS:-30}
-      - DEBUG_TRACE_INGRESS_BUFFER=${DEBUG_TRACE_INGRESS_BUFFER:-8192}
-      - DEBUG_TRACE_SUBSCRIBER_BUFFER=${DEBUG_TRACE_SUBSCRIBER_BUFFER:-256}
-      - DEBUG_TRACE_BATCH_MS=${DEBUG_TRACE_BATCH_MS:-50}
-      - DEBUG_TRACE_MAX_BATCH=${DEBUG_TRACE_MAX_BATCH:-200}
-      - DEBUG_TRACE_MAX_SUBSCRIBERS=${DEBUG_TRACE_MAX_SUBSCRIBERS:-32}
-      - LAB_GATE_ENABLED=${LAB_GATE_ENABLED:-false}
-      - LAB_GATE_QUEUE_NUM=${LAB_GATE_QUEUE_NUM:-42}
-      - LAB_GATE_STRICT_QUEUE_NUM=${LAB_GATE_STRICT_QUEUE_NUM:-43}
-      - LAB_GATE_DNS_QUEUE_NUM=${LAB_GATE_DNS_QUEUE_NUM:-44}
-      - LAB_GATE_MAX_PENDING_FLOWS=${LAB_GATE_MAX_PENDING_FLOWS:-128}
-      - LAB_GATE_MAX_HELD_PACKETS=${LAB_GATE_MAX_HELD_PACKETS:-768}
-      - LAB_GATE_FLOW_TIMEOUT_MS=${LAB_GATE_FLOW_TIMEOUT_MS:-10000}
-      - LAB_GATE_ESTABLISHED_TIMEOUT_MS=${LAB_GATE_ESTABLISHED_TIMEOUT_MS:-500}
-      - LAB_GATE_DNS_TIMEOUT_MS=${LAB_GATE_DNS_TIMEOUT_MS:-2000}
-      - LAB_GATE_DECISION_CACHE_SECONDS=${LAB_GATE_DECISION_CACHE_SECONDS:-120}
-      - LAB_GATE_FAIL_OPEN=${LAB_GATE_FAIL_OPEN:-true}
-      - LAB_GATE_CONTROL_TOKEN_FILE=${LAB_GATE_CONTROL_TOKEN_FILE:-}
-      - LAB_GATE_ALLOWED_ORIGINS=${LAB_GATE_ALLOWED_ORIGINS:-}
     volumes:
       - ${DATA_DIR:-./data}:/root/pb/pb_data
       - ${GEOIP_DIR:-./geoip}:/root/geoip
@@ -95,16 +71,4 @@ services:
       proxy:
         # The dashboard entrypoint waits for gateway networking without making
         # compose up fail while gateway networking is starting.
-        condition: service_started
-  debug-dashboard:
-    image: infrareveal-debug-dashboard:local
-    profiles: ["debug"]
-    build:
-      context: .
-      dockerfile: debug-dashboard/Dockerfile
-    network_mode: host
-    restart: always
-    logging: *bounded-logs
-    depends_on:
-      proxy:
         condition: service_started

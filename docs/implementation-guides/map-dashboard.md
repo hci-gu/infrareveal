@@ -231,9 +231,5 @@ samples, endpoint availability and time boundaries rather than changing overview
 counters. Geometry remains stable when only rates change. `FlowArcLayer` owns the
 fixed mesh and clock-driven shader; no alternate detail or clockless path remains.
 
-The debug dashboard uses the same activity contract. Raw flow, DNS and gate panels
-appear only for recorded diagnostic profiles and require a PocketBase superuser
-token. They are optional to ordinary map and activity playback.
-
 See [browser checks](../../dashboard/test-support/README.md) and
 [lab demo](lab-demo.md) for validation and hardware deployment.

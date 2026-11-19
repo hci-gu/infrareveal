@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
-	"myapp/data"
-	"myapp/labgate"
 	"myapp/testsupport"
 	"net/http"
 	"net/http/httptest"
@@ -76,14 +74,10 @@ func TestRegisteredSessionHooksOnlyPublishCommittedState(t *testing.T) {
 	}
 }
 
-func TestRegisteredSessionCompletionFlushesAuditOutsideTransaction(t *testing.T) {
+func TestRegisteredSessionCompletionCommitsOutsideTransaction(t *testing.T) {
 	app := testsupport.App(t)
 	g := testRuntime(t, app)
 	g.Register()
-	if err := data.EnsureGateAudit(app); err != nil {
-		t.Fatal(err)
-	}
-	g.audit = labgate.NewAuditWriter(app, 8)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -91,7 +85,7 @@ func TestRegisteredSessionCompletionFlushesAuditOutsideTransaction(t *testing.T)
 			t.Error(err)
 		}
 	})
-	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "audit", "active": true})
+	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "completion", "active": true})
 	err := app.RunInTransaction(func(tx core.App) error {
 		rec, err := tx.FindRecordById("sessions", session.Id)
 		if err != nil {
@@ -104,7 +98,7 @@ func TestRegisteredSessionCompletionFlushesAuditOutsideTransaction(t *testing.T)
 		t.Fatal(err)
 	}
 	stored, _ := app.FindRecordById("sessions", session.Id)
-	if !stored.GetBool("gate_audit_complete") || stored.GetInt64("ended_ms") == 0 || g.CurrentSessionID() != "" {
+	if stored.GetInt64("ended_ms") == 0 || g.CurrentSessionID() != "" {
 		t.Fatal("missing committed completion")
 	}
 }
@@ -113,7 +107,7 @@ func TestConstructionIsInertAndStartFailureClosesResources(t *testing.T) {
 	app := testsupport.App(t)
 	g := testRuntime(t, app)
 	g.Register()
-	if g.gate != nil || g.observation != nil || g.traceHub != nil {
+	if g.observation != nil || g.routes != nil {
 		t.Fatal("construction started resources")
 	}
 	app.OnRecordCreateExecute("sessions").BindFunc(func(e *core.RecordEvent) error { return errors.New("startup fixture failure") })
@@ -143,10 +137,6 @@ func TestBatchSessionUpdatesUseOneOuterLifecycleBoundary(t *testing.T) {
 		t.Fatal(err)
 	}
 	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "batch", "active": true})
-	if err := data.EnsureGateAudit(app); err != nil {
-		t.Fatal(err)
-	}
-	g.audit = labgate.NewAuditWriter(app, 8)
 	t.Cleanup(func() {
 		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 		defer cancel()
@@ -174,7 +164,7 @@ func TestBatchSessionUpdatesUseOneOuterLifecycleBoundary(t *testing.T) {
 		t.Fatalf("batch session update: %d %s", response.Code, response.Body.String())
 	}
 	stored, _ := app.FindRecordById("sessions", session.Id)
-	if stored.GetBool("active") || stored.GetString("name") != "renamed" || g.CurrentSessionID() != "" || !stored.GetBool("gate_audit_complete") {
+	if stored.GetBool("active") || stored.GetString("name") != "renamed" || g.CurrentSessionID() != "" {
 		t.Fatal("batch did not commit and finish its session")
 	}
 }

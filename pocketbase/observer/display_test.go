@@ -1,7 +1,6 @@
 package observer
 
 import (
-	"myapp/data"
 	"net/netip"
 	"sync/atomic"
 	"testing"
@@ -33,13 +32,10 @@ func TestDisplayPacketsAreExcludedInBothDirectionsAndConntrack(t *testing.T) {
 
 func TestDisplayNeverReachesStoredTrafficDNSOrRouteAdmissions(t *testing.T) {
 	app, a, _ := captureApp(t)
-	if err := data.InstallDiagnostics(app); err != nil {
-		t.Fatal(err)
-	}
 	scope := NewObservationScope("10.0.0.0/24", "10.0.0.1")
 	scope.Excluded = func(ip, mac string) bool { return ip == "10.0.0.101" }
 	var routeBytes int64
-	r := New(app, nil, Config{Scope: scope, Diagnostics: true}, func() string { return a.session }, nil, func(d CommittedTraffic) { routeBytes += d.Bytes })
+	r := New(app, nil, Config{Scope: scope}, func() string { return a.session }, func(d CommittedTraffic) { routeBytes += d.Bytes })
 	now := time.Now().UnixMilli() / 50 * 50
 	input := make(chan sourceEvent, 10)
 	input <- sourceEvent{session: a.session, at: time.UnixMilli(now), status: "complete"}
@@ -60,12 +56,6 @@ func TestDisplayNeverReachesStoredTrafficDNSOrRouteAdmissions(t *testing.T) {
 	chunks := storedChunks(t, app)
 	if len(chunks) != 1 || chunks[0].ClientIP != "10.0.0.100" || totals(chunks)[0] != 150 || routeBytes != 150 {
 		t.Fatalf("display polluted observations or probing: %+v bytes=%d", chunks, routeBytes)
-	}
-	for _, collection := range []string{"dns_queries", "flow_diagnostics"} {
-		rows, err := app.FindRecordsByFilter(collection, "client_ip='10.0.0.101'", "", 10, 0)
-		if err != nil || len(rows) != 0 {
-			t.Fatal("display diagnostics retained", collection, rows, err)
-		}
 	}
 }
 

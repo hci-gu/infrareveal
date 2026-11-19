@@ -8,15 +8,12 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"log"
 	"myapp/data"
-	"myapp/debugtrace"
 	"myapp/displaymode"
 	"myapp/geolocation"
-	"myapp/labgate"
 	"myapp/observer"
 	"myapp/routing"
 	"os"
 	"path/filepath"
-	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -33,17 +30,6 @@ type Runtime struct {
 	resourcesClosed   bool
 	registered        sync.Once
 	started, closed   bool
-	traceHub          *debugtrace.Hub
-	trace             debugtrace.Sink
-	gate              *labgate.Controller
-	gateTiming        struct {
-		sync.Mutex
-		checked time.Time
-		armed   bool
-		clients []string
-	}
-	audit             *labgate.AuditWriter
-	controlToken      []byte
 	geo               *geolocation.Manager
 	routes            *routing.Coordinator
 	observation       *observer.Runtime
@@ -62,36 +48,7 @@ type Runtime struct {
 func New(app *pocketbase.PocketBase, config Config) *Runtime {
 	displays := displaymode.New(config.Observation.LeasePath)
 	config.Observation.Scope.Excluded = displays.Excluded
-	config.Gate.ExcludedClient = func(ip string) bool { return displays.Excluded(ip, "") }
-	config.Observation.Diagnostics = config.Diagnostics
-	config.Routes.Diagnostics = config.Diagnostics
-	g := &Runtime{app: app, config: config, displays: displays}
-	g.config.Observation.TimingSuppressed = g.gateHolds
-	return g
-}
-
-// gateHolds reports whether an armed Proxy Lab gate may be holding this
-// client's packets. It is consulted only when a round-trip sample completes
-// (about once per connection), and the gate status is cached for a second so
-// observation never waits on the gate controller.
-func (g *Runtime) gateHolds(clientIP string) bool {
-	if g.gate == nil || !g.config.Gate.Enabled {
-		return false
-	}
-	g.gateTiming.Lock()
-	defer g.gateTiming.Unlock()
-	if time.Since(g.gateTiming.checked) > time.Second {
-		ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
-		status, err := g.gate.Status(ctx)
-		cancel()
-		g.gateTiming.checked = time.Now()
-		// An unknown gate state is treated as holding: a missed sample is cheaper than a wrong one.
-		g.gateTiming.armed, g.gateTiming.clients = err != nil || status.Armed, status.Clients
-	}
-	if !g.gateTiming.armed {
-		return false
-	}
-	return len(g.gateTiming.clients) == 0 || slices.Contains(g.gateTiming.clients, clientIP)
+	return &Runtime{app: app, config: config, displays: displays}
 }
 
 func (g *Runtime) Register() {
@@ -142,41 +99,10 @@ func (g *Runtime) Start() (err error) {
 		}
 	}()
 	g.resourcesClosed = false
-	if g.config.Diagnostics {
-		if err = data.InstallDiagnostics(g.app); err != nil {
-			return err
-		}
-	} else if g.config.Gate.Enabled {
-		if err = data.EnsureGateAudit(g.app); err != nil {
-			return err
-		}
-	}
-	if err = recoverInterruptedAudit(g.app); err != nil {
-		return err
-	}
 	if err = g.cleanupSimulations(); err != nil {
 		return err
 	}
 	g.checkpoints, err = data.StartCheckpoints(g.app)
-	if err != nil {
-		return err
-	}
-	g.config.Trace.LogEffective()
-	g.config.Gate.LogEffective()
-	g.traceHub, g.trace = debugtrace.NewRuntime(context.Background(), g.config.Trace)
-	auditSink := labgate.AuditSink(labgate.NopAuditSink{})
-	if g.config.Gate.Enabled {
-		g.audit = labgate.NewAuditWriter(g.app, 512)
-		auditSink = g.audit
-	}
-	if path := g.config.Gate.ControlTokenFile; path != "" {
-		var tokenErr error
-		g.controlToken, tokenErr = labgate.LoadControlToken(path)
-		if tokenErr != nil {
-			log.Printf("lab gate controls unavailable: %v", tokenErr)
-		}
-	}
-	g.gate, err = newLabGateRuntime(context.Background(), g.config.Gate, g.trace, g.config.APInterface, g.config.InternetInterface, g.config.ClientSubnetText, auditSink)
 	if err != nil {
 		return err
 	}
@@ -191,7 +117,7 @@ func (g *Runtime) Start() (err error) {
 	}
 	g.routes = routing.Start(context.Background(), g.app, g.geo, g.CurrentSessionID, g.config.Routes)
 	g.config.Observation.NetworkEpoch = g.routes.NetworkEpoch
-	g.observation = observer.New(g.app, g.geo, g.config.Observation, g.CurrentSessionID, g.trace, func(f observer.CommittedTraffic) {
+	g.observation = observer.New(g.app, g.geo, g.config.Observation, g.CurrentSessionID, func(f observer.CommittedTraffic) {
 		g.routes.Observe(routing.Traffic{Session: f.Session, NetworkEpoch: f.NetworkEpoch, IP: f.IP, Protocol: f.Protocol, Port: f.Port, Bytes: f.Bytes, At: f.At})
 	})
 	g.observation.Start()
@@ -239,22 +165,14 @@ func (g *Runtime) Close(ctx context.Context) error {
 
 func (g *Runtime) closeResources(ctx context.Context) error {
 	var errs []error
-	var gateErr error
-	if g.gate != nil {
-		gateErr = g.gate.Close(ctx)
-		errs = append(errs, gateErr)
-	}
 	if err := g.stopSimulation(ctx); err != nil {
-		return errors.Join(gateErr, err)
+		return err
 	}
 	if g.observation != nil {
 		errs = append(errs, g.observation.Close(ctx))
 	}
 	if g.routes != nil {
 		errs = append(errs, g.routes.Close(ctx))
-	}
-	if g.audit != nil && ctx.Err() == nil {
-		errs = append(errs, g.audit.Close(ctx))
 	}
 	if g.checkpoints != nil && ctx.Err() == nil {
 		errs = append(errs, g.checkpoints.Close(ctx))
@@ -263,9 +181,6 @@ func (g *Runtime) closeResources(ctx context.Context) error {
 	// a subsequent Close, never close storage/lookup handles beneath a writer.
 	if ctx.Err() != nil {
 		return errors.Join(append(errs, ctx.Err())...)
-	}
-	if g.traceHub != nil {
-		g.traceHub.Close()
 	}
 	if g.geo != nil {
 		if err := g.geo.Close(ctx); err != nil {

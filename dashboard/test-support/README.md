@@ -5,8 +5,8 @@ on port 8091 with capture and routing disabled. The `Example` recording and one
 empty live session exercise data-bearing and unavailable-capture views. Use a
 disposable database, not production data.
 
-Start both frontends with `VITE_POCKETBASE_URL=http://127.0.0.1:8091`, the dashboard
-on port 5193 and debug dashboard on 5194. Open a named Playwright CLI session:
+Start the dashboard with `VITE_POCKETBASE_URL=http://127.0.0.1:8091` on port 5193.
+Open a named Playwright CLI session:
 
 ```sh
 corepack pnpm dlx @playwright/cli -s=dashboard open http://127.0.0.1:5193 --headed
@@ -18,8 +18,8 @@ node dashboard/test-support/run.mjs browser-timeline-motion dashboard
 
 `run.mjs` supplies origins, seeded session discovery, assertions and page-error
 collection through `browser-harness.mjs`. It invokes Playwright CLI without adding
-a second browser dependency to the dashboard. Override `DASHBOARD_ORIGIN`,
-`DEBUG_DASHBOARD_ORIGIN` and `GATEWAY_ORIGIN` for other ports; `PLAYWRIGHT_CLI` can
+a second browser dependency to the dashboard. Override `DASHBOARD_ORIGIN`
+and `GATEWAY_ORIGIN` for other ports; `PLAYWRIGHT_CLI` can
 point to an installed CLI or wrapper. Scenario modules export one async function
 and should be run through this runner, rather than passed directly to `run-code`.
 
@@ -31,7 +31,7 @@ The checks cover:
   generator, production-build setup and Pi soak procedure.
 
 - `browser-product-api`: real manifests, windows, revisions, recorded/live views,
-  both projections, activity evidence, debug Lab navigation and stream cleanup.
+  all projections, activity evidence and revision-stream ownership.
 - `browser-shared-filters`: matching search/history/activity/location membership
   and totals across maps, lists and lanes; shared sorting; independent inspection;
   preserving location and service details across projection switches; keyboard
@@ -45,7 +45,7 @@ The checks cover:
   focus stability. This fixture never writes to the backend.
 
 Screenshots go to ignored `output/playwright/`. The product scenarios read actual
-backend data and do not arm gateway controls or mutate sessions.
+backend data and do not mutate sessions.
 
 ## Live animation measurements
 
@@ -83,5 +83,5 @@ they do not duplicate third-party uniform-store internals.
 
 Run `corepack pnpm test`, `corepack pnpm lint` and `corepack pnpm build` from the
 repository root. The server's ordering/cursor checks run with
-`go test ./timeline ./gateway` from `pocketbase`. Physical capture and NFQUEUE
-controls require the separate procedures in `docs/validation`.
+`go test ./timeline ./gateway` from `pocketbase`. Physical capture requires the
+separate procedures in `docs/validation`.

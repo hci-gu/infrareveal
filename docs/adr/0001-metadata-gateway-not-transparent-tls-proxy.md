@@ -32,4 +32,4 @@ Normal browsing should keep working without client certificate installation. Hos
 
 The dashboard must show uncertainty honestly. Later lab mode controls may intentionally shape client behavior, but those controls must be explicit and separate from default passive gateway observability.
 
-The later opt-in implementation is governed by [ADR 0002](0002-opt-in-nfqueue-flow-admission.md). It does not weaken this production-default decision: passive metadata forwarding remains the normal mode and the traffic gate remains debug-only, authenticated, selected-client, and fail-open.
+An opt-in traffic gate (ADR 0002) was later built and then removed on 2026-11-19 together with the debug dashboard. The gateway is passive-only.

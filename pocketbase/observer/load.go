@@ -18,7 +18,7 @@ func NewTrafficLoad(app *pocketbase.PocketBase, session string, expires time.Tim
 		meter = meters[0]
 	}
 	scope := simulationScope()
-	r := New(app, nil, Config{Scope: scope}, func() string { return session }, nil, nil)
+	r := New(app, nil, Config{Scope: scope}, func() string { return session }, nil)
 	lanes := make([]simulationLane, 0, clients*bindings)
 	destinations := map[string]data.Destination{}
 	for client := 0; client < clients; client++ {

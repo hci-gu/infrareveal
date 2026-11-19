@@ -26,7 +26,7 @@ network_defaults() {
   export SSID ADMIN_SSID WIFI_COUNTRY AP_CHANNEL ADMIN_CHANNEL
   # One source of truth: admin addresses can never enter the observation scope.
   export CLIENT_CIDRS="$AP_PREFIX.0/24" GATEWAY_IP="$AP_PREFIX.1"
-  export PACKET_ACTIVITY_IFACE="$AP_IFACE" LAB_GATE_CLIENT_SUBNET="$AP_PREFIX.0/24"
+  export PACKET_ACTIVITY_IFACE="$AP_IFACE"
   export DNSMASQ_LOG_PATH=/var/log/dnsmasq.log
   WIFI_IFACES=("$AP_IFACE")
   WIFI_PREFIXES=("$AP_PREFIX")
@@ -130,12 +130,12 @@ configure_firewall() {
   # Local dashboards connect directly to PocketBase through the Ethernet LAN.
   iptables -w -A IR_INPUT -i "$INTERNET_IFACE" -p tcp --dport 8090 -j ACCEPT
   if [ "$DASHBOARD_ON_AP" = true ]; then
-    iptables -w -A IR_INPUT -i "$AP_IFACE" -s "$AP_PREFIX.0/24" -d "$AP_PREFIX.1" -p tcp -m multiport --dports 80,8081 -j ACCEPT
+    iptables -w -A IR_INPUT -i "$AP_IFACE" -s "$AP_PREFIX.0/24" -d "$AP_PREFIX.1" -p tcp --dport 80 -j ACCEPT
   fi
   if [ "$ADMIN_WIFI_ENABLED" = true ]; then
-    iptables -w -A IR_INPUT -i "$ADMIN_IFACE" -s "$ADMIN_PREFIX.0/24" -p tcp -m multiport --dports 22,80,8081 -j ACCEPT
+    iptables -w -A IR_INPUT -i "$ADMIN_IFACE" -s "$ADMIN_PREFIX.0/24" -p tcp -m multiport --dports 22,80 -j ACCEPT
   fi
-  iptables -w -A IR_INPUT -p tcp -m multiport --dports 80,8080,8081,8090 -j REJECT
+  iptables -w -A IR_INPUT -p tcp -m multiport --dports 80,8080,8090 -j REJECT
   local iface prefix i
   for iface in "${WIFI_IFACES[@]}"; do
     iptables -w -A IR_INPUT -i "$iface" -p udp --dport 67 -j ACCEPT
@@ -169,7 +169,7 @@ configure_firewall() {
     reset_chain ip6tables filter IR_INPUT INPUT
     reset_chain ip6tables filter IR_FORWARD FORWARD
     ip6tables -w -A IR_INPUT -i lo -j RETURN
-    ip6tables -w -A IR_INPUT -p tcp -m multiport --dports 80,8080,8081,8090 -j REJECT
+    ip6tables -w -A IR_INPUT -p tcp -m multiport --dports 80,8080,8090 -j REJECT
     for iface in "${WIFI_IFACES[@]}"; do
       ip6tables -w -A IR_INPUT -i "$iface" -j DROP
       ip6tables -w -A IR_FORWARD -i "$iface" -j DROP

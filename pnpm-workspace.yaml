@@ -1,7 +1,6 @@
 packages:
   - packages/*
   - dashboard
-  - debug-dashboard
 # Use the same dependency layout locally, in CI and in container builds.
 enableGlobalVirtualStore: false
 # Checks must fail on stale dependencies instead of silently reinstalling them.

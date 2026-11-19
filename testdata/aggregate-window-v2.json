@@ -25,12 +25,7 @@
       "dropped": 0
     },
     "server_ms": 1800000090000,
-    "retained_from_ms": 1800000000000,
-    "diagnostics": {
-      "flows": false,
-      "dns": false,
-      "gate": false
-    }
+    "retained_from_ms": 1800000000000
   },
   "window": {
     "session_id": "session",

@@ -40,9 +40,6 @@ func TestDeleteLiveSessionCascadesAndReplacesAtomically(t *testing.T) {
 		t.Run(map[bool]string{false: "recording", true: "demo"}[demo], func(t *testing.T) {
 			app, g, handler := gatewayHTTP(t)
 			g.config.Demo = demo
-			if err := data.InstallDiagnostics(app); err != nil {
-				t.Fatal(err)
-			}
 			s := testsupport.Save(t, app, "sessions", map[string]any{"name": "delete me", "active": true, "ephemeral": true, "demo": demo, "retention_minutes": 30})
 			other := testsupport.Save(t, app, "sessions", map[string]any{"name": "keep me"})
 			shared := testsupport.Save(t, app, "destinations", map[string]any{"ip": "1.1.1.1"})
@@ -50,7 +47,7 @@ func TestDeleteLiveSessionCascadesAndReplacesAtomically(t *testing.T) {
 			for _, pair := range [][2]string{{s.Id, exclusive.Id}, {s.Id, shared.Id}, {other.Id, shared.Id}} {
 				testsupport.Save(t, app, "traffic_chunks", map[string]any{"session": pair[0], "destination_id": pair[1], "start_ms": time.Now().UnixMilli(), "samples": []data.Sample{{0, 1, 0, 0, 0, 1, 0}}})
 			}
-			for _, table := range []string{"activity_blocks", "capture_intervals", "route_evidence", "flow_diagnostics", "dns_queries", "gate_events"} {
+			for _, table := range []string{"activity_blocks", "capture_intervals", "route_evidence"} {
 				testsupport.Save(t, app, table, map[string]any{"session": s.Id, "kind": "path"})
 			}
 			admission := testsupport.Save(t, app, "probe_runs", map[string]any{"session": s.Id, "admitted_ms": time.Now().UnixMilli()})
@@ -77,7 +74,7 @@ func TestDeleteLiveSessionCascadesAndReplacesAtomically(t *testing.T) {
 			if err != nil || fresh.Id == s.Id || !fresh.GetBool("active") || fresh.GetInt("retention_minutes") != 30 {
 				t.Fatal("replacement session", err)
 			}
-			for _, table := range []string{"activity_blocks", "capture_intervals", "route_evidence", "flow_diagnostics", "dns_queries", "gate_events"} {
+			for _, table := range []string{"activity_blocks", "capture_intervals", "route_evidence"} {
 				if n, _ := app.CountRecords(table); n != 0 {
 					t.Fatal("underlying data remains", table, n)
 				}

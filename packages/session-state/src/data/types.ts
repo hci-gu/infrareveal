@@ -1,10 +1,9 @@
 /** Product facts use epoch milliseconds. Samples describe half-open capture bins. */
 export type Policy = { version: string; bucket_ms: number; chunk_ms: number; correction_ms: number; quiet_gap_ms: number; aliases: Record<string, string> }
 export type CaptureHealth = { epoch?: string; generation?: number; running: boolean; confirmed_ms: number; quality: string; error: string; dropped: number }
-export type Session = { simulation_expires_ms?: number; gate_audit_complete?: boolean; gate_audit_drops?: number; id: string; name: string; active: boolean; ephemeral: boolean; demo: boolean; started_ms: number; ended_ms: number; retention_minutes: number; revision: number; policy: Policy; capture: CaptureHealth }
+export type Session = { simulation_expires_ms?: number; id: string; name: string; active: boolean; ephemeral: boolean; demo: boolean; started_ms: number; ended_ms: number; retention_minutes: number; revision: number; policy: Policy; capture: CaptureHealth }
 export type SimulationStatus = { active: boolean; session_id?: string; expires_ms?: number; map_path?: string; lanes?: number }
-export type Diagnostics = { flows: boolean; dns: boolean; gate: boolean }
-export type SessionManifest = Session & { server_ms: number; retained_from_ms: number; diagnostics: Diagnostics }
+export type SessionManifest = Session & { server_ms: number; retained_from_ms: number }
 export type Sample = [offset_ms: number, wire_sent: number, wire_received: number, payload_sent: number, payload_received: number, packets_sent: number, packets_received: number]
 export type Attribution = { hostname: string; source: string; matched_ip: string; observed_ms: number; confidence: string; ambiguous: boolean; policy_version: string }
 export type TrafficChunk = { id: string; session: string; capture_epoch: string; client_id: string; client_ip: string; service_key: string; service_label: string; destination_id: string; destination_ip: string; protocol: string; destination_port: number; network_epoch: string; start_ms: number; bucket_ms: number; chunk_ms: number; generation: number; sealed: boolean; evidence: Attribution; samples: Sample[]
@@ -20,8 +19,6 @@ export type RouteHop = { ttl: number; end_ttl?: number; address: string; missing
 export type RouteEvidence = { id: string; session: string; kind: 'path' | 'network_invalidated'; network_context: string; network_epoch: string; binding_key: string; destination_ip: string; protocol: string; destination_port: number; attempt_id: string; revision: number; method: string; status: string; reason: string; fingerprint: string; measured_ms: number; available_ms: number; fresh_until_ms: number; valid_until_ms: number; destination_reached: boolean; hops: RouteHop[]; destination_location?: { lat: number; lon: number; city?: string; country?: string; accuracy_km?: number } | null }
 export type MapWindow = { /** Client-side immutable segment references; never sent by the API. */ segments?: MapWindow[]; session_id: string; revision: number; from_ms: number; to_ms: number; resolution_ms: number; complete: boolean; next_cursor?: string; series: TrafficChunk[]; coverage: CaptureInterval[]; blocks: ActivityBlock[]; destinations: Destination[]; routes: RouteEvidence[] }
 export type BlockPage = { session_id: string; revision: number; items: ActivityBlock[]; next_cursor?: string }
-export type DiagnosticKind = keyof Diagnostics
-export type DiagnosticPage = { items: Record<string, unknown>[]; next_cursor?: string }
 export type ConnectionState = 'loading' | 'live' | 'offline' | 'error'
 /** Wi-Fi stations associated with the participant AP; display devices are counted separately. */
 /** `id` matches TrafficChunk.client_id in the current session; empty before a DHCP lease. */

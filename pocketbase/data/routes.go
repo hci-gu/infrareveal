@@ -89,16 +89,6 @@ type AccessPosition struct {
 	Addresses []string `json:"addresses"`
 }
 
-type ProbeDetails struct {
-	Engine        string `json:"engine"`
-	EngineVersion string `json:"engine_version"`
-	SourceIP      string `json:"source_ip"`
-	ProbeCount    int    `json:"probe_count"`
-	ProbedTTL     int    `json:"probed_ttl"`
-	StopReason    string `json:"stop_reason"`
-	Hops          []Hop  `json:"hops,omitempty"`
-}
-
 // ProbeRun is the durable admission ledger. Session is deliberately text: its
 // quota charge and suppression can outlive deletion of the recording.
 type ProbeRun struct {
@@ -126,7 +116,6 @@ type ProbeRun struct {
 	PauseUntilMS       int64            `json:"pause_until_ms"`
 	CooldownUntilMS    int64            `json:"cooldown_until_ms"`
 	AccessPrefix       []AccessPosition `json:"access_prefix"`
-	Details            *ProbeDetails    `json:"details,omitempty"`
 }
 
 func routeCollections() []*core.Collection {
@@ -147,7 +136,7 @@ func routeCollections() []*core.Collection {
 	evidence.AddIndex("idx_route_evidence_session_time", false, "session, available_ms", "")
 	runs := NewCollection("probe_runs",
 		&core.BoolField{Name: "manual"}, &core.BoolField{Name: "useful"}, &core.BoolField{Name: "comparison_complete"},
-		&core.JSONField{Name: "access_prefix", MaxSize: 8192}, &core.JSONField{Name: "details", MaxSize: 16384},
+		&core.JSONField{Name: "access_prefix", MaxSize: 8192},
 	)
 	for _, name := range []string{"session", "scope", "network_context", "network_epoch", "family", "binding_key", "destination_ip", "protocol", "method", "status", "class", "reason", "error"} {
 		runs.Fields.Add(&core.TextField{Name: name, Max: 1000})

@@ -1,5 +1,5 @@
-// Package netmeta owns the canonical network tuple used by observers, traces,
-// and the optional lab gate. It intentionally contains no PocketBase or UI code.
+// Package netmeta owns the canonical network tuple used by observers and route
+// discovery. It intentionally contains no PocketBase or UI code.
 package netmeta
 
 import (

@@ -7,7 +7,7 @@ import (
 	"myapp/testsupport"
 )
 
-func TestFreshSchemaAndOptionalDiagnostics(t *testing.T) {
+func TestFreshSchema(t *testing.T) {
 	app := testsupport.App(t)
 	want := map[string]bool{"sessions": true, "traffic_chunks": true, "capture_intervals": true, "activity_blocks": true, "destinations": true, "route_evidence": true, "probe_runs": true}
 	collections, err := app.FindAllCollections()
@@ -28,17 +28,6 @@ func TestFreshSchemaAndOptionalDiagnostics(t *testing.T) {
 	}
 	if len(want) != 0 {
 		t.Fatalf("missing collections: %v", want)
-	}
-	if err := data.InstallDiagnostics(app); err != nil {
-		t.Fatal(err)
-	}
-	if err := data.InstallDiagnostics(app); err != nil {
-		t.Fatal(err)
-	}
-	for _, name := range []string{"flow_diagnostics", "dns_queries", "gate_events"} {
-		if _, err := app.FindCollectionByNameOrId(name); err != nil {
-			t.Fatal(err)
-		}
 	}
 }
 

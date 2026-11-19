@@ -37,9 +37,9 @@ Replay selects the newest available publication for the exact epoch/IP/protocol/
 
 An open recording keeps its lifetime quota rows. Other rows survive a 24-hour network-learning horizon and any unexpired cooldown or pause, including after session deletion. Closed recordings retain self-contained path evidence without depending on those ledger rows. Clearing observations removes route evidence while preserving spending. The byte allowance counts serialized evidence plus bounded overhead, not physical SQLite pages, indexes or WAL.
 
-## Topology and optional diagnostics
+## Topology
 
-The engine's structured output arrives at completion. Unknown, unprobed and silent tails remain distinct; interrupted output cannot reconstruct replies the executable never flushed. Raw stdout/stderr is capped at 128 KiB and is never stored automatically. With full diagnostics enabled, bounded decoded probe details are included on `probe_runs`; dropping those optional details does not block terminal accounting or useful paths.
+The engine's structured output arrives at completion. Unknown, unprobed and silent tails remain distinct; interrupted output cannot reconstruct replies the executable never flushed. Raw stdout/stderr is capped at 128 KiB and is never stored automatically.
 
 Private, CGN, loopback, link-local, documentation and other special-use addresses remain unlocated topology nodes. Public responders can receive GeoIP and ASN/PTR evidence from bounded caches. `ROUTE_ASN_DB` optionally supplies local origin-AS/prefix/organization data. Origin ASN does not establish router ownership; PTR and geography retain their sources. No airport-token guessing or hostname re-resolution is used for probing.
 

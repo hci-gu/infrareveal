@@ -85,7 +85,6 @@ type Config struct {
 	MaxTargets, MaxAttempts, HourlyAttempts, ManualAttempts, MaxSnapshots, MaxBytes int
 	MinBytes                                                                        int64
 	Cooldown                                                                        time.Duration
-	Diagnostics                                                                     bool
 }
 
 func defaultConfig() Config {

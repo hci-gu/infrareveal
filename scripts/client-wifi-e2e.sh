@@ -92,7 +92,7 @@ assert route['prefsrc'].startswith('10.0.0.'),route
 dns=Path('/etc/resolv.conf').read_text()
 assert 'nameserver 10.0.0.1' in dns,dns
 blocked=[]
-for host,port in [('10.0.0.1',8090),('10.77.0.1',80),('10.77.0.1',8081)]:
+for host,port in [('10.0.0.1',8090),('10.77.0.1',80)]:
  try:
   with socket.create_connection((host,port),timeout=2): pass
  except OSError: blocked.append(f'{host}:{port}')

@@ -169,17 +169,6 @@ func (r evidenceStore) finish(a admission, s snapshot, now time.Time, publish bo
 				}
 			}
 		}
-		if r.limits().Diagnostics {
-			details := &data.ProbeDetails{Engine: s.Engine, EngineVersion: s.EngineVersion, SourceIP: s.SourceIP, ProbeCount: s.ProbeCount, ProbedTTL: s.ProbedTTL, StopReason: s.StopReason, Hops: s.Hops}
-			encoded, _ := json.Marshal(details)
-			if len(encoded) > 16384 {
-				details.Hops = nil
-				encoded, _ = json.Marshal(details)
-			}
-			if len(encoded) <= 16384 {
-				run.Details = details
-			}
-		}
 		if publish && run.Useful && active.GetBool("active") && active.GetString("network_epoch") == run.NetworkEpoch {
 			shown := r.enrich(s, a.Binding.Target)
 			shown.Hops = compactHops(shown.Hops)

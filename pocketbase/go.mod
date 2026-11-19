@@ -5,8 +5,6 @@ go 1.27
 toolchain go1.27.1
 
 require (
-	github.com/florianl/go-nfqueue/v2 v2.1.0
-	github.com/mdlayher/netlink v1.9.0
 	github.com/oschwald/geoip2-golang v1.13.0
 	github.com/oschwald/maxminddb-golang v1.13.0
 	github.com/pocketbase/dbx v1.12.0
@@ -31,7 +29,6 @@ require (
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.15 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
-	github.com/mdlayher/socket v0.5.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pocketbase/ozzo-validation/v4 v4.3.0 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

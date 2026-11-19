@@ -115,9 +115,6 @@ is the gateway↔server RTT. The client's Wi-Fi hop is excluded.
   socket and read the kernel receive time from the control message already
   parsed for `PACKET_AUXDATA`. Measure the jitter on the Pi before and after;
   keep `time.Now()` as fallback.
-- **Proxy Lab gate:** when the opt-in NFQUEUE gate (ADR 0002) is armed, it can
-  hold packets for selected clients and would inflate RTT. Don't record samples
-  for gated flows (or while armed).
 
 **Storage.** Add two optional fields to `traffic_chunks`: `rtt_ms` (lowest
 handshake RTT among connections opened in that chunk's binding) and `rtt_source`

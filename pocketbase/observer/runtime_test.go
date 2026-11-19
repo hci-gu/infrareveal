@@ -12,7 +12,7 @@ func TestIdleCoverageAndFinalDrainNeedNoStoredConnection(t *testing.T) {
 	app, a, _ := captureApp(t)
 	now := time.Now().UnixMilli() / 50 * 50
 	var observed int64
-	r := New(app, nil, Config{}, func() string { return a.session }, nil, func(d CommittedTraffic) { observed += d.Bytes })
+	r := New(app, nil, Config{}, func() string { return a.session }, func(d CommittedTraffic) { observed += d.Bytes })
 	input := make(chan sourceEvent, 8)
 	input <- sourceEvent{session: a.session, at: time.UnixMilli(now), status: "complete"}
 	p := testPacket(now+100, 40000)
@@ -40,7 +40,7 @@ func TestIdleCoverageAndFinalDrainNeedNoStoredConnection(t *testing.T) {
 func TestQueueLossIsPartialCoverageAndPersistsCounter(t *testing.T) {
 	app, a, _ := captureApp(t)
 	now := time.Now().UnixMilli()
-	r := New(app, nil, Config{}, func() string { return a.session }, nil, nil)
+	r := New(app, nil, Config{}, func() string { return a.session }, nil)
 	input := make(chan sourceEvent, 2)
 	input <- sourceEvent{session: a.session, at: time.UnixMilli(now), status: "complete"}
 	input <- sourceEvent{session: a.session, at: time.UnixMilli(now + 100), status: "heartbeat"}
@@ -62,7 +62,7 @@ func TestQueueLossIsPartialCoverageAndPersistsCounter(t *testing.T) {
 }
 func TestDisabledCaptureClosesAndReportsUnavailable(t *testing.T) {
 	app, a, _ := captureApp(t)
-	r := New(app, nil, Config{}, func() string { return a.session }, nil, nil)
+	r := New(app, nil, Config{}, func() string { return a.session }, nil)
 	r.Start()
 	time.Sleep(30 * time.Millisecond)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
@@ -80,7 +80,7 @@ func TestDisabledCaptureClosesAndReportsUnavailable(t *testing.T) {
 func TestLossStaysPartialUntilSourceWatermarkPassesDroppedPacket(t *testing.T) {
 	app, a, _ := captureApp(t)
 	now := time.Now().UnixMilli()
-	r := New(app, nil, Config{Packet: PacketActivityConfig{FlushInterval: 20 * time.Millisecond}}, func() string { return a.session }, nil, nil)
+	r := New(app, nil, Config{Packet: PacketActivityConfig{FlushInterval: 20 * time.Millisecond}}, func() string { return a.session }, nil)
 	r.lossAt.Store(now + 500)
 	input := make(chan sourceEvent, 4)
 	input <- sourceEvent{session: a.session, at: time.UnixMilli(now), status: "complete"}

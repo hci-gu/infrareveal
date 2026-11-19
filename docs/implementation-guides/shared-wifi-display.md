@@ -32,7 +32,7 @@ wanted. `docker compose up -d --no-build` then starts the gateway and dashboard.
 Their restart policies restore services after a Pi reboot.
 
 The Pi assigns its own AP address and local DNS record independently of the
-venue's DHCP address. The firewall permits ports 80/8081 to the AP address on
+venue's DHCP address. The firewall permits port 80 to the AP address on
 the AP interface. Direct backend port 8090 remains inaccessible from Wi-Fi;
 nginx forwards same-origin API requests and overwrites `X-Real-IP` with the
 actual client address. The backend trusts that header only from loopback.
@@ -67,15 +67,11 @@ existing firewall policy.
   refresh; the role expires when all renewing tabs close. Roles are bounded to
   32 devices and stored only in memory. After expiry or a gateway restart the
   browser asks the operator to choose display mode again.
-- The whole device's new traffic is excluded before counters, attribution,
-  diagnostics, passive tracing and new traffic-driven route admissions. NAT and
+- The whole device's new traffic is excluded before counters, attribution
+  and new traffic-driven route admissions. NAT and
   DNS service keep working. Earlier observations remain; probes already admitted
   for earlier participant traffic can finish. The bounded dnsmasq spool still
   receives resolver logs, but display queries do not enter observation records.
-- Lab gate arming rejects display devices. Entering display mode releases that
-  device's pending decisions and removes its kernel selection, leaving other
-  participants selected. Previously held traffic retains its required terminal
-  audit record. Stopping display mode does not automatically re-arm a device.
 
 The role applies to the whole laptop, including other tabs and background apps.
 It is therefore a deliberate choice, not an automatic consequence of viewing a
@@ -112,5 +108,5 @@ Physical acceptance after deployment:
 6. Repeat after reboot and at another DHCP Ethernet network; select the visiting
    display again. Check hostname access without learning the Ethernet address.
 
-Physical radio stability, real NFQUEUE behavior and venue-network acceptance
+Physical radio stability and venue-network acceptance
 must be checked on the Pi; local tests do not establish those properties.

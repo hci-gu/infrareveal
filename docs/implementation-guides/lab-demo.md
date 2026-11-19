@@ -18,10 +18,9 @@ Keep the existing networking and GeoIP configuration. Enable:
 ```dotenv
 DEMO_MODE=true
 DEMO_RETENTION_MINUTES=30
-DIAGNOSTICS_ENABLED=false
 ```
 
-Demo mode creates a dedicated `Lab demo` session and resumes that active session after restart. It closes another active recording and refuses a competing session while demo mode is enabled. The core installation has seven application collections; full optional diagnostics adds three. There is no permanent domain catalogue or catalogue export endpoint.
+Demo mode creates a dedicated `Lab demo` session and resumes that active session after restart. It closes another active recording and refuses a competing session while demo mode is enabled. The installation has seven application collections. There is no permanent domain catalogue or catalogue export endpoint.
 
 The demo is a continuous session with 1–1440 minutes of rolling retention. Startup applies `DEMO_RETENTION_MINUTES`; the session's `retention_minutes` can also be adjusted while running. An ordinary continuous session defaults to five minutes. A session pins its classification and activity grouping policy.
 
@@ -46,7 +45,7 @@ The demo follows the live edge and reconnects automatically. Capture, gateway an
 
 ## Classification and routing
 
-Service classification uses the session's registered-domain policy and explicit aliases from `pocketbase/observer/domain_groups.json`. DNS names and CNAMEs are evidence, not automatic aliases. Shared infrastructure must not be assigned wholesale to an application. Investigations can use retained typed attribution evidence or explicitly enabled diagnostics; there is no separate permanent aggregate/checkpoint lifecycle. See [domain grouping](domain-grouping.md).
+Service classification uses the session's registered-domain policy and explicit aliases from `pocketbase/observer/domain_groups.json`. DNS names and CNAMEs are evidence, not automatic aliases. Shared infrastructure must not be assigned wholesale to an application. Investigations can use retained typed attribution evidence; there is no separate permanent aggregate/checkpoint lifecycle. See [domain grouping](domain-grouping.md).
 
 Route limits renew hourly for continuous sessions: 20 automatic targets, 40 automatic attempts and ten manual attempts per scope by default. The shared network/family rolling-hour limit, pacing, cooldown and no-gain pause still apply. Reservations survive restart and recent charges survive session deletion. A path can be reused within the same session and network epoch while valid; there is no cross-session cache.
 

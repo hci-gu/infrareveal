@@ -4,7 +4,6 @@ WORKDIR /workspace
 
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY dashboard/package.json ./dashboard/package.json
-COPY debug-dashboard/package.json ./debug-dashboard/package.json
 COPY packages/session-state/package.json ./packages/session-state/package.json
 RUN corepack enable && corepack prepare pnpm@11.25.0 --activate && pnpm install --frozen-lockfile
 

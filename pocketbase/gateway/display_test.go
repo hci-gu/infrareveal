@@ -53,8 +53,8 @@ func TestDisplayRoutesResolveTheRequestingDeviceAndApplyRuntimePolicy(t *testing
 	if err := json.Unmarshal(response.Body.Bytes(), &role); err != nil {
 		t.Fatal(err)
 	}
-	if !g.config.Observation.Scope.ExcludesClient("10.0.0.50", "02:00:00:00:00:01") || !g.config.Gate.ExcludedClient("10.0.0.50") {
-		t.Fatal("role not shared with capture and gate")
+	if !g.config.Observation.Scope.ExcludesClient("10.0.0.50", "02:00:00:00:00:01") {
+		t.Fatal("role not shared with capture")
 	}
 	body := fmt.Sprintf(`{"token":%q}`, role.Token)
 	if response := call("renew", "10.0.0.50:5000", "", body); response.Code != 200 {

@@ -70,13 +70,6 @@ func (g *Runtime) registerDisplayRoutes(r *router.Router[*core.RequestEvent]) {
 				}
 				return e.JSON(code, map[string]string{"message": err.Error()})
 			}
-			// Finish releasing any previously held packets before the browser
-			// starts its map requests. Ordinary forwarding is never disabled.
-			if g.gate != nil {
-				if err := g.gate.RefreshExclusions(e.Request.Context()); err != nil {
-					return e.InternalServerError("Could not release display traffic from the lab gate", err)
-				}
-			}
 			return e.JSON(http.StatusOK, status)
 		})
 	}

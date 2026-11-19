@@ -2,8 +2,6 @@ package gateway
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
@@ -14,30 +12,19 @@ import (
 
 type clearObservationsResult struct {
 	Deleted map[string]int `json:"deleted"`
-	Skipped []string       `json:"skipped"`
 }
 
-// Clear disarms fail-open, drains audit, and joins all observation producers
-// before deleting. Restart opens a fresh capture epoch, so accepted pre-clear
-// work cannot recreate cleared records. Probe admissions remain charged.
+// Clear joins all observation producers before deleting. Restart opens a fresh
+// capture epoch, so accepted pre-clear work cannot recreate cleared records.
+// Probe admissions remain charged.
 func (g *Runtime) Clear(ctx context.Context) (clearObservationsResult, error) {
 	if err := lockOperation(ctx, &g.operations); err != nil {
 		return clearObservationsResult{}, err
 	}
 	defer g.operations.Unlock()
-	result := clearObservationsResult{Deleted: map[string]int{}, Skipped: []string{}}
+	result := clearObservationsResult{Deleted: map[string]int{}}
 	if g.closed {
 		return result, fmt.Errorf("gateway is closed")
-	}
-	if g.gate != nil {
-		if _, err := g.gate.Disarm(ctx); err != nil {
-			return result, err
-		}
-	}
-	if g.audit != nil {
-		if err := g.audit.Flush(ctx); err != nil {
-			return result, err
-		}
 	}
 	if err := g.stopSimulation(ctx); err != nil {
 		return result, err
@@ -52,17 +39,10 @@ func (g *Runtime) Clear(ctx context.Context) (clearObservationsResult, error) {
 			return result, err
 		}
 	}
-	// Core data and optional diagnostics have no dependency on the durable quota
-	// ledger. Never delete probe_runs here, even if their sessions were removed.
+	// Core data has no dependency on the durable quota ledger. Never delete
+	// probe_runs here, even if their sessions were removed.
 	err = g.app.RunInTransaction(func(tx core.App) error {
-		for _, name := range []string{"gate_events", "flow_diagnostics", "dns_queries", "activity_blocks", "traffic_chunks", "capture_intervals", "route_evidence", "destinations"} {
-			if _, err := tx.FindCollectionByNameOrId(name); err != nil {
-				if errors.Is(err, sql.ErrNoRows) {
-					result.Skipped = append(result.Skipped, name)
-					continue
-				}
-				return err
-			}
+		for _, name := range []string{"activity_blocks", "traffic_chunks", "capture_intervals", "route_evidence", "destinations"} {
 			if err := ctx.Err(); err != nil {
 				return err
 			}

@@ -19,7 +19,7 @@ export function DeleteSession({ session, onDeleted }: { session: Session; onDele
     <button type="button" onClick={() => { setError(''); dialog.current?.showModal() }} className="h-9 whitespace-nowrap rounded-card px-3 text-sm font-semibold text-error hover:bg-error-paper active:bg-paper-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-focus" aria-label={`Delete ${session.name || 'Untitled session'}`}>Delete session</button>
     <dialog ref={dialog} onCancel={event => { if (busy) event.preventDefault() }} className="m-auto w-[min(32rem,calc(100%_-_2rem))] rounded-panel border border-rule-2 bg-paper-2 p-6 text-ink backdrop:bg-scrim" aria-labelledby={`delete-title-${session.id}`}>
       <h2 id={`delete-title-${session.id}`} className="text-lg font-semibold">Delete “{session.name || 'Untitled session'}”?</h2>
-      <p className="mt-3 text-sm text-muted">Permanently removes this session’s traffic, activity blocks, route evidence and diagnostics. This cannot be undone.</p>
+      <p className="mt-3 text-sm text-muted">Permanently removes this session’s traffic, activity blocks and route evidence. This cannot be undone.</p>
       {session.active && !session.simulation_expires_ms && <p className="mt-3 border-l-2 border-warn pl-3 text-sm text-warn">This session is live. A new empty live session will start so observation can continue.</p>}
       <p className="mt-3 text-sm text-muted">Deleted data frees space for reuse inside the database. The database file may stay the same size.</p>
       {error && <p role="alert" className="mt-3 text-sm text-error">{error}</p>}

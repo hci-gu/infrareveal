@@ -9,7 +9,7 @@ import (
 // ObservationScope defines the boundary between connected-client internet
 // traffic and gateway/local infrastructure noise.
 type ObservationScope struct {
-	// Excluded is a live device policy shared with display mode and the lab gate.
+	// Excluded is the live display-mode device policy.
 	Excluded     func(ip, mac string) bool
 	ClientPrefix string
 	GatewayIP    string

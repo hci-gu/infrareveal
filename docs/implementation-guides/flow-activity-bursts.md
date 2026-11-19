@@ -24,7 +24,7 @@ Sparse 50 ms samples have this fixed tuple shape:
 
 Wire bytes are the accounting source. Payload counts identify transfer-active bins; TCP ACK-only packets contribute wire and packet counts without extending activity blocks. Empty sample buckets indicate silence only where `capture_intervals` establishes complete coverage. Coverage advances after successful persistence and is recorded even when no packets arrive. Queue loss, capture failures and restart gaps remain visible independently of classification.
 
-Open chunks flush approximately every second. Five-second chunk size does not imply five-second publication delay. Clients replace revised chunks/windows instead of adding new cumulative totals to old ones. The consumer drains the queued event batch before flushing after a storage delay. Persistence uses prepared writes and a commit-aware cache of the correction tail: unchanged rows are skipped, removed attribution groups are deleted, and sealed history remains immutable. Optional flow diagnostics are constructed only when enabled. The small built-in illustrative simulation retains a 400 ms flush interval.
+Open chunks flush approximately every second. Five-second chunk size does not imply five-second publication delay. Clients replace revised chunks/windows instead of adding new cumulative totals to old ones. The consumer drains the queued event batch before flushing after a storage delay. Persistence uses prepared writes and a commit-aware cache of the correction tail: unchanged rows are skipped, removed attribution groups are deleted, and sealed history remains immutable. The small built-in illustrative simulation retains a 400 ms flush interval.
 
 | Setting | Default | Meaning |
 | --- | --- | --- |
@@ -55,8 +55,6 @@ sent and no payload is read.
   labelled `udp`, and TCP always outranks it (`TrafficChunk.MergeRTT`).
 - **Timestamps:** kernel receive times from `SO_TIMESTAMPNS`, including the
   32-bit timespec on armv7; `time.Now()` is the fallback.
-- **Proxy Lab:** while the opt-in gate is armed for a client, its samples are
-  skipped, because held packets would inflate them.
 
 Lowest wins everywhere (aggregation, storage upsert, window merging): queueing
 only ever adds delay. The simulator gives each lane a handshake delayed by a
@@ -70,7 +68,7 @@ A block is inferred service activity, not measured browser attention, an HTTP re
 
 Continuous-session cleanup clips retained samples, recomputes block totals and keeps the identity/original-start anchor of a crossing block. It removes destination versions only when no retained chunk references them. Route anchors remain available for retained exact bindings. Expanding retention cannot recover deleted data; SQLite may keep allocated pages for reuse.
 
-`flow_diagnostics`, `dns_queries` and `gate_events` are optional diagnostic stores. The default connection inspector is replaced by activity/service evidence. Turning on diagnostics does not change the source of map or block totals.
+No raw connection or DNS records are stored; the connection inspector is replaced by activity/service evidence.
 
 ## Ownership and loading
 
@@ -83,9 +81,9 @@ Continuous-session cleanup clips retained samples, recomputes block totals and k
 | Pure block projection and retention | `pocketbase/observer/blocks.go`, `retention.go` |
 | Manifest, bounded map windows, block pages | `pocketbase/timeline`, `pocketbase/gateway/timeline.go` |
 | Shared browser contract and runtime | `packages/session-state/src/data`, `runtime.ts` |
-| Map activity and block browsing | `dashboard/src/map`, `debug-dashboard/src/experiments/session-playback` |
+| Map activity and block browsing | `dashboard/src/map` |
 
-Both dashboards consume bounded product windows and one coalesced session revision signal. A refresh replaces the relevant window; pagination and overflow remain explicit. Missing capture is shown as missing or partial, never as confirmed idle time. Directional totals and cursor clipping must conserve captured bytes within the sample resolution.
+The dashboard consumes bounded product windows and one coalesced session revision signal. A refresh replaces the relevant window; pagination and overflow remain explicit. Missing capture is shown as missing or partial, never as confirmed idle time. Directional totals and cursor clipping must conserve captured bytes within the sample resolution.
 
 ## Verification
 

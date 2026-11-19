@@ -89,21 +89,6 @@ func TestUDPFirstReplyIsAnUpperBound(t *testing.T) {
 	}
 }
 
-func TestGateHeldClientsAreNotTimed(t *testing.T) {
-	a := testAggregate()
-	a.timingSuppressed = func(ip string) bool { return ip == "10.0.0.100" }
-	d := testDestination()
-	a.packet(timedPacket("tcp", 100_000_000, ClientToRemote, tcpFlagSYN, 40000), "network", d)
-	a.packet(timedPacket("tcp", 100_020_000, RemoteToClient, tcpFlagSYN|tcpFlagACK, 40000), "network", d)
-	chunks := a.snapshot(100_100)
-	if rtt, _ := rttOf(chunks); rtt != 0 {
-		t.Fatalf("held client timed: %d", rtt)
-	}
-	if totals(chunks)[0] == 0 {
-		t.Fatal("suppressing timing must not drop traffic")
-	}
-}
-
 func TestImplausibleRoundTripsAreDiscarded(t *testing.T) {
 	var timing handshakeTiming
 	timing.observe("tcp", ClientToRemote, tcpFlagSYN, 100, true)

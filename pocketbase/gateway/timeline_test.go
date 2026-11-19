@@ -14,7 +14,6 @@ import (
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase"
 	"github.com/pocketbase/pocketbase/apis"
-	"github.com/pocketbase/pocketbase/core"
 	"myapp/data"
 	"myapp/observer"
 	"myapp/testsupport"
@@ -246,83 +245,6 @@ func TestSessionEndImmediatelyFinalizesBlocks(t *testing.T) {
 	blocks, err := app.FindAllRecords("activity_blocks")
 	if err != nil || len(blocks) != 1 || blocks[0].GetBool("provisional") || blocks[0].GetInt64("sent") != 150 {
 		t.Fatalf("closed session kept mutable blocks: %v %v", blocks, err)
-	}
-}
-
-func TestDiagnosticsAreExplicitlyOptionalAndAuthenticated(t *testing.T) {
-	app, g, handler := gatewayHTTP(t)
-	collection, err := app.FindCollectionByNameOrId(core.CollectionNameSuperusers)
-	if err != nil {
-		t.Fatal(err)
-	}
-	admin := core.NewRecord(collection)
-	admin.Set("email", "operator@example.test")
-	admin.SetPassword("fixture-password-123")
-	if err := app.Save(admin); err != nil {
-		t.Fatal(err)
-	}
-	token, err := admin.NewAuthToken()
-	if err != nil {
-		t.Fatal(err)
-	}
-	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "core"})
-	path := "/api/infrareveal/sessions/" + session.Id + "/diagnostics/dns"
-	if response := requestJSON(t, handler, http.MethodGet, path, "", ""); response.Code != 401 {
-		t.Fatalf("raw diagnostics should require auth: %d %s", response.Code, response.Body.String())
-	}
-	if response := requestJSON(t, handler, http.MethodGet, path, "", token); response.Code != 404 {
-		t.Fatalf("core should disclose unavailable diagnostics: %d %s", response.Code, response.Body.String())
-	}
-	if err := data.InstallDiagnostics(app); err != nil {
-		t.Fatal(err)
-	}
-	g.config.Diagnostics = true
-	diagnosticSession := testsupport.Save(t, app, "sessions", map[string]any{"name": "diagnostic"})
-	if response := requestJSON(t, handler, http.MethodGet, path, "", token); response.Code != 404 {
-		t.Fatal("installing diagnostics changed old recording profile")
-	}
-	const from, to int64 = 1700000000000, 1700000001000
-	stamp := func(ms int64) string { return time.UnixMilli(ms).UTC().Format("2006-01-02 15:04:05.000Z") }
-	for kind, collection := range map[string]string{"dns": "dns_queries", "flows": "flow_diagnostics", "gate": "gate_events"} {
-		t.Run(kind, func(t *testing.T) {
-			for i, at := range []int64{from - 1, from, to - 1, to} {
-				fields := map[string]any{"session": diagnosticSession.Id}
-				switch kind {
-				case "dns":
-					fields["observed_ms"] = at
-				case "flows":
-					fields["start_ms"], fields["last_ms"] = at, at
-					if i == 1 {
-						fields["start_ms"] = from - 100
-					}
-				case "gate":
-					fields["decision_id"], fields["queued_at"], fields["decided_at"] = fmt.Sprint(i), stamp(at), stamp(at)
-					if i == 1 {
-						fields["queued_at"] = stamp(from - 100)
-					}
-					if i == 2 {
-						fields["decided_at"] = ""
-					}
-				}
-				testsupport.Save(t, app, collection, fields)
-			}
-			// Matching timestamps in another session must never leak into this window.
-			testsupport.Save(t, app, collection, map[string]any{"session": session.Id, "observed_ms": from, "start_ms": from, "last_ms": from, "queued_at": stamp(from), "decided_at": stamp(from)})
-			path := fmt.Sprintf("/api/infrareveal/sessions/%s/diagnostics/%s", diagnosticSession.Id, kind)
-			for _, query := range []string{"", "?from=20&to=10", "?from=0&to=1800001"} {
-				if response := requestJSON(t, handler, http.MethodGet, path+query, "", token); response.Code != 400 {
-					t.Fatalf("unbounded diagnostic request accepted: %d %s", response.Code, response.Body.String())
-				}
-			}
-			response := requestJSON(t, handler, http.MethodGet, fmt.Sprintf("%s?from=%d&to=%d", path, from, to), "", token)
-			var result struct {
-				Items []map[string]any `json:"items"`
-				More  bool             `json:"more"`
-			}
-			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil || response.Code != 200 || len(result.Items) != 2 || result.More {
-				t.Fatalf("diagnostic window: %s %v", response.Body.String(), err)
-			}
-		})
 	}
 }
 

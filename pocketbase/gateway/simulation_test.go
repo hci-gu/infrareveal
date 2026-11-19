@@ -42,7 +42,7 @@ func assertSimulationGone(t *testing.T, app *pocketbase.PocketBase, id string) {
 	if _, err := app.FindRecordById("sessions", id); err == nil {
 		t.Fatal("simulation session remains")
 	}
-	for _, name := range []string{"traffic_chunks", "capture_intervals", "activity_blocks", "route_evidence", "dns_queries", "flow_diagnostics", "gate_events"} {
+	for _, name := range []string{"traffic_chunks", "capture_intervals", "activity_blocks", "route_evidence"} {
 		if _, err := app.FindCollectionByNameOrId(name); err != nil {
 			continue
 		}
@@ -62,10 +62,6 @@ func assertSimulationGone(t *testing.T, app *pocketbase.PocketBase, id string) {
 
 func TestSimulationHTTPUsesRealPipelineAndPreservesRecording(t *testing.T) {
 	app, g, handler := gatewayHTTP(t)
-	g.config.Diagnostics = true
-	if err := data.InstallDiagnostics(app); err != nil {
-		t.Fatal(err)
-	}
 	simulationCleanup(t, g)
 	real := testsupport.Save(t, app, "sessions", map[string]any{"name": "real", "active": true})
 	destination := testsupport.Save(t, app, "destinations", map[string]any{"ip": "192.0.2.1", "version": "real"})
@@ -119,9 +115,6 @@ func TestSimulationHTTPUsesRealPipelineAndPreservesRecording(t *testing.T) {
 	}
 	if sent == 0 || received == 0 || !classified || !mapped || len(window.Coverage) == 0 {
 		t.Fatalf("pipeline did not produce usable traffic: sent=%d received=%d DNS=%v mapped=%v", sent, received, classified, mapped)
-	}
-	if count, _ := app.CountRecords("dns_queries", dbx.HashExp{"session": run.SessionID}); count == 0 {
-		t.Fatal("DNS did not traverse normal diagnostics")
 	}
 	// Starting another real recording must leave the synthetic run alive.
 	next := requestJSON(t, handler, "POST", "/api/infrareveal/sessions", `{"name":"next real"}`, "")

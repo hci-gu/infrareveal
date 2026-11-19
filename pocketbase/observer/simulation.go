@@ -18,9 +18,9 @@ const SimulationLanes = 144
 // Frames still pass through the normal parser, bounded queue, DNS attribution,
 // aggregation, capture persistence and block projection. No sockets, probes,
 // host accounting settings or real capture resources are used.
-func NewSimulation(app *pocketbase.PocketBase, session string, expires time.Time, diagnostics bool) *Runtime {
+func NewSimulation(app *pocketbase.PocketBase, session string, expires time.Time) *Runtime {
 	scope := simulationScope()
-	r := New(app, nil, Config{Scope: scope, Diagnostics: diagnostics, Packet: PacketActivityConfig{FlushInterval: 400 * time.Millisecond}}, func() string { return session }, nil, nil)
+	r := New(app, nil, Config{Scope: scope, Packet: PacketActivityConfig{FlushInterval: 400 * time.Millisecond}}, func() string { return session }, nil)
 	lanes := simulationLanes(session)
 	destinations := make(map[string]data.Destination, len(lanes))
 	for _, lane := range lanes {

@@ -14,7 +14,6 @@ What you get
 - Destination context and route approximations for observed destination IPs
 - Dashboard and same-origin API at http://infrareveal.home.arpa/ (http://10.0.0.1/)
 - Dynamic display mode: designate any visiting laptop and exclude its activity
-- Optional debug dashboard at http://10.0.0.1:8081/
 
 ## Development guides
 
@@ -24,9 +23,6 @@ See the [documentation index](docs/README.md) for architecture decisions, curren
 - [Shared Wi-Fi and display mode](docs/implementation-guides/shared-wifi-display.md): portable setup, temporary device roles, migration and acceptance checks.
 - [Captured traffic and activity blocks](docs/implementation-guides/flow-activity-bursts.md): aggregate samples, classification, capture quality and temporal service activity.
 - [Flow activity validation](docs/validation/flow-activity-raspberry-pi.md): repeatable privacy, load, growth, and browser-comparison checks for the target Pi.
-- [Proxy Lab implementation and operations](docs/implementation-guides/proxy-lab.md): passive replay/live tracing plus the opt-in flow, strict-packet, and DNS gates.
-- [Proxy Lab Raspberry Pi validation](docs/validation/proxy-lab-raspberry-pi.md): namespace, failure, soak, client, and recovery procedures.
-- [Dashboard browser validation](docs/validation/debug-dashboard.md): fixture, interaction, accessibility, performance and lifecycle checks.
 - [Live route discovery](docs/implementation-guides/live-route-discovery.md): finite useful-path collection, topology display, budgets and diagnostics.
 - [Live route validation](docs/validation/live-route-discovery.md): current local checks, historical engine qualification and pending Pi measurements.
 
@@ -48,15 +44,15 @@ go run . serve
 
 This schema requires fresh application data. Stop the local server before
 `./scripts/dev-data.sh --reset`; it discards development recordings and seeds an
-example on the new model. Add `--diagnostics` for all ten application collections.
+example on the new model with the seven application collections.
 Use `--dir /path/to/pb_data` for an isolated database. There is no old-data importer.
 
 ## Frontend workspace
 
-The regular dashboard and debug dashboard are pnpm workspace consumers of
+The dashboard is a pnpm workspace consumer of
 `@infrareveal/session-state`. The shared package owns PocketBase transport,
 session manifests, revision-driven window replacement, bounded caching and local
-playback state. Each dashboard keeps its own UI and map/activity presentation.
+playback state. The dashboard owns the UI and map/activity presentation.
 Use Node 22 and the pnpm version pinned in `package.json` (11.25.0). Corepack
 selects that version even if an older global pnpm is on your PATH. Checks fail
 when dependencies are stale; rerun the frozen install to bring them up to date.
@@ -68,12 +64,11 @@ corepack pnpm test
 corepack pnpm lint
 ```
 
-Run an individual dashboard with `corepack pnpm --filter @infrareveal/dashboard dev` or
-`corepack pnpm --filter @infrareveal/debug-dashboard dev`. Set `VITE_POCKETBASE_URL`
+Run the dashboard with `corepack pnpm --filter @infrareveal/dashboard dev`. Set `VITE_POCKETBASE_URL`
 when PocketBase is not on port 8090 of the dashboard host.
 
 For the current Pi, put `VITE_POCKETBASE_URL=http://192.168.10.120:8090`
-in `dashboard/.env.local` (or `debug-dashboard/.env.local`) and restart Vite.
+in `dashboard/.env.local` and restart Vite.
 PocketBase accepts direct connections from the Pi's Ethernet LAN.
 
 Note: The AP is open (no password) by default. Use only in controlled environments.
@@ -107,7 +102,7 @@ configurations from these settings; there are no hand-edited root-level AP confi
 Configuration knobs (via env in `docker-compose.yml`):
 - AP_IFACE: participant Wi-Fi interface (default wlan0)
 - ADMIN_WIFI_ENABLED: require/start the optional admin radio (default false)
-- DASHBOARD_ON_AP: serve the main/debug dashboards on participant Wi-Fi (default true); `compose.proxy-only.yml` disables this and both dashboard containers
+- DASHBOARD_ON_AP: serve the dashboard on participant Wi-Fi (default true); `compose.proxy-only.yml` disables this and the dashboard container
 - ADMIN_IFACE: admin Wi-Fi interface (default wlan1, ignored when admin Wi-Fi is disabled)
 - ADMIN_WIFI_MAC: optional expected adapter MAC address
 - ADMIN_SSID: admin Wi-Fi name (default Infrareveal-admin)
@@ -130,40 +125,7 @@ Configuration knobs (via env in `docker-compose.yml`):
 - TRAFFIC_CHUNK_MS: 5000 ms (1000–10000, whole seconds)
 - TRAFFIC_FLUSH_MS / TRAFFIC_CORRECTION_MS: 400 ms flushes and a 10-second mutable classification tail
 - ACTIVITY_QUIET_GAP_MS: 45-second service-activity gap; this does not measure browser attention
-- DIAGNOSTICS_ENABLED: false by default; true adds three optional collections to the seven core collections
-- DIAGNOSTICS_RETENTION_MINUTES / DIAGNOSTICS_MAX_MB: 60 minutes / 16 MiB total diagnostic payload cap
 - Saved recordings retain product data until deletion. Continuous/demo sessions retain their configured rolling window.
-
-### Proxy Lab: passive trace vs traffic gate
-
-Proxy Lab lives only in the debug dashboard at `/proxy-lab/:sessionID`. Passive trace is observation-only. It streams bounded, header-derived events and can be enabled independently with `DEBUG_TRACE_ENABLED=true`; no NFQUEUE policy is installed when lab gate support is disabled.
-
-The lab gate is a separate, explicit traffic-changing experiment. `LAB_GATE_ENABLED=true` makes the three fail-open NFQUEUE listeners and empty rule chains available, but still does not gate a client. An authenticated operator must arm selected IPv4 clients for an active session. Flow mode holds new TCP/UDP flows, strict mode steps one exact tuple in both directions, and DNS mode gates selected traffic to local dnsmasq. See the [operator guide](docs/implementation-guides/proxy-lab.md#safe-first-run) before enabling it.
-
-| Variable | Default / bounds | Safety effect |
-|---|---|---|
-| `DEBUG_TRACE_ENABLED` | `false` | Enables bounded passive SSE tracing only. |
-| `DEBUG_TRACE_RING_EVENTS` | `20000` (`100`–`200000`) | Caps in-memory replay history. |
-| `DEBUG_TRACE_RETENTION_SECONDS` | `30` (`5`–`300`) | Caps live trace age. |
-| `DEBUG_TRACE_INGRESS_BUFFER` | `8192` (`128`–`131072`) | Full buffer rejects trace events; forwarding is unaffected. |
-| `DEBUG_TRACE_SUBSCRIBER_BUFFER` | `256` (`8`–`4096`) | A slow viewer drops its own trace stream rather than blocking capture. |
-| `DEBUG_TRACE_BATCH_MS` | `50` (`10`–`1000`) | Coalescing latency. |
-| `DEBUG_TRACE_MAX_BATCH` | `200` (`1`–`200`) | Caps one SSE payload. |
-| `DEBUG_TRACE_MAX_SUBSCRIBERS` | `32` (`1`–`256`) | Caps viewer memory. |
-| `LAB_GATE_ENABLED` | `false` | Master opt-in; false leaves no effective queue policy. |
-| `LAB_GATE_QUEUE_NUM` | `42` | Flow-mode queue; must differ from 43/44. |
-| `LAB_GATE_STRICT_QUEUE_NUM` | `43` | Exact-tuple packet queue. |
-| `LAB_GATE_DNS_QUEUE_NUM` | `44` | Local DNS INPUT queue. |
-| `LAB_GATE_CLIENT_SUBNET` | Derived from `AP_PREFIX` | Only participant IPv4 clients can arm. |
-| `LAB_GATE_MAX_PENDING_FLOWS` | `128` (`1`–`1024`) | New decisions bypass when full. |
-| `LAB_GATE_MAX_HELD_PACKETS` | `768` (`8`–`8192`, at least pending cap) | New packets bypass when full. |
-| `LAB_GATE_FLOW_TIMEOUT_MS` | `10000` (`100`–`60000`) | Pending flows are accepted as expired. |
-| `LAB_GATE_ESTABLISHED_TIMEOUT_MS` | `500` (`100`–`10000`) | Strict packets are accepted quickly. |
-| `LAB_GATE_DNS_TIMEOUT_MS` | `2000` (`100`–`15000`) | DNS is accepted before indefinite resolver stalls. |
-| `LAB_GATE_DECISION_CACHE_SECONDS` | `120` (`1`–`900`) | Bounds remembered flow verdicts. |
-| `LAB_GATE_FAIL_OPEN` | `true` | Arming is refused when false. |
-| `LAB_GATE_CONTROL_TOKEN_FILE` | unset | Mutating controls are refused without a 32–512 byte token file. |
-| `LAB_GATE_ALLOWED_ORIGINS` | unset | Comma-separated browser origins allowed to call the control API. |
 
 ## Run after initial setup
 
@@ -174,7 +136,6 @@ sudo docker compose ps
 sudo docker compose logs --tail=100 proxy dashboard
 ```
 
-Uncomment `COMPOSE_PROFILES=debug` in `.env` to include the debug dashboard.
 For this rewrite, stop the previous build and use a fresh `DATA_DIR`. Old code
 remains in Git; an older version can use a fresh database matching its schema.
 
@@ -225,7 +186,7 @@ Synthetic geography is explicitly labeled and uses documentation-only IP address
 
 Each run has its own live session alongside real capture. After three minutes,
 the backend stops generation, drains writers and deletes the session, chunks,
-coverage, blocks, diagnostics and unreferenced synthetic destinations. The dashboard
+coverage, blocks and unreferenced synthetic destinations. The dashboard
 returns to Sessions when cleanup is confirmed. Clear and graceful shutdown also
 clean up; startup removes any run left by a crash. Existing recordings are preserved.
 This works on native macOS/Linux development servers without capture privileges,
@@ -239,7 +200,7 @@ For an unattended screen, enable `DEMO_MODE=true`, set
 then open **/demo** in the same tab if the kiosk layout is desired.
 The dedicated session resumes after restarts; the screen follows live traffic and
 reconnects automatically. Retained traffic and activity blocks use the session's
-pinned service-classification policy; optional diagnostics support investigations.
+pinned service-classification policy.
 See the [lab demo setup and soak-test guide](docs/implementation-guides/lab-demo.md).
 
 ## Always-on sessions
@@ -301,7 +262,6 @@ Each enabled radio is a dedicated AP.
 
 - Dashboard/API: http://infrareveal.home.arpa/ or http://10.0.0.1/ on shared Wi-Fi
 - PocketBase console: http://10.0.0.1/_/
-- Optional debug dashboard: http://10.0.0.1:8081/
 - Persistent data: `./data` on the host is mounted to `/root/pb/pb_data` in the proxy container
 - GeoIP assets: `./geoip` is mounted at `/root/geoip`, writable for manual database refreshes
 

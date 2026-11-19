@@ -174,7 +174,7 @@ write_network_configs() { :; }
 configure_firewall() { :; }
 remove_legacy_rules() { :; }
 ''')
-        for name in ('iptables', 'ipset'):
+        for name in ('iptables',):
             command = self.root / name
             command.write_text('#!/bin/sh\nexit 1\n')
             command.chmod(0o755)

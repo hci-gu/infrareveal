@@ -163,7 +163,7 @@ def feed_dns():
 
 def start_backend():
     global app
-    environment = dict(os.environ, AP_IFACE="ap", INTERNET_IFACE="uplink", CLIENT_CIDRS="10.0.0.0/24", GATEWAY_IP="10.0.0.1", PACKET_ACTIVITY_ENABLED="true", PACKET_ACTIVITY_IFACE="ap", CONNTRACK_PATH=str(work/"deliberately-absent-conntrack"), CONNTRACK_ACCOUNTING_PATH=str(work/"accounting"), DHCP_LEASE_PATH=str(work/"no-leases"), DNSMASQ_LOG_PATH=str(dns_log), ROUTE_ENGINE="off", LAB_GATE_ENABLED="false", DEBUG_TRACE_ENABLED="false", DIAGNOSTICS_ENABLED="false", DEMO_MODE="true", DEMO_RETENTION_MINUTES="30", TRAFFIC_BUCKET_MS="50", TRAFFIC_CHUNK_MS="5000", TRAFFIC_FLUSH_MS="400", TRAFFIC_CORRECTION_MS="2000", ACTIVITY_QUIET_GAP_MS="1000")
+    environment = dict(os.environ, AP_IFACE="ap", INTERNET_IFACE="uplink", CLIENT_CIDRS="10.0.0.0/24", GATEWAY_IP="10.0.0.1", PACKET_ACTIVITY_ENABLED="true", PACKET_ACTIVITY_IFACE="ap", CONNTRACK_PATH=str(work/"deliberately-absent-conntrack"), CONNTRACK_ACCOUNTING_PATH=str(work/"accounting"), DHCP_LEASE_PATH=str(work/"no-leases"), DNSMASQ_LOG_PATH=str(dns_log), ROUTE_ENGINE="off", DEMO_MODE="true", DEMO_RETENTION_MINUTES="30", TRAFFIC_BUCKET_MS="50", TRAFFIC_CHUNK_MS="5000", TRAFFIC_FLUSH_MS="400", TRAFFIC_CORRECTION_MS="2000", ACTIVITY_QUIET_GAP_MS="1000")
     app = subprocess.Popen([binary, "serve", "--http=127.0.0.1:8090", "--dir="+str(data_dir)], env=environment, stdout=log, stderr=subprocess.STDOUT)
     demo = wait_for(lambda: request("/api/infrareveal/demo"), description="demo API")
     found = demo["sessionId"]

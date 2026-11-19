@@ -19,7 +19,6 @@ import (
 func main() {
 	dir := flag.String("dir", "./pb_data", "development database directory")
 	reset := flag.Bool("reset", false, "delete existing disposable pb_data directory first; stop the server before using")
-	diagnostics := flag.Bool("diagnostics", false, "create the three optional diagnostics collections")
 	flag.Parse()
 	path, err := filepath.Abs(*dir)
 	if err != nil {
@@ -47,25 +46,16 @@ func main() {
 	if err = app.RunAppMigrations(); err != nil {
 		log.Fatal(err)
 	}
-	if *diagnostics {
-		if err = data.InstallDiagnostics(app); err != nil {
-			log.Fatal(err)
-		}
-	}
-	if err = seed(app, *diagnostics, time.Now()); err != nil {
+	if err = seed(app, time.Now()); err != nil {
 		log.Fatal(err)
 	}
-	count := 7
-	if *diagnostics {
-		count = 10
-	}
-	fmt.Printf("Fresh database: %s\n%d application collections; example recording seeded.\n", path, count)
+	fmt.Printf("Fresh database: %s\n7 application collections; example recording seeded.\n", path)
 }
 
-func seed(app core.App, diagnostics bool, now time.Time) error {
+func seed(app core.App, now time.Time) error {
 	policy := observer.DefaultPolicy()
 	start := now.Add(-3*time.Minute).UnixMilli() / policy.ChunkMS * policy.ChunkMS
-	session := data.Session{ID: data.ID("example-session"), Name: "Example · observed service activity", StartedMS: start, EndedMS: start + 120000, RetainedFromMS: start, Revision: 1, Policy: policy, GateAuditComplete: true, Diagnostics: data.Diagnostics{Flows: diagnostics, DNS: diagnostics}, Capture: data.CaptureHealth{Quality: "complete", ConfirmedMS: start + 120000, Epoch: "example", Generation: 1}}
+	session := data.Session{ID: data.ID("example-session"), Name: "Example · observed service activity", StartedMS: start, EndedMS: start + 120000, RetainedFromMS: start, Revision: 1, Policy: policy, Capture: data.CaptureHealth{Quality: "complete", ConfirmedMS: start + 120000, Epoch: "example", Generation: 1}}
 	lat, lon := 59.3293, 18.0686
 	destinations := []data.Destination{{ID: data.ID("example-stockholm"), IP: "203.0.113.10", Version: "illustrative", ObservedMS: start, City: "Stockholm", Country: "Sweden", CountryCode: "SE", Lat: &lat, Lon: &lon, Precision: "city", AccuracyKM: 50, Provider: "Example destination"}, {ID: data.ID("example-unknown"), IP: "203.0.113.20", Version: "illustrative", ObservedMS: start, Precision: "unknown"}}
 	err := app.RunInTransaction(func(tx core.App) error {
@@ -116,12 +106,6 @@ func seed(app core.App, diagnostics bool, now time.Time) error {
 		}
 		if _, err := data.Write(tx, "capture_intervals", data.CaptureInterval{ID: data.ID("example-coverage"), Session: session.ID, CaptureEpoch: "example", StartMS: start, EndMS: start + 120000, Quality: "complete"}); err != nil {
 			return err
-		}
-		if diagnostics {
-			_, err := data.Write(tx, "dns_queries", map[string]any{"id": data.ID("example-dns"), "session": session.ID, "client_ip": "10.0.0.100", "query_name": "www.svt.se", "query_type": "A", "answers": []string{destinations[0].IP}, "aliases": []string{}, "observed_ms": start, "source": "example"})
-			if err != nil {
-				return err
-			}
 		}
 		return nil
 	})

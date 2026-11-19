@@ -26,7 +26,7 @@ def sample(url, database=None, pids=()):
                 session = connection.execute("SELECT id FROM sessions WHERE demo=true").fetchone()
                 if session:
                     result["rows"] = {table: connection.execute("SELECT count(*) FROM " + table + " WHERE session=?", session).fetchone()[0]
-                                      for table in ("traffic_chunks", "capture_intervals", "activity_blocks", "route_evidence", "probe_runs", "flow_diagnostics", "dns_queries", "gate_events") if table in tables}
+                                      for table in ("traffic_chunks", "capture_intervals", "activity_blocks", "route_evidence", "probe_runs") if table in tables}
                 result["destinations"] = connection.execute("SELECT count(*) FROM destinations").fetchone()[0]
                 result["probeRunsGlobal"] = connection.execute("SELECT count(*) FROM probe_runs").fetchone()[0]
                 result["databasePages"] = connection.execute("PRAGMA page_count").fetchone()[0]

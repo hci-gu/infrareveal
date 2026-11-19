@@ -9,7 +9,6 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"myapp/data"
 	"slices"
-	"time"
 )
 
 var errStaleFlush = errors.New("capture epoch or generation was superseded")
@@ -167,17 +166,6 @@ func clipSamples(c data.TrafficChunk, floor int64) []data.Sample {
 		}
 	}
 	return samples
-}
-
-func diagnosticFlow(a *aggregate, f *connection) map[string]any {
-	return map[string]any{"id": data.ID(a.epoch, f.id), "session": a.session, "flow_key": f.tuple.Key(), "client_id": f.clientID, "client_ip": f.tuple.ClientIP.String(), "destination_ip": f.tuple.RemoteIP.String(), "source_port": int(f.tuple.ClientPort), "destination_port": int(f.tuple.RemotePort), "protocol": f.tuple.Protocol, "start_ms": f.started, "last_ms": f.last, "sent": f.sent, "received": f.received, "state": map[bool]string{true: "closed", false: "active"}[f.closed], "evidence": f.evidence}
-}
-
-type diagnosticWrite struct {
-	collection string
-	session    string
-	value      any
-	queued     time.Time
 }
 
 // This cache advances only after the atomic commit and retains only the

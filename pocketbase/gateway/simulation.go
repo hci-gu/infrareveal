@@ -95,7 +95,7 @@ func (g *Runtime) startSimulation(duration time.Duration) (simulationStatus, boo
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	run := &simulationRun{status: simulationStatus{Active: true, SessionID: record.Id, ExpiresMS: expires.UnixMilli(), MapPath: "/map/" + record.Id, Lanes: observer.SimulationLanes}, cancel: cancel,
-		observation: observer.NewSimulation(g.app, record.Id, expires, g.config.Diagnostics)}
+		observation: observer.NewSimulation(g.app, record.Id, expires)}
 	g.simulation = run
 	run.observation.Start()
 	go g.watchSimulation(ctx, run)

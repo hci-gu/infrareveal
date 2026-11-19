@@ -22,8 +22,6 @@ type CaptureHealth struct {
 }
 
 type Session struct {
-	GateAuditComplete   bool          `json:"gate_audit_complete"`
-	GateAuditDrops      uint64        `json:"gate_audit_drops"`
 	ID                  string        `json:"id"`
 	Name                string        `json:"name"`
 	Active              bool          `json:"active"`
@@ -39,13 +37,6 @@ type Session struct {
 	NetworkEpoch        string        `json:"network_epoch"`
 	Policy              Policy        `json:"policy"`
 	Capture             CaptureHealth `json:"capture"`
-	Diagnostics         Diagnostics   `json:"diagnostics"`
-}
-
-type Diagnostics struct {
-	Flows bool `json:"flows"`
-	DNS   bool `json:"dns"`
-	Gate  bool `json:"gate"`
 }
 
 type Manifest struct {

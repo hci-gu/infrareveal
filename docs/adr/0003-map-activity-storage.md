@@ -6,6 +6,11 @@ Date: 2026-10-15
 
 Accepted. This is the implementation standard for the direct rewrite.
 
+Amended 2026-11-19: the optional diagnostics profile (`flow_diagnostics`,
+`dns_queries`, `gate_events`, probe details) and the Lab gate were removed with
+the debug dashboard. A migration drops them from existing databases; the seven
+core collections are the whole schema.
+
 ## Context
 
 The product displays traffic on a map and groups it into understandable periods
@@ -57,6 +62,5 @@ rolling retention remain correctness requirements. Optional diagnostics and
 route collection cannot block normal gateway forwarding.
 
 This supersedes ADR 0001's separate persisted attribution/connection model while
-retaining its metadata-only gateway decision. ADR 0002's gate safety and audit
-requirements remain in force. Execution is tracked in the root implementation
+retaining its metadata-only gateway decision. Execution is tracked in the root implementation
 checklist, rather than through a compatibility rollout.

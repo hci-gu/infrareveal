@@ -42,9 +42,6 @@ type aggregate struct {
 	dropped        int64
 	lossAt         int64
 	pending        map[string]CommittedTraffic
-	// timingSuppressed reports clients whose packets an armed Proxy Lab gate may
-	// hold; their handshake timing would include that delay, so it is skipped.
-	timingSuppressed func(clientIP string) bool
 }
 
 type CommittedTraffic struct {
@@ -127,9 +124,6 @@ func (a *aggregate) packet(e PacketActivityEvent, network string, destination da
 	}
 	f.last = max(f.last, now)
 	rttMicros, rttSource := f.timing.observe(tuple.Protocol, e.Direction, e.TCPFlags, e.ObservedAt.UnixMicro(), fresh)
-	if rttMicros > 0 && a.timingSuppressed != nil && a.timingSuppressed(tuple.ClientIP.String()) {
-		rttMicros = 0
-	}
 	f.established = f.established || (!syn && e.TCPFlags&0x10 != 0)
 	f.owner = ownerOf(destination)
 	f.service, f.label, f.evidence = a.dns.resolve(a.session, tuple, f.started, now, a.policy, f.evidence, f.owner)

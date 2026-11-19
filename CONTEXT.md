@@ -6,7 +6,7 @@ The backend never needs HTTPS contents or client trust certificates.
 
 ## Domain terms
 
-- Gateway: the machine running Wi-Fi, DHCP/DNS, NAT, capture, PocketBase and the dashboards.
+- Gateway: the machine running Wi-Fi, DHCP/DNS, NAT, capture, PocketBase and the dashboard.
 - Display device: a temporary, self-selected role on the shared Wi-Fi. A browser renews a lease-bound exclusion from observation and traffic gating; it never disables internet forwarding. Opening the ordinary dashboard does not confer this role.
 - Session: one observation period. A closed recording has a fixed end; an active ephemeral session retains a rolling window. Closed sessions are not reopened.
 - Simulation: a separate synthetic live session, marked by `simulation_expires_ms`, that runs for three minutes through the real observation pipeline and deletes its data. It never owns gateway capture or route probes. One simulation may run alongside one real recording.
@@ -19,14 +19,12 @@ The backend never needs HTTPS contents or client trust certificates.
 - Route evidence: a useful gateway-measured approximate path or a timestamped network invalidation. It is not the exact application path.
 - Probe run: a durable admission charged before a method attempt, including failed, cancelled and interrupted attempts.
 - Session runtime: the shared frontend window cache, revision handling and local playback.
-- Diagnostics: optional bounded raw connection/DNS history, detailed probe output and Lab gate audit.
 
 ## Accepted architecture
 
 The seven core application collections are `sessions`, `traffic_chunks`,
 `capture_intervals`, `activity_blocks`, `destinations`, `route_evidence` and
-`probe_runs`. Full diagnostics optionally adds `flow_diagnostics`, `dns_queries`
-and `gate_events`. PocketBase auth/system collections are separate.
+`probe_runs`. PocketBase auth/system collections are separate.
 
 Captured traffic is the byte authority. Conntrack and DNS support bounded
 in-memory identity/classification; traffic persistence never depends on finding
@@ -39,7 +37,7 @@ The starting defaults are 50 ms buckets, five-second chunks, approximately
 gap for blocks. Session policy pins alias rules and grouping parameters. Within
 the correction tail, reclassification moves counts atomically; sealed labels
 are snapshots. A restart starts a new capture epoch and seals persisted data.
-No raw history is implied when diagnostics were not recorded.
+No raw connection or DNS history is stored.
 
 Blocks are computed from sample intervals, not connection lifetimes. ACK-only
 traffic does not extend a block. Capture interruptions create uncertain
@@ -54,7 +52,7 @@ limited to the same session/network epoch. The network fingerprint governing
 quotas is distinct from capture and session network epochs. Path publication and
 optional enrichment are bounded; there is no persistent cross-session cache.
 
-Both dashboards consume the same manifest, bounded map windows and activity
+The dashboard consumes the manifest, bounded map windows and activity
 block API, invalidated by one session revision signal. The browser owns playback
 and rendering; Go owns attribution, grouping and evidence selection.
 
@@ -67,6 +65,5 @@ are not supported. Git retains the previous implementation. Reuse working
 capture/probe/rendering code while deleting obsolete persistence and joins.
 
 The continuous demo remains an active ephemeral session with configurable
-retention (30 minutes by default). Diagnostics are off by default. Enabling the
-optional Lab gate requires bounded audit storage and preserves the fail-open
-contract in [ADR 0002](docs/adr/0002-opt-in-nfqueue-flow-admission.md).
+retention (30 minutes by default). The gateway is passive-only: it never holds,
+delays or drops client traffic.

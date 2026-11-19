@@ -16,11 +16,7 @@ type Config struct {
 	SampleInterval                                       time.Duration
 	Scope                                                ObservationScope
 	Packet                                               PacketActivityConfig
-	Diagnostics                                          bool
 	NetworkEpoch                                         func() string
-	// TimingSuppressed reports clients whose packets may be held by an armed
-	// Proxy Lab gate; their handshake round-trip times are not recorded.
-	TimingSuppressed func(clientIP string) bool
 }
 
 type PacketActivityConfig struct {
@@ -45,7 +41,7 @@ func DefaultPolicy() data.Policy {
 }
 
 func ConfigFromEnv(ap string) Config {
-	return Config{DNSLogPath: envString("DNSMASQ_LOG_PATH", "/var/log/dnsmasq.log"), ConntrackPath: envString("CONNTRACK_PATH", "/proc/net/nf_conntrack"), AccountingPath: envString("CONNTRACK_ACCOUNTING_PATH", "/proc/sys/net/netfilter/nf_conntrack_acct"), LeasePath: envString("DHCP_LEASE_PATH", "/var/lib/infrareveal/participants.leases"), SampleInterval: time.Duration(boundedEnvInt("CONNTRACK_SAMPLE_MS", 1000, 250, 5000)) * time.Millisecond, Scope: NewObservationScope(envString("CLIENT_CIDRS", envString("CLIENT_IP_PREFIX", "10.0.0.0/24")), envString("GATEWAY_IP", "10.0.0.1")), Packet: PacketActivityConfigFromEnv(ap), Diagnostics: envBool("DIAGNOSTICS_ENABLED", false)}
+	return Config{DNSLogPath: envString("DNSMASQ_LOG_PATH", "/var/log/dnsmasq.log"), ConntrackPath: envString("CONNTRACK_PATH", "/proc/net/nf_conntrack"), AccountingPath: envString("CONNTRACK_ACCOUNTING_PATH", "/proc/sys/net/netfilter/nf_conntrack_acct"), LeasePath: envString("DHCP_LEASE_PATH", "/var/lib/infrareveal/participants.leases"), SampleInterval: time.Duration(boundedEnvInt("CONNTRACK_SAMPLE_MS", 1000, 250, 5000)) * time.Millisecond, Scope: NewObservationScope(envString("CLIENT_CIDRS", envString("CLIENT_IP_PREFIX", "10.0.0.0/24")), envString("GATEWAY_IP", "10.0.0.1")), Packet: PacketActivityConfigFromEnv(ap)}
 }
 
 func PacketActivityConfigFromEnv(ap string) PacketActivityConfig {

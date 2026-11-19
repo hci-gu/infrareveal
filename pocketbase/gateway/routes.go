@@ -4,7 +4,6 @@ import (
 	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
-	"myapp/labgate"
 	"net/http"
 	"os"
 	"strings"
@@ -19,8 +18,6 @@ func (g *Runtime) registerRoutes(r *router.Router[*core.RequestEvent]) {
 	g.registerClientRoutes(r)
 	g.registerStorageRoutes(r)
 	g.registerSimulationRoutes(r)
-	registerTraceRoutes(r, g.app, g.traceHub)
-	labgate.RegisterControlRoutes(r, g.app, g.gate, labgate.ControlRouteConfig{Token: g.controlToken, AllowedOrigins: g.config.Gate.AllowedOrigins, ClientSubnet: g.config.ClientSubnet})
 	r.POST("/api/infrareveal/clear-observations", func(e *core.RequestEvent) error {
 		result, err := g.Clear(e.Request.Context())
 		if err != nil {
@@ -60,7 +57,7 @@ func (g *Runtime) registerRoutes(r *router.Router[*core.RequestEvent]) {
 func (g *Runtime) guardMutation(e *core.RequestEvent) error {
 	path := e.Request.URL.Path
 	mutating := e.Request.Method == http.MethodPost || e.Request.Method == http.MethodPatch || e.Request.Method == http.MethodPut || e.Request.Method == http.MethodDelete
-	controlled := strings.HasPrefix(path, "/api/infrareveal/sessions") || strings.HasPrefix(path, "/api/infrareveal/lab-gate/") || strings.HasPrefix(path, "/api/infrareveal/routes/") || path == "/api/batch" || (strings.HasPrefix(path, "/api/collections/") && strings.Contains(path, "/records"))
+	controlled := strings.HasPrefix(path, "/api/infrareveal/sessions") || strings.HasPrefix(path, "/api/infrareveal/routes/") || path == "/api/batch" || (strings.HasPrefix(path, "/api/collections/") && strings.Contains(path, "/records"))
 	if !mutating || !controlled {
 		return e.Next()
 	}

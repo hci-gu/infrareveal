@@ -120,7 +120,7 @@ func TestRawSessionCRUDAndBatchDrainCaptureBeforeMutation(t *testing.T) {
 	config := g.config.Observation
 	config.Packet.Enabled, config.Packet.FlushInterval = false, 5*time.Millisecond
 	config.DNSLogPath, config.ConntrackPath, config.LeasePath = "", "", ""
-	g.observation = observer.New(app, nil, config, g.CurrentSessionID, nil, nil)
+	g.observation = observer.New(app, nil, config, g.CurrentSessionID, nil)
 	epochs := make(chan string, 16)
 	app.OnRecordAfterCreateSuccess("capture_intervals").BindFunc(func(e *core.RecordEvent) error {
 		select {
@@ -212,7 +212,7 @@ func TestClearJoinsAcceptedCaptureBeforeDeletingAndStartsFreshEpoch(t *testing.T
 	config.DNSLogPath = ""
 	config.ConntrackPath = ""
 	config.LeasePath = ""
-	g.observation = observer.New(app, nil, config, g.CurrentSessionID, nil, nil)
+	g.observation = observer.New(app, nil, config, g.CurrentSessionID, nil)
 	entered, release, newEpoch := make(chan struct{}), make(chan struct{}), make(chan struct{}, 1)
 	var once, releaseOnce sync.Once
 	var oldEpoch string

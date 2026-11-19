@@ -16,9 +16,7 @@ COPY pocketbase/gateway ./gateway
 COPY pocketbase/timeline ./timeline
 COPY pocketbase/routing ./routing
 COPY pocketbase/cmd/route-diagnose ./cmd/route-diagnose
-COPY pocketbase/debugtrace ./debugtrace
 COPY pocketbase/displaymode ./displaymode
-COPY pocketbase/labgate ./labgate
 COPY pocketbase/netmeta ./netmeta
 
 # Build the infra-reveal binary with CGO disabled
@@ -41,7 +39,6 @@ RUN export DEBIAN_FRONTEND=noninteractive; \
     curl \
     net-tools \
     iptables \
-    ipset \
     dnsmasq \
     macchanger \
     iproute2 \

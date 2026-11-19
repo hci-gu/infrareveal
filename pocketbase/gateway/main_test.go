@@ -39,7 +39,7 @@ func TestClearIsAtomicAndPreservesSessionsAndProbeAdmissions(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Deleted["traffic_chunks"] != 1 || result.Deleted["destinations"] != 1 || len(result.Skipped) != 3 {
+	if result.Deleted["traffic_chunks"] != 1 || result.Deleted["destinations"] != 1 {
 		t.Fatalf("wrong clear result: %+v", result)
 	}
 	if _, err := app.FindRecordById("probe_runs", admission.Id); err != nil {
@@ -56,15 +56,12 @@ func TestSessionDeleteCleansTextReferencesAndKeepsQuota(t *testing.T) {
 	app := testsupport.App(t)
 	g := testRuntime(t, app)
 	g.Register()
-	if err := data.InstallDiagnostics(app); err != nil {
-		t.Fatal(err)
-	}
 	session := testsupport.Save(t, app, "sessions", map[string]any{"name": "delete", "active": true})
 	other := testsupport.Save(t, app, "sessions", map[string]any{"name": "keep"})
 	destination := testsupport.Save(t, app, "destinations", map[string]any{"ip": "1.1.1.1", "version": "shared"})
 	for _, id := range []string{session.Id, other.Id} {
 		testsupport.Save(t, app, "traffic_chunks", map[string]any{"session": id, "destination_id": destination.Id})
-		for _, collection := range []string{"capture_intervals", "activity_blocks", "flow_diagnostics", "dns_queries", "gate_events"} {
+		for _, collection := range []string{"capture_intervals", "activity_blocks"} {
 			testsupport.Save(t, app, collection, map[string]any{"session": id})
 		}
 		testsupport.Save(t, app, "route_evidence", map[string]any{"session": id, "kind": "network_invalidated"})
@@ -76,7 +73,7 @@ func TestSessionDeleteCleansTextReferencesAndKeepsQuota(t *testing.T) {
 	if g.CurrentSessionID() != "" {
 		t.Fatal("deleted session remained installed")
 	}
-	for _, collection := range []string{"traffic_chunks", "capture_intervals", "activity_blocks", "route_evidence", "flow_diagnostics", "dns_queries", "gate_events"} {
+	for _, collection := range []string{"traffic_chunks", "capture_intervals", "activity_blocks", "route_evidence"} {
 		count, err := app.CountRecords(collection)
 		if err != nil || count != 1 {
 			t.Fatalf("%s retained deleted session data: count=%d err=%v", collection, count, err)

@@ -395,11 +395,10 @@ func TestCrossSessionCooldownPersistsButUsefulPathsAreNotCopied(t *testing.T) {
 		t.Fatal("cross-session path copy", paths)
 	}
 }
-func TestOversizedOptionalDetailsDoNotBlockUsefulEvidenceAndStorageCap(t *testing.T) {
+func TestOversizedProbeDoesNotBlockUsefulEvidenceAndStorageCap(t *testing.T) {
 	app := testsupport.App(t)
 	session := testSession(t, app)
 	cfg := defaultConfig()
-	cfg.Diagnostics = true
 	cfg.MaxSnapshots = 1
 	r := newEvidenceStore(app, nil, cfg)
 	now := time.Now()
@@ -410,8 +409,8 @@ func TestOversizedOptionalDetailsDoNotBlockUsefulEvidenceAndStorageCap(t *testin
 	if err := r.finish(a, s, now, true); err != nil {
 		t.Fatal(err)
 	}
-	if len(routeRows(t, app)) != 1 || runRows(t, app)[0].Details != nil {
-		t.Fatal("optional oversized details prevented path/accounting")
+	if len(routeRows(t, app)) != 1 {
+		t.Fatal("oversized probe prevented path/accounting")
 	}
 	denied, err := r.reserve(b, true, now.Add(time.Second))
 	if err != nil || denied.Reason != "storage_budget" {

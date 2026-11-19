@@ -2,7 +2,7 @@
 
 InfraReveal stores map facts and temporal service activity. The accepted model is
 [ADR 0003](../adr/0003-map-activity-storage.md). Fresh development data uses seven
-application collections; detailed diagnostics optionally adds three. Auth and
+application collections. Auth and
 PocketBase system collections are outside that count. This is a direct rewrite:
 old recordings and APIs have no supported conversion or compatibility path.
 
@@ -15,13 +15,11 @@ old recordings and APIs have no supported conversion or compatibility path.
 | `observer` | Header capture, bounded DNS/connection correlation, aggregate persistence, coverage and block projection |
 | `routing` | One physical probe worker, charged admissions, terminal evidence and historical selection |
 | `timeline` | Bounded manifest, map-window and block queries with consistent pagination |
-| `labgate` | Explicitly enabled fail-open queue control and mandatory audit |
-| `debugtrace` | Independent bounded live metadata stream |
-| `netmeta` | Address, tuple and packet-header parsing shared by capture and gate |
+| `netmeta` | Address, tuple and packet-header parsing shared by capture and routing |
 
 The shared frontend package consumes the manifest/window/block API. It owns
-bounded window caching, revision-driven refetch, playback and filters. The two
-apps render these product facts directly. Neither reconstructs flows,
+bounded window caching, revision-driven refetch, playback and filters. The
+dashboard renders these product facts directly. It never reconstructs flows,
 attributions, episodes or membership associations from collection subscriptions.
 
 ## Storage and capture
@@ -92,9 +90,9 @@ session hooks never install the gateway's current session ID. Expiry, cancellati
 clear and shutdown join its observer before session deletion; startup deletes
 orphaned simulation sessions. Failed cleanup retains ownership for retry, while the
 source deadline independently stops generation. Session deletion cascades through
-the normal cleanup hooks, including diagnostics and unreferenced destinations.
+the normal cleanup hooks, including unreferenced destinations.
 
-Clear disarms the gate, flushes audit, joins observation and route work, then
+Clear joins observation and route work, then
 removes product observations in one transaction. Probe charges survive. Capture
 restarts with fresh correlation state and a new epoch. Shutdown drains accepted
 capture events before joining workers; a caller timeout leaves dependencies
@@ -107,7 +105,7 @@ counts. Destination versions disappear only after their last chunk reference.
 Saved recordings keep product history until deletion. Probe charges have separate
 network/scope retention and survive session deletion through their quota horizon.
 
-## API and optional diagnostics
+## API
 
 The public read API exposes session manifests, bounded map windows, paged blocks
 and one coalesced revision stream. Map and block pages share at most eight pinned
@@ -144,22 +142,11 @@ their allocated high-water size for reuse. This follows SQLite's [checkpoint sch
 guidance](https://sqlite.org/wal.html#performance_considerations); the bundled
 SQLite version is 3.53.3.
 
-`DIAGNOSTICS_ENABLED=true` creates `flow_diagnostics`, `dns_queries` and
-`gate_events`. Flow records include inline attribution. Optional writes use a
-bounded independent queue; failure cannot hold up forwarding. Diagnostic age and
-payload-byte limits apply independently of product retention. Detailed probe
-output is optional and bounded on `probe_runs`.
-
-The gate remains separately enabled and authenticated. Enabling it requires its
-audit collection even in core mode. Startup marks interrupted audit rows as
-unknown verdicts and discloses audit incompleteness. Live pending verdicts are
-not evicted by diagnostic cleanup. No capture path depends on gate diagnostics.
-
 ## Development and verification
 
 Stop the local server, then run `./scripts/dev-data.sh --reset` from the repository
 root to replace disposable `pocketbase/pb_data` and seed an example recording.
-Add `--diagnostics` for the full profile. Without `--reset`, an existing nonempty
+Without `--reset`, an existing nonempty
 directory is refused. `--dir /path/to/pb_data` supports an isolated fresh database.
 
 Run `go test ./...`, `go test -race ./...` in `pocketbase` and `pnpm test`,

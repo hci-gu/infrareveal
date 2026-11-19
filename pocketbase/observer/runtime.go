@@ -7,10 +7,8 @@ import (
 	"errors"
 	"fmt"
 	"github.com/pocketbase/pocketbase"
-	"github.com/pocketbase/pocketbase/core"
 	"log"
 	"myapp/data"
-	"myapp/debugtrace"
 	"myapp/geolocation"
 	"os"
 	"strings"
@@ -20,14 +18,13 @@ import (
 )
 
 // Runtime has one owner of capture/classification state, a bounded input queue,
-// and independent optional diagnostics. Cancellation drains accepted packets
+// and an independent block projector. Cancellation drains accepted packets
 // before the final commit; a caller timeout never closes a worker's resources.
 type Runtime struct {
 	app         *pocketbase.PocketBase
 	geo         geolocation.Lookup
 	config      Config
 	sessionID   func() string
-	trace       debugtrace.Sink
 	onTraffic   func(CommittedTraffic)
 	mu          sync.Mutex
 	cancel      context.CancelFunc
@@ -39,7 +36,7 @@ type Runtime struct {
 	destination func(string, time.Time) data.Destination
 }
 
-func New(app *pocketbase.PocketBase, geo geolocation.Lookup, config Config, sessionID func() string, trace debugtrace.Sink, onTraffic func(CommittedTraffic)) *Runtime {
+func New(app *pocketbase.PocketBase, geo geolocation.Lookup, config Config, sessionID func() string, onTraffic func(CommittedTraffic)) *Runtime {
 	if config.SampleInterval <= 0 {
 		config.SampleInterval = time.Second
 	}
@@ -55,7 +52,7 @@ func New(app *pocketbase.PocketBase, geo geolocation.Lookup, config Config, sess
 	if config.NetworkEpoch == nil {
 		config.NetworkEpoch = func() string { return "" }
 	}
-	return &Runtime{app: app, geo: geo, config: config, sessionID: sessionID, trace: usableTraceSink(trace), onTraffic: onTraffic}
+	return &Runtime{app: app, geo: geo, config: config, sessionID: sessionID, onTraffic: onTraffic}
 }
 
 type sourceEvent struct {
@@ -202,7 +199,7 @@ func readLeases(path string) map[string]string {
 func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 	ticker := time.NewTicker(r.config.Packet.FlushInterval)
 	defer ticker.Stop()
-	// Block rebuilding and optional writes are independently bounded workers.
+	// Block rebuilding is an independently bounded worker.
 	project := make(chan string, 1)
 	projectDone := make(chan struct{})
 	go func() {
@@ -213,35 +210,7 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 			}
 		}
 	}()
-	diagnostics := make(chan diagnosticWrite, 256)
-	diagnosticsDone := make(chan struct{})
-	go func() {
-		defer close(diagnosticsDone)
-		for w := range diagnostics {
-			if time.Since(w.queued) > 5*time.Second {
-				continue
-			}
-			err := r.app.RunInTransaction(func(tx core.App) error {
-				if _, err := tx.FindRecordById("sessions", w.session); err != nil {
-					return err
-				}
-				_, err := data.Write(tx, w.collection, w.value)
-				return err
-			})
-			if err != nil && !errors.Is(err, sql.ErrNoRows) {
-				log.Printf("optional diagnostics: %v", err)
-			}
-		}
-	}()
-	defer func() { close(diagnostics); <-diagnosticsDone; close(project); <-projectDone }()
-	diagnostic := func(session, collection string, value any) {
-		if r.config.Diagnostics {
-			select {
-			case diagnostics <- diagnosticWrite{collection: collection, session: session, value: value, queued: time.Now()}:
-			default:
-			}
-		}
-	}
+	defer func() { close(project); <-projectDone }()
 	var a *aggregate
 	writeCache := &captureWriteCache{}
 	destinations := map[string]data.Destination{}
@@ -298,11 +267,6 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 		for _, delta := range a.pending {
 			if r.onTraffic != nil {
 				r.onTraffic(delta)
-			}
-		}
-		if r.config.Diagnostics {
-			for _, f := range a.flows {
-				diagnostic(a.session, "flow_diagnostics", diagnosticFlow(a, f))
 			}
 		}
 		a.committed(logicalNow, floor)
@@ -364,7 +328,6 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 			policy = DefaultPolicy()
 		}
 		a = newAggregate(id, epoch, policy, r.config.Packet.MaxPendingChunks)
-		a.timingSuppressed = r.config.TimingSuppressed
 		a.frozenBefore = max(session.StartedMS, session.RetainedFromMS, session.Capture.ConfirmedMS/policy.BucketMS*policy.BucketMS)
 		quality := "unavailable"
 		if running {
@@ -449,13 +412,9 @@ func (r *Runtime) consume(events <-chan sourceEvent, lost *atomic.Int64) error {
 				byIP[ip] = id
 			}
 			a.packet(p, r.config.NetworkEpoch(), destinations[id])
-			r.trace.TryBurst(debugtrace.BurstInput{SessionID: a.session, TraceID: "capture:" + p.FlowKey, FlowKey: p.FlowKey, Protocol: p.Tuple.Protocol, Direction: debugtrace.Direction(p.Direction), OccurredAtMs: p.ObservedAt.UnixMilli(), WireBytes: uint64(p.WireBytes), PayloadBytes: uint64(p.PayloadBytes), PacketCount: 1, TCPFlags: p.TCPFlags})
 		}
 		if e.dns != nil {
-			for _, q := range a.dns.add(a.session, *e.dns, at, r.config.Scope) {
-				diagnostic(a.session, "dns_queries", q)
-				r.trace.TryEmit(debugtrace.Event{ID: fmt.Sprintf("dns:%s:%d", q.ID, len(q.Answers)), SessionID: a.session, TraceID: "dns:" + q.ID, Kind: debugtrace.KindDNS, Stage: debugtrace.StageDNS, OccurredAtMs: q.ObservedMS, Timing: debugtrace.TimingObserved, Summary: debugtrace.Summary{ClientIP: q.ClientIP, DNSName: q.QueryName, DNSType: q.QueryType}})
-			}
+			a.dns.add(a.session, *e.dns, at, r.config.Scope)
 		}
 		for ip, mac := range e.leases {
 			a.client(ip, mac)

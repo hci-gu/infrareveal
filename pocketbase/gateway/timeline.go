@@ -10,8 +10,6 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/pocketbase/dbx"
-	"github.com/pocketbase/pocketbase/apis"
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 	"myapp/data"
@@ -81,60 +79,6 @@ func RegisterSessionTimelineRoutes(r *router.Router[*core.RequestEvent], app cor
 		return e.JSON(http.StatusOK, block)
 	})
 	r.GET("/api/infrareveal/sessions/{id}/revisions", func(e *core.RequestEvent) error { return streamSessionRevisions(e, app) })
-	r.GET("/api/infrareveal/sessions/{id}/diagnostics/{kind}", func(e *core.RequestEvent) error {
-		collections := map[string]string{"flows": "flow_diagnostics", "dns": "dns_queries", "gate": "gate_events"}
-		collection := collections[e.Request.PathValue("kind")]
-		if collection == "" {
-			return e.NotFoundError("Unknown diagnostic kind", nil)
-		}
-		if _, err := app.FindCollectionByNameOrId(collection); err != nil {
-			return e.NotFoundError("Diagnostics were not recorded", nil)
-		}
-		id := e.Request.PathValue("id")
-		manifest, err := timeline.New(app).Manifest(id, time.Now())
-		if err != nil {
-			return timelineError(e, err)
-		}
-		available := map[string]bool{"flows": manifest.Diagnostics.Flows, "dns": manifest.Diagnostics.DNS, "gate": manifest.Diagnostics.Gate}
-		if !available[e.Request.PathValue("kind")] {
-			return e.NotFoundError("Diagnostics were not recorded", nil)
-		}
-		query := e.Request.URL.Query()
-		from, fromErr := strconv.ParseInt(query.Get("from"), 10, 64)
-		to, toErr := strconv.ParseInt(query.Get("to"), 10, 64)
-		if fromErr != nil || toErr != nil || from < 0 || to <= from || to-from > int64(30*time.Minute/time.Millisecond) {
-			return e.BadRequestError("Diagnostics require a valid from/to window of at most 30 minutes", nil)
-		}
-		params := dbx.Params{"session": id, "from": from, "to": to}
-		filter, order := "observed_ms >= {:from} && observed_ms < {:to}", "-observed_ms,-id"
-		switch collection {
-		case "flow_diagnostics":
-			filter, order = "start_ms < {:to} && last_ms >= {:from}", "-last_ms,-id"
-		case "gate_events":
-			params["from"] = time.UnixMilli(from).UTC().Format("2006-01-02 15:04:05.000Z")
-			params["to"] = time.UnixMilli(to).UTC().Format("2006-01-02 15:04:05.000Z")
-			filter, order = "queued_at < {:to} && (decided_at = '' || decided_at >= {:from})", "-queued_at,-id"
-		}
-		rows, err := app.FindRecordsByFilter(collection, "session={:session} && ("+filter+")", order, 201, 0, params)
-		if err != nil {
-			return e.InternalServerError("Cannot load diagnostics", err)
-		}
-		items := make([]map[string]any, 0, min(len(rows), 200))
-		size := 0
-		for _, row := range rows {
-			item := row.PublicExport()
-			encoded, err := json.Marshal(item)
-			if err != nil {
-				return err
-			}
-			if len(items) == 200 || size+len(encoded) > 2*1024*1024 {
-				break
-			}
-			size += len(encoded)
-			items = append(items, item)
-		}
-		return e.JSON(http.StatusOK, map[string]any{"items": items, "more": len(items) < len(rows)})
-	}).Bind(apis.RequireSuperuserAuth())
 }
 
 func timelineError(e *core.RequestEvent, err error) error {

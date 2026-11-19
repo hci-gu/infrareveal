@@ -19,7 +19,6 @@ Ethernet address is needed.
 | Admin hostname | Resolved by the Pi's admin DNS | `http://infrareveal.home.arpa/` |
 | PocketBase console | Via dashboard reverse proxy | `http://10.77.0.1/_/` |
 | Direct PocketBase API/console | Ethernet LAN | `http://<Pi Ethernet IP>:8090/` / `/_/` |
-| Debug dashboard | Enable the `debug` Compose profile | `http://10.77.0.1:8081/` |
 
 Both wireless networks have internet through Ethernet. Forwarding between them
 is blocked. Only participant traffic is captured; separate DNS services and a
@@ -221,7 +220,6 @@ excluded from Git and the Docker build context.
 In `.env`, use the verified current radio names (`ir-ap` / `ir-admin` on the
 8 October installation) and country `SE`. Optionally set
 `ADMIN_WIFI_MAC=38:a2:8c:a2:1f:c9` to verify that `wlan1` is the inspected adapter.
-Uncomment `COMPOSE_PROFILES=debug` to deploy the debug dashboard too.
 
 The new images load GeoIP databases from `./geoip` at runtime. Copy the existing
 city database out of the old container **before removing it**:
@@ -301,8 +299,7 @@ sudo docker compose logs --tail=100 proxy dashboard
 ```
 
 Set `DATA_DIR=./data-map-activity` before starting. A new empty directory creates
-seven core application collections. `DIAGNOSTICS_ENABLED=true` creates ten;
-the explicitly enabled gate also requires its audit collection. Keep the licensed
+seven core application collections. Keep the licensed
 GeoIP assets. Old development recordings are disposable and are not imported.
 The previous source remains in Git; an older version can use a fresh database
 for its own schema. No parallel old/new data path is required.
@@ -315,7 +312,6 @@ for its own schema. No parallel old/new data path is required.
    **http://infrareveal.home.arpa/** should work when using the Wi-Fi's DNS.
    Devices using private/encrypted DNS can use the IP address instead.
 3. Check **http://10.77.0.1/api/health** and **http://10.77.0.1/_/**.
-   If enabled, open **http://10.77.0.1:8081/** for the debug dashboard.
 4. Join `Infrareveal` on a separate device. Expect a `10.0.0.50–150` address,
    working internet, and participant observations appearing in the dashboard.
 5. Browse from the admin device and confirm its `10.77.0.x` address does not
@@ -325,12 +321,6 @@ for its own schema. No parallel old/new data path is required.
    work. Dashboard ports remain blocked; SSH still works.
 7. Reboot the Pi and repeat the checks. Then test moving Ethernet to another
    ordinary DHCP network. A missing uplink should not prevent local admin access.
-
-The debug profile does not automatically enable Proxy Lab tracing or gates.
-Keep the gate disabled unless intentionally running that experiment; its token
-mount and allowed origins are described in the [Proxy Lab guide](proxy-lab.md).
-When enabled, use the actual admin origin, e.g. `http://10.77.0.1:8081`, in the
-allowed-origin configuration.
 
 ## Subsequent updates
 
@@ -398,7 +388,7 @@ reproduced failure, hardware comparisons and proposed repair sequence.
 - **No internet:** inspect the host's `ip route` and DNS configuration. dnsmasq
   uses the container's resolver configuration inherited from the host; recreate
   the proxy if an uplink change leaves stale DNS servers.
-- **Firewall ownership:** only `IR_*` and the existing lab chains are managed.
+- **Firewall ownership:** only the `IR_*` chains are managed.
   Isolation rules remain on shutdown so a still-running web service is protected.
   A host reboot clears non-persisted rules. Existing external firewall policy can
   still interfere; do not globally flush the Pi's firewall to troubleshoot.
@@ -406,7 +396,7 @@ reproduced failure, hardware comparisons and proposed repair sequence.
 ## Development verification
 
 ```bash
-bash scripts/test-entrypoint.sh
+bash -n entrypoint.sh
 python3 scripts/test-gateway-runtime.py
 python3 scripts/test-gateway-preflight.py
 (cd pocketbase && go test ./observer)

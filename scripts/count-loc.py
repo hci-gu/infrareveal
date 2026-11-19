@@ -26,7 +26,7 @@ def category(name):
         return "Contract fixture data"
     if (name.endswith("_test.go") or ".test." in path.name or ".spec." in path.name
             or "/test-support/" in name or name.startswith(("pocketbase/testsupport/", "scripts/test-", "dashboard/scripts/check-"))
-            or name in {"scripts/check-proxy-lab-privacy.sh", "scripts/validate-proxy-lab.sh", "scripts/count-loc.py"}):
+            or name == "scripts/count-loc.py"):
         return "Tests and verification tools"
     if path.suffix in {".go", ".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".py", ".sh", ".css", ".html"}:
         return "Production source"

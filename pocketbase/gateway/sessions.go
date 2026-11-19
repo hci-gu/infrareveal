@@ -1,7 +1,6 @@
 package gateway
 
 import (
-	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -13,24 +12,14 @@ import (
 	"github.com/pocketbase/pocketbase/core"
 	"github.com/pocketbase/pocketbase/tools/router"
 	"myapp/data"
-	"myapp/labgate"
 	"myapp/observer"
 )
 
 func (g *Runtime) registerSessionHooks() {
-	g.app.OnRecordDeleteRequest("sessions").BindFunc(func(e *core.RecordRequestEvent) error {
-		if e.Get(core.RequestEventKeyInfoContext) != core.RequestInfoContextBatch {
-			if _, _, err := g.drainSessionGate(e.Request.Context(), e.Record.Id); err != nil {
-				return err
-			}
-		}
-		return e.Next()
-	})
 	g.app.OnRecordCreate("sessions").BindFunc(func(e *core.RecordEvent) error {
 		if err := g.prepareSession(e.Record, nil); err != nil {
 			return err
 		}
-		e.Record.Set("gate_audit_complete", true)
 		return e.Next()
 	})
 	g.app.OnRecordUpdate("sessions").BindFunc(func(e *core.RecordEvent) error {
@@ -79,17 +68,6 @@ func (g *Runtime) registerSessionHooks() {
 		if g.CurrentSessionID() == e.Record.Id {
 			g.activeSessionID.Store(nil)
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-		if _, _, err := g.drainSessionGate(ctx, e.Record.Id); err != nil {
-			return err
-		}
-		// Batch deletion can only drain audit after its outer transaction commits.
-		if _, err := g.app.FindCollectionByNameOrId("gate_events"); err == nil {
-			if _, err = g.app.DB().NewQuery("DELETE FROM gate_events WHERE session={:id}").Bind(dbx.Params{"id": e.Record.Id}).Execute(); err != nil {
-				return err
-			}
-		}
 		return e.Next()
 	})
 }
@@ -118,9 +96,8 @@ func (g *Runtime) prepareSession(record, original *core.Record) error {
 		record.Set("retained_from_ms", start)
 		record.Set("block_watermark_ms", start)
 		record.Set("policy", policy)
-		record.Set("diagnostics", data.Diagnostics{Flows: g.config.Diagnostics, DNS: g.config.Diagnostics, Gate: g.config.Diagnostics || g.config.Gate.Enabled})
 	} else {
-		for _, field := range []string{"simulation_expires_ms", "started_ms", "ended_ms", "retained_from_ms", "block_watermark_ms", "policy", "diagnostics", "capture", "network_context", "network_epoch"} {
+		for _, field := range []string{"simulation_expires_ms", "started_ms", "ended_ms", "retained_from_ms", "block_watermark_ms", "policy", "capture", "network_context", "network_epoch"} {
 			record.Set(field, original.Get(field))
 		}
 		revision = original.GetInt64("revision") + 1
@@ -144,28 +121,9 @@ func (g *Runtime) prepareSession(record, original *core.Record) error {
 }
 
 func (g *Runtime) finishSession(record *core.Record) error {
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	complete, drops, flushErr := g.drainSessionGate(ctx, record.Id)
 	// The observer has drained before the lifecycle commit. Project once with
 	// the durable end so the endpoint immediately publishes final block flags.
-	projectionErr := observer.RebuildBlocks(g.app, record.Id, time.Now().UnixMilli())
-	if g.audit == nil && flushErr == nil {
-		return projectionErr
-	}
-	saveErr := g.app.RunInTransaction(func(tx core.App) error {
-		current, err := tx.FindRecordById("sessions", record.Id)
-		if err != nil {
-			return err
-		}
-		if current.GetBool("active") {
-			return nil
-		}
-		current.Set("gate_audit_complete", current.GetBool("gate_audit_complete") && complete)
-		current.Set("gate_audit_drops", uint64(current.GetInt64("gate_audit_drops"))+drops)
-		return tx.Save(current)
-	})
-	return errors.Join(flushErr, saveErr, projectionErr)
+	return observer.RebuildBlocks(g.app, record.Id, time.Now().UnixMilli())
 }
 
 func (g *Runtime) ensureDefaultActiveSession() error {
@@ -191,33 +149,9 @@ func (g *Runtime) ensureDefaultActiveSession() error {
 	return nil
 }
 
-func (g *Runtime) drainSessionGate(ctx context.Context, id string) (bool, uint64, error) {
-	var gateErr, flushErr error
-	if g.gate != nil {
-		var status labgate.Status
-		status, gateErr = g.gate.Status(ctx)
-		if gateErr == nil && status.Armed && status.SessionID == id {
-			_, gateErr = g.gate.Disarm(ctx)
-		}
-	}
-	var drops uint64
-	if g.audit != nil {
-		flushErr = g.audit.Flush(ctx)
-		drops = g.audit.DroppedForSession(id)
-	}
-	err := errors.Join(gateErr, flushErr)
-	return err == nil && drops == 0, drops, err
-}
-
 // Probe admissions deliberately outlive their source session's deletion.
 func deleteSessionData(app core.App, id string) error {
-	for _, name := range []string{"traffic_chunks", "capture_intervals", "activity_blocks", "route_evidence", "flow_diagnostics", "dns_queries", "gate_events"} {
-		if _, err := app.FindCollectionByNameOrId(name); err != nil {
-			if errors.Is(err, sql.ErrNoRows) {
-				continue
-			}
-			return err
-		}
+	for _, name := range []string{"traffic_chunks", "capture_intervals", "activity_blocks", "route_evidence"} {
 		if _, err := app.DB().NewQuery("DELETE FROM " + name + " WHERE session={:id}").Bind(dbx.Params{"id": id}).Execute(); err != nil {
 			return err
 		}
@@ -308,9 +242,6 @@ func (g *Runtime) registerSessionControls(r *router.Router[*core.RequestEvent]) 
 				return e.InternalServerError("Cannot stop and delete simulation", err)
 			}
 			return e.NoContent(http.StatusNoContent)
-		}
-		if _, _, err := g.drainSessionGate(e.Request.Context(), id); err != nil {
-			return e.InternalServerError("Cannot drain session", err)
 		}
 		active := record.GetBool("active")
 		if active && g.routes != nil {

@@ -1,6 +1,6 @@
 import { seriesKey } from './traffic'
 import { baseUrl, requestJSON, requestSignal } from './pocketbaseHttp'
-import type { ConnectedClients, TrafficChunk, Sample, BlockPage, DemoStatus, DiagnosticKind, DiagnosticPage, MapWindow, Session, SessionManifest, SimulationStatus } from './types'
+import type { ConnectedClients, TrafficChunk, Sample, BlockPage, DemoStatus, MapWindow, Session, SessionManifest, SimulationStatus } from './types'
 export { baseUrl }
 const sessionPath = (id: string) => `/api/infrareveal/sessions/${encodeURIComponent(id)}`
 export const getSessions = (signal?: AbortSignal) => requestJSON<{ items: Session[] }>('/api/infrareveal/sessions', signal).then(value => value.items)
@@ -19,12 +19,6 @@ export async function stopSimulation(session: string) {
 }
 export function getBlocks(id: string, from: number, to: number, cursor = '', signal?: AbortSignal, order: 'oldest' | 'latest' = 'oldest') {
   return requestJSON<BlockPage>(`${sessionPath(id)}/blocks?${new URLSearchParams({ from: String(from), to: String(to), cursor, order })}`, signal)
-}
-export function getDiagnostics(id: string, kind: DiagnosticKind, from: number, to: number, token: string, signal?: AbortSignal) {
-  return fetch(`${baseUrl}${sessionPath(id)}/diagnostics/${kind}?${new URLSearchParams({ from: String(from), to: String(to) })}`, { headers: { Authorization: token }, signal: requestSignal(signal) }).then(async response => {
-    if (!response.ok) throw new Error((await response.json().catch(() => null))?.message || `Diagnostics unavailable (${response.status})`)
-    return response.json() as Promise<DiagnosticPage>
-  })
 }
 /** Assemble bounded pages without quadratic array copies. A partial snapshot is
  * never published, including when capture changes during pagination. */

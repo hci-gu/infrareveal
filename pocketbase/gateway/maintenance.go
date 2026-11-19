@@ -2,16 +2,13 @@ package gateway
 
 import (
 	"context"
-	"database/sql"
 	"errors"
 	"log"
-	"strings"
 	"time"
 
 	"github.com/pocketbase/dbx"
 	"github.com/pocketbase/pocketbase/core"
 	"myapp/data"
-	"myapp/labgate"
 	"myapp/observer"
 	"myapp/routing"
 	"myapp/timeline"
@@ -92,13 +89,6 @@ func (g *Runtime) pruneEphemeralSessions(now time.Time) error {
 			if err := routing.RetainSession(tx, session.Id, time.UnixMilli(cutoff)); err != nil {
 				return err
 			}
-			if _, err := tx.FindCollectionByNameOrId("gate_events"); err == nil {
-				if err := labgate.RetainSession(tx, session.Id, time.UnixMilli(cutoff)); err != nil {
-					return err
-				}
-			} else if !errors.Is(err, sql.ErrNoRows) {
-				return err
-			}
 			_, err = tx.DB().NewQuery("UPDATE sessions SET retained_from_ms={:cut}, revision=revision+1 WHERE id={:id} AND retained_from_ms < {:cut}").Bind(dbx.Params{"id": session.Id, "cut": cutoff}).Execute()
 			return err
 		})
@@ -108,63 +98,12 @@ func (g *Runtime) pruneEphemeralSessions(now time.Time) error {
 }
 
 // Chores share a clock, not a failure domain. Saved product history is retained;
-// optional diagnostics and durable probe charges have their own bounds.
+// durable probe charges have their own bounds.
 func (g *Runtime) sweep(now time.Time) error {
-	return errors.Join(g.pruneEphemeralSessions(now), routing.RetainShared(g.app, now), pruneDestinations(g.app), g.pruneDiagnostics(now))
+	return errors.Join(g.pruneEphemeralSessions(now), routing.RetainShared(g.app, now), pruneDestinations(g.app))
 }
 
 func pruneDestinations(app core.App) error {
 	_, err := app.DB().NewQuery("DELETE FROM destinations WHERE NOT EXISTS (SELECT 1 FROM traffic_chunks WHERE destination_id=destinations.id)").Execute()
 	return err
-}
-
-// Bound diagnostic payload bytes independently of traffic retention. Queued gate
-// records belong to the bounded fail-open controller and must not be evicted
-// before their terminal verdict has been recorded.
-func (g *Runtime) pruneDiagnostics(now time.Time) error {
-	retention := g.config.DiagnosticRetention
-	if retention <= 0 {
-		retention = time.Hour
-	}
-	budget := g.config.DiagnosticMaxBytes
-	if budget <= 0 {
-		budget = 16 * 1024 * 1024
-	}
-	var errs []error
-	for _, spec := range []struct{ name, age, predicate string }{
-		{"flow_diagnostics", "last_ms", "1=1"},
-		{"dns_queries", "observed_ms", "1=1"},
-		{"gate_events", "queued_at", "state != 'queued'"},
-	} {
-		collection, err := g.app.FindCollectionByNameOrId(spec.name)
-		if errors.Is(err, sql.ErrNoRows) {
-			continue
-		}
-		if err != nil {
-			errs = append(errs, err)
-			continue
-		}
-		err = g.app.RunInTransaction(func(tx core.App) error {
-			var cutoff any = now.Add(-retention).UnixMilli()
-			if spec.age == "queued_at" {
-				cutoff = now.Add(-retention).UTC().Format("2006-01-02 15:04:05.000Z")
-			}
-			if _, err := tx.DB().NewQuery("DELETE FROM " + spec.name + " WHERE " + spec.predicate + " AND " + spec.age + " < {:cut}").Bind(dbx.Params{"cut": cutoff}).Execute(); err != nil {
-				return err
-			}
-			// json_object includes field names and escapes JSON/text, conservatively
-			// accounting for each stored row without loading every payload into Go.
-			fields := make([]string, 0, len(collection.Fields))
-			for _, field := range collection.Fields {
-				name := field.GetName()
-				fields = append(fields, "'"+strings.ReplaceAll(name, "'", "''")+"', \""+strings.ReplaceAll(name, "\"", "\"\"")+"\"")
-			}
-			size := "length(CAST(json_object(" + strings.Join(fields, ",") + ") AS BLOB))"
-			query := "DELETE FROM " + spec.name + " WHERE id IN (SELECT id FROM (SELECT id, SUM(" + size + ") OVER (ORDER BY updated DESC,id DESC ROWS UNBOUNDED PRECEDING) AS payload_bytes FROM " + spec.name + " WHERE " + spec.predicate + ") WHERE payload_bytes > {:budget})"
-			_, err := tx.DB().NewQuery(query).Bind(dbx.Params{"budget": budget / 3}).Execute()
-			return err
-		})
-		errs = append(errs, err)
-	}
-	return errors.Join(errs...)
 }
