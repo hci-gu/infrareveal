@@ -22,6 +22,8 @@ const MapComposition = lazy(() => import('../rendering/MapComposition').then(mod
 
 export type MapWorkspaceProps = {
   preferences: MapPreferences
+  /** Updates saved display preferences (the globe's spin toggle lives on the map). */
+  onPreferences: (value: MapPreferences) => void
   theme: 'dark' | 'light'
   workspace: WorkspaceState
   overview: WorkspaceProjection
@@ -50,7 +52,7 @@ export type MapWorkspaceProps = {
 }
 
 export type MapControls = { fit: (trackId?: string) => void }
-export type MapRendererProps = Pick<MapWorkspaceProps, 'preferences' | 'theme' | 'workspace' | 'overview' | 'scene' | 'cursorMs' | 'clock' | 'width' | 'height' | 'playbackEpochMs' | 'mapStyleUrl' | 'trafficLoading' | 'destinationIndex' | 'destinationLoading'> & {
+export type MapRendererProps = Pick<MapWorkspaceProps, 'preferences' | 'onPreferences' | 'theme' | 'workspace' | 'overview' | 'scene' | 'cursorMs' | 'clock' | 'width' | 'height' | 'playbackEpochMs' | 'mapStyleUrl' | 'trafficLoading' | 'destinationIndex' | 'destinationLoading'> & {
   controlsRef: Ref<MapControls>
   inspection: ReturnType<typeof useMapInspector>
   profiles: Map<string, TrafficProfile>

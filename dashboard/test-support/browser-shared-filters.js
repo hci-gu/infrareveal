@@ -61,7 +61,7 @@ export default async (page, harness) => {
   await waitTracks(1)
   await page.locator('.atlas-detail-timeline[data-visible-lanes="1"]').waitFor()
   assert(await overview().locator('[data-direction-total="received"]').innerText() === '480.0 kB', 'Unlocated totals included other locations')
-  for (const projection of ['equal-earth', 'mercator']) {
+  for (const projection of ['equal-earth', 'mercator', 'globe']) {
     await page.getByRole('button', { name: 'Open display settings' }).click()
     await page.getByLabel('Map projection', { exact: true }).selectOption(projection)
     await page.getByRole('button', { name: 'Close display settings' }).click()

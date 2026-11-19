@@ -1445,6 +1445,42 @@
   background: var(--atlas-water);
   contain: layout paint;
 }
+/* Space behind the globe (GlobeBackdrop): deep sky, parallax stars, atmosphere. */
+.atlas-map-surface[data-projection=globe] {
+  background: #02050b;
+}
+.atlas-space {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+.atlas-space > div {
+  position: absolute;
+  inset: 0;
+}
+.atlas-space-sky {
+  background:
+    radial-gradient(ellipse 60% 45% at 78% 18%, rgba(88, 62, 150, 0.22), transparent 70%),
+    radial-gradient(ellipse 55% 50% at 14% 82%, rgba(24, 92, 128, 0.22), transparent 70%),
+    radial-gradient(ellipse 40% 30% at 30% 30%, rgba(40, 70, 140, 0.12), transparent 70%),
+    linear-gradient(118deg, transparent 28%, rgba(150, 172, 232, 0.05) 42%, rgba(205, 180, 235, 0.07) 50%, rgba(150, 172, 232, 0.05) 58%, transparent 72%),
+    radial-gradient(ellipse at 50% 50%, #07101d 0%, #02050b 75%);
+}
+.atlas-space-stars {
+  background-size: 1024px 1024px;
+  background-repeat: repeat;
+}
+.atlas-space-twinkle {
+  animation: atlas-twinkle 5.5s ease-in-out infinite;
+}
+@keyframes atlas-twinkle {
+  0%, 100% { opacity: 0.2; }
+  50% { opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .atlas-space-twinkle { animation: none; opacity: 0.6; }
+}
 .atlas-map-surface[hidden] {
   display: none;
 }

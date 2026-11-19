@@ -58,7 +58,7 @@ export default async function check(page, h) {
   await page.getByRole('button', { name: 'Play session', exact: true }).waitFor()
   await page.getByRole('button', { name: 'Back to map', exact: true }).first().click()
   const projections = {}
-  for (const projection of ['equal-earth', 'mercator']) {
+  for (const projection of ['equal-earth', 'mercator', 'globe']) {
     await page.getByRole('button', { name: 'Open display settings' }).click()
     await page.locator('#map-projection').selectOption(projection)
     await page.getByRole('button', { name: 'Close display settings' }).click()

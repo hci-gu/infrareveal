@@ -87,7 +87,7 @@ activity and do not measure browser focus, pages viewed or a person's attention.
 
 ## Geography and connections
 
-**Display settings** offers Equal Earth, Mercator, appearance, location labels and
+**Display settings** offers Equal Earth, Mercator, Globe, appearance, location labels and
 a fullscreen toggle. Appearance preferences are saved in this browser; fullscreen
 follows the browser’s current state, including when you exit with Escape.
 
@@ -101,6 +101,18 @@ perspective controls, animated flows, directional columns and labels.
   straight map lines rather than great circles.
 - **Mercator** adds a detailed MapLibre basemap (roads, city names). Its online tiles
   and fonts need internet access.
+- **Globe** draws the same layers on a 3D sphere with deck.gl's experimental
+  `_GlobeView` and the bundled Natural Earth outlines (offline, no tiles). Drag to
+  turn it; there is no tilt. The ocean sphere is the only depth writer, and land,
+  lines, markers and labels are lifted a few km above it (`GLOBE_LIFT`), so the far
+  side is hidden without flicker. Arc tubes use the sphere's radial "up"; cable
+  connectors are great circles. Labels and country cards on the far side are
+  culled, and Fit network turns the globe to the traffic's spherical centroid.
+  **Spin** (saved with the display preferences) slowly turns the globe after a few
+  seconds without interaction. `GlobeBackdrop` draws space behind it: seeded
+  parallax star layers, a few twinkling stars, a faint Milky Way and nebula wash,
+  and an atmosphere glow sized to the globe's rim on screen. The Latency layout is
+  a flat diagram: choosing it on the globe switches to the flat view.
 
 Country-only evidence uses country footprints. City markers represent approximate
 IP locations. Destinations without coordinates are still counted.

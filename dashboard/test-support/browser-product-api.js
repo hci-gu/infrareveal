@@ -25,7 +25,7 @@ export default async (page, harness) => {
     await page.locator('.atlas-visit-detail').getByText(/dns_answer/).waitFor()
     await page.getByRole('button', { name: 'Close activity' }).click()
     await page.getByRole('button', { name: 'Open display settings' }).click()
-    for (const projection of ['equal-earth', 'mercator']) {
+    for (const projection of ['equal-earth', 'mercator', 'globe']) {
       await page.locator('#map-projection').selectOption(projection)
       await page.locator(`.atlas-page[data-projection="${projection}"]`).waitFor()
     }

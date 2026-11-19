@@ -14,25 +14,31 @@ export const FLOW_PATH_WIDTH = FLOW_PATH_MAX_RADIUS * 4
 const uniformBlock = `layout(std140) uniform flowPathUniforms {
   float phase;
   float clock;
+  float lift;
 } flowPath;`
 const flowPathUniforms = {
   name: 'flowPath', vs: uniformBlock, fs: uniformBlock,
-  uniformTypes: { phase: 'f32', clock: 'f32' },
-} as const satisfies ShaderModule<{ phase: number; clock: number }>
+  uniformTypes: { phase: 'f32', clock: 'f32', lift: 'f32' },
+} as const satisfies ShaderModule<{ phase: number; clock: number; lift: number }>
 
 /**
  * WebGL guarantees only 16 vertex attributes and PathLayer already uses 13, so
  * each vertex's progress and the path's direction ride in its z coordinate:
- * z = (progress + (direction < 0 ? 2 : 0)) * FLOW_Z_SCALE metres, which is far
- * below anything visible. Use `flowPathPosition` to build positions.
+ * z = lift + (progress + (direction < 0 ? 2 : 0)) * FLOW_Z_SCALE metres. A few
+ * metres are invisible at map scale; `lift` raises paths above the globe's
+ * surface (0 on flat maps) and must match the layer's `lift` prop. The scale
+ * keeps the code well above float32 precision at globe altitudes. Use
+ * `flowPathPosition` to build positions.
  */
-const FLOW_Z_SCALE = 0.001
+const FLOW_Z_SCALE = 1
 /** A path vertex carrying `progress` (0 at the path's start, 1 at its end) and the traffic direction. */
-export const flowPathPosition = ([lon, lat]: readonly number[], progress: number, direction: number): [number, number, number] =>
-  [lon, lat, (progress + (direction < 0 ? 2 : 0)) * FLOW_Z_SCALE]
+export const flowPathPosition = ([lon, lat]: readonly number[], progress: number, direction: number, lift = 0): [number, number, number] =>
+  [lon, lat, lift + (progress + (direction < 0 ? 2 : 0)) * FLOW_Z_SCALE]
 
 type FlowPathProps<T> = {
   animation: TrafficAnimation
+  /** Altitude (m) the positions were built with by `flowPathPosition`. */
+  lift: number
   getRadii0: Accessor<T, number[]>
   getRadii1: Accessor<T, number[]>
   getRadii2: Accessor<T, number[]>
@@ -50,6 +56,7 @@ export class FlowPathLayer<T> extends PathLayer<T, FlowPathProps<T>> {
   static defaultProps = {
     ...PathLayer.defaultProps,
     animation: { type: 'object', value: null, compare: false },
+    lift: { type: 'number', value: 0 },
     getRadii0: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii1: { type: 'accessor', value: [0, 0, 0, 0] },
     getRadii2: { type: 'accessor', value: [0, 0, 0, 0] },
@@ -91,7 +98,7 @@ export class FlowPathLayer<T> extends PathLayer<T, FlowPathProps<T>> {
           flat out vec4 vRadii2;
           flat out float vDirection;`,
         'vs:#main-end': `
-          float startCode = instanceStartPositions.z / ${FLOW_Z_SCALE.toFixed(4)}, endCode = instanceEndPositions.z / ${FLOW_Z_SCALE.toFixed(4)};
+          float startCode = (instanceStartPositions.z - flowPath.lift) / ${FLOW_Z_SCALE.toFixed(4)}, endCode = (instanceEndPositions.z - flowPath.lift) / ${FLOW_Z_SCALE.toFixed(4)};
           vDirection = startCode > 1.5 ? -1.0 : 1.0;
           float offset = vDirection < 0.0 ? 2.0 : 0.0;
           vProgress = mix(startCode - offset, endCode - offset, clamp(vPathPosition.y / max(vPathLength, 0.0001), 0.0, 1.0));
@@ -142,7 +149,7 @@ export class FlowPathLayer<T> extends PathLayer<T, FlowPathProps<T>> {
 
   draw(options: Parameters<PathLayer<T>['draw']>[0]) {
     const { time, phase } = trafficAnimationTime(this.props.animation, TRAFFIC_BUCKET_MS)
-    this.state.model?.shaderInputs.setProps({ flowPath: { clock: trafficShaderClock(time), phase } })
+    this.state.model?.shaderInputs.setProps({ flowPath: { clock: trafficShaderClock(time), phase, lift: this.props.lift } })
     super.draw(options)
   }
 }

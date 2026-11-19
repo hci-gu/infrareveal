@@ -182,7 +182,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     playbackEpochMs,
     cursorMs: projectionCursor,
     mapStyleUrl: styledMap,
-    preferences, theme, workspace, overview, onWorkspace: updateWorkspace, connectedClients,
+    preferences, onPreferences: setPreferences, theme, workspace, overview, onWorkspace: updateWorkspace, connectedClients,
     endMs: contentEndMs, onSeekTime: seekTime,
     live: timeline.mode === 'live', navigationRevision, timelineDetailIndex,
     unavailable: !history.hasData && (Boolean(history.error) || connectionState === 'error' || connectionState === 'offline'),
@@ -193,7 +193,7 @@ export function MapPage({ sessionIdOverride, demo }: { sessionIdOverride?: strin
     destinationIndex,
     destinationLoading: history.loading,
     destinationError: Boolean(history.error) && !history.hasData,
-  }), [timeline.mode, navigationRevision, timelineDetailIndex, clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, history.hasData, history.refreshing, styledMap, preferences, theme, workspace, overview, updateWorkspace, connectedClients, contentEndMs, seekTime])
+  }), [timeline.mode, navigationRevision, timelineDetailIndex, clock, size, projectionCursor, activity.loading, connectionState, scene, playbackEpochMs, trafficIndex, destinationIndex, history.loading, history.error, history.hasData, history.refreshing, styledMap, preferences, setPreferences, theme, workspace, overview, updateWorkspace, connectedClients, contentEndMs, seekTime])
   useEffect(() => { clock.configure({ durationInFrames, rate: timeline.rate }) }, [clock, durationInFrames, timeline.rate])
   useEffect(() => () => clock.dispose(), [clock])
 

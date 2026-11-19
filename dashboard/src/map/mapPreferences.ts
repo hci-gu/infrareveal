@@ -1,15 +1,19 @@
 import { useEffect, useState } from 'react'
 
-export type MapPreferences = { projection: 'equal-earth' | 'mercator'; theme: 'dark' | 'light' | 'system'; labels: boolean }
-const defaultMapPreferences: MapPreferences = { projection: 'equal-earth', theme: 'dark', labels: true }
+import type { MapProjectionId } from './mapProjection'
+
+/** `spin`: the globe slowly turns while nobody is interacting with the map. */
+export type MapPreferences = { projection: MapProjectionId; theme: 'dark' | 'light' | 'system'; labels: boolean; spin: boolean }
+const defaultMapPreferences: MapPreferences = { projection: 'equal-earth', theme: 'dark', labels: true, spin: false }
 const MAP_PREFERENCES_KEY = 'infrareveal.map.display.v1'
 export function parseMapPreferences(value: string | null): MapPreferences {
   try {
     const parsed = JSON.parse(value ?? '{}') ?? {}
     return {
-      projection: parsed.projection === 'mercator' ? 'mercator' : 'equal-earth',
+      projection: parsed.projection === 'mercator' || parsed.projection === 'globe' ? parsed.projection : 'equal-earth',
       theme: ['dark', 'light', 'system'].includes(parsed.theme) ? parsed.theme : 'dark',
       labels: typeof parsed.labels === 'boolean' ? parsed.labels : true,
+      spin: parsed.spin === true,
     }
   } catch { return { ...defaultMapPreferences } }
 }

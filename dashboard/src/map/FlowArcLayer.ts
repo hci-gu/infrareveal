@@ -109,7 +109,10 @@ void main() {
   vec3 before = project_position(prevWorld, low);
   vec3 after = project_position(nextWorld, low);
   vec3 tangent = normalize(after - before + vec3(0.0000001, 0.0, 0.0));
-  vec3 side = normalize(cross(tangent, vec3(0.0, 0.0, 1.0)) + vec3(0.0000001, 0.0, 0.0));
+  // Local "up": the map's z axis when flat; on the globe, away from the sphere's centre
+  // (globe common space is centred on the Earth), so tubes do not twist around the sphere.
+  vec3 upAxis = project.projectionMode == PROJECTION_MODE_GLOBE ? normalize(center) : vec3(0.0, 0.0, 1.0);
+  vec3 side = normalize(cross(tangent, upAxis) + vec3(0.0000001, 0.0, 0.0));
   vec3 up = normalize(cross(side, tangent));
   vec3 radial = cos(positions.y) * side + sin(positions.y) * up;
   float radius = radiusAt(t);

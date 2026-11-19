@@ -87,8 +87,8 @@ describe('map work independent of the animation clock', () => {
   })
 
   it('ignores legacy rendering detail while preserving display preferences', () => {
-    expect(parseMapPreferences(null)).toEqual({ projection: 'equal-earth', theme: 'dark', labels: true })
+    expect(parseMapPreferences(null)).toEqual({ projection: 'equal-earth', theme: 'dark', labels: true, spin: false })
     expect(parseMapPreferences(JSON.stringify({ projection: 'mercator', theme: 'light', labels: false, quality: 'raspberry-pi' })))
-      .toEqual({ projection: 'mercator', theme: 'light', labels: false })
+      .toEqual({ projection: 'mercator', theme: 'light', labels: false, spin: false })
   })
 })

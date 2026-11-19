@@ -1,7 +1,8 @@
 import type { MapPosition } from './mapModel'
 
 /**
- * Both projections render through the same deck.gl Web Mercator view.
+ * Mercator and Equal Earth render through the same deck.gl Web Mercator view;
+ * the globe uses deck.gl's (experimental) GlobeView with real coordinates.
  *
  * Equal Earth is drawn by handing deck.gl substitute ("Mercator-space")
  * coordinates: each geographic position is projected to Equal Earth, and that
@@ -11,7 +12,7 @@ import type { MapPosition } from './mapModel'
  * substitute space are straight in Equal Earth, so arcs must not follow great
  * circles there, and map tiles (pre-rendered in Mercator) cannot be used.
  */
-export type MapProjectionId = 'mercator' | 'equal-earth'
+export type MapProjectionId = 'mercator' | 'equal-earth' | 'globe'
 export type MapProjection = {
   id: MapProjectionId
   label: string
@@ -26,6 +27,8 @@ export type MapProjection = {
   graticule: MapPosition[][]
   /** The world's outline in map coordinates, or null when the map is unbounded. */
   outline: MapPosition[] | null
+  /** Drawn on a 3D sphere (deck.gl GlobeView): depth hides the far side, there is no tilt. */
+  globe: boolean
 }
 
 const identity = (position: MapPosition) => position
@@ -63,13 +66,25 @@ function graticule(maxLatitude: number): MapPosition[][] {
 
 export const MERCATOR: MapProjection = {
   id: 'mercator', label: 'Mercator', toMap: identity, greatCircle: true, wrap: true, tiles: true,
-  graticule: graticule(80), outline: null,
+  graticule: graticule(80), outline: null, globe: false,
 }
 
 export const EQUAL_EARTH: MapProjection = {
   id: 'equal-earth', label: 'Equal Earth', toMap: equalEarthToMercator, greatCircle: false, wrap: false, tiles: false,
   graticule: graticule(90).map(path => path.map(equalEarthToMercator)),
   outline: [...line([-180, -90], [-180, 90], 90), ...line([180, 90], [180, -90], 90)].map(equalEarthToMercator),
+  globe: false,
 }
 
-export const mapProjection = (id: MapProjectionId) => id === 'equal-earth' ? EQUAL_EARTH : MERCATOR
+/**
+ * Real longitude/latitude on a sphere. deck.gl subdivides paths and polygons
+ * along great circles at the view's resolution, so no substitute coordinates,
+ * antimeridian wrapping or manual densifying is needed. No tiles: the bundled
+ * Natural Earth outlines are the basemap, as for Equal Earth.
+ */
+export const GLOBE: MapProjection = {
+  id: 'globe', label: 'Globe', toMap: identity, greatCircle: true, wrap: false, tiles: false,
+  graticule: graticule(90), outline: null, globe: true,
+}
+
+export const mapProjection = (id: MapProjectionId) => id === 'equal-earth' ? EQUAL_EARTH : id === 'globe' ? GLOBE : MERCATOR

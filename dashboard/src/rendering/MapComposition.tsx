@@ -1,5 +1,5 @@
 import type { MapProps } from 'react-map-gl/maplibre'
-import { FlyToInterpolator, WebMercatorViewport } from '@deck.gl/core'
+import { _GlobeView as GlobeView, _GlobeViewport as GlobeViewport, FlyToInterpolator, LinearInterpolator, MapView, WebMercatorViewport } from '@deck.gl/core'
 import type { Color, MapViewState, PickingInfo } from '@deck.gl/core'
 import { ArcLayer, ColumnLayer, PathLayer, ScatterplotLayer, SolidPolygonLayer, TextLayer } from '@deck.gl/layers'
 import { AnimatedMercator } from './AnimatedMercator'
@@ -30,6 +30,8 @@ import type { SeriesRoute } from '../map/seaCrossings'
 import type { CrossingConfidence, SeaHop } from '../map/seaCrossings'
 import { bearingDegrees, fibreFloorMs, formatRtt, LATENCY_RINGS, latencyPosition, latencyRing, placement, UNMEASURED_RING_MS } from '../map/latency'
 import type { Placement } from '../map/latency'
+import { facesCamera, GLOBE_SPIN_DEGREES_PER_SECOND, GLOBE_SPIN_IDLE_MS, globeOutline, sphericalCentroid } from '../map/globe'
+import { GlobeBackdrop } from './GlobeBackdrop'
 import type { DestinationColumn, DestinationVolume, DirectionalColumn } from '../map/destinationVolumes'
 
 const TiledBasemap = lazy(() => import('../map/TiledBasemap'))
@@ -58,6 +60,20 @@ const positionKey = (position: readonly number[]) => `${position[0]},${position[
 /** Positions slide between layouts with deck.gl attribute transitions, enabled only while switching. */
 const LAYOUT_TRANSITION_MS = 1200
 const LAYOUT_TRANSITIONS = { getPosition: LAYOUT_TRANSITION_MS, getSourcePosition: LAYOUT_TRANSITION_MS, getTargetPosition: LAYOUT_TRANSITION_MS }
+
+const FLAT_VIEW = new MapView({ id: 'map', controller: { dragRotate: true, touchRotate: true } })
+/** deck.gl subdivides paths and polygons every few degrees, so lines and land follow the sphere. */
+const GLOBE_VIEW = new GlobeView({ id: 'globe', controller: true, resolution: 3 })
+/** The whole sphere as one polygon (deck.gl tessellates it onto the globe): the ocean. */
+const GLOBE_SURFACE: MapPosition[] = [[-180, 90], [0, 90], [180, 90], [180, -90], [0, -90], [-180, -90]]
+type DepthParameters = { depthCompare: 'always' | 'less-equal'; depthWriteEnabled: boolean }
+/**
+ * Altitudes (m) on the globe. Everything drawn "on" the surface is lifted a
+ * little above the ocean sphere, the only depth writer, so depth testing hides
+ * the far side without the near side flickering into the sea. Invisible at
+ * globe scale; flat maps use no altitude.
+ */
+const GLOBE_LIFT = { land: 4_000, footprint: 8_000, line: 12_000, marker: 20_000 }
 /** One drawable flow segment of the inferred sea-crossing network. */
 type FlowEdge = { id: string; kind: 'sea' | 'land'; received: number; sent: number; locationIds: string[]; trackIds: string[]; seriesIds: string[]; confidence?: CrossingConfidence | null; cableId?: string; hopId?: string; candidates?: number }
 type FlowPath = { edge: FlowEdge; path: MapPosition[] }
@@ -84,7 +100,7 @@ function countryNames(toMap: (position: MapPosition) => MapPosition) {
  * `projection.toMap` converts each geographic position at the layer boundary;
  * the composition is keyed by projection, so accessors never need re-triggering.
  */
-export function MapComposition({ controlsRef, inspection, profiles: trafficProfiles, trafficAnchorMs, emptyState, cursorMs, preferences, theme, workspace, overview, scene, clock, width: compositionWidth, height: compositionHeight, playbackEpochMs, mapStyleUrl, trafficLoading, destinationIndex, destinationLoading }: MapRendererProps) {
+export function MapComposition({ controlsRef, inspection, profiles: trafficProfiles, trafficAnchorMs, emptyState, cursorMs, preferences, theme, workspace, overview, scene, clock, width: compositionWidth, height: compositionHeight, playbackEpochMs, mapStyleUrl, trafficLoading, destinationIndex, destinationLoading, onPreferences }: MapRendererProps) {
   const projection = mapProjection(preferences.projection)
   const [layout, setLayout] = useState<Layout>('geography')
   const [switchingLayout, setSwitchingLayout] = useState(false)
@@ -118,9 +134,15 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     : projection.toMap
   /** Accessors read positions through P; this changes whenever P would place something differently. */
   const positionTrigger = latency ? latency.key : 'geography'
-  const transitions = switchingLayout ? LAYOUT_TRANSITIONS : undefined
+  // Sliding into the globe would interpolate flat latency coordinates across the sphere; it appears directly.
+  const transitions = switchingLayout && !(projection.globe && layout === 'geography') ? LAYOUT_TRANSITIONS : undefined
   const geographic = !latency
+  /** The globe draws geography only; the Latency layout is a flat diagram and switches to the flat view. */
+  const globeView = projection.globe && geographic
   const wrap = geographic && projection.wrap
+  /** On the globe, overlays test depth against the ocean sphere so the far side stays hidden. */
+  const overlay: DepthParameters = globeView ? { depthCompare: 'less-equal', depthWriteEnabled: false } : { depthCompare: 'always', depthWriteEnabled: false }
+  const alt = (position: readonly number[], meters: number): [number, number] | [number, number, number] => globeView ? [position[0], position[1], meters] : [position[0], position[1]]
   function switchLayout(next: Layout) {
     if (next === layout) return
     pendingFit.current = true
@@ -140,7 +162,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
   const mapFrame = useMemo(() => projectMapFrame(overview.scene, cursorMs), [cursorMs, overview.scene])
   const [viewState, setViewState] = useState<MapViewState>(() => ({
     longitude: P([scene.origin.longitude, scene.origin.latitude])[0] - (width > 760 ? 42 : 0), latitude: Math.max(-55, Math.min(55, P([scene.origin.longitude, scene.origin.latitude])[1] - 16)),
-    zoom: width > 760 ? 1.55 : 1.4, minZoom: -1, maxZoom: 16, pitch: 35, bearing: 0,
+    zoom: projection.globe ? 1.2 : width > 760 ? 1.55 : 1.4, minZoom: -1, maxZoom: 16, pitch: projection.globe ? 0 : 35, bearing: 0,
   }))
   const [showTraffic, setShowTraffic] = useState(true)
   const [chosenFlowStyle, setFlowStyle] = useState<FlowStyle>('direct')
@@ -149,12 +171,12 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
   /** Cables view: hide the reference network and keep only cables traffic is inferred to have used. */
   const [usedCablesOnly, setUsedCablesOnly] = useState(false)
   const { seaNetwork, flowPaths, flowPeak, seaHops } = useMemo(() => {
-    const { toMap, wrap } = mapProjection(preferences.projection)
+    const projection = mapProjection(preferences.projection), { toMap, wrap } = projection
     // Cable lines may run past ±180°; split them first so neither projection draws across the world.
     const lane = (path: MapPosition[]) => splitAntimeridian(path).map(part => part.map(toMap))
     const network = flowStyle === 'cables' ? buildSeaNetwork(overview.locations, scene.origin, overview.volumeBySeries) : null
     const seaHops = new Map(network?.hops.map(total => [total.hop.id, total.hop]) ?? [])
-    const paths: FlowPath[] = network?.edges.flatMap(edge => edge.kind === 'sea' ? lane(edge.path).map(path => ({ edge, path })) : [{ edge, path: routeCurve(toMap(edge.path[0]), toMap(edge.path[1]), wrap) }]) ?? []
+    const paths: FlowPath[] = network?.edges.flatMap(edge => edge.kind === 'sea' ? lane(edge.path).map(path => ({ edge, path })) : [{ edge, path: projection.globe ? [edge.path[0], edge.path[1]] : routeCurve(toMap(edge.path[0]), toMap(edge.path[1]), wrap) }]) ?? []
     return { seaNetwork: network, flowPaths: paths, flowPeak: network?.peak ?? 1, seaHops }
   }, [flowStyle, overview.locations, scene.origin, overview.volumeBySeries, preferences.projection])
   // The full cable network only depends on the projection; keep it out of the per-update memo above.
@@ -164,7 +186,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     return CABLES.flatMap(cable => cable.lines.flatMap(line => splitAntimeridian(line).map(part => part.map(toMap))))
   }, [flowStyle, preferences.projection])
   const flowGeometry = useMemo(() => createFlowGeometryCache(), [])
-  const animatedFlows = useMemo(() => flowGeometry(flowPaths), [flowGeometry, flowPaths])
+  const animatedFlows = useMemo(() => flowGeometry(flowPaths, projection.globe && layout === 'geography' ? GLOBE_LIFT.line : 0), [flowGeometry, flowPaths, projection.globe, layout])
   const flowEdges = useMemo(() => new Map(flowPaths.map(item => [item.edge.id, item.edge])), [flowPaths])
   const flowRadii = useMemo(() => flowRateRadii(seaNetwork?.routes, trafficProfiles, trafficAnchorMs), [seaNetwork, trafficProfiles, trafficAnchorMs])
   /** One label per crossing, placed on its best-ranked (first drawn) cable. */
@@ -196,15 +218,17 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     { focused: true, data: selection ? columns.filter(column => column.trackId === selection) : columns },
   ], [selection, columns])
   const labelLayout = useMemo(() => {
-    const viewport = new WebMercatorViewport({ ...viewState, width, height })
+    const viewport = viewportFor(globeView, viewState, width, height)
+    const facing = (position: MapPosition) => !globeView || facesCamera([viewState.longitude, viewState.latitude], P(position))
     const project = (position: MapPosition, elevation = 0) => viewport.project([...P(position), elevation]) as [number, number]
     const inspectorEdge = inspectorOpen && width > 1000
-    const cities = destinations.filter(destination => !destination.country).map(destination => ({
+    // On the globe, labels for the far side would be drawn through the sphere: leave them out.
+    const cities = destinations.filter(destination => !destination.country && facing(destination.position)).map(destination => ({
       id: destination.id, bytes: destination.received + destination.sent, text: columnLabel(destination, showCityNames),
       top: project(destination.position, destination.height * metersPerPixel(destination.position, viewState.zoom)), base: project(destination.position),
       hidden: Boolean(selection && !destination.tracks.some(track => track.trackId === selection)),
     }))
-    const countries = (width <= 760 && inspectorOpen) ? [] : countryDestinations.map(destination => {
+    const countries = (width <= 760 && inspectorOpen) ? [] : countryDestinations.filter(destination => facing(destination.position)).map(destination => {
       const ring = destination.country?.polygons.length ? countryFitPositions(destination.country).map(position => project(position)) : []
       const xs = ring.map(point => point[0]), ys = ring.map(point => point[1])
       return {
@@ -220,13 +244,14 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
       cityBounds: { left: 35, top: 90, right: inspectorEdge ? width - 385 : width - 55, bottom: height - 90 },
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps -- P depends only on the projection (fixed per composition) and the latency layout
-  }, [destinations, countryDestinations, viewState, width, height, selection, selectedLocation?.id, inspectorOpen, showCityNames, latency])
+  }, [destinations, countryDestinations, viewState, width, height, selection, selectedLocation?.id, inspectorOpen, showCityNames, latency, globeView])
   /** Busiest crossings claim label space first; a label that would overlap one already placed is dropped. */
   const placedCrossingLabels = useMemo(() => {
-    const { toMap } = mapProjection(preferences.projection)
-    const viewport = new WebMercatorViewport({ ...viewState, width, height })
+    const { toMap, globe } = mapProjection(preferences.projection)
+    const viewport = viewportFor(globe, viewState, width, height)
     const boxes: [number, number, number, number][] = []
     return crossingLabels.filter(label => {
+      if (globe && !facesCamera([viewState.longitude, viewState.latitude], label.position)) return false
       const [x, y] = viewport.project(toMap(label.position))
       const halfWidth = label.text.length * 3.4 + 8, top = y - 24, bottom = y
       if (x - halfWidth < 0 || x + halfWidth > width || top < 70 || bottom > height - 90) return false
@@ -235,6 +260,12 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
       return true
     })
   }, [crossingLabels, viewState, width, height, preferences.projection])
+  /** Where the globe sits on screen, so the backdrop's atmosphere hugs its rim and the stars follow its rotation. */
+  const globeFrame = useMemo(() => {
+    if (!globeView) return null
+    const viewport = viewportFor(true, viewState, width, height)
+    return { longitude: viewState.longitude, latitude: viewState.latitude, ...globeOutline(position => viewport.project(position), [viewState.longitude, viewState.latitude]) }
+  }, [globeView, viewState, width, height])
   const destinationLabels = useMemo(() => {
     const ids = new Set(labelLayout.cities)
     return destinations.filter(destination => ids.has(destination.id))
@@ -261,10 +292,10 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     const flowColor = (value?: number): Color => directionColor(value ?? 1, theme === 'light')
     const arcProps = {
       data: connections, greatCircle: geographic && projection.greatCircle, wrapLongitude: wrap, numSegments: 160, transitions,
-      getSourcePosition: (arc: BundledMapArc) => P(arc.sourcePosition),
-      getTargetPosition: (arc: BundledMapArc) => P(arc.targetPosition),
+      getSourcePosition: (arc: BundledMapArc) => alt(P(arc.sourcePosition), GLOBE_LIFT.marker),
+      getTargetPosition: (arc: BundledMapArc) => alt(P(arc.targetPosition), GLOBE_LIFT.marker),
       getHeight: 0.18, getTilt: 0,
-      visible: showTraffic && flowStyle === 'direct', parameters: { depthCompare: 'always' as const, depthWriteEnabled: false },
+      visible: showTraffic && flowStyle === 'direct', parameters: overlay,
       updateTriggers: { getSourceColor: [selection, theme], getTargetColor: [selection, theme], getSourcePosition: positionTrigger, getTargetPosition: positionTrigger },
     }
     const volumeProps = {
@@ -280,40 +311,45 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     const routeDimmed = (edge: FlowEdge) => Boolean((selection && !edge.trackIds.includes(selection)) || (selectedLocation && !edge.locationIds.includes(selectedLocation.id)))
     const routeWidth = (bytes: number) => bytes > 0 ? Math.max(1, MAX_ROUTE_WIDTH * bytes / Math.max(1, flowPeak)) : 0
     return [
+      ...(globeView ? [new SolidPolygonLayer<MapPosition[]>({
+        id: 'globe-ocean', data: [GLOBE_SURFACE], getPolygon: polygon => polygon, getFillColor: base.water, updateTriggers: { getFillColor: theme },
+        // The only depth writer: it hides the far side. Everything else is lifted slightly above it (GLOBE_LIFT).
+        parameters: { depthCompare: 'less-equal', depthWriteEnabled: true },
+      })] : []),
       ...(projection.tiles || latency ? [] : [
         new SolidPolygonLayer<MapPosition[]>({
           id: 'world-water', data: projection.outline ? [projection.outline] : [], getPolygon: outline => outline,
-          getFillColor: base.water, updateTriggers: { getFillColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+          getFillColor: base.water, updateTriggers: { getFillColor: theme }, parameters: overlay,
         }),
         new SolidPolygonLayer<MapPosition[][]>({
-          id: 'world-land', data: WORLD_POLYGONS, getPolygon: polygon => polygon.map(ring => ring.map(P)), _normalize: true,
-          getFillColor: base.land, updateTriggers: { getFillColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+          id: 'world-land', data: WORLD_POLYGONS, getPolygon: polygon => polygon.map(ring => ring.map(point => alt(P(point), GLOBE_LIFT.land))), _normalize: true,
+          getFillColor: base.land, updateTriggers: { getFillColor: theme }, parameters: overlay,
         }),
         new PathLayer<MapPosition[]>({
-          id: 'world-borders', data: WORLD_RINGS, getPath: ring => ring.map(P), getWidth: 0.7, widthUnits: 'pixels',
-          getColor: alpha(base.border, 0.65), updateTriggers: { getColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+          id: 'world-borders', data: WORLD_RINGS, getPath: ring => ring.map(point => alt(P(point), GLOBE_LIFT.line)), getWidth: 0.7, widthUnits: 'pixels',
+          getColor: alpha(base.border, 0.65), updateTriggers: { getColor: theme }, parameters: overlay,
         }),
         new PathLayer<MapPosition[]>({
           id: 'world-edge', data: projection.outline ? [projection.outline] : [], getPath: outline => [...outline, outline[0]], getWidth: 1, widthUnits: 'pixels',
-          getColor: alpha(base.border, 0.8), updateTriggers: { getColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+          getColor: alpha(base.border, 0.8), updateTriggers: { getColor: theme }, parameters: overlay,
         }),
         // Like the tiled style's collision handling: a name appears once its country is wide enough to hold it.
         new TextLayer<(typeof names)[number]>({
           id: 'world-country-names', data: names.filter(country => country.width * 512 * 2 ** viewState.zoom / 360 > country.name.length * COUNTRY_NAME_CHAR_PX),
-          visible: preferences.labels, getPosition: country => country.position, getText: country => country.name, characterSet: 'auto',
+          visible: preferences.labels, getPosition: country => alt(country.position, GLOBE_LIFT.marker), getText: country => country.name, characterSet: 'auto',
           getSize: viewState.zoom >= 3 ? 12 : 9, fontFamily: 'system-ui, sans-serif', getColor: alpha(base.label, viewState.zoom >= 3 ? 0.85 : 0.45),
-          updateTriggers: { getColor: [theme, viewState.zoom >= 3], getSize: viewState.zoom >= 3 }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+          updateTriggers: { getColor: [theme, viewState.zoom >= 3], getSize: viewState.zoom >= 3 }, parameters: overlay,
         }),
       ]),
       new CountryFootprintLayer({
-        id: 'country-footprints', data: countryPolygons, visible: geographic, getPolygon: shape => shape.polygon.map(ring => ring.map(P)), pickable: true,
+        id: 'country-footprints', data: countryPolygons, visible: geographic, getPolygon: shape => shape.polygon.map(ring => ring.map(point => alt(P(point), GLOBE_LIFT.footprint))), pickable: true,
         getFillColor: shape => alpha(countryColor(shape.countryCode), (0.16 + Math.min(0.2, Math.log2(1 + (countryVolumes.get(shape.countryCode)?.bytes ?? 0) / 4096) * 0.015)) * countryOpacity(shape.countryCode)),
-        updateTriggers: { getFillColor: [selection, countryVolumes, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        updateTriggers: { getFillColor: [selection, countryVolumes, theme] }, parameters: overlay,
       }),
       new PathLayer({
-        id: 'country-outlines', data: countryBorders, visible: geographic, getPath: border => border.path.map(P), getWidth: 1, widthUnits: 'pixels',
+        id: 'country-outlines', data: countryBorders, visible: geographic, getPath: border => border.path.map((point: MapPosition) => alt(P(point), GLOBE_LIFT.line)), getWidth: 1, widthUnits: 'pixels',
         getColor: border => alpha(countryColor(border.countryCode), 0.55 * countryOpacity(border.countryCode)),
-        updateTriggers: { getColor: [selection, countryVolumes, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        updateTriggers: { getColor: [selection, countryVolumes, theme] }, parameters: overlay,
       }),
       new CountryArcLayer<BundledMapArc>({
         ...arcProps, id: 'country-connections', data: countryConnections, getWidth: 1.5,
@@ -328,7 +364,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         getTargetColor: arc => alpha(flowColor(arc.direction), connectionOpacity(arc)),
       }),
       new PathLayer<MapPosition[]>({
-        id: 'atlas-grid', data: geographic ? projection.graticule : [], getPath: (path) => path,
+        id: 'atlas-grid', data: geographic ? projection.graticule : [], getPath: (path) => path.map(point => alt(point, GLOBE_LIFT.line)),
         getColor: [69, 102, 118, 27], getWidth: 1, widthUnits: 'pixels', pickable: false,
       }),
       new ArcLayer<BundledMapArc>({
@@ -350,23 +386,23 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         parameters: { depthCompare: 'less-equal', depthWriteEnabled: focused },
       })),
       new PathLayer<MapPosition[]>({
-        id: 'sea-cables', data: cablePaths, visible: !usedCablesOnly, getPath: path => path, widthUnits: 'pixels', getWidth: 1.5, capRounded: true, jointRounded: true,
-        getColor: alpha(neutralColor(), 0.22), updateTriggers: { getColor: theme }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        id: 'sea-cables', data: cablePaths, visible: !usedCablesOnly, getPath: path => path.map(point => alt(point, GLOBE_LIFT.line)), widthUnits: 'pixels', getWidth: 1.5, capRounded: true, jointRounded: true,
+        getColor: alpha(neutralColor(), 0.22), updateTriggers: { getColor: theme }, parameters: overlay,
       }),
       new PathLayer<FlowPath>({
-        id: 'flow-bands', data: flowPaths, visible: showTraffic, getPath: route => route.path, wrapLongitude: projection.wrap, pickable: true,
+        id: 'flow-bands', data: flowPaths, visible: showTraffic, getPath: route => route.path.map(point => alt(point, GLOBE_LIFT.line)), wrapLongitude: projection.wrap, pickable: true,
         widthUnits: 'pixels', capRounded: true, jointRounded: true, getWidth: route => routeWidth(route.edge.received + route.edge.sent),
         getColor: route => alpha(flowColor(-1), flowOpacity(route.edge, 0) * (routeDimmed(route.edge) ? 0.15 : 1)),
-        updateTriggers: { getColor: [selection, selectedLocation?.id, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        updateTriggers: { getColor: [selection, selectedLocation?.id, theme] }, parameters: overlay,
       }),
       new PathLayer<FlowPath>({
-        id: 'flow-sent', data: flowPaths.filter(route => route.edge.sent > 0), visible: showTraffic, getPath: route => route.path, wrapLongitude: projection.wrap,
+        id: 'flow-sent', data: flowPaths.filter(route => route.edge.sent > 0), visible: showTraffic, getPath: route => route.path.map(point => alt(point, GLOBE_LIFT.line)), wrapLongitude: projection.wrap,
         widthUnits: 'pixels', capRounded: true, jointRounded: true, getWidth: route => routeWidth(route.edge.sent),
         getColor: route => alpha(flowColor(1), flowOpacity(route.edge, 1) * (routeDimmed(route.edge) ? 0.15 : 1)),
-        updateTriggers: { getColor: [selection, selectedLocation?.id, theme] }, parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        updateTriggers: { getColor: [selection, selectedLocation?.id, theme] }, parameters: overlay,
       }),
       new FlowPathLayer<AnimatedFlow>({
-        id: 'flow-traffic', data: animatedFlows, visible: showTraffic, animation, dataComparator: sameAnimatedFlows,
+        id: 'flow-traffic', data: animatedFlows, visible: showTraffic, animation, dataComparator: sameAnimatedFlows, lift: globeView ? GLOBE_LIFT.line : 0,
         getPath: flow => flow.path,
         getRadii0: flow => (flowRadii.get(`${flow.edgeId}|${flow.direction}`) ?? NO_RADII).slice(0, 4),
         getRadii1: flow => (flowRadii.get(`${flow.edgeId}|${flow.direction}`) ?? NO_RADII).slice(4, 8),
@@ -374,32 +410,32 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         getColor: flow => { const edge = flowEdges.get(flow.edgeId); return alpha(flowColor(flow.direction), edge && routeDimmed(edge) ? 0.12 : 1) },
         // Triggers are compared shallowly by key; wrap objects in arrays so a new Map counts as a change.
         updateTriggers: { getRadii0: [flowRadii], getRadii1: [flowRadii], getRadii2: [flowRadii], getColor: [selection, selectedLocation?.id, theme, flowEdges] },
-        parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        parameters: overlay,
       }),
       new ScatterplotLayer<{ id: string; position: MapPosition }>({
         id: 'sea-landings', data: seaNetwork?.landings ?? [], visible: showTraffic, stroked: true, radiusUnits: 'pixels', getRadius: 3,
-        getPosition: landing => P(landing.position), getFillColor: theme === 'light' ? [237, 243, 243, 255] : [11, 24, 34, 255],
-        getLineColor: alpha(flowColor(-1), 0.8), getLineWidth: 1.2, lineWidthUnits: 'pixels', updateTriggers: { getFillColor: theme, getLineColor: theme }, parameters: { depthCompare: 'always' },
+        getPosition: landing => alt(P(landing.position), GLOBE_LIFT.marker), getFillColor: theme === 'light' ? [237, 243, 243, 255] : [11, 24, 34, 255],
+        getLineColor: alpha(flowColor(-1), 0.8), getLineWidth: 1.2, lineWidthUnits: 'pixels', updateTriggers: { getFillColor: theme, getLineColor: theme }, parameters: overlay,
       }),
       new TextLayer<(typeof crossingLabels)[number]>({
-        id: 'sea-crossing-labels', data: placedCrossingLabels, visible: showTraffic && preferences.labels, getPosition: label => P(label.position), getText: label => label.text,
+        id: 'sea-crossing-labels', data: placedCrossingLabels, visible: showTraffic && preferences.labels, getPosition: label => alt(P(label.position), GLOBE_LIFT.marker), getText: label => label.text,
         characterSet: 'auto', getSize: 11, fontFamily: 'system-ui, sans-serif', fontWeight: 600, getColor: [223, 240, 239, 255],
-        background: true, getBackgroundColor: [10, 23, 32, 215], backgroundPadding: [6, 3], getPixelOffset: [0, -12], parameters: { depthCompare: 'always', depthWriteEnabled: false },
+        background: true, getBackgroundColor: [10, 23, 32, 215], backgroundPadding: [6, 3], getPixelOffset: [0, -12], parameters: overlay,
       }),
       ...(latency ? latencyLayers(latency.entries, neutralColor(), theme, preferences.labels) : []),
       new ScatterplotLayer<MapPoint>({
-        id: 'destination-halos', data: cityPoints, getPosition: (point) => P(point.position),
+        id: 'destination-halos', data: cityPoints, getPosition: (point) => alt(P(point.position), GLOBE_LIFT.marker),
         radiusUnits: 'pixels', getRadius: (point) => point.trackId === selection ? 17 : 10, transitions,
         getFillColor: (point) => alpha(neutralColor(), (point.activeSeriesCount > 0 ? 0.08 : 0.04) * trackOpacity(point.trackId, selection)),
-        updateTriggers: { getRadius: selection, getFillColor: [selection, theme], getPosition: positionTrigger }, parameters: { depthCompare: 'always' },
+        updateTriggers: { getRadius: selection, getFillColor: [selection, theme], getPosition: positionTrigger }, parameters: overlay,
       }),
       new ScatterplotLayer<MapPoint>({
         id: 'destinations', data: cityPoints, pickable: true, radiusUnits: 'pixels', stroked: true,
-        getPosition: (point) => P(point.position), getRadius: (point) => point.trackId === selection ? 5.5 : 3.5, transitions,
+        getPosition: (point) => alt(P(point.position), GLOBE_LIFT.marker), getRadius: (point) => point.trackId === selection ? 5.5 : 3.5, transitions,
         getFillColor: (point) => alpha(neutralColor(), (point.activeSeriesCount > 0 ? 1 : 0.55) * trackOpacity(point.trackId, selection)),
         getLineColor: (point) => point.trackId === selection ? [230, 255, 248, 255] : [11, 24, 34, 230 * trackOpacity(point.trackId, selection)],
         getLineWidth: 1.5, lineWidthUnits: 'pixels',
-        updateTriggers: { getRadius: selection, getFillColor: [selection, theme], getLineColor: [selection, theme], getPosition: positionTrigger }, parameters: { depthCompare: 'always' },
+        updateTriggers: { getRadius: selection, getFillColor: [selection, theme], getLineColor: [selection, theme], getPosition: positionTrigger }, parameters: overlay,
       }),
       ...columnLayers.map(({ focused, data }) => new ColumnLayer<DirectionalColumn>({
         id: focused ? 'destination-columns' : 'muted-destination-columns', data, pickable: true,
@@ -420,33 +456,46 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         characterSet: showCityNames ? 'auto' : '0123456789. BkMGT≈↓↑',
         getSize: 11, getPixelOffset: [0, -14], fontFamily: 'system-ui, sans-serif', fontWeight: 600,
         getColor: [223, 240, 239, 255], background: true, getBackgroundColor: [10, 23, 32, 225], backgroundPadding: [6, 4],
-        updateTriggers: { getPosition: [viewState.zoom, positionTrigger], getText: showCityNames }, parameters: { depthCompare: 'always', depthWriteEnabled: false }, transitions,
+        updateTriggers: { getPosition: [viewState.zoom, positionTrigger], getText: showCityNames }, parameters: overlay, transitions,
       }),
       new ScatterplotLayer({
-        id: 'gateway-ring', data: origin, getPosition: (point) => P(point.position), transitions, updateTriggers: { getPosition: positionTrigger },
+        id: 'gateway-ring', data: origin, getPosition: (point) => alt(P(point.position), GLOBE_LIFT.marker), transitions, updateTriggers: { getPosition: positionTrigger },
         radiusUnits: 'pixels', getRadius: 13, stroked: true, filled: true,
         getFillColor: [88, 222, 192, 20], getLineColor: [88, 222, 192, 120], getLineWidth: 1,
-        lineWidthUnits: 'pixels', parameters: { depthCompare: 'always' },
+        lineWidthUnits: 'pixels', parameters: overlay,
       }),
       new ScatterplotLayer({
-        id: 'gateway-core', data: origin, getPosition: (point) => P(point.position), transitions, updateTriggers: { getPosition: positionTrigger },
+        id: 'gateway-core', data: origin, getPosition: (point) => alt(P(point.position), GLOBE_LIFT.marker), transitions, updateTriggers: { getPosition: positionTrigger },
         radiusUnits: 'pixels', getRadius: 5, stroked: true,
         getFillColor: [208, 255, 242, 255], getLineColor: TEAL, getLineWidth: 2,
-        lineWidthUnits: 'pixels', parameters: { depthCompare: 'always' },
+        lineWidthUnits: 'pixels', parameters: overlay,
       }),
       new TextLayer({
-        id: 'gateway-label', visible: preferences.labels, data: origin, getPosition: (point) => P(point.position), transitions, updateTriggers: { getPosition: positionTrigger },
+        id: 'gateway-label', visible: preferences.labels, data: origin, getPosition: (point) => alt(P(point.position), GLOBE_LIFT.marker), transitions, updateTriggers: { getPosition: positionTrigger },
         getText: () => 'GATEWAY', getSize: 10, getColor: [175, 218, 209, 255],
         getPixelOffset: [0, 26], fontFamily: 'system-ui, sans-serif', fontWeight: 600,
         background: true, getBackgroundColor: [10, 23, 32, 230], backgroundPadding: [7, 4],
-        getTextAnchor: 'middle', getAlignmentBaseline: 'center', parameters: { depthCompare: 'always' },
+        getTextAnchor: 'middle', getAlignmentBaseline: 'center', parameters: overlay,
       }),
     ].filter(layer => layer.props.visible !== false && (!Array.isArray(layer.props.data) || layer.props.data.length > 0))
   // eslint-disable-next-line react-hooks/exhaustive-deps -- P depends only on the projection (fixed per composition) and the latency layout
-  }, [latency, transitions, animation, trafficProfiles, connections, origin, selection, selectedLocation, showTraffic, showCityNames, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryConnections, countryTraffic, cityPoints, theme, workspace.expanded, preferences.labels, usedCablesOnly, flowPaths, flowPeak, cablePaths, seaNetwork, placedCrossingLabels, names, animatedFlows, flowEdges, flowRadii])
+  }, [latency, transitions, globeView, overlay, animation, trafficProfiles, connections, origin, selection, selectedLocation, showTraffic, showCityNames, viewState.zoom, volumeLayers, columnLayers, destinationLabels, countryPolygons, countryBorders, countryVolumes, countryConnections, countryTraffic, cityPoints, theme, workspace.expanded, preferences.labels, usedCablesOnly, flowPaths, flowPeak, cablePaths, seaNetwork, placedCrossingLabels, names, animatedFlows, flowEdges, flowRadii])
 
   function moveTo(next: Partial<MapViewState>) {
-    setViewState((current) => ({ ...current, ...next, transitionDuration: 700, transitionInterpolator: new FlyToInterpolator() }))
+    // Fly-to follows Web Mercator geometry; the globe turns linearly instead.
+    const transitionInterpolator = globeView ? new LinearInterpolator(['longitude', 'latitude', 'zoom']) : new FlyToInterpolator()
+    setViewState((current) => ({ ...current, ...next, transitionDuration: 700, transitionInterpolator }))
+  }
+
+  /** Turn the globe to face the traffic, then zoom out until every destination is on the visible side and on screen. */
+  function fitGlobe(positions: MapPosition[], padding: { left: number; right: number; top: number; bottom: number }) {
+    const [longitude, latitude] = sphericalCentroid(positions)
+    let zoom = 3
+    for (; zoom > -1; zoom -= 0.1) {
+      const camera = new GlobeViewport({ width, height, longitude, latitude, zoom })
+      if (positions.every(position => facesCamera([longitude, latitude], position, 0.3) && (([x, y]) => x >= padding.left && x <= width - padding.right && y >= padding.top && y <= height - padding.bottom)(camera.project(position)))) break
+    }
+    moveTo({ longitude, latitude, zoom: Math.max(-1, zoom), bearing: 0, pitch: 0 })
   }
 
   function fitNetwork(trackId?: string) {
@@ -457,6 +506,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
     const longitudes = positions.map(([lon]) => unwrap(lon))
     const latitudes = positions.map(([, lat]) => Math.max(-80, Math.min(80, lat)))
     const padding = compositionWidth > 760 ? { left: 45, right: inspectorOpen && compositionWidth > 1000 ? 350 : 60, top: 100, bottom: 100 } : { left: 50, right: 50, top: 75, bottom: 220 }
+    if (globeView) { fitGlobe(positions, padding); return }
     const viewport = new WebMercatorViewport({ width, height }).fitBounds([
       [Math.min(...longitudes), Math.min(...latitudes)], [Math.max(...longitudes), Math.max(...latitudes)],
     ], { padding, maxZoom: 6 })
@@ -477,6 +527,23 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
   }
 
   useImperativeHandle(controlsRef, () => ({ fit: fitNetwork }))
+  // Idle spin: turn eastwards while nobody has touched the map for a while; any drag or zoom pauses it.
+  const lastInteraction = useRef(0)
+  const spinning = globeView && preferences.spin && !workspace.expanded
+  useEffect(() => {
+    if (!spinning) return
+    let frame = 0, previous = performance.now()
+    const turn = (now: number) => {
+      const elapsed = Math.min(100, now - previous)
+      previous = now
+      if (now - lastInteraction.current > GLOBE_SPIN_IDLE_MS && !document.hidden) {
+        setViewState(current => current.transitionDuration ? current : { ...current, longitude: ((current.longitude + GLOBE_SPIN_DEGREES_PER_SECOND * elapsed / 1000 + 540) % 360) - 180 })
+      }
+      frame = requestAnimationFrame(turn)
+    }
+    frame = requestAnimationFrame(turn)
+    return () => cancelAnimationFrame(frame)
+  }, [spinning])
   // After a layout switch, frame the new positions (P has changed by now).
   useEffect(() => {
     if (!pendingFit.current) return
@@ -485,10 +552,14 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
   })
 
   return (
-    <div className="atlas-map-surface" hidden={workspace.expanded} data-map-zoom={viewState.zoom.toFixed(2)} data-map-pitch={viewState.pitch} data-connection-count={connections.length + countryConnections.length} data-city-column-count={columns.length}>
+    <div className="atlas-map-surface" hidden={workspace.expanded} data-projection={globeView ? 'globe' : latency ? 'latency' : projection.id} data-map-zoom={viewState.zoom.toFixed(2)} data-map-pitch={viewState.pitch} data-connection-count={connections.length + countryConnections.length} data-city-column-count={columns.length}>
+      {globeFrame && <GlobeBackdrop frame={globeFrame} />}
       <AnimatedMercator clock={clock} active={!workspace.expanded && showTraffic && (trafficArcs.length + countryTraffic.length + animatedFlows.length > 0)} useDevicePixels deviceProps={{ webgl: { antialias: false, preserveDrawingBuffer: false, powerPreference: 'high-performance' } }}
-        controller={{ dragRotate: true, touchRotate: true }} viewState={viewState}
-        onViewStateChange={({ viewState: next }) => setViewState(next as MapViewState)}
+        views={globeView ? GLOBE_VIEW : FLAT_VIEW} viewState={viewState}
+        onViewStateChange={({ viewState: next, interactionState }) => {
+          if (interactionState && Object.values(interactionState).some(Boolean)) lastInteraction.current = performance.now()
+          setViewState(next as unknown as MapViewState)
+        }}
         layers={layers} getTooltip={info => {
           if (info.layer?.id === 'flow-bands' && info.object) return flowTooltip((info.object as FlowPath).edge, seaHops)
           if (info.layer?.id === 'country-footprints' && info.object) {
@@ -515,10 +586,11 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
 
       <div className="atlas-map-heading"><span>Network atlas</span><span className="atlas-map-heading-detail">{latency ? 'Latency' : projection.label}</span></div>
       <div className="atlas-view-options">
-        <div className="atlas-segmented atlas-view-switch" aria-label="Map perspective">
+        {!globeView && <div className="atlas-segmented atlas-view-switch" aria-label="Map perspective">
           <button type="button" aria-pressed={viewState.pitch !== 0} onClick={() => moveTo({ pitch: 35 })}>Perspective</button>
           <button type="button" aria-pressed={viewState.pitch === 0} onClick={() => moveTo({ pitch: 0, bearing: 0 })}>Top-down</button>
-        </div>
+        </div>}
+        {globeView && <button type="button" className="atlas-layer-button" aria-pressed={preferences.spin} onClick={() => onPreferences({ ...preferences, spin: !preferences.spin })} title="Slowly turn the globe while nobody is using the map"><span>Spin</span><i className="atlas-dot" /></button>}
         <div className="atlas-segmented atlas-view-switch" role="group" aria-label="Map layout">
           <button type="button" aria-pressed={layout === 'geography'} onClick={() => switchLayout('geography')} title="Place destinations by their IP location">Geography</button>
           <button type="button" aria-pressed={layout === 'latency'} onClick={() => switchLayout('latency')} title="Place destinations by measured round-trip time from the gateway">Latency</button>
@@ -541,7 +613,7 @@ export function MapComposition({ controlsRef, inspection, profiles: trafficProfi
         <button type="button" className="atlas-icon-button" onClick={() => moveTo({ zoom: Math.max(-1, viewState.zoom - 1) })} aria-label="Zoom out" title="Zoom out"><MapIcon name="minus" /></button>
         <span />
         <button type="button" className="atlas-icon-button" onClick={() => fitNetwork()} aria-label="Fit network" title="Fit network"><MapIcon name="expand" size={17} /></button>
-        <button type="button" className="atlas-icon-button" onClick={() => { const [longitude, latitude] = P([scene.origin.longitude, scene.origin.latitude]); moveTo({ longitude, latitude, zoom: latency ? 3 : 5, bearing: 0 }) }} aria-label="Center on gateway" title="Center on gateway"><MapIcon name="target" /></button>
+        <button type="button" className="atlas-icon-button" onClick={() => { const [longitude, latitude] = P([scene.origin.longitude, scene.origin.latitude]); moveTo({ longitude, latitude, zoom: latency ? 3 : globeView ? 2.5 : 5, bearing: 0 }) }} aria-label="Center on gateway" title="Center on gateway"><MapIcon name="target" /></button>
       </div>
       <div className="atlas-map-footer"><div className="atlas-legend"><span className="atlas-down"><i className="atlas-direction-swatch" />↓ Downloaded to your devices</span><span className="atlas-up"><i className="atlas-direction-swatch is-sent" />↑ Sent from your devices</span>{countryDestinations.length > 0 && <span><i className="atlas-country-swatch" />Country estimate</span>}</div><p>{latency ? latencyFooter(latency.entries) : seaNetwork ? seaFooter(seaNetwork) : 'Direct connections.'} {latency ? '' : 'Coarse IP locations.'}{(trafficLoading || partialTraffic) ? trafficLoading ? ' Loading rates.' : ' Partial rates.' : ''}</p></div>
       </div>
@@ -686,12 +758,12 @@ function flowRateRadii(routes: Map<string, SeriesRoute> | undefined, profiles: M
  */
 function createFlowGeometryCache() {
   let previous = new Map<string, AnimatedFlow>()
-  return (paths: FlowPath[]) => {
+  return (paths: FlowPath[], lift: number) => {
     const next = new Map<string, AnimatedFlow>()
     const flows: AnimatedFlow[] = []
     paths.forEach(({ edge, path }) => {
       // Keyed by geometry, not list position: edges re-sort by volume on every update.
-      const signature = `${edge.id}:${path.length}:${path[0]}:${path[path.length - 1]}`
+      const signature = `${edge.id}:${lift}:${path.length}:${path[0]}:${path[path.length - 1]}`
       const parts = previous.has(`${signature}|1|0`) ? null : splitWithProgress(path)
       for (const direction of [1, -1]) {
         for (let part = 0; ; part++) {
@@ -699,7 +771,7 @@ function createFlowGeometryCache() {
           const cached = previous.get(key)
           const source = parts?.[part]
           if (!cached && !source) break
-          const flow = cached ?? { key, edgeId: edge.id, direction, path: source!.path.map((point, i) => flowPathPosition(point, source!.progress[i], direction)) }
+          const flow = cached ?? { key, edgeId: edge.id, direction, path: source!.path.map((point, i) => flowPathPosition(point, source!.progress[i], direction, lift)) }
           next.set(key, flow); flows.push(flow)
         }
       }
@@ -793,4 +865,11 @@ function latencyFooter(entries: Map<string, LatencyEntry>) {
     contradicted ? `${contradicted} ${contradicted === 1 ? 'destination answers' : 'destinations answer'} faster than that, so ${contradicted === 1 ? 'it was' : 'they were'} served from nearby.` : '',
     unmeasured ? `${unmeasured} without a measurement on the outer ring.` : '',
   ].filter(Boolean).join(' ')
+}
+
+/** The viewport matching what deck.gl draws, for laying out HTML labels and fitting the camera. */
+function viewportFor(globe: boolean, viewState: MapViewState, width: number, height: number) {
+  return globe
+    ? new GlobeViewport({ width, height, longitude: viewState.longitude, latitude: viewState.latitude, zoom: viewState.zoom })
+    : new WebMercatorViewport({ ...viewState, width, height })
 }
